@@ -34,8 +34,9 @@ export function FaceplateProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = useSearchParams();
   const { pathname } = useLocation();
   const fp = params.get('fp');
-  // ?fp wins when both are present; ?eq only applies on the line view.
-  const eqTag = pathname === '/line' ? primaryTagOf(params.get('eq')) : null;
+  // ?fp wins when both are present; ?eq only applies on the line views.
+  const eqTag = (pathname === '/line' || pathname === '/line3d')
+    ? primaryTagOf(params.get('eq')) : null;
   const activeTag = fp ?? eqTag;
 
   const openFaceplate = useCallback((tag: string) => {

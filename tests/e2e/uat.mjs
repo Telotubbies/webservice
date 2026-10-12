@@ -193,6 +193,29 @@ try {
   await sleep(1500);
   ok('insights feed panel', await page.locator('.panel.insight-list').count() > 0);
 
+  // ============ /line3d (v4: supplementary three.js twin) ============
+  // Scene renders under headless SwiftShader OR falls back to the compact 2D
+  // mimic — either is a pass; the zero-console-errors gate below is binding.
+  ok('line3d nav tab', await page.locator('a.tab[href="/line3d"]').count() === 1);
+  await page.click('a.tab[href="/line3d"]');
+  await sleep(1500);
+  const sceneCanvas = await page.locator('.line3d .line3d-canvas').count();
+  const fallbackSchematic = await page.locator('.line3d .schematic').count();
+  ok('/line3d renders scene or 2D fallback', sceneCanvas > 0 || fallbackSchematic > 0,
+    sceneCanvas > 0 ? 'webgl scene' : '2d fallback');
+  // equipment click → ?eq=<id> → global faceplate (HTML readouts double as
+  // deterministic click targets alongside canvas raycasting)
+  if (sceneCanvas > 0) await page.locator('.line3d [data-equipment="motor"]').first().click();
+  else await page.locator('.line3d g.equip[data-equipment="motor"]').click();
+  await sleep(800);
+  ok('/line3d equipment click opens faceplate',
+    await page.locator('.faceplate').count() > 0
+    && new URL(page.url()).searchParams.get('eq') === 'motor', page.url());
+  await page.locator('.faceplate .icon-btn').first().click().catch(() => {});
+  await sleep(400);
+  const [sw3, iw3] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  ok('/line3d: no horizontal overflow', sw3 <= iw3 + 20, `scrollWidth=${sw3} innerWidth=${iw3}`);
+
   // edge was stopped for the alarm section; controls are (correctly) gated
   // while the edge is down — restart it and wait for the gate to open
   execSync('docker compose -f /home/supawich/Desktop/webservice/docker-compose.yml start edge-bridge');

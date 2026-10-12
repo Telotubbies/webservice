@@ -1,0 +1,25 @@
+/* /line3d twin surface — tokens only. The canvas fills the panel; HTML
+   readouts (classes shared with the 2D mimic in ../line/line.css) float
+   over it, projected each rendered frame. */
+
+.line3d-panel { padding: 0; overflow: hidden; }
+.line3d { position: relative; width: 100%; height: clamp(360px, 62vh, 640px); }
+.line3d-stage { position: absolute; inset: 0; }
+.line3d-canvas { display: block; width: 100%; height: 100%; }
+
+/* labels overlay: layer ignores the pointer, readouts stay clickable so a
+   label is a deterministic equipment target alongside canvas raycasting */
+.line3d-labels { position: absolute; inset: 0; pointer-events: none; }
+.line3d-labels .readout { pointer-events: auto; cursor: pointer; }
+.line3d-labels .readout:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.line3d-reset { position: absolute; top: var(--space-3); right: var(--space-3); background: var(--bg-raised); }
+.line3d-hint {
+  position: absolute; left: var(--space-4); bottom: var(--space-3);
+  margin: 0; font-size: var(--text-caption); color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* WebGL-probe/context-loss fallback: render the compact 2D mimic calmly */
+.line3d-fallback { height: auto; }
+.line3d-fallback .schematic { padding: var(--space-3); }

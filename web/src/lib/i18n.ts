@@ -11,7 +11,7 @@ const LANG_KEY = 'wds.lang';
 const en = {
   nav: {
     monitor: 'Monitor', operate: 'Operate', system: 'System',
-    overview: 'Overview', line: 'Line view', trends: 'Trends', alarms: 'Alarms',
+    overview: 'Overview', line: 'Line view', line3d: '3D twin', trends: 'Trends', alarms: 'Alarms',
     tags: 'Tags', commands: 'Commands', health: 'System health',
     intelligence: 'Intelligence', insights: 'Insights',
   },
@@ -53,6 +53,13 @@ const en = {
     motor: 'Drive motor', conveyor: 'Conveyor', camera: 'Vision camera', bin: 'Gravel bin',
     controls: 'Controls',
     selectHint: 'Select a piece of equipment on the drawing.',
+  },
+  line3d: {
+    title: 'Line twin',
+    lede: 'Isometric view of sorting line 1 — supplementary to the line schematic.',
+    resetView: 'Reset view',
+    selectHint: 'Drag to orbit · scroll to zoom · select equipment for its faceplate',
+    canvasLabel: 'Isometric three-dimensional view of sorting line 1',
   },
   control: {
     start: 'Start', stop: 'Stop', apply: 'Apply setpoint', newValue: 'New setpoint',
@@ -150,7 +157,7 @@ type Dict = typeof en;
 const th: Dict = {
   nav: {
     monitor: 'เฝ้าระวัง', operate: 'ควบคุม', system: 'ระบบ',
-    overview: 'ภาพรวม', line: 'ผังไลน์', trends: 'กราฟแนวโน้ม', alarms: 'สัญญาณเตือน',
+    overview: 'ภาพรวม', line: 'ผังไลน์', line3d: 'ผังสามมิติ', trends: 'กราฟแนวโน้ม', alarms: 'สัญญาณเตือน',
     tags: 'สัญญาณ', commands: 'ประวัติคำสั่ง', health: 'สถานะระบบ',
     intelligence: 'ข้อมูลเชิงลึก', insights: 'อินไซต์',
   },
@@ -192,6 +199,13 @@ const th: Dict = {
     motor: 'มอเตอร์ขับ', conveyor: 'สายพานลำเลียง', camera: 'กล้องวิชัน', bin: 'ถังรับกรวด',
     controls: 'การควบคุม',
     selectHint: 'เลือกอุปกรณ์บนผัง',
+  },
+  line3d: {
+    title: 'ผังไลน์สามมิติ',
+    lede: 'มุมมองไอโซเมตริกของไลน์คัดแยก 1 — เสริมผังไลน์สองมิติ',
+    resetView: 'รีเซ็ตมุมมอง',
+    selectHint: 'ลากเพื่อหมุน · เลื่อนเพื่อซูม · เลือกอุปกรณ์เพื่อเปิดเฟสเพลต',
+    canvasLabel: 'มุมมองสามมิติแบบไอโซเมตริกของไลน์คัดแยก 1',
   },
   control: {
     start: 'เริ่ม', stop: 'หยุด', apply: 'ตั้งค่า', newValue: 'ค่าตั้งใหม่',

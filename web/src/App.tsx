@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import { api, tokenRole } from './lib/api';
@@ -16,6 +16,9 @@ import { CommandsPage } from './features/commands/CommandsPage';
 import { HealthPage } from './features/health/HealthPage';
 import { ErrorState } from './shared/ui/Feedback';
 import type { TagInfo } from './types';
+
+// /line3d pulls in three (~160KB gz) — keep it out of the main chunk.
+const Line3DPage = lazy(() => import('./features/line3d/Line3DPage').then((m) => ({ default: m.Line3DPage })));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 2, refetchOnWindowFocus: false } },
@@ -70,6 +73,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <OverviewPage /> },
       { path: 'line', element: <LinePage /> },
+      { path: 'line3d', element: <Suspense fallback={<div className="page" />}><Line3DPage /></Suspense> },
       { path: 'alarms', element: <AlarmsPage /> },
       { path: 'trends', element: <Root page={(tags) => <TrendsPage tags={tags} />} /> },
       { path: 'insights', element: <InsightsPage /> },

@@ -16,6 +16,7 @@ const NAV: { group: string; items: { to: string; key: string; icon: IconName }[]
   { group: 'nav.monitor', items: [
     { to: '/', key: 'nav.overview', icon: 'overview' },
     { to: '/line', key: 'nav.line', icon: 'line' },
+    { to: '/line3d', key: 'nav.line3d', icon: 'line3d' },
     { to: '/trends', key: 'nav.trends', icon: 'trends' },
   ] },
   { group: 'nav.operate', items: [
