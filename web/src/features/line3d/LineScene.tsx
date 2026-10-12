@@ -127,9 +127,20 @@ export function LineScene({ selected, onSelect }: {
     canvas.setAttribute('role', 'img');
     canvas.setAttribute('aria-label', t('line3d.canvasLabel'));
     host.appendChild(canvas);
-    const view = buildScene(canvas);
+    // A successful probe is not a guarantee (context-budget exhaustion,
+    // driver edge cases): a build failure takes the same silent path as
+    // webglcontextlost → compact 2D mimic, zero console output.
+    let view: LineSceneView;
+    try {
+      view = buildScene(canvas);
+      view.setSize(host.clientWidth, host.clientHeight);
+    } catch {
+      canvas.remove();
+      viewRef.current = null;
+      setLost(true);
+      return;
+    }
     viewRef.current = view;
-    view.setSize(host.clientWidth, host.clientHeight);
 
     const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 

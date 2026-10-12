@@ -227,6 +227,11 @@ export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
     halo.scale.set(glowR[0], glowR[1], 1);
     halo.visible = false;
     root.add(halo);
+    // glow/halo discs are floor decals, not pick targets — without this a
+    // click on empty floor near equipment hits the (invisible) disc and
+    // selects instead of clearing the selection.
+    glow.raycast = () => {};
+    halo.raycast = () => {};
     // selection edge on the representative shell
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(shell.geometry, 20), selMat);
     edge.visible = false;
@@ -527,7 +532,11 @@ export function applyState(view: LineSceneView, store: typeof live, opts: ApplyO
     e.glow.visible = e.alarmSev !== null;
     if (e.alarmSev) {
       e.glow.material.color.copy(e.alarmSev === 'critical' ? C.crit : C.warn);
+      // unacked glow pulses via tick() when motion is allowed; under
+      // prefers-reduced-motion tick() is static, so the cue needs a static
+      // opacity floor — reduced-motion gates motion, never alarm visibility.
       if (!e.alarmPulse) e.glow.material.opacity = 0.22;
+      else if (state.reduceMotion) e.glow.material.opacity = 0.3;
     }
   }
   view.invalidate();
