@@ -7,6 +7,8 @@ import { setLang, type Lang } from '../lib/i18n';
 import { SIGNALS, shortName } from '../lib/plant';
 import { Icon, type IconName } from '../shared/ui/Icon';
 import { SignInDialog } from '../features/auth/SignInDialog';
+import { FaceplateProvider } from '../features/faceplate/FaceplateContext';
+import { FaceplatePanel } from '../features/faceplate/Faceplate';
 import { FLOOD_THRESHOLD, useAlarms } from '../features/alarms/alarms';
 import { signOut, useRole } from './session';
 
@@ -153,9 +155,14 @@ export function Shell() {
           </div>
         </header>
         <AlarmStrip />
-        <main id="content">
-          <Outlet />
-        </main>
+        <FaceplateProvider>
+          <div className="main-body">
+            <main id="content">
+              <Outlet />
+            </main>
+            <FaceplatePanel />
+          </div>
+        </FaceplateProvider>
       </div>
       <SignInDialog open={signInOpen} onClose={() => setSignInOpen(false)} />
     </div>

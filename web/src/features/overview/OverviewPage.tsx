@@ -12,6 +12,7 @@ import { Sparkline } from '../../shared/ui/Sparkline';
 import { QualityMark, SeverityBadge, StatePill } from '../../shared/ui/Status';
 import { AlarmRows } from '../alarms/AlarmRows';
 import { useAlarms } from '../alarms/alarms';
+import { useFaceplate } from '../faceplate/FaceplateContext';
 import { LineSchematic, useEquipmentAlarm } from '../line/LineSchematic';
 import './overview.css';
 
@@ -31,6 +32,7 @@ function useLimits() {
 
 function Kpi({ name, limit, now }: { name: string; limit?: number; now: number }) {
   const { t, i18n } = useTranslation();
+  const { openFaceplate } = useFaceplate();
   const v = useStore(() => live.latest.get(name));
   useStore(() => live.version);
   const meta = SIGNALS[name];
@@ -43,7 +45,12 @@ function Kpi({ name, limit, now }: { name: string; limit?: number; now: number }
   const scale = name === T.gravel ? 100 : 1;
 
   return (
-    <article className={`kpi tile${stale ? ' is-stale' : ''}${inAlarm ? ' is-alarm' : ''}`} data-signal={name}>
+    <article
+      className={`kpi tile${stale ? ' is-stale' : ''}${inAlarm ? ' is-alarm' : ''}`} data-signal={name}
+      role="button" tabIndex={0} aria-label={t(meta.labelKey)}
+      onClick={() => openFaceplate(name)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFaceplate(name); } }}
+    >
       <header className="kpi-head">
         <h3>{t(meta.labelKey)}</h3>
         {meta.stub && <span className="badge badge-stub tile-stub-badge" title={t('overview.stubTitle')}>{t('overview.stub')}</span>}

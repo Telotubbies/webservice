@@ -77,17 +77,8 @@
 }
 
 /* ===================================================== line page layout */
-.line-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--space-5); align-items: start; }
-.line-layout.no-inspector { grid-template-columns: minmax(0, 1fr); }
-@media (max-width: 1279px) { .line-layout { grid-template-columns: minmax(0, 1fr); } }
-
-.inspector { position: sticky; top: calc(var(--topbar-h) + var(--space-4)); display: flex; flex-direction: column; }
-.inspector .panel-head h2 { font-size: var(--text-lg); }
-.signal-list { list-style: none; margin: 0; padding: 0; }
-.signal-list li { display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); }
-.signal-list .name { color: var(--text-secondary); flex: 1; }
-.signal-list .val { font-family: var(--font-mono); font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
-.signal-list .unit { color: var(--text-muted); font-size: var(--text-caption); margin-left: 4px; }
+/* The mimic is full-width; equipment detail lives in the global faceplate
+   panel (../faceplate/faceplate.css), which also hosts .controls below. */
 
 .controls { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); border-top: 1px solid var(--line); }
 .controls h3 { font-size: var(--text-md); }

@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Link, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 import { live, STALE_MS } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
 import { fmtAge } from '../../lib/format';
@@ -8,11 +8,13 @@ import type { TagInfo } from '../../types';
 import { EmptyState } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
 import { QualityMark } from '../../shared/ui/Status';
+import { useFaceplate } from '../faceplate/FaceplateContext';
 
 export function TagsPage({ tags }: { tags: TagInfo[] }) {
   const { t, i18n } = useTranslation();
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
+  const { openFaceplate } = useFaceplate();
   useStore(() => live.version);
   const now = useNow(1000);
   const label = (n: string) => (SIGNALS[n] ? t(SIGNALS[n].labelKey) : shortName(n));
@@ -66,7 +68,9 @@ export function TagsPage({ tags }: { tags: TagInfo[] }) {
                   return (
                     <tr key={tag.name}>
                       <td>
-                        <Link to={`/trends?s=${encodeURIComponent(tag.name)}`}>{label(tag.name)}</Link>
+                        <button type="button" className="tag-link" onClick={() => openFaceplate(tag.name)}>
+                          {label(tag.name)}
+                        </button>
                       </td>
                       <td className="mono dim">{tag.name}</td>
                       <td className="value">

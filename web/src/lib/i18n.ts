@@ -99,6 +99,14 @@ const en = {
     score: 'Score', open: 'Open', closed: 'Closed',
     viewAll: 'View all', empty: 'No insights', openInTrends: 'Open in trends',
   },
+  faceplate: {
+    title: 'Faceplate',
+    limits: 'Configured limits', trend: 'Trend', insights: 'Open insights', commands: 'Recent commands',
+    noLimits: 'No alarm limits configured for this signal.',
+    noInsights: 'No open insights for this signal.',
+    noCommands: 'No recent commands on this signal.',
+    unknownTag: 'Signal not in the plant model',
+  },
   trends: {
     title: 'Trends', lede: 'Compare signals over time. Drag across the chart to zoom.',
     window: 'Time window', time: 'Time', signals: 'Signals', exportCsv: 'Export CSV',
@@ -225,6 +233,14 @@ const th: Dict = {
     kindAnomaly: 'ความผิดปกติ', kindDrift: 'ค่าดริฟต์', kindFlatline: 'ค่านิ่งค้าง', kindFlapping: 'คุณภาพสลับถี่',
     score: 'คะแนน', open: 'เปิดอยู่', closed: 'ปิดแล้ว',
     viewAll: 'ดูทั้งหมด', empty: 'ไม่มีอินไซต์', openInTrends: 'เปิดในกราฟแนวโน้ม',
+  },
+  faceplate: {
+    title: 'เฟสเพลต',
+    limits: 'ขีดจำกัดที่ตั้งไว้', trend: 'แนวโน้ม', insights: 'อินไซต์ที่เปิดอยู่', commands: 'คำสั่งล่าสุด',
+    noLimits: 'ไม่มีขีดจำกัดสัญญาณเตือนสำหรับสัญญาณนี้',
+    noInsights: 'ไม่มีอินไซต์ที่เปิดอยู่สำหรับสัญญาณนี้',
+    noCommands: 'ไม่มีคำสั่งล่าสุดบนสัญญาณนี้',
+    unknownTag: 'สัญญาณนี้ไม่มีในแบบจำลองโรงงาน',
   },
   trends: {
     title: 'กราฟแนวโน้ม', lede: 'เปรียบเทียบสัญญาณตามเวลา ลากบนกราฟเพื่อซูม',

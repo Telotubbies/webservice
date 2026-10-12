@@ -11,6 +11,7 @@ import { SIGNALS, shortName } from '../../lib/plant';
 import { canOperate, useRole } from '../../app/session';
 import { Notice } from '../../shared/ui/Feedback';
 import { SeverityBadge, normSeverity } from '../../shared/ui/Status';
+import { useFaceplate } from '../faceplate/FaceplateContext';
 import type { Alarm } from '../../types';
 import './alarms.css';
 
@@ -37,6 +38,7 @@ export function AlarmRows({ alarms, compact = false }: { alarms: Alarm[]; compac
   const now = useNow(1000);
   const role = useRole();
   const label = useSignalLabel();
+  const { openFaceplate } = useFaceplate();
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const canAck = canOperate(role);
@@ -75,7 +77,9 @@ export function AlarmRows({ alarms, compact = false }: { alarms: Alarm[]; compac
             <tr key={a.id} className={`alarm-row alarm-${a.state}`} data-alarm-id={a.id} data-sev={normSeverity(a.severity)}>
               <td><SeverityBadge severity={a.severity} /></td>
               <td className="alarm-what">
-                <span className="alarm-signal">{label(a.tag)}</span>
+                <button type="button" className="alarm-signal tag-link" onClick={() => openFaceplate(a.tag)}>
+                  {label(a.tag)}
+                </button>
                 <span className="alarm-rule mono" title={a.tag}>{a.rule}</span>
               </td>
               {!compact && <td className="mono">{fmtTime(a.ts)}</td>}
