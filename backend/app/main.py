@@ -790,7 +790,9 @@ async def tags_latest_bulk(request: Request,
     out = []
     for r in rows:
         tag = s.registry.by_id(r["tag_id"])
-        if tag:
+        # seeded-SITE filter (T9-review F3): /api/tags already scopes to
+        # V1_SITE_ID — the bulk latest must too, not just the shim org
+        if tag and tag.site_id == config.V1_SITE_ID:
             out.append({"name": tag.v1_name, "v": finite_or_none(r["v"]), "q": r["q"],
                         "ts": iso_z(r["ts"])})
     return out

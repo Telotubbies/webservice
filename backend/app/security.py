@@ -234,9 +234,17 @@ class Security:
                             log.exception("dev membership lookup failed — failing closed")
                             raise AuthError("authorization store unavailable") from None
                         org_roles = {r["org_id"]: r["role"] for r in rows}
+                        # T9-review F1: the token's nominal role is a fallback
+                        # ONLY for an unhydrated principal (no membership rows
+                        # at all). When the table hydrated ANY roles, the shim
+                        # role is exactly what the table says — a dev user who
+                        # is a member of org B only must not get the v1 shim
+                        # org for free (REST would otherwise diverge from WS).
                         return dataclasses.replace(
                             p,
-                            role=org_roles.get(config.V1_ORG_ID, p.role),
+                            role=org_roles.get(
+                                config.V1_ORG_ID,
+                                p.role if not rows else Principal.ROLE_NONE),
                             org_roles=tuple(org_roles.items()))
                     return p
             claims = await self.verifier.verify(token)

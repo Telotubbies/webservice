@@ -379,6 +379,58 @@ def test_ws_v1_alias_still_shim(base_url):
     assert code is None
 
 
+# ------------------------------------------- F1: dev token w/o shim membership
+
+def test_dev_member_of_other_org_only_gets_no_shim(viewer_api, org_b, base_url):
+    """T9-review F1: a dev user whose hydrated memberships EXCLUDE the shim
+    org must not inherit the token's nominal role there — v1 REST -> 403 and
+    /ws -> 4403, matching the OIDC path (REST and WS must agree)."""
+    _dsn_skip()
+    shim = uuid.UUID(V1_ORG_S)
+
+    async def drop_shim():
+        conn = await _tenant_conn(APP_DSN, shim)
+        try:
+            await conn.execute(
+                "DELETE FROM memberships WHERE org_id=$1 AND user_id=$2",
+                shim, VIEWER_UID)
+            await conn.execute("COMMIT")
+        finally:
+            await conn.close()
+
+    async def restore_shim():
+        conn = await _tenant_conn(APP_DSN, shim)
+        try:
+            await conn.execute(
+                "INSERT INTO memberships(org_id, user_id, role)"
+                " VALUES ($1,$2,'viewer')"
+                " ON CONFLICT (org_id, user_id) DO UPDATE SET role='viewer'",
+                shim, VIEWER_UID)
+            await conn.execute("COMMIT")
+        finally:
+            await conn.close()
+
+    asyncio.run(drop_shim())
+    try:
+        # v1 REST — shim membership gone => 403 on reads AND mutations,
+        # even though the token's nominal role is 'viewer'/'operator'-ish
+        assert viewer_api.get("/api/tags").status_code == 403
+        assert viewer_api.post(
+            "/api/commands",
+            json={"tag": "plant1.sort.line1.motor1.speed_sp",
+                  "value": 1.0}).status_code == 403
+        assert viewer_api.post(
+            f"/api/alarms/{uuid.uuid4()}/ack").status_code == 403
+        # /ws — same verdict, 4403 (previously self-corrected, REST leaked)
+        assert _ws_close(base_url, "/ws",
+                         {"type": "auth", "token": VIEWER_TOKEN}) == 4403
+        # …while org-B v2 routes still work — THAT is their only membership
+        r = viewer_api.get(f"/api/v1/orgs/{org_b['org']}")
+        assert r.status_code == 200
+    finally:
+        asyncio.run(restore_shim())
+
+
 # ------------------------------------------------- MQTT e2e: second-org ingest
 
 def test_second_org_telemetry_isolated(admin_api, org_b, base_url):
