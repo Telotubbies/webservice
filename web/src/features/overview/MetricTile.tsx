@@ -12,7 +12,7 @@ import { useStore } from '../../lib/hooks';
 import { fmtAge } from '../../lib/format';
 import { SIGNALS, T, displayNumber, formatSignal } from '../../lib/plant';
 import { Sparkline } from '../../shared/ui/Sparkline';
-import { QualityMark, SeverityBadge } from '../../shared/ui/Status';
+import { normSeverity, QualityMark, SeverityBadge, type Severity } from '../../shared/ui/Status';
 import { useFaceplate } from '../faceplate/FaceplateContext';
 
 /** Alarm-zone edges for one tag, in raw units. `lo` = max lo/lolo, `hi` = min
@@ -48,7 +48,16 @@ export function MetricTile({ name, band, now }: { name: string; band?: TileBand;
   const writable =
     (live.tags.find((ti) => ti.name === name)?.writable ?? name === T.speedSp) &&
     typeof v?.v === 'number';
-  const inAlarm = live.alarms.some((a) => a.tag === name && a.state !== 'cleared');
+  // worst open alarm severity on this tag — the badge shows the real level,
+  // not a hardcoded critical
+  let alarmSev: Severity | null = null;
+  for (const a of live.alarms) {
+    if (a.tag !== name || a.state === 'cleared') continue;
+    const s = normSeverity(a.severity);
+    if (s === 'critical') { alarmSev = 'critical'; break; }
+    if (s === 'warning' || alarmSev === null) alarmSev = s;
+  }
+  const inAlarm = alarmSev !== null;
   const anomaly = live.insights.some((i) => i.tag === name && i.state === 'open');
   const scale = name === T.gravel ? 100 : 1;
   const hiDisp = band?.hi !== undefined ? displayNumber(name, band.hi) : undefined;
@@ -65,7 +74,7 @@ export function MetricTile({ name, band, now }: { name: string; band?: TileBand;
         <h3>{t(meta.labelKey)}</h3>
         {anomaly && <span className="ai-dot" title={t('insights.title')} aria-hidden>✦</span>}
         {meta.stub && <span className="badge badge-stub tile-stub-badge" title={t('overview.stubTitle')}>{t('overview.stub')}</span>}
-        {inAlarm && <SeverityBadge severity="critical" />}
+        {alarmSev && <SeverityBadge severity={alarmSev} />}
       </header>
       <p className="kpi-value tile-val">
         <span className="num">{stale ? '—' : formatSignal(name, v?.v, i18n.language)}</span>

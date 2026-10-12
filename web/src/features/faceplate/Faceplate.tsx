@@ -70,13 +70,21 @@ function Faceplate({ tag, onClose }: { tag: string; onClose: () => void }) {
   const v = live.latest.get(tag);
   const stale = !v || now - (Date.parse(v.ts) || 0) > STALE_MS;
 
-  // worst open alarm severity on this tag (for the header badge)
+  // worst severity on this tag across open alarms AND open insights (header badge)
   let worst: Severity | null = null;
   for (const a of live.alarms) {
     if (a.tag !== tag || a.state === 'cleared') continue;
     const s = normSeverity(a.severity);
     if (s === 'critical') { worst = 'critical'; break; }
     if (s === 'warning' || worst === null) worst = s;
+  }
+  if (worst !== 'critical') {
+    for (const i of live.insights) {
+      if (i.tag !== tag || i.state !== 'open') continue;
+      const s = normSeverity(i.severity);
+      if (s === 'critical') { worst = 'critical'; break; }
+      if (s === 'warning' || worst === null) worst = s;
+    }
   }
 
   const pill: RunState | null = stale
@@ -191,7 +199,7 @@ function Faceplate({ tag, onClose }: { tag: string; onClose: () => void }) {
                 <li key={i.id}>
                   <InsightChip
                     insight={i}
-                    onClick={() => navigate(`/trends?s=${encodeURIComponent(i.tag)}&w=1H`)}
+                    onClick={() => navigate(`/trends?s=${encodeURIComponent(i.tag)}&w=1h`)}
                   />
                 </li>
               ))}

@@ -77,17 +77,20 @@
 .equip-link:hover { background: var(--bg-hover); }
 .equip-name { flex: 1; font-weight: 500; }
 
-/* insights mini-feed — tag + kind + score + age, row opens the faceplate */
+/* insights mini-feed — tag + kind + score + age, row opens the faceplate.
+   Scoped under .insight-feed-list: the /insights table reuses .insight-row on
+   its <tr>s (UAT counts on it) and a global display:flex would break the
+   table layout at >=1024px. */
 .insight-feed-list { list-style: none; margin: 0; padding: 0; }
 .insight-feed-list li + li { border-top: 1px solid var(--line); }
-.insight-row {
+.insight-feed-list .insight-row {
   display: flex; align-items: center; gap: var(--space-3); width: 100%;
   min-height: var(--touch); padding: 0 var(--space-4);
   background: transparent; border: 0; color: var(--text-primary);
   font-size: var(--text-body); cursor: pointer; text-align: left;
 }
-.insight-row:hover { background: var(--bg-hover); }
-.insight-row .chip-glyph { flex: none; color: var(--ai-accent); font-size: var(--text-caption); line-height: 1; }
+.insight-feed-list .insight-row:hover { background: var(--bg-hover); }
+.insight-feed-list .insight-row .chip-glyph { flex: none; color: var(--ai-accent); font-size: var(--text-caption); line-height: 1; }
 .insight-row-tag { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .insight-row-kind { font-size: var(--text-label); color: var(--ai-accent); white-space: nowrap; }
 .insight-row-score { color: var(--text-secondary); }

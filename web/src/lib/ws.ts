@@ -3,7 +3,7 @@
 //  - ring-buffered tag data + rAF flush (via live store)
 //  - handles auth_expired event + close code 4401 -> "session expired" banner
 
-import { getToken } from './api';
+import { api, getToken } from './api';
 import { live } from './live';
 import type { Alarm, CommandStatus, Insight, Quality, WSEvent } from '../types';
 
@@ -61,6 +61,12 @@ function connect(): void {
   s.onopen = () => {
     attempt = 0;
     live.setWsState('open');
+    // Resync open insights: insight events missed while disconnected would
+    // otherwise leave stale local state indefinitely (e.g. an insight that
+    // closed during the outage would look open forever).
+    void api.insights({ state: 'open' })
+      .then((rows) => live.syncOpenInsights(rows))
+      .catch(() => {});
   };
 
   s.onmessage = (ev: MessageEvent<string>) => {

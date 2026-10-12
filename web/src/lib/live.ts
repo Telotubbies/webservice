@@ -114,6 +114,23 @@ class LiveStore {
     this.poke();
   }
 
+  /** Reconcile after a WS (re)connect: the server's open set is authoritative.
+   *  Fetched opens merge over local rows; locally-open ids absent from the
+   *  fetched set are dropped (they closed while we were disconnected — keep
+   *  locally-known closed rows so the table doesn't flicker). */
+  syncOpenInsights(opens: Insight[]) {
+    const openIds = new Set(opens.map((i) => i.id));
+    const merged = [...opens];
+    for (const i of this.insights) {
+      if (openIds.has(i.id)) continue;   // fresh server copy wins
+      if (i.state === 'open') continue;  // stale open — closed while offline
+      merged.push(i);
+    }
+    this.insights = merged;
+    this.insightRev++;
+    this.poke();
+  }
+
   mergeCommand(c: Partial<Command> & { id: string }) {
     const prev = this.commands.get(c.id);
     this.commands.set(c.id, { ...prev, ...c } as Command);

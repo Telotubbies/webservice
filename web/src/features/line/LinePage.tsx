@@ -14,7 +14,9 @@ export function LinePage() {
   const selected = EQUIPMENT.some((e) => e.id === sel) ? sel : null;
   const select = (id: EquipmentId | null) => {
     const next = new URLSearchParams(params);
-    if (id && id !== selected) next.set('eq', id); else next.delete('eq');
+    // ?fp wins over ?eq — clear it so a mimic click always takes effect
+    if (id && id !== selected) { next.set('eq', id); next.delete('fp'); }
+    else next.delete('eq');
     setParams(next, { replace: true });
   };
 
