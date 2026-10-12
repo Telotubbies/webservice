@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 import asyncpg
 
+from app import config
+
 
 async def _init_conn(conn: asyncpg.Connection) -> None:
     for typ in ("json", "jsonb"):
@@ -34,13 +36,26 @@ class Pools:
         await self.system.close()
 
 
+def _dsn_password(dsn: str) -> str | None:
+    import urllib.parse
+    try:
+        return urllib.parse.urlsplit(dsn).password
+    except ValueError:
+        return None
+
+
 async def create_pools(app_dsn: str | None = None, system_dsn: str | None = None,
                        min_size: int = 1, max_size: int = 10) -> Pools:
+    # Passwords can come from a mounted file / env instead of the DSN string
+    # (v4 T7: compose ships password-less DSNs so `docker inspect` stays
+    # clean). The override applies whenever the DSN doesn't embed one.
     app_dsn = app_dsn or os.environ["WDS_APP_DSN"]
     system_dsn = system_dsn or os.environ["WDS_SYSTEM_DSN"]
+    app_pw = None if _dsn_password(app_dsn) else config.WDS_APP_PASSWORD
+    sys_pw = None if _dsn_password(system_dsn) else config.WDS_SYSTEM_PASSWORD
     kw = dict(min_size=min_size, max_size=max_size, init=_init_conn,
               command_timeout=10, server_settings={"application_name": "wds-backend"})
     return Pools(
-        app=await asyncpg.create_pool(app_dsn, **kw),
-        system=await asyncpg.create_pool(system_dsn, **kw),
+        app=await asyncpg.create_pool(app_dsn, password=app_pw, **kw),
+        system=await asyncpg.create_pool(system_dsn, password=sys_pw, **kw),
     )

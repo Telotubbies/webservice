@@ -8,6 +8,23 @@
 #   mqtt_hc_pw           reserved         broker healthcheck client (future)
 #   tester_pw            tester           fault injection — TEST PROFILE ONLY
 #
+# Env-derived secrets (v4 T7) — value comes from the env var if set, else the
+# documented dev default. Keeping them as mounted FILES (not env vars) is what
+# keeps passwords out of `docker inspect`:
+#
+#   pg_super_pw     POSTGRES_SUPERUSER_PASSWORD  postgres-dev-pass
+#   wds_owner_pw    WDS_OWNER_PASSWORD           owner-dev-pass
+#   wds_app_pw      WDS_APP_PASSWORD             app-dev-pass
+#   wds_system_pw   WDS_SYSTEM_PASSWORD          system-dev-pass
+#   kc_admin_pw     KC_ADMIN_PASSWORD            admin-dev-pass
+#   kc_demo_pw      KC_DEMO_PASSWORD             kc-demo-pass
+#
+# PROD: set the env vars to real values BEFORE `make secrets` (or overwrite
+# the files) — APP_ENV=prod refuses to boot while any file still holds a
+# documented dev default. Rotating a Postgres/Keycloak password later means
+# changing it in the DB/realm too — these files are the deploy-time input,
+# not a rotation mechanism.
+#
 # Usage: ./infra/gen-secrets.sh [--force]
 #   Default: create only MISSING files (safe to re-run).
 #   --force: rotate every file — after --force you MUST recreate the dynsec
@@ -33,6 +50,23 @@ gen() { # gen <file>
 for f in svc_backend_pw svc_dynsec_admin_pw edge_bootstrap_pw mqtt_hc_pw tester_pw; do
   gen "$f"
 done
+
+# Env-derived secrets: real value from the env var when set, else the
+# documented dev default so `make up` works with zero configuration (dev).
+gen_env() { # gen_env <file> <ENVVAR> <dev-default>
+  if [ ! -s "$DIR/$1" ] || [ "${FORCE:-0}" = "1" ]; then
+    eval "printf '%s' \"\${$2:-$3}\"" > "$DIR/$1"
+    chmod 0644 "$DIR/$1"
+    echo "  wrote $DIR/$1"
+  fi
+}
+
+gen_env pg_super_pw    POSTGRES_SUPERUSER_PASSWORD postgres-dev-pass
+gen_env wds_owner_pw   WDS_OWNER_PASSWORD          owner-dev-pass
+gen_env wds_app_pw     WDS_APP_PASSWORD            app-dev-pass
+gen_env wds_system_pw  WDS_SYSTEM_PASSWORD         system-dev-pass
+gen_env kc_admin_pw    KC_ADMIN_PASSWORD           admin-dev-pass
+gen_env kc_demo_pw     KC_DEMO_PASSWORD            kc-demo-pass
 
 # The dev-seeded edge's first dynsec username is deterministic
 # (edge-{V1_EDGE_ID}-v1, doc 17 §2) — write it as a secret file so compose

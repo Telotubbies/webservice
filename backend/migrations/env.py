@@ -5,11 +5,26 @@ import os
 from alembic import context
 from sqlalchemy import create_engine
 
-dsn = os.environ["WDS_MIGRATE_DSN"]  # postgresql+psycopg://wds_owner:…@postgres/wds
+dsn = os.environ["WDS_MIGRATE_DSN"]  # postgresql+psycopg://wds_owner@postgres/wds
+
+
+def _owner_password() -> str | None:
+    """Password comes from a mounted file / env — never baked into the DSN,
+    so it stays out of `docker inspect` (v4 T7)."""
+    path = os.environ.get("WDS_OWNER_PASSWORD_FILE")
+    if path:
+        try:
+            v = open(path).read().strip()  # noqa: SIM115
+            if v:
+                return v
+        except OSError:
+            pass
+    return os.environ.get("WDS_OWNER_PASSWORD")
 
 
 def run_migrations_online() -> None:
-    engine = create_engine(dsn)
+    pw = _owner_password()
+    engine = create_engine(dsn, connect_args={"password": pw} if pw else {})
     with engine.connect() as conn:
         # One transaction per revision: Postgres DDL is transactional, so a
         # failing revision rolls back cleanly (doc 18 §2).

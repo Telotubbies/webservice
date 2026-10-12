@@ -409,15 +409,9 @@ async def health_watchdog(st: State) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    if config.APP_ENV not in ("dev", "test"):
-        # Production fail-fast (ADR-12): the OIDC endpoints must be explicit —
-        # never boot on localhost/dev defaults, and dev tokens don't exist.
-        missing = [k for k in ("OIDC_ISSUER", "OIDC_JWKS_URI")
-                   if not os.environ.get(k)]
-        if missing:
-            raise RuntimeError(
-                f"APP_ENV={config.APP_ENV} requires explicit {missing} "
-                "— refusing to start on dev defaults")
+    # Prod fail-fast lives in config.py at import (v4 T7) — reaching lifespan
+    # means the env already passed: no missing required vars, no dev-default
+    # secrets, OIDC endpoints explicit, dev tokens don't exist.
     pools = await create_pools()
     if config.APP_ENV == "dev":
         await seed(pools)

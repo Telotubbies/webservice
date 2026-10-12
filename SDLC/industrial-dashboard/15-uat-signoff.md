@@ -47,6 +47,23 @@ Not release blockers for the local demo; **all must be addressed in the AWS depl
 5. **PLC adapter** — Modbus stub path exercised; real Siemens model still undecided (S7 vs OPC UA decision deferred per 04/11).
 6. **MQTT TLS** — localhost-only broker without TLS is acceptable for the demo topology; AWS IoT Core path is TLS + cert auth by design.
 
-## 5. Sign-off
+## 5. Restore drill (v4 T7 — doc 18 §5 gate)
+
+Date: 2026-10-13, on the running v4 stack (test overlay, Postgres 16 + dynsec
+mosquitto + Keycloak). Performed for real, not a rehearsal of the commands.
+
+| Step | Result | Evidence |
+|---|---|---|
+| `make backup` | PASS | `pg_dump -Fc` → `backups/wds-20261013005527.dump` (84K, seeded demo DB: 6 tags, memberships, rules, audit chain) |
+| `make restore DUMP=backups/wds-20261013005527.dump` | PASS in **13.7 s** wall | writers stopped → `DROP DATABASE wds WITH (FORCE)` → `CREATE DATABASE wds OWNER wds_owner` → `pg_restore --exit-on-error` → db-level CONNECT re-granted → backend healthy → `make verify-audit` → **"audit chains intact"** (exit 0) |
+| post-restore smoke | PASS | `/api/health` = `{"status":"ok","db":"up","mqtt":"up","edge":"up"}`; `pg_class.relrowsecurity` still `t` (RLS re-applied by the dump); orgs/sites/edges/tags restored |
+
+Negative evidence also gathered: on a DB that had run the tenancy suite,
+`make restore` ended with `verify-audit` exiting non-zero on the
+deliberately-tampered row (`org A`, `seq=2`, `actor='attacker'` — the
+`test_audit.py` fixture). I.e. the post-restore verification step detects a
+broken chain rather than passing silently — the drill is honest.
+
+## 6. Sign-off
 
 Demo release gate: **PASSED**. Stack is safe to demo with Factory I/O as the data source. Next track per doc 11: AWS deployment (IoT Core transport, Cognito auth, TimescaleDB, ECS topology) with the §4 items as its entry criteria.

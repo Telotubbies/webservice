@@ -33,8 +33,24 @@ KC_URL = (os.environ.get("KC_INTERNAL_URL")
           or os.environ.get("KC_URL", "http://localhost:8080")).rstrip("/")
 REALM = os.environ.get("KC_REALM", "wds")
 ADMIN = os.environ.get("KC_ADMIN", "admin")
-ADMIN_PW = os.environ.get("KC_ADMIN_PASSWORD", "admin-dev-pass")
-DEMO_PW = os.environ.get("KC_DEMO_PASSWORD", "kc-demo-pass")
+
+
+def _secret(file_env: str, plain_env: str, default: str) -> str:
+    """File-mounted secret wins over the env var (v4 T7 — keeps the value
+    out of `docker inspect`); the dev default is the documented demo value."""
+    path = os.environ.get(file_env)
+    if path:
+        try:
+            v = open(path).read().strip()  # noqa: SIM115
+            if v:
+                return v
+        except OSError:
+            pass
+    return os.environ.get(plain_env, default)
+
+
+ADMIN_PW = _secret("KC_ADMIN_PASSWORD_FILE", "KC_ADMIN_PASSWORD", "admin-dev-pass")
+DEMO_PW = _secret("KC_DEMO_PASSWORD_FILE", "KC_DEMO_PASSWORD", "kc-demo-pass")
 
 # realm test user -> role in the dev org (memberships table, not claims)
 USERS = {

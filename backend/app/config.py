@@ -45,6 +45,18 @@ EDGE_CRED_GRACE_S = float(os.environ.get("EDGE_CRED_GRACE_S", "86400"))
 
 CORS_ORIGIN = os.environ.get("CORS_ORIGIN", "http://localhost:5173")
 
+# --- Postgres DSNs (ADR-13) ---------------------------------------------------
+# The DSN may carry the password inline (host-side dev/tests) OR be given
+# password-less with the password in a mounted file / env — compose uses the
+# file form so credentials never appear in `docker inspect` (v4 T7).
+WDS_APP_DSN = os.environ.get("WDS_APP_DSN") or None
+WDS_SYSTEM_DSN = os.environ.get("WDS_SYSTEM_DSN") or None
+WDS_APP_PASSWORD = _read_secret(os.environ.get("WDS_APP_PASSWORD_FILE")) \
+    or os.environ.get("WDS_APP_PASSWORD") or None
+WDS_SYSTEM_PASSWORD = _read_secret(os.environ.get("WDS_SYSTEM_PASSWORD_FILE")) \
+    or os.environ.get("WDS_SYSTEM_PASSWORD") or None
+
+
 # --- v1 compatibility shim (removed in phase 4, CONTRACT.v2) ---------------
 # v1 topics (`plant1/...`) carry no tenant identity, so the v1 runtime is
 # pinned to exactly one org/site/edge. These are the dev-seed ids (seed.py).
@@ -116,3 +128,109 @@ INSIGHT_CLOSE_N = int(os.environ.get("INSIGHT_CLOSE_N", "5"))      # in-band str
 INSIGHT_FLAT_S = float(os.environ.get("INSIGHT_FLAT_S", "300"))    # zero-variance window
 INSIGHT_FLAP_N = int(os.environ.get("INSIGHT_FLAP_N", "6"))        # quality transitions
 INSIGHT_FLAP_S = float(os.environ.get("INSIGHT_FLAP_S", "600"))    # flapping window
+
+
+# ---------------------------------------------------------------------------
+# Production fail-fast (v4 T7; doc 18 §6, doc 20 §3.5)
+# ---------------------------------------------------------------------------
+# `APP_ENV` keeps its dev default for DX — anything other than dev/test is
+# held to PROD rules (fail-closed: a typo'd APP_ENV is strict, not silent).
+# Under prod rules every required env must be present and no dev-default
+# secret value may survive. This runs AT IMPORT so every entrypoint that
+# touches config — uvicorn, seed_oidc, audit_cli, the migration script —
+# refuses loudly instead of booting half-configured.
+def _dsn_password(dsn: str) -> str | None:
+    import urllib.parse
+    try:
+        return urllib.parse.urlsplit(dsn).password
+    except ValueError:
+        return None
+
+
+def _readable(path: str | None) -> bool:
+    """File-mounted secret is present, readable and non-empty."""
+    if not path:
+        return False
+    try:
+        return bool(open(path).read().strip())  # noqa: SIM115 — one-shot read
+    except OSError:
+        return False
+
+
+def _enforce_prod_env() -> None:
+    missing: list[str] = []
+    dev_default: list[str] = []
+
+    # Plain presence checks — endpoints + non-secret wiring that must be
+    # chosen deliberately in prod (no silent localhost/dev fallbacks).
+    for name in ("OIDC_ISSUER", "OIDC_JWKS_URI",
+                 "WDS_APP_DSN", "WDS_SYSTEM_DSN",
+                 "MQTT_USER", "MQTT_CA_FILE",
+                 "KC_ADMIN", "TRUSTED_PROXIES"):
+        if not os.environ.get(name):
+            missing.append(name)
+    # ALLOWED_ORIGINS must name at least one real origin — the same-origin
+    # fallback is a dev convenience, not a prod posture.
+    if not ALLOWED_ORIGINS:
+        missing.append("ALLOWED_ORIGINS (non-empty origin list)")
+
+    # File-mounted secrets (the *_FILE vars are the prod contract — an env
+    # password would land in `docker inspect`, doc 17).
+    for name in ("MQTT_PASSWORD_FILE", "DYNSEC_ADMIN_PASSWORD_FILE",
+                 "SVC_BACKEND_PW_FILE", "EDGE_BOOTSTRAP_PW_FILE"):
+        if not _readable(os.environ.get(name)):
+            missing.append(f"{name} (missing/unreadable/empty)")
+
+    # Effective DB passwords: file wins, DSN-embedded allowed — but neither
+    # may be absent or a dev default.
+    for dsn_name, file_name, dev_pw in (
+            ("WDS_APP_DSN", "WDS_APP_PASSWORD_FILE", "app-dev-pass"),
+            ("WDS_SYSTEM_DSN", "WDS_SYSTEM_PASSWORD_FILE", "system-dev-pass")):
+        dsn = os.environ.get(dsn_name)
+        if not dsn:
+            continue  # already listed above
+        pw = _read_secret(os.environ.get(file_name)) or _dsn_password(dsn)
+        if not pw:
+            missing.append(f"{file_name} (or a password embedded in {dsn_name})")
+        elif "dev-pass" in pw:
+            dev_default.append(f"{dsn_name}/{file_name}")
+
+    # Keycloak admin (seed/realm bootstrap) — file or env, never the demo pw.
+    kc_pw = _read_secret(os.environ.get("KC_ADMIN_PASSWORD_FILE")) \
+        or os.environ.get("KC_ADMIN_PASSWORD")
+    if not kc_pw:
+        missing.append("KC_ADMIN_PASSWORD_FILE (or KC_ADMIN_PASSWORD)")
+    elif "dev-pass" in kc_pw:
+        dev_default.append("KC_ADMIN_PASSWORD")
+    demo_pw = _read_secret(os.environ.get("KC_DEMO_PASSWORD_FILE")) \
+        or os.environ.get("KC_DEMO_PASSWORD")
+    if demo_pw == "kc-demo-pass":
+        dev_default.append("KC_DEMO_PASSWORD")
+
+    # Dev-default VALUES still configured (explicit or leaked via defaults).
+    if OIDC_ISSUER == "http://localhost:5173/realms/wds":
+        dev_default.append("OIDC_ISSUER")
+    for file_name, dev_val in (
+            ("WDS_APP_PASSWORD_FILE", "app-dev-pass"),
+            ("WDS_SYSTEM_PASSWORD_FILE", "system-dev-pass"),
+            ("KC_ADMIN_PASSWORD_FILE", "admin-dev-pass"),
+            ("KC_DEMO_PASSWORD_FILE", "kc-demo-pass")):
+        v = _read_secret(os.environ.get(file_name))
+        if v and v == dev_val:
+            dev_default.append(file_name)
+    if _readable(MQTT_CA_FILE) is False and os.environ.get("MQTT_CA_FILE"):
+        missing.append("MQTT_CA_FILE (unreadable)")
+
+    if missing or dev_default:
+        lines = [f"APP_ENV={APP_ENV} refuses to start (doc 18 §6, doc 20 §3.5):"]
+        if missing:
+            lines.append("  missing required env: " + ", ".join(missing))
+        if dev_default:
+            lines.append("  dev-default secrets still set: " + ", ".join(dev_default))
+        lines.append("Set APP_ENV=dev for local development; production requires "
+                     "APP_ENV=prod plus every secret above (.env.example §prod).")
+        raise SystemExit("\n".join(lines))
+
+
+if APP_ENV not in ("dev", "test"):
+    _enforce_prod_env()

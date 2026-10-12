@@ -19,6 +19,10 @@
 ## 3. SQLite → Postgres one-time migration
 
 `scripts/migrate_sqlite_to_pg.py --sqlite backend/data/app.db --dry-run`
+(implemented v4 T7; `make migrate-sqlite SQLITE=… [DRY=1] [DSN=…] [ORG=<uuid>]`
+is the make wrapper. The script opens the SQLite file read-only, runs as the
+`wds_app` role inside `tenant_tx`, and accepts `--dsn` / `--org-id` /
+`--org-name` / `--site-code` overrides.)
 1. Creates org "Demo", site "plant1", edge "edge1" (`status=pending`, no credential) and lines/devices derived from the tag names.
 2. Maps tag name → `tags.id` and copies `tags`, `tags_latest`, `tags_history` (ON CONFLICT DO NOTHING), `alarms`, `commands` (status mapping in doc 16 §3) and `audit_log`. The new audit chain starts with a genesis row `migration.import` that records source row counts and a sha256 of the SQLite file.
 3. Idempotent: rerunning inserts nothing new. `--dry-run` prints per-table counts and exits.

@@ -34,8 +34,22 @@ Demo tokens (development-only): paste `demo-operator` (full control) or
 
 ## Commands
 
-`make` lists everything: `up` `down` `ps` `logs` `build` `clean`
-`test-contract` `test-integration` `uat` `web-build`
+`make` lists everything: `up` `up-test` `down` `ps` `logs` `build` `clean`
+`secrets` `certs` `test-contract` `test-db` `test-integration` `uat`
+`web-build` `migrate` `verify-audit` `seed-dev` `backup` `restore` `migrate-sqlite`
+
+Ops (doc 18): `make backup` → timestamped `pg_dump -Fc` into `backups/`;
+`make restore DUMP=backups/wds-….dump` drops+recreates `wds` and re-verifies
+the audit chain (`verify-audit`). `make migrate-sqlite SQLITE=<app.db> [DRY=1]`
+imports a v1 SQLite database into Postgres for a target org
+(`scripts/migrate_sqlite_to_pg.py`, doc 18 §3 — idempotent, `--dry-run`
+reports row counts).
+
+Prod posture (v4 T7): `APP_ENV` defaults to `dev` for DX — a production
+deploy MUST set `APP_ENV=prod`, which fails fast when any required env is
+missing or still holds a dev-default secret (see `.env.example`). All
+secrets are file-mounted under `infra/secrets/` — `docker inspect` shows
+paths only, never values.
 
 ## Layout
 

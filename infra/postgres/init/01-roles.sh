@@ -7,6 +7,16 @@
 #   wds_system — background workers: same + narrowly scoped cross-org lookups
 set -euo pipefail
 
+# Passwords arrive as mounted secret FILES in compose (v4 T7 — env values
+# would show in `docker inspect`); fall back to the plain env var for
+# non-compose runs.
+read_secret() { # read_secret <file-path> <env-value> -> echoes the secret
+  if [ -n "${1:-}" ] && [ -s "${1:-}" ]; then cat "$1"; else printf '%s' "${2:-}"; fi
+}
+WDS_OWNER_PASSWORD="$(read_secret "${WDS_OWNER_PASSWORD_FILE:-}" "${WDS_OWNER_PASSWORD:-}")"
+WDS_APP_PASSWORD="$(read_secret "${WDS_APP_PASSWORD_FILE:-}" "${WDS_APP_PASSWORD:-}")"
+WDS_SYSTEM_PASSWORD="$(read_secret "${WDS_SYSTEM_PASSWORD_FILE:-}" "${WDS_SYSTEM_PASSWORD:-}")"
+
 : "${WDS_OWNER_PASSWORD:?}" "${WDS_APP_PASSWORD:?}" "${WDS_SYSTEM_PASSWORD:?}"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
