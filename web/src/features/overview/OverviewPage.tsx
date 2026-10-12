@@ -59,7 +59,7 @@ function EquipmentList() {
           <li key={e.id}>
             <Link to={`/line?eq=${e.id}`} className="equip-link">
               <span className="equip-name">{t(e.labelKey)}</span>
-              {alarm && <SeverityBadge severity={alarm} />}
+              {alarm && <SeverityBadge severity={alarm.sev} />}
               {state && <StatePill state={state} />}
               <Icon name="chevron" size={18} className="dim" />
             </Link>

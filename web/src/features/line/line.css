@@ -1,26 +1,34 @@
-/* Process schematic — equipment neutral, state via shape/motion, alarm via
-   reserved red/amber + triangle marker. */
+/* Process schematic — ISA-101 shade coding: state = shade, not hue.
+   running = light steel fill, idle = dark, uninstrumented = mid-dark;
+   colour is reserved for abnormal state (severity glyphs, AI accent). */
 
 .schematic { position: relative; width: 100%; }
 .schematic-svg { display: block; width: 100%; height: auto; }
 
 .schematic .floor { stroke: var(--line); stroke-width: 2; }
-.schematic .body { fill: var(--equip-body); stroke: var(--equip-edge); stroke-width: 2; }
+/* equipment state fill — driven by g.equip[data-state] */
+.schematic .body { fill: var(--equip-idle); stroke: var(--equip-edge); stroke-width: 2; }
+.schematic .equip[data-state="running"] .body { fill: var(--equip-running); }
+.schematic .equip[data-state="manual"] .body { fill: var(--equip-manual); }
 .schematic .detail { fill: var(--equip-mid); stroke: var(--equip-detail); stroke-width: 1.5; }
 .schematic .spoke { stroke: var(--equip-detail); stroke-width: 3; stroke-linecap: round; }
-.schematic .shaft { stroke: var(--equip-detail); stroke-width: 6; stroke-linecap: round; }
 .schematic .leg { stroke: var(--equip-edge); stroke-width: 4; stroke-linecap: round; fill: none; }
-.schematic .belt { fill: var(--equip-belt); }
 .schematic .tread { stroke: var(--equip-tread); stroke-width: 2; stroke-linecap: round; }
 .schematic .roller { fill: var(--equip-mid); stroke: var(--equip-detail); stroke-width: 2; }
 .schematic .lens { fill: var(--bg-sunken); }
 .schematic .cone { stroke: var(--equip-detail); stroke-width: 1.5; stroke-dasharray: 4 6; fill: none; }
-.schematic .chute { stroke: var(--equip-edge); stroke-width: 10; fill: none; stroke-linecap: round; }
 .schematic .fill { fill: var(--equip-fill); }
 .schematic .outline { fill: none; stroke: var(--equip-edge); stroke-width: 2; }
 .schematic .tick { stroke: var(--equip-detail); stroke-width: 2; }
 .schematic .lamp { fill: var(--equip-lamp); stroke: var(--equip-edge); }
 .schematic .lamp-on { fill: var(--state-running); stroke: var(--state-running); }
+
+/* pipes / belt — static shade only; active shade while the line runs */
+.schematic .shaft { stroke: var(--pipe-inactive); stroke-width: 6; stroke-linecap: round; }
+.schematic .chute { stroke: var(--pipe-inactive); stroke-width: 10; fill: none; stroke-linecap: round; }
+.schematic .belt { fill: var(--pipe-inactive); }
+.schematic.is-running .shaft, .schematic.is-running .chute { stroke: var(--pipe-active); }
+.schematic.is-running .belt { fill: var(--pipe-active); }
 
 /* motion = running (and only when running) */
 .schematic .belt-tread.moving { animation: belt 0.9s linear infinite; }
@@ -37,14 +45,23 @@
 .schematic .equip:focus-visible .hit { stroke: var(--focus-ring); stroke-width: 3; }
 .schematic .equip.is-selected .hit { stroke: var(--state-selected); stroke-width: 3; }
 
-/* abnormal */
-.schematic .equip.has-critical .hit { stroke: var(--sev-critical); stroke-width: 3; }
+/* abnormal — AI accent first so severity strokes always outrank it */
+.schematic .equip.is-anomaly { filter: drop-shadow(0 0 6px var(--ai-accent)); }
 .schematic .equip.has-warning .hit { stroke: var(--sev-warning); stroke-width: 3; }
-.schematic .alarm-marker path:first-child { stroke-linejoin: round; stroke-width: 2; }
-.schematic .alarm-marker.sev-critical path:first-child { fill: var(--sev-critical); stroke: var(--sev-critical); }
-.schematic .alarm-marker.sev-warning path:first-child { fill: var(--sev-warning); stroke: var(--sev-warning); }
+.schematic .equip.has-critical .hit { stroke: var(--sev-critical); stroke-width: 3; }
+
+/* alarm markers: shape-coded glyphs — ▲ critical, ◆ warning.
+   Unacked markers flash at 1 Hz; steady when acked or reduced-motion. */
+.schematic .alarm-marker .glyph { stroke-linejoin: round; stroke-width: 2; }
+.schematic .alarm-marker.sev-critical .glyph { fill: var(--sev-critical); stroke: var(--sev-critical); }
+.schematic .alarm-marker.sev-warning .glyph { fill: var(--sev-warning); stroke: var(--sev-warning); }
 .schematic .alarm-marker .mark { stroke: var(--on-severity); stroke-width: 2.4; stroke-linecap: round; }
 .schematic .alarm-marker.sev-warning .mark { stroke: var(--text-inverse); }
+.schematic .alarm-marker.is-unacked { animation: marker-blink 1s step-end infinite; }
+@keyframes marker-blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .schematic .alarm-marker.is-unacked { animation: none; }
+}
 
 /* readouts: real CSS px so they never fall below the type floors */
 .readouts { position: absolute; inset: 0; pointer-events: none; }
@@ -56,12 +73,36 @@
   white-space: nowrap;
 }
 .readout-left { transform: translate(0, -50%); align-items: flex-start; }
+.readout-head { display: inline-flex; align-items: center; gap: 6px; }
 .readout-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-label); color: var(--text-secondary); }
+
+/* ISA-5.1 instrument bubble — circle, function letters over loop number,
+   hairline chord between them. Display alias only (see lib/plant bubbleCode). */
+.readout-bubble {
+  flex: none; position: relative;
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: var(--text-caption); line-height: 1.05;
+  color: var(--text-secondary);
+}
+.readout-bubble .bubble-fn, .readout-bubble .bubble-num { font-style: normal; font-weight: 500; }
+.readout-bubble .bubble-fn { padding-bottom: 1px; }
+.readout-bubble .bubble-num { padding-top: 1px; }
+.readout-bubble::after {
+  content: ""; position: absolute; left: 16%; right: 16%; top: 50%;
+  border-top: 1px solid var(--line-strong);
+}
+.readout.is-anomaly .readout-bubble { border-color: var(--ai-accent); color: var(--ai-accent); }
+
 .readout-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-xl); font-weight: 500; line-height: 1.1; color: var(--live-data); }
 .readout-unit { margin-left: 4px; font-size: var(--text-caption); color: var(--text-muted); font-family: var(--font-ui); }
 .readout.is-stale { border-style: dashed; }
 .readout.is-stale .readout-value { color: var(--text-muted); font-size: var(--text-md); }
 .readout.is-alarm { border-color: var(--sev-critical); box-shadow: inset 3px 0 0 var(--sev-critical); }
+/* anomaly = violet underline + halo, deliberately NOT an alarm hue */
+.readout.is-anomaly { box-shadow: inset 0 -3px 0 var(--ai-accent), 0 0 10px var(--ai-ribbon); }
+.readout.is-alarm.is-anomaly { box-shadow: inset 3px 0 0 var(--sev-critical), inset 0 -3px 0 var(--ai-accent), 0 0 10px var(--ai-ribbon); }
 .readout-state { gap: 6px; }
 
 .schematic-hint { display: flex; align-items: center; gap: var(--space-2); color: var(--text-muted); font-size: var(--text-label); padding: 0 var(--space-4) var(--space-3); }

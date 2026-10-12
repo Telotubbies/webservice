@@ -1,13 +1,15 @@
 // Live process schematic of sorting line 1: drive motor → conveyor → vision
-// camera → gravel bin. Equipment is drawn in neutral greys; colour appears only
-// for abnormal state (ISA-101 informed). The drawing is SVG; readouts are HTML
-// overlays positioned in % so text never scales below the SDLC 07 floors.
+// camera → gravel bin. Equipment is shade-coded (running = light steel, idle =
+// dark, uninstrumented = mid); colour appears only for abnormal state — severity
+// glyphs on equipment, violet --ai-accent for open insights (ISA-101 informed).
+// The drawing is SVG; readouts are HTML overlays positioned in % so text never
+// scales below the SDLC 07 floors.
 
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { live, STALE_MS } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
-import { EQUIPMENT, SIGNALS, T, formatSignal, type EquipmentId } from '../../lib/plant';
+import { EQUIPMENT, SIGNALS, T, bubbleCode, formatSignal, type EquipmentId } from '../../lib/plant';
 import { Icon } from '../../shared/ui/Icon';
 import { normSeverity } from '../../shared/ui/Status';
 import './line.css';
@@ -21,17 +23,39 @@ function useSignal(name: string, now: number) {
   return { v, stale };
 }
 
-export function useEquipmentAlarm(id: EquipmentId): 'critical' | 'warning' | null {
+export interface EquipAlarm {
+  sev: 'critical' | 'warning';
+  /** at least one of this equipment's non-cleared alarms is still active
+   *  (unacked) → the alarm-marker glyph flashes at 1 Hz */
+  unacked: boolean;
+}
+
+export function useEquipmentAlarm(id: EquipmentId): EquipAlarm | null {
   useStore(() => live.alarmRev);
   const signals = EQUIPMENT.find((e) => e.id === id)?.signals ?? [];
   let worst: 'critical' | 'warning' | null = null;
+  let unacked = false;
   for (const a of live.alarms) {
     if (a.state === 'cleared' || !signals.includes(a.tag)) continue;
+    if (a.state === 'active') unacked = true;
     const s = normSeverity(a.severity);
-    if (s === 'critical') return 'critical';
-    if (s === 'warning') worst = 'warning';
+    if (s === 'critical') worst = 'critical';
+    else if (s === 'warning' && worst !== 'critical') worst = 'warning';
   }
-  return worst;
+  return worst ? { sev: worst, unacked } : null;
+}
+
+/** ISA-5.1-style instrument bubble: function letters over loop number,
+ *  separated by a hairline chord (CSS ::after). Display alias only — the
+ *  tag name remains the source of truth. */
+function Bubble({ tag }: { tag: string }) {
+  const [fn, num] = bubbleCode(tag).split('-');
+  return (
+    <span className="readout-bubble" aria-hidden>
+      <b className="bubble-fn">{fn}</b>
+      <i className="bubble-num">{num}</i>
+    </span>
+  );
 }
 
 function Readout({ name, x, y, align = 'center', now }: {
@@ -39,17 +63,22 @@ function Readout({ name, x, y, align = 'center', now }: {
 }) {
   const { t, i18n } = useTranslation();
   const { v, stale } = useSignal(name, now);
+  useStore(() => live.insightRev);
   const meta = SIGNALS[name];
   const alarm = live.alarms.some((a) => a.tag === name && a.state !== 'cleared');
+  const anomaly = live.insights.some((i) => i.tag === name && i.state === 'open');
   return (
     <div
-      className={`readout readout-${align}${stale ? ' is-stale' : ''}${alarm ? ' is-alarm' : ''}`}
+      className={`readout readout-${align}${stale ? ' is-stale' : ''}${alarm ? ' is-alarm' : ''}${anomaly ? ' is-anomaly' : ''}`}
       style={{ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` }}
       data-signal={name}
     >
-      <span className="readout-label">
-        {t(meta?.labelKey ?? name)}
-        {meta?.stub && <span className="badge badge-stub" title={t('overview.stubTitle')}>{t('overview.stub')}</span>}
+      <span className="readout-head">
+        <Bubble tag={name} />
+        <span className="readout-label">
+          {t(meta?.labelKey ?? name)}
+          {meta?.stub && <span className="badge badge-stub" title={t('overview.stubTitle')}>{t('overview.stub')}</span>}
+        </span>
       </span>
       <span className="readout-value">
         {stale ? t('state.stale') : formatSignal(name, v?.v, i18n.language)}
@@ -59,9 +88,13 @@ function Readout({ name, x, y, align = 'center', now }: {
   );
 }
 
-function Equip({ id, selected, onSelect, alarm, label, children }: {
+function Equip({ id, selected, onSelect, alarm, anomaly, state, label, children }: {
   id: EquipmentId; selected?: boolean; onSelect?: (id: EquipmentId) => void;
-  alarm: 'critical' | 'warning' | null; label: string; children: ReactNode;
+  alarm: 'critical' | 'warning' | null; anomaly?: boolean;
+  /** shade coding: driven equipment is 'running' | 'idle'; uninstrumented or
+   *  passive equipment is 'manual' (mid-dark, never state-coloured) */
+  state: 'running' | 'idle' | 'manual';
+  label: string; children: ReactNode;
 }) {
   const interactive = !!onSelect;
   const onKey = (e: KeyboardEvent) => {
@@ -69,8 +102,9 @@ function Equip({ id, selected, onSelect, alarm, label, children }: {
   };
   return (
     <g
-      className={`equip${selected ? ' is-selected' : ''}${alarm ? ` has-${alarm}` : ''}${interactive ? ' is-interactive' : ''}`}
+      className={`equip${selected ? ' is-selected' : ''}${alarm ? ` has-${alarm}` : ''}${anomaly ? ' is-anomaly' : ''}${interactive ? ' is-interactive' : ''}`}
       data-equipment={id}
+      data-state={state}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
       aria-label={interactive ? label : undefined}
@@ -88,15 +122,26 @@ export function LineSchematic({ selected, onSelect, compact = false }: {
 }) {
   const { t } = useTranslation();
   useStore(() => live.version);
+  useStore(() => live.insightRev);
   const now = useNow(1000);
   const run = useSignal(T.running, now);
   const running = !run.stale && run.v?.v === true;
+  // driven equipment shade: stale running signal degrades to 'idle' (dark) —
+  // stale itself is a quality state, flagged by the STALE readout, not a fill.
+  const runState: 'running' | 'idle' = running ? 'running' : 'idle';
   const level = useSignal(T.binLevel, now);
   const levelPct = !level.stale && typeof level.v?.v === 'number' ? Math.max(0, Math.min(100, level.v.v)) : 0;
   const alarms = {
     motor: useEquipmentAlarm('motor'), conveyor: useEquipmentAlarm('conveyor'),
     camera: useEquipmentAlarm('camera'), bin: useEquipmentAlarm('bin'),
   };
+  // open insight on any of an equipment's signals → violet halo on the group
+  const anomalies = Object.fromEntries(
+    EQUIPMENT.map((e) => [
+      e.id,
+      e.signals.some((s) => live.insights.some((i) => i.tag === s && i.state === 'open')),
+    ]),
+  ) as Record<EquipmentId, boolean>;
 
   // bin geometry
   const binTop = 120, binBottom = 300, binH = binBottom - binTop;
@@ -116,7 +161,8 @@ export function LineSchematic({ selected, onSelect, compact = false }: {
         <path d="M30 318H1170" className="floor" />
 
         {/* ---------- motor ---------- */}
-        <Equip id="motor" label={t('line.motor')} selected={selected === 'motor'} onSelect={onSelect} alarm={alarms.motor}>
+        <Equip id="motor" label={t('line.motor')} selected={selected === 'motor'} onSelect={onSelect}
+          alarm={alarms.motor?.sev ?? null} anomaly={anomalies.motor} state={runState}>
           <rect x="60" y="176" width="130" height="90" rx="8" className="body hit" />
           <rect x="74" y="190" width="70" height="62" rx="4" className="detail" />
           <g className={`rotor${running ? ' spin' : ''}`} style={{ transformOrigin: '167px 221px' }}>
@@ -129,7 +175,8 @@ export function LineSchematic({ selected, onSelect, compact = false }: {
         </Equip>
 
         {/* ---------- conveyor ---------- */}
-        <Equip id="conveyor" label={t('line.conveyor')} selected={selected === 'conveyor'} onSelect={onSelect} alarm={alarms.conveyor}>
+        <Equip id="conveyor" label={t('line.conveyor')} selected={selected === 'conveyor'} onSelect={onSelect}
+          alarm={alarms.conveyor?.sev ?? null} anomaly={anomalies.conveyor} state={runState}>
           <rect x="230" y="200" width="660" height="42" rx="21" className="body hit" />
           <rect x="246" y="208" width="628" height="26" rx="13" className="belt" />
           <rect x="246" y="208" width="628" height="26" rx="13" fill="url(#belt-tread)" className={`belt-tread${running ? ' moving' : ''}`} />
@@ -144,7 +191,8 @@ export function LineSchematic({ selected, onSelect, compact = false }: {
         </Equip>
 
         {/* ---------- camera ---------- */}
-        <Equip id="camera" label={t('line.camera')} selected={selected === 'camera'} onSelect={onSelect} alarm={alarms.camera}>
+        <Equip id="camera" label={t('line.camera')} selected={selected === 'camera'} onSelect={onSelect}
+          alarm={alarms.camera?.sev ?? null} anomaly={anomalies.camera} state="manual">
           <path d="M600 92v30" className="leg" />
           <rect x="560" y="44" width="100" height="48" rx="8" className="body hit" />
           <circle cx="610" cy="68" r="13" className="detail" />
@@ -154,7 +202,8 @@ export function LineSchematic({ selected, onSelect, compact = false }: {
 
         {/* ---------- chute + bin ---------- */}
         <path d="M884 228q30 6 52 40" className="chute" />
-        <Equip id="bin" label={t('line.bin')} selected={selected === 'bin'} onSelect={onSelect} alarm={alarms.bin}>
+        <Equip id="bin" label={t('line.bin')} selected={selected === 'bin'} onSelect={onSelect}
+          alarm={alarms.bin?.sev ?? null} anomaly={anomalies.bin} state={runState}>
           <path d="M920 120h220l-30 180H950z" className="body hit" />
           <g clipPath="url(#bin-clip)">
             <rect x="900" y={fillY} width="260" height={binBottom - fillY + 2} className="fill" />
@@ -166,14 +215,24 @@ export function LineSchematic({ selected, onSelect, compact = false }: {
           <path d="M960 300v18M1100 300v18" className="leg" />
         </Equip>
 
-        {/* alarm markers (shape + colour, never colour alone) */}
-        {(Object.entries(alarms) as [EquipmentId, 'critical' | 'warning' | null][]).map(([id, sev]) => {
-          if (!sev) return null;
+        {/* alarm markers — shape-coded glyphs ▲ critical / ◆ warning
+            (shape + colour + flash, never colour alone) */}
+        {(Object.entries(alarms) as [EquipmentId, EquipAlarm | null][]).map(([id, a]) => {
+          if (!a) return null;
           const pos = { motor: [60, 160], conveyor: [230, 184], camera: [560, 28], bin: [920, 104] }[id];
           return (
-            <g key={id} className={`alarm-marker sev-${sev}`} transform={`translate(${pos[0]} ${pos[1]})`}>
-              <path d="M0 0 11 -19 22 0z" />
-              <path d="M11 -12v5M11 -3.5v.5" className="mark" />
+            <g key={id} className={`alarm-marker sev-${a.sev}${a.unacked ? ' is-unacked' : ''}`}
+              transform={`translate(${pos[0]} ${pos[1]})`} data-severity={a.sev}>
+              {a.sev === 'critical' ? (
+                <path d="M0 0 11 -19 22 0z" className="glyph" />
+              ) : (
+                <path d="M0 -9.5 11 -19 22 -9.5 11 0z" className="glyph" />
+              )}
+              {a.sev === 'critical' ? (
+                <path d="M11 -12v5M11 -3.5v.5" className="mark" />
+              ) : (
+                <path d="M11 -13.5v4.5M11 -6v.5" className="mark" />
+              )}
             </g>
           );
         })}
@@ -181,7 +240,10 @@ export function LineSchematic({ selected, onSelect, compact = false }: {
 
       <div className="readouts">
         <div className="readout readout-state" style={{ left: `${(125 / W) * 100}%`, top: `${(112 / H) * 100}%` }}>
-          <span className="readout-label">{t('line.motor')}</span>
+          <span className="readout-head">
+            <Bubble tag={T.running} />
+            <span className="readout-label">{t('line.motor')}</span>
+          </span>
           <span className={`state state-${run.stale ? 'stale' : running ? 'running' : 'stopped'}`}>
             <span className="glyph" aria-hidden />
             {t(`state.${run.stale ? 'stale' : running ? 'running' : 'stopped'}`)}
