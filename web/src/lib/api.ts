@@ -82,8 +82,6 @@ export const api = {
   tags: () => request<TagInfo[]>('/api/tags'),
   latestAll: () => request<(TagValue & { name: string })[]>('/api/tags/latest'),
   alarmRules: () => request<AlarmRule[]>('/api/alarm-rules'),
-  latest: (name: string) =>
-    request<TagValue & { name: string }>(`/api/tags/${encodeURIComponent(name)}/latest`),
   history: (name: string, params: { from?: string; to?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.from) q.set('from', params.from);
