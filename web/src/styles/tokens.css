@@ -135,7 +135,7 @@
   --touch:         44px;  /* WCAG minimum target */
   --touch-control: 48px;  /* anything that writes to equipment */
 
-  --sidebar-w: 48px;   /* v4 T11: 48px icon rail (was a 232px named sidebar) */
+  --sidebar-w: 72px;   /* v4 T11: 72px labeled compact rail (icon + caption) */
   --topbar-h:  56px;
 
   /* focus tier (v4 T11) — the ONLY glass in the app: faceplate / ⌘K palette /

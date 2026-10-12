@@ -47,28 +47,29 @@
 .kpi-head { display: flex; align-items: center; gap: var(--space-2); min-height: 26px; }
 .kpi-head h3 { font-size: var(--text-label); font-weight: 500; color: var(--text-secondary); flex: 1; }
 .ai-dot { color: var(--ai-accent); font-size: var(--text-caption); line-height: 1; }
-.kpi-value { display: flex; align-items: baseline; gap: 6px; }
+.kpi-value { display: flex; align-items: baseline; justify-content: center; gap: 6px; }
 .kpi-value .num { font-size: var(--text-display); font-weight: 500; line-height: 1; }
 .kpi.is-stale .kpi-value .num { color: var(--text-muted); }
 .kpi-unit { font-size: var(--text-md); color: var(--text-muted); }
 
-/* moving-analog band: track = full display range, normal zone between the
-   configured lo/hi edges, alarm zones shaded outside them. Pointer = PV,
-   tick = writable setpoint. */
-.kpi-band { position: relative; height: 10px; border-radius: var(--radius-sm); background: var(--bg-sunken); margin-top: var(--space-1); }
-.kpi-band-normal { position: absolute; top: 0; bottom: 0; border-radius: var(--radius-sm); background: var(--bg-raised); }
-.kpi-band-alarm { position: absolute; top: 0; bottom: 0; background: var(--sev-critical-soft); }
-/* PV-driven positions NEVER tween (motion grammar, SDLC 20 §3.0: tweening a
-   process value is dishonest) — the pointer and the SP tick snap instantly. */
-.kpi-pointer {
-  position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1.5px;
-  border-radius: var(--radius-sm); background: var(--text-primary);
-}
-.kpi.is-alarm .kpi-pointer { background: var(--sev-critical); }
-.kpi-sp-tick {
-  position: absolute; top: -5px; width: 2px; height: 6px; margin-left: -1px;
-  border-radius: 1px; background: var(--state-selected);
-}
+/* analog panel meter: 240° SVG scale. Zone bands ride the scale radius —
+   normal zone in raised-neutral steel between the configured lo/hi edges,
+   alarm zones as reserved-red arc segments outside them. Ticks sit outside
+   the track; the needle and the SP diamond SNAP to their values — PV-driven
+   positions NEVER tween (motion grammar, SDLC 20 §3.0). Token colors only. */
+.kpi-gauge { margin-top: var(--space-1); }
+.kpi-gauge .gauge { display: block; width: 100%; max-width: 180px; height: auto; margin: 0 auto; }
+.gauge-track { fill: none; stroke: var(--line-strong); stroke-width: 1.2; }
+.gauge-zone { fill: none; stroke-width: 5.5; }
+.gauge-zone-normal { stroke: var(--equip-detail); }
+.gauge-zone-alarm { stroke: var(--sev-critical); }
+.gauge-tick { stroke: var(--text-muted); stroke-width: 1; }
+.gauge-tick-major { stroke: var(--text-secondary); stroke-width: 1.6; }
+.gauge-needle { fill: var(--text-primary); }
+.kpi.is-alarm .gauge-needle { fill: var(--sev-critical); }
+.kpi.is-stale .gauge-needle { fill: var(--text-disabled); }
+.gauge-hub { fill: var(--bg-overlay); stroke: var(--line-strong); stroke-width: 1; }
+.gauge-sp { fill: var(--state-selected); }
 
 .kpi-spark { height: 40px; }
 .spark { display: block; width: 100%; height: 100%; }

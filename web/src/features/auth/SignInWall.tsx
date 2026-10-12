@@ -1,6 +1,8 @@
 // Sign-in wall (v4 T5) — the whole app sits behind this when unauthenticated.
-// Prod: SSO redirect only. Dev (APP_ENV=dev): the demo-token path stays for
-// UAT/local dev — token field + quick-role buttons.
+// Formal centered screen: brand mark + wordmark, one-line body, a prominent
+// SSO button; the dev-token path (APP_ENV=dev) stays visually subordinate —
+// divider, muted label, ghost buttons. A static ≤8%-alpha contour field sits
+// behind the card (CSS only — never the live canvas).
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -19,10 +21,13 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
   return (
     <div className="signin-wall">
       <div className="signin-card" role="main">
-        <div className="signin-brand">
-          <span className="brand-mark"><Icon name="plant" size={22} /></span>
-          <span className="signin-product">{t('shell.product')}</span>
-        </div>
+        <header className="signin-brand">
+          <span className="brand-mark signin-mark"><Icon name="plant" size={26} /></span>
+          <span className="signin-wordmark">
+            <span className="signin-product">Plant Ops OS</span>
+            <span className="signin-product-sub">{t('shell.product')}</span>
+          </span>
+        </header>
         <h1 className="signin-title">{t('auth.wallTitle')}</h1>
         <p className="signin-body muted">
           {denied ? t('auth.denied') : t('auth.wallBody')}
@@ -48,11 +53,11 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
               </button>
             </div>
             <div className="dev-signin-row">
-              <button type="button" className="btn btn-ghost dev-signin-op"
+              <button type="button" className="btn btn-ghost btn-sm dev-signin-op"
                       onClick={() => signIn('demo-operator')}>
                 {t('auth.devOperator')}
               </button>
-              <button type="button" className="btn btn-ghost dev-signin-viewer"
+              <button type="button" className="btn btn-ghost btn-sm dev-signin-viewer"
                       onClick={() => signIn('demo-viewer')}>
                 {t('auth.devViewer')}
               </button>
@@ -61,6 +66,7 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
           </form>
         )}
       </div>
+      <span className="signin-foot dim" aria-hidden>Plant 1 · v0.2</span>
     </div>
   );
 }

@@ -42,8 +42,8 @@ function TileSkeleton() {
   return (
     <article className="kpi tile-skel" aria-hidden>
       <header className="kpi-head"><Skeleton w="55%" h={14} /></header>
-      <p className="kpi-value"><Skeleton w={96} h={32} /></p>
-      <div className="kpi-band"><Skeleton h={10} /></div>
+      <div className="kpi-gauge"><Skeleton h={86} /></div>
+      <p className="kpi-value"><Skeleton w={96} h={28} /></p>
       <div className="kpi-spark"><Skeleton h={40} /></div>
     </article>
   );
@@ -72,9 +72,7 @@ export function OverviewPage() {
         <header className="context-bar">
           <h1 className="context-title">{t('overview.title')}</h1>
           <span className="context-sub">{t('overview.lede')}</span>
-          <div className="context-actions">
-            <Link to="/line" className="btn btn-sm">{t('overview.openLine')}</Link>
-          </div>
+          {/* no "open line view" CTA — the rail nav + clickable mimic cover it */}
         </header>
 
         <InsightRail />
