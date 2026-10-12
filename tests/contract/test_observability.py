@@ -46,9 +46,21 @@ def _app() -> FastAPI:
     def _cmd():
         return {"command_id": "x"}
 
+    @app.get("/api/health")
+    def _health():
+        return {"status": "ok"}
+
+    @app.get("/readyz")
+    def _ready():
+        return {"status": "ready"}
+
     @app.get("/metrics")
     def _metrics():
         return metrics_response()
+
+    @app.get("/boom")
+    def _boom():
+        raise RuntimeError("unhandled")
 
     app.add_middleware(ObservabilityMiddleware)
     return app
@@ -123,6 +135,24 @@ def test_access_log_never_contains_secret_material(caplog):
         assert "Bearer" not in blob
 
 
+def test_access_log_suppresses_probe_routes(caplog):
+    """Health/metrics probes stay in the metrics stream but must not spam
+    the access log (15 s healthchecks + scrapes dominate otherwise)."""
+    c = TestClient(_app())
+    with caplog.at_level(logging.INFO, logger="backend.access"):
+        c.get("/api/health")
+        c.get("/readyz")
+        c.get("/metrics")
+        c.get("/api/tags/x/latest")   # a real request, for contrast
+    recs = _access_records(caplog)
+    assert len(recs) == 1
+    assert recs[0].route == "/api/tags/{name:path}/latest"
+    # …but every one of them is still counted in the metrics
+    text = generate_latest().decode()
+    assert 'route="/api/health"' in text
+    assert 'route="/readyz"' in text
+
+
 def test_redact_scrubs_known_secret_shapes():
     for s in (
         f"token={SECRET}",
@@ -169,8 +199,30 @@ def test_metrics_endpoint_shape():
     assert "# HELP" in r.text or "wds_http_requests_total" in r.text
 
 
+def test_metrics_method_label_allowlist():
+    """A sprayed method must land on method="other" — no per-garbage-token
+    series (label cardinality guard)."""
+    c = TestClient(_app())
+    assert c.request("SPRAY", "/api/tags/x/latest").status_code == 405
+    assert c.request("FUZZ-BOMB", "/api/health").status_code == 405
+    text = generate_latest().decode()
+    assert 'method="other"' in text
+    assert 'method="SPRAY"' not in text
+    assert 'method="FUZZ-BOMB"' not in text
+
+
 def test_route_template_unmatched_without_route():
     assert route_template({"type": "http"}) == "unmatched"
+
+
+def test_unhandled_exception_keeps_request_id_header():
+    """500s built past the endpoint still echo the request-id: the
+    middleware emits the response start itself on an unhandled raise
+    (ServerErrorMiddleware then skips its own body — response_started)."""
+    c = TestClient(_app(), raise_server_exceptions=False)
+    r = c.get("/boom")
+    assert r.status_code == 500
+    assert r.headers.get("x-request-id")
 
 
 # ------------------------------------------------------------ docs gating

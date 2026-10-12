@@ -567,8 +567,11 @@ async def metrics():
 
 async def _db_up(s: State) -> bool:
     try:
-        async with s.pools.app.acquire() as conn:
-            await conn.fetchval("SELECT 1")
+        # Bounded wait — under pool saturation the probe must answer
+        # down/503, not hang (T8 review).
+        async with asyncio.timeout(5):
+            async with s.pools.app.acquire() as conn:
+                await conn.fetchval("SELECT 1")
         return True
     except Exception:  # noqa: BLE001
         return False

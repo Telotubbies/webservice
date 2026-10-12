@@ -23,6 +23,7 @@ docker-network layer if a metrics service is added.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import ipaddress
 import logging
@@ -209,6 +210,19 @@ def _request_id(scope: Scope) -> str:
     return uuid.uuid4().hex
 
 
+# Metric label cardinality guard: only the real verbs get their own series —
+# a sprayed method (curl -X FOO / FUZZ / ...) must not mint a new
+# {method,route,status} series per garbage token (T8 review: label bombs cost
+# registry memory + scrape time). The raw method still goes to the log line.
+_METHOD_LABELS = frozenset(
+    {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+
+# Machine probes are counted in metrics (they're real traffic signal) but
+# suppressed in the access log — the 15 s compose healthcheck and every
+# scrape would otherwise dominate the JSON stream with zero-info lines.
+_PROBE_ROUTES = frozenset({"/api/health", "/healthz", "/readyz", "/metrics"})
+
+
 class ObservabilityMiddleware:
     """Pure-ASGI middleware (mounted outermost): request-id propagation,
     JSON access log, HTTP metrics. WS scopes pass through untouched — the
@@ -226,10 +240,12 @@ class ObservabilityMiddleware:
         rid = _request_id(scope)
         scope["request_id"] = rid  # handlers may read request.scope["request_id"]
         status = 500               # exception before/at response start
+        started = False
 
         async def send_wrapped(message: Message) -> None:
-            nonlocal status
+            nonlocal status, started
             if message["type"] == "http.response.start":
+                started = True
                 status = int(message["status"])
                 headers = message.setdefault("headers", [])
                 headers.append((b"x-request-id", rid.encode("latin-1")))
@@ -237,6 +253,23 @@ class ObservabilityMiddleware:
 
         try:
             await self.app(scope, receive, send_wrapped)
+        except Exception:
+            if not started:
+                # The outer ServerErrorMiddleware builds the 500 body but
+                # skips it once response_started is set — emit the response
+                # start ourselves so the request-id echo survives an
+                # unhandled exception, then let it finish (raise -> its
+                # traceback logging path).
+                try:
+                    await send_wrapped({
+                        "type": "http.response.start", "status": 500,
+                        "headers": [(b"content-type", b"text/plain; charset=utf-8")],
+                    })
+                    await send({"type": "http.response.body",
+                                "body": b"Internal Server Error"})
+                except Exception:  # noqa: BLE001 — client gone; still raise
+                    pass
+            raise
         finally:
             self._record(scope, t0, rid, status)
 
@@ -244,8 +277,13 @@ class ObservabilityMiddleware:
         latency_ms = round((time.monotonic() - t0) * 1000.0, 1)
         route = route_template(scope)
         method = scope.get("method", "?")
-        HTTP_REQUESTS.labels(method=method, route=route, status=str(status)).inc()
-        HTTP_LATENCY.labels(method=method, route=route).observe(latency_ms / 1000.0)
+        method_label = method if method in _METHOD_LABELS else "other"
+        HTTP_REQUESTS.labels(method=method_label, route=route,
+                             status=str(status)).inc()
+        HTTP_LATENCY.labels(method=method_label, route=route).observe(
+            latency_ms / 1000.0)
+        if route in _PROBE_ROUTES:
+            return  # counted in metrics; too noisy for the access log
         fields = {
             "method": method,
             "route": route,
@@ -298,8 +336,11 @@ async def migration_at_head(pool) -> tuple[bool, str]:
     if head is None:
         return False, "head_unreadable"
     try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch("SELECT version_num FROM alembic_version")
+        # Bounded wait: under pool saturation /readyz must answer 503, not
+        # hang the probe (T8 review).
+        async with asyncio.timeout(5):
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("SELECT version_num FROM alembic_version")
     except Exception:  # noqa: BLE001
         return False, "version_table_unreadable"
     versions = {r["version_num"] for r in rows}
