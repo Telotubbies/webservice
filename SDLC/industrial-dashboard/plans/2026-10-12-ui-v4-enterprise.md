@@ -38,8 +38,9 @@ Inputs/failure modes the spec implies that could ship broken:
 
 **Files:** Modify `web/src/styles/tokens.css`, `web/src/styles/base.css`; maybe `web/scripts/check-tokens.mjs`.
 
-- [ ] Retune existing ladder values (canvas ~`#0D0F12`, +3% per raise), hairline `--line`, 3-level fg ramp — NO renames.
-- [ ] Add `--accent: #5E6AD2` (brand indigo — nav-active/CTA only, never data); keep `--state-selected` cyan as the single selection color; confirm `--series-*`, `--sev-*`, `--ai-*` unchanged semantics.
+- [ ] Retune existing ladder values (canvas ~`#0D0F12`, +3% per raise), hairline `--line`, 3-level fg ramp — NO renames. Author values via OKLCH (note the OKLCH source in comments); emit hex. Off-white fg ~87%, not pure #fff (halation).
+- [ ] Merge `--live-data`+`--state-selected` → one phosphor-cyan "live" color (canonical name + alias); add `--accent: #5E6AD2` (brand indigo — nav/CTA only, never data); `--series-*`, `--sev-*`, `--ai-*` unchanged semantics.
+- [ ] Motion tokens: `--dur-micro:120ms`, `--dur-ui:200ms`, `--dur-state:300ms`, `--dur-settle:600ms`, `--ease-in:cubic-bezier(.5,0,.75,0)`, `--spring:linear(0,.6,1.12,.96,1.02,1)`.
 - [ ] `font-variant-numeric: tabular-nums` on metric cells/values; table rows 28–32px; radius ≤4px everywhere (audit component css).
 - [ ] Optional (<30 lines): contrast-floor assert in check-tokens.mjs for `--fg` on `--bg-canvas`; else document manual check.
 - [ ] Gates: `npm run check`, `tsc`, build, rebuild web, UAT ≥41; screenshot diff vs v3 (both live in /tmp/shots).
@@ -141,17 +142,28 @@ Inputs/failure modes the spec implies that could ship broken:
 - [ ] Operator+ gating (session.ts); UAT: admin nav hidden for viewer, CRUD roundtrip works.
 - [ ] Gates + commit `feat(admin): org/site/rule/user admin + audit export`.
 
-### Task 11: Frontend enterprise polish
+### Task 11: Mission Surface chrome (ambient tier + shell cuts)
 
-**Files:** `App.tsx` (router `errorElement` + ErrorBoundary), `web/src/shared/ui/` (Skeleton, EmptyState, `CommandPalette` ⌘K), `Shell.tsx` (kiosk `?kiosk=1` hides chrome + inert controls, `?` help overlay), i18n.
+**Files:** Create `web/src/features/overview/AmbientField.tsx` + supporting canvas logic; modify `Shell.tsx` (sidebar → 48px icon rail with labels on hover, ⌘K opens palette), `OverviewPage.tsx`/`overview.css` (cut duplicated InsightFeed + EquipmentList — rail + schematic already represent them; page h1+lede → single context bar), `tokens.css` consumers for the three-tier depth stack (focus tier glass only), i18n.
+
+- [ ] AmbientField: fullscreen canvas under content on `/`; isobar/contour field from `live.alarms`/`live.insights` state — luminance channel only, ≤10% alpha, smooth continuous drift, no discrete onsets; unacked critical suppresses motion; `prefers-reduced-motion` + persisted `calm` class toggle → static contour plot; render only when visible (IntersectionObserver/visibilitychange).
+- [ ] Focus-tier glass: faceplate/⌘K/dialogs get backdrop-blur ~72% over dimmed ops plane; alarm surfaces NEVER glass.
+- [ ] Icon-rail sidebar: 48px, icon-only + tooltip/label, active = `--accent`; nav still keyboard-reachable; ⌘K is primary nav.
+- [ ] UAT: `.side-nav .tab` selectors preserved (icon rail keeps classes), mobile nav unchanged (5 tabs), overview insight rail still present.
+- [ ] Gates + commit `feat(web): mission-surface ambient tier + icon rail + surface cuts`.
+
+### Task 12: Frontend enterprise polish
+
+**Files:** `App.tsx` (router `errorElement` + ErrorBoundary), `web/src/shared/ui/` (Skeleton, EmptyState, `CommandPalette` ⌘K), `Shell.tsx` (kiosk `?kiosk=1` hides chrome + inert controls, `?` help overlay), faceplate mount-once for exit animation (Faceplate.tsx conditional-unmount fix), i18n.
 
 - [ ] ⌘K palette: nav jump + tag/equipment jump (opens faceplate); fuzzy filter; Esc closes; `?` overlay lists shortcuts.
+- [ ] Motion pass: insight chip arrive+confidence-settle, alarm ack (blink stops instantly), equipment shade crossfade 300ms, faceplate slide with mounted exit, command lifecycle spring dots, FLIP reorder on rail — all per motion grammar tokens; PVs never tween.
 - [ ] Skeletons for first-load panels (shaped, no spinners); cause-specific empties (cold-start vs filtered vs denied).
-- [ ] Kiosk mode: `?kiosk=1` on `/` hides nav/topbar chrome, controls inert, wallboard-clean.
+- [ ] Kiosk mode: `?kiosk=1` on `/` hides nav/topbar chrome, controls inert, wallboard-clean (doubles as Andon).
 - [ ] ErrorBoundary per-route + global; deliberate crash test → recovery UI not blank.
-- [ ] Gates + commit `feat(web): command palette, kiosk, error boundaries, state polish`.
+- [ ] Gates + commit `feat(web): command palette, kiosk, error boundaries, motion grammar`.
 
-### Task 12: Security + performance verification suite
+### Task 13: Security + performance verification suite
 
 **Files:** Create `tests/security/` (repeatable scripts asserting pass/fail, run against the live stack) and `tests/perf/` (load harness); `Makefile` targets `test-security`, `test-perf`; a doc-18-style results appendix in `SDLC/industrial-dashboard/15-verification-log.md` (or sibling).
 
@@ -162,7 +174,7 @@ Inputs/failure modes the spec implies that could ship broken:
 - [ ] Results recorded in the verification log; failures become findings to fix or documented accepted-risk.
 - [ ] Commit `test(ops): security + performance verification suite`.
 
-### Task 13: Final gate + whole-branch review
+### Task 14: Final gate + whole-branch review
 
 - [ ] All suites: contract, integration, tenancy, db, security, perf, UAT, `npm run check`/tsc/build.
 - [ ] Fresh `docker compose` rebuild from clean; restore drill artifact in doc 15 present.

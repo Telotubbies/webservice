@@ -64,6 +64,45 @@ missing, no frontend error boundary. Full list in §5.3.
 
 ## 3. Design decisions (my calls unless marked)
 
+### 3.0 Design direction — "Mission Surface" (adopted from designer panel + lit review)
+
+The page is not a wall of widgets — it's a dark room that quietly *is* the
+plant. Full grounding: `22-design-literature.md`.
+
+- **Ambient Tier**: canvas under all content paints a live **isobar/contour
+  field** derived from telemetry (alarm sources → contours tighten + warm
+  locally at ≤10% alpha; stale data → field stills). Luminance-channel only,
+  smooth continuous drift ≥30Hz-equivalent (no discrete onsets — attention
+  capture), pattern-not-values, carries "important but not critical" state
+  only (Pousman & Stasko). Unacked critical alarm suppresses ambient motion.
+  `prefers-reduced-motion` + "calm mode" toggle freeze it to static.
+- **Three depth tiers**: ambient (never interactive) → ops plane (matte,
+  hairline — current discipline) → focus tier (faceplate/⌘K/dialogs = the
+  ONLY glass, ~72% backdrop blur over dimmed ops plane: translucency =
+  attention signal).
+- **Phosphor cyan**: merge `--live-data`+`--state-selected` into one "live"
+  color (PV numerals, selection, field neutral line).
+- **Motion grammar** (motion-director spec): `--dur-micro:120ms`,
+  `--dur-ui:200ms`, `--dur-state:300ms`, `--dur-settle:600ms`,
+  `--spring:linear(0,.6,1.12,.96,1.02,1)`; state crossfades never hue-flash;
+  PVs never tween (dishonest); insight chips get a 600ms "confidence settle";
+  one motion per surface per moment.
+- **Cuts**: sidebar → 48px icon rail (⌘K-first nav); drop duplicated
+  InsightFeed + EquipmentList panels on overview (rail + schematic already
+  represent them); triple alarm surface → strip + field pressure; per-page
+  h1+lede → single context bar.
+- **Logo**: geometric angular mark, ink/indigo only, "PO" monogram or full
+  wordmark (never "POS") — brief in doc 22 §1. Mark design deferred to a
+  dedicated task; v4 ships a minimal glyph placeholder.
+- **Palette engineering**: token values authored in OKLCH then emitted as
+  hex (doc 22 §2); checker gains contrast-pair + reserved-hue enforcement
+  if cheap.
+- **Hard red-zones** (credibility keeper, binding): alarm hue reservation,
+  shape+color redundancy, 1Hz unacked pulse, shade-state encoding, font
+  floors, ≥48px destructive controls, nothing decorative above alarm
+  priority in the visual stack. Glass NEVER on alarm banners/faceplate
+  content — only the dimming context behind focus tier.
+
 ### 3.1 Palette — "Foundry" (formal-modern, research-derived)
 
 Linear-ladder structure applied to our existing ISA-101 neutral base — the
