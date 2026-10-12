@@ -209,7 +209,7 @@ export function TrendsPage({ tags }: { tags: TagInfo[] }) {
 
     return () => { cancelled = true; unsub?.(); ro?.disconnect(); u?.destroy(); chartRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, attempt]);
+  }, [key, win, attempt]);
 
   const zoomRef = useRef(false);
   zoomRef.current = zoomed;
