@@ -39,7 +39,10 @@ async function getAlarms(state) {
 console.log('stopping edge-bridge...');
 execSync('docker compose -f /home/supawich/Desktop/webservice/docker-compose.yml stop edge-bridge');
 
-const browser = await chromium.launch({ executablePath: '/home/supawich/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell' });
+// PW_EXECUTABLE pins a browser path when the default revision isn't
+// installed; otherwise playwright resolves the matching browser itself.
+const browser = await chromium.launch(process.env.PW_EXECUTABLE
+  ? { executablePath: process.env.PW_EXECUTABLE } : {});
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 

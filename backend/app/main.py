@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, 
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from . import config
@@ -186,6 +186,10 @@ class State:
                                        config.RATE_COMMANDS_WINDOW_S)
         self.mutation_limiter = RateLimiter(config.RATE_MUTATIONS_PER_USER,
                                             config.RATE_MUTATIONS_WINDOW_S)
+        # backchannel logout is an unauthenticated JWKS-verified endpoint —
+        # each forged attempt burns a JWKS verify; keep a tight per-IP bucket
+        self.logout_limiter = RateLimiter(config.RATE_LOGOUT_PER_IP,
+                                          config.RATE_LOGOUT_WINDOW_S)
         self.commands = CommandManager(pools, self.ws, self.mqtt, self.registry,
                                        cmd_limiter=self.cmd_limiter)
         self.alarms = AlarmEngine(pools, self.ws, self.registry)
@@ -513,6 +517,13 @@ async def backchannel_logout(request: Request):
     `logout_token` (form-encoded); we verify it as an RS256 JWT with
     aud=wds-web, the backchannel event claim and NO nonce, then revoke the
     session — revoked_sessions + wds_authz NOTIFY -> ≤5s effect."""
+    # unauthenticated + JWKS-verified → each forged attempt burns a verify;
+    # tight per-IP bucket before any work
+    ip = _client_ip(request)
+    if not await st(request).logout_limiter.allow(ip):
+        retry = await st(request).logout_limiter.retry_after(ip)
+        return Response(status_code=429,
+                        headers={"Retry-After": str(max(1, int(retry + 0.999)))})
     content_type = request.headers.get("content-type", "")
     token = None
     if "application/x-www-form-urlencoded" in content_type:
@@ -734,26 +745,31 @@ async def system_health(request: Request,
 # ---------------------------------------------------------------------------
 # WebSocket (v1)
 # ---------------------------------------------------------------------------
-def _client_ip(ws: WebSocket) -> str:
-    """Client IP for the per-IP cap.
-
-    X-Real-IP is trusted only when the peer sits on the private/loopback
-    compose network — the only ingresses are nginx and direct hits on the
-    127.0.0.1-published port. nginx OVERWRITES X-Real-IP with $remote_addr
-    (no client-controlled append, unlike XFF which $proxy_add_x_forwarded_for
-    extends after the client-supplied prefix — its first element is
-    attacker-controlled and must not key the bucket).
-    Residual: a client already on the docker/loopback net can spoof
-    X-Real-IP on a direct hit; closing that needs a TRUSTED_PROXIES
-    allowlist — lands with T5.
-    """
-    peer = ws.client.host if ws.client else ""
+def _trusted_peer(peer: str) -> bool:
+    """May this peer set X-Real-IP? Loopback (direct hits on the published
+    port, compose-internal is published to 127.0.0.1 only) or a configured
+    TRUSTED_PROXIES CIDR — the compose network pins the nginx container and
+    names it, so a random docker-network peer can't spoof client IPs."""
     try:
-        private_peer = ipaddress.ip_address(peer).is_private
+        ip = ipaddress.ip_address(peer)
     except ValueError:
-        private_peer = False
-    if private_peer:
-        rip = ws.headers.get("x-real-ip")
+        return False
+    if ip.is_loopback:
+        return True
+    return any(ip in net for net in config.TRUSTED_PROXIES)
+
+
+def _client_ip(conn) -> str:
+    """Client IP for per-IP buckets (WS cap, backchannel limiter).
+
+    X-Real-IP is trusted only from _trusted_peer() — nginx OVERWRITES it
+    with $remote_addr (no client-controlled append, unlike XFF which
+    $proxy_add_x_forwarded_for extends after the client-supplied prefix —
+    its first element is attacker-controlled and must not key the bucket).
+    """
+    peer = conn.client.host if conn.client else ""
+    if peer and _trusted_peer(peer):
+        rip = conn.headers.get("x-real-ip")
         if rip:
             return rip.strip()
     return peer or "unknown"

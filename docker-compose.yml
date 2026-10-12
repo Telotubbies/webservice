@@ -65,9 +65,10 @@ services:
   # OIDC provider (v4 T5, ADR-12). Realm `wds` is imported at startup from
   # infra/keycloak/realm-wds.json — no credentials live in the artifact;
   # `make seed-dev` sets the demo user passwords + org memberships.
-  # KC_HOSTNAME is the WEB origin (nginx proxies /realms/ + /resources/ +
-  # /admin/ to this service) so issuer == browser authority == backend's
-  # expected iss — the same URL on every hop.
+  # KC_HOSTNAME is the WEB origin (nginx proxies ONLY /realms/wds/ +
+  # /resources/ to this service — admin console + master realm stay on this
+  # loopback port, T5 review F1) so issuer == browser authority ==
+  # backend's expected iss — the same URL on every hop.
   keycloak:
     image: quay.io/keycloak/keycloak:26.4
     command: ["start-dev", "--import-realm"]
@@ -140,6 +141,11 @@ services:
       OIDC_AUDIENCE: "${OIDC_AUDIENCE:-wds-api}"
       OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-wds-web}"
       OIDC_JWKS_URI: "${OIDC_JWKS_URI:-http://keycloak:8080/realms/wds/protocol/openid-connect/certs}"
+      # T5 review F10 — X-Real-IP is trusted ONLY from loopback or these
+      # CIDRs. The default network is pinned (below) and `web` has a fixed
+      # address, so only the nginx container can claim client IPs — other
+      # docker-network peers can't spoof the /ws per-IP cap bucket.
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-172.30.10.10/32}"
       # seed_oidc (`make seed-dev`) — KC admin + demo-user password from env
       KC_INTERNAL_URL: "http://keycloak:8080"
       KC_ADMIN: "${KC_ADMIN:-admin}"
@@ -170,6 +176,11 @@ services:
     build: ./web
     ports:
       - "127.0.0.1:5173:80"
+    networks:
+      default:
+        # pinned so backend TRUSTED_PROXIES can name exactly this container
+        # (T5 review F10)
+        ipv4_address: 172.30.10.10
     depends_on:
       backend:
         condition: service_healthy
@@ -184,3 +195,12 @@ volumes:
   # Legacy v1 SQLite volume — kept read-only-in-spirit as the migration source
   # and rollback path (doc 18 §3). Nothing mounts it read-write any more.
   backend-data:
+
+# Pinned subnet (unused-by-default range) so `web`'s fixed address above is
+# deterministic — backend TRUSTED_PROXIES names it for X-Real-IP trust
+# (T5 review F10).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24

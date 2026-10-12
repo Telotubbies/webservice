@@ -13,10 +13,11 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:8000', changeOrigin: true },
       '/ws': { target: 'http://localhost:8000', ws: true, changeOrigin: true },
-      // same-origin Keycloak (v4 T5) — mirrors nginx.conf
-      '/realms': { target: 'http://localhost:8080', changeOrigin: true },
+      // same-origin Keycloak (v4 T5) — mirrors nginx.conf: ONLY the wds
+      // realm + login-theme assets; admin console and master realm stay on
+      // KC's own port (T5 review F1)
+      '/realms/wds': { target: 'http://localhost:8080', changeOrigin: true },
       '/resources': { target: 'http://localhost:8080', changeOrigin: true },
-      '/admin': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },
   preview: {
@@ -24,9 +25,8 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:8000', changeOrigin: true },
       '/ws': { target: 'http://localhost:8000', ws: true, changeOrigin: true },
-      '/realms': { target: 'http://localhost:8080', changeOrigin: true },
+      '/realms/wds': { target: 'http://localhost:8080', changeOrigin: true },
       '/resources': { target: 'http://localhost:8080', changeOrigin: true },
-      '/admin': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },
 });

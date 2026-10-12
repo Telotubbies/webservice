@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from uuid import UUID
 
@@ -28,6 +29,8 @@ RATE_COMMANDS_PER_TAG = int(os.environ.get("RATE_COMMANDS_PER_TAG", "5"))   # pe
 RATE_COMMANDS_WINDOW_S = float(os.environ.get("RATE_COMMANDS_WINDOW_S", "10"))
 RATE_MUTATIONS_PER_USER = int(os.environ.get("RATE_MUTATIONS_PER_USER", "60"))  # per window, per user
 RATE_MUTATIONS_WINDOW_S = float(os.environ.get("RATE_MUTATIONS_WINDOW_S", "60"))
+RATE_LOGOUT_PER_IP = int(os.environ.get("RATE_LOGOUT_PER_IP", "10"))
+RATE_LOGOUT_WINDOW_S = float(os.environ.get("RATE_LOGOUT_WINDOW_S", "60"))
 RATE_WS_PER_IP = int(os.environ.get("RATE_WS_PER_IP", "20"))                # concurrent /ws sockets per client IP
 
 # WS Origin allowlist (comma-separated origins, e.g. "https://ops.example.com").
@@ -55,8 +58,11 @@ OIDC_REALM = OIDC_ISSUER.rstrip("/").rsplit("/", 1)[-1]
 JWKS_TTL_S = float(os.environ.get("JWKS_TTL_S", "600"))        # ADR-12 §5
 JWKS_REFETCH_MIN_S = float(os.environ.get("JWKS_REFETCH_MIN_S", "30"))
 AUTHZ_TTL_S = float(os.environ.get("AUTHZ_TTL_S", "5"))        # ≤5s revocation SLA
+# X-Real-IP is trusted ONLY from loopback peers or these CIDRs — compose
+# pins the nginx container address and lists it here (docker-compose.yml).
 TRUSTED_PROXIES = [
-    ip.strip() for ip in os.environ.get("TRUSTED_PROXIES", "").split(",")
+    ipaddress.ip_network(ip.strip())
+    for ip in os.environ.get("TRUSTED_PROXIES", "").split(",")
     if ip.strip()
 ]
 

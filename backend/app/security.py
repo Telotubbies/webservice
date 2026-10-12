@@ -191,6 +191,8 @@ class Security:
             JwksCache(config.OIDC_JWKS_URI, ttl_s=config.JWKS_TTL_S,
                       refetch_min_s=config.JWKS_REFETCH_MIN_S))
         self._authz: dict[str, _AuthzRec] = {}
+        # unbounded in the worst case (IdP logouts for unique sessions) —
+        # TODO(T8): bound/evict with metrics when the hardening task lands
         self._revoked_sids: set[str] = set()
         self._authz_lock = asyncio.Lock()
         self._ws = ws  # WSManager, for NOTIFY-driven eviction
@@ -309,7 +311,12 @@ class Security:
 
     async def record_logout(self, claims: dict) -> None:
         """Write revoked_sessions + NOTIFY, then handle locally right away
-        (don't wait for the listener round-trip)."""
+        (don't wait for the listener round-trip).
+
+        NOTE(deferred F4): KC's logout_token always carries `sid`; a
+        sub-only token (no sid) would evict ALL of the user's sessions via
+        the sub fallback in _handle_ws_event — accepted until T12's
+        security suite re-examines it."""
         sid, sub = claims.get("sid"), claims.get("sub")
         async with global_tx(self.pools.app) as conn:
             if sid:
@@ -352,8 +359,12 @@ class Security:
             return
         for client in self._ws.clients():
             close = None
-            if sid and client.sid == sid:
-                close = 4401  # session revoked
+            if sid:
+                # sid present (backchannel logout always carries it) — evict
+                # ONLY that session; a sid+sub event must not kill the
+                # user's other live sessions
+                if client.sid == sid:
+                    close = 4401  # session revoked
             elif sub and client.sub == sub:
                 if etype in ("session_revoked", "user_disabled"):
                     close = 4401

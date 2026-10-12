@@ -165,6 +165,10 @@ WS burst ท่วม main thread คือปัญหาจริงที่ 
 - Revocation: `revoked_sessions(sid)` + `NOTIFY wds_authz` → มีผล ≤5 s ทั้ง
   REST (authz cache TTL) และ WS (evict 4401); back-channel logout ที่
   `POST /api/auth/backchannel-logout` (logout_token ต้องไม่มี `nonce`)
+- **Deferred (T5 review F3 → T12 security suite)**: mutation-Origin
+  enforcement ไม่เพิ่มใน T5 — bearer-token auth ทำให้ CSRF ไม่เป็น threat
+  หลักอยู่แล้ว (ไม่มี cookie-credential mutation); เพิ่มเป็น defense-in-depth
+  ตอน T12 ถ้าจำเป็น
 
 ### Token expiry กลาง WS session (ล็อกไว้ — JWT ~1 ชม. แต่ WS อยู่ได้เป็นวัน)
 
