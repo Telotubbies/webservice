@@ -30,3 +30,14 @@ HISTORY_FLUSH_S = 1.0
 HISTORY_FLUSH_ROWS = 500
 HEALTH_WATCHDOG_S = 2.0
 STALE_RULE_CHECK_S = 5.0
+
+# --- insight engine (doc 19 §4, UI v3) — periodic statistical inference ---
+INSIGHT_PERIOD_S = float(os.environ.get("INSIGHT_PERIOD_S", "15"))
+INSIGHT_BASE_S = float(os.environ.get("INSIGHT_BASE_S", "3600"))   # EWMA baseline window
+INSIGHT_EWMA_ALPHA = float(os.environ.get("INSIGHT_EWMA_ALPHA", "0.05"))
+INSIGHT_ANOM_Z = float(os.environ.get("INSIGHT_ANOM_Z", "3.0"))    # |z| open threshold
+INSIGHT_OPEN_N = int(os.environ.get("INSIGHT_OPEN_N", "3"))        # out-of-band streak to open
+INSIGHT_CLOSE_N = int(os.environ.get("INSIGHT_CLOSE_N", "5"))      # in-band streak to close
+INSIGHT_FLAT_S = float(os.environ.get("INSIGHT_FLAT_S", "300"))    # zero-variance window
+INSIGHT_FLAP_N = int(os.environ.get("INSIGHT_FLAP_N", "6"))        # quality transitions
+INSIGHT_FLAP_S = float(os.environ.get("INSIGHT_FLAP_S", "600"))    # flapping window

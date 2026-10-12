@@ -29,6 +29,7 @@ from . import config
 from .alarms import AlarmEngine
 from .auth import Principal, require_authenticated, require_operator, resolve_token
 from .commands import CommandManager
+from .insights import INSIGHT_KINDS, InsightEngine
 from .db.context import tenant_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
@@ -148,6 +149,7 @@ class State:
         self.registry = Registry(pools.system)
         self.commands = CommandManager(pools, self.ws, self.mqtt, self.registry)
         self.alarms = AlarmEngine(pools, self.ws, self.registry)
+        self.insights = InsightEngine(pools, self.ws, self.registry)
         self.history_buf: list[tuple] = []
         self.edge = {"last_rx": None, "last_heartbeat_ts": None, "clock_ok": None,
                      "adapter": None}
@@ -319,6 +321,7 @@ async def lifespan(app: FastAPI):
                                    "history flush")),
         asyncio.create_task(_every(config.STALE_RULE_CHECK_S, st.alarms.sweep_stale,
                                    "stale-rule sweep")),
+        asyncio.create_task(st.insights.run_forever()),
         asyncio.create_task(health_watchdog(st)),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
@@ -524,6 +527,35 @@ async def list_alarms(request: Request, status: str | None = Query(None),
                       limit: int = Query(100, ge=1, le=500)):
     async with v1_tx(request) as tc:
         return await st(request).alarms.list_alarms(tc, status, severity, limit)
+
+
+@app.get("/api/insights")
+async def list_insights(request: Request,
+                        state: str | None = Query(None),
+                        kind: str | None = Query(None),
+                        tag: str | None = Query(None),
+                        from_: str | None = Query(None, alias="from"),
+                        to: str | None = Query(None)):
+    """Engine-generated insights (doc 19 §4.3) — additive v1 endpoint.
+    Anonymous read, same policy as /api/alarms."""
+    s = st(request)
+    if state is not None and state not in ("open", "closed"):
+        raise HTTPException(400, "invalid_request")
+    if kind is not None and kind not in INSIGHT_KINDS:
+        raise HTTPException(400, "invalid_request")
+    tag_id = None
+    if tag is not None:
+        t = s.registry.by_v1_name(tag)
+        if t is None:
+            return []
+        tag_id = t.id
+    try:
+        t_from = parse_ts(from_) if from_ else None
+        t_to = parse_ts(to) if to else None
+    except ValueError:
+        raise HTTPException(400, "invalid_request") from None
+    async with v1_tx(request) as tc:
+        return await s.insights.list_insights(tc, state, kind, tag_id, t_from, t_to)
 
 
 @app.post("/api/alarms/{alarm_id}/ack")
