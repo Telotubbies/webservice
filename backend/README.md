@@ -44,7 +44,7 @@ docker run -p 8000:8000 -e MQTT_HOST=host.docker.internal idb-backend
 - missing/unknown → anonymous (GET allowed; POST → 401)
 
 Tokens are compared in constant time (`hmac.compare_digest`). In prod this is
-JWT verification (SDLC 06 §5). WS accepts `?token=` the same way.
+JWT verification (SDLC 06 §5). WS takes the same token in a first-frame `{"type":"auth"}` message (never `?token=` — query strings leak into logs).
 
 ## Command lifecycle
 

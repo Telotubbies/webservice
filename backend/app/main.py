@@ -36,7 +36,7 @@ from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .mqtt_client import MQTTBridge
 from .registry import Registry
 from .seed import DEMO_USERS, seed
-from .ws import WSManager
+from .ws import WSManager, WSAuthError, read_auth_token
 
 START_TIME = time.monotonic()
 
@@ -591,8 +591,22 @@ async def system_health(request: Request):
 # WebSocket (v1)
 # ---------------------------------------------------------------------------
 @app.websocket("/ws")
-async def ws_endpoint(ws: WebSocket, token: str | None = None):
+async def ws_endpoint(ws: WebSocket):
+    # First-frame auth (v4 T3): the token rides in the first client frame —
+    # {"type":"auth","token":"…"} — never ?token= in the URL, which leaked
+    # into access logs and proxy traces. An empty/absent token connects as
+    # anonymous (read-only) until T5 flips to authenticated-only; a non-empty
+    # token that doesn't resolve is an auth failure -> close 4401.
+    await ws.accept()
+    try:
+        token = await read_auth_token(ws)
+    except WSAuthError:
+        await ws.close(code=4401)
+        return
     p = resolve_token(token)
+    if token and not p.authenticated:
+        await ws.close(code=4401)
+        return
     manager: WSManager = ws.app.state.st.ws
     client = await manager.connect(ws, p.role)
     pump = asyncio.create_task(manager.pump(client))

@@ -64,7 +64,7 @@ Statuses: `issued|sent|acked|done|denied|failed|timeout`
 
 ## WebSocket `/ws`
 
-- `?token=` optional (anonymous = read-only). Events:
+- Connect, then send `{"type":"auth","token":"<token>"}` as the first frame within 5 s (v4 T3 — the token never rides in the URL, which leaked into access logs/proxy traces). Empty/absent `token` = anonymous read-only; an unresolvable token, a non-auth first frame, or timeout → close **4401**. Events:
   - `{"type":"tag","name","v","q","ts"}`
   - `{"type":"alarm", alarm object}` / `{"type":"alarm_update",...}`
   - `{"type":"command","command_id","status","tag","detail?"}`

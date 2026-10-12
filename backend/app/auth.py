@@ -50,7 +50,7 @@ class Principal:
 
 
 def resolve_token(token: str | None) -> Principal:
-    """Resolve a raw bearer token to a Principal (also used by /ws ?token=)."""
+    """Resolve a raw bearer token to a Principal (also used by /ws auth frame)."""
     if token:
         for known, role in TOKENS.items():
             if hmac.compare_digest(token, known):

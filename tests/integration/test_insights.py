@@ -165,6 +165,7 @@ async def _collect_ws(ws_url, duration_s, predicate=None):
     events = []
     try:
         async with websockets.connect(ws_url, open_timeout=10) as ws:
+            await ws.send(json.dumps({"type": "auth"}))  # first-frame auth (v4 T3)
             end = asyncio.get_event_loop().time() + duration_s
             while asyncio.get_event_loop().time() < end:
                 try:

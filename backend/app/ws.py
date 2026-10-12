@@ -14,12 +14,39 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
 log = logging.getLogger("backend.ws")
 
 QUEUE_MAX = 256
 _DROP_LOG_EVERY = 50
+AUTH_TIMEOUT_S = 5.0
+
+
+class WSAuthError(Exception):
+    """First frame wasn't a well-formed {"type":"auth"} message in time."""
+
+
+async def read_auth_token(ws: WebSocket) -> str:
+    """Read the first-frame auth message; returns the raw token ('' = anonymous).
+
+    The token moved out of `?token=` (v4 T3) — query strings end up in
+    access logs and proxy traces. Anything that isn't {"type":"auth"} on the
+    first frame — a data frame sent pre-auth, malformed JSON, or silence
+    past AUTH_TIMEOUT_S — raises WSAuthError; the endpoint closes 4401.
+    """
+    try:
+        raw = await asyncio.wait_for(ws.receive_text(), timeout=AUTH_TIMEOUT_S)
+    except (asyncio.TimeoutError, WebSocketDisconnect) as e:
+        raise WSAuthError("no auth frame") from e
+    try:
+        msg = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise WSAuthError("auth frame not JSON") from e
+    if not isinstance(msg, dict) or msg.get("type") != "auth":
+        raise WSAuthError("first frame not auth")
+    token = msg.get("token", "")
+    return token if isinstance(token, str) else ""
 
 
 @dataclass(eq=False)  # identity hash — instances live in a set
@@ -38,7 +65,8 @@ class WSManager:
         self.total_dropped = 0
 
     async def connect(self, ws: WebSocket, role: str) -> Client:
-        await ws.accept()
+        # the endpoint accepts before connect() — the socket must be open
+        # to read the first-frame auth handshake
         client = Client(ws=ws, role=role)
         async with self._lock:
             self._clients.add(client)

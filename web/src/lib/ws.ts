@@ -1,4 +1,6 @@
 // WebSocket client for /ws per CONTRACT.md:
+//  - first-frame auth: {"type":"auth","token":…} — never ?token= in the URL
+//    (query strings leak into access logs and proxy traces)
 //  - reconnect with exponential backoff + jitter
 //  - ring-buffered tag data + rAF flush (via live store)
 //  - handles auth_expired event + close code 4401 -> "session expired" banner
@@ -47,9 +49,7 @@ export function stopWS(): void {
 
 function wsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const token = getToken();
-  const qs = token ? `?token=${encodeURIComponent(token)}` : '';
-  return `${proto}://${location.host}/ws${qs}`;
+  return `${proto}://${location.host}/ws`;
 }
 
 function connect(): void {
@@ -59,6 +59,10 @@ function connect(): void {
   sock = s;
 
   s.onopen = () => {
+    // First-frame auth — the server closes 4401 if this doesn't arrive in
+    // its auth window or the token doesn't resolve. An empty token connects
+    // as anonymous (read-only) until the T5 sign-in wall.
+    s.send(JSON.stringify({ type: 'auth', token: getToken() }));
     attempt = 0;
     live.setWsState('open');
     // Resync open insights: insight events missed while disconnected would
