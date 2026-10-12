@@ -11,6 +11,7 @@ import { LinePage } from './features/line/LinePage';
 import { AlarmsPage } from './features/alarms/AlarmsPage';
 import { TrendsPage } from './features/trends/TrendsPage';
 import { TagsPage } from './features/tags/TagsPage';
+import { InsightsPage } from './features/insights/InsightsPage';
 import { CommandsPage } from './features/commands/CommandsPage';
 import { HealthPage } from './features/health/HealthPage';
 import { ErrorState } from './shared/ui/Feedback';
@@ -71,6 +72,7 @@ const router = createBrowserRouter([
       { path: 'line', element: <LinePage /> },
       { path: 'alarms', element: <AlarmsPage /> },
       { path: 'trends', element: <Root page={(tags) => <TrendsPage tags={tags} />} /> },
+      { path: 'insights', element: <InsightsPage /> },
       { path: 'tags', element: <Root page={(tags) => <TagsPage tags={tags} />} /> },
       { path: 'commands', element: <CommandsPage /> },
       { path: 'health', element: <HealthPage /> },

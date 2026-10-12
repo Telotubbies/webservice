@@ -96,9 +96,12 @@ const en = {
   },
   insights: {
     title: 'Insights', advisory: 'Advisory',
+    lede: 'Patterns the insight engine found in live tag history. Informational only — alarms remain the actionable channel.',
     kindAnomaly: 'Anomaly', kindDrift: 'Drift', kindFlatline: 'Flatline', kindFlapping: 'Flapping',
     score: 'Score', open: 'Open', closed: 'Closed',
     viewAll: 'View all', empty: 'No insights', openInTrends: 'Open in trends',
+    all: 'All', state: 'State', kind: 'Kind', severity: 'Severity', tag: 'Signal', window: 'Window',
+    emptyBody: 'The engine has not detected anomalies, drift, flatlines or quality flapping yet.',
   },
   faceplate: {
     title: 'Faceplate',
@@ -232,9 +235,12 @@ const th: Dict = {
   },
   insights: {
     title: 'อินไซต์', advisory: 'แจ้งให้ทราบ',
+    lede: 'รูปแบบที่กลไกอินไซต์พบจากประวัติสัญญาณแบบสด เป็นเพียงข้อมูล — สัญญาณเตือนยังเป็นช่องทางที่ต้องดำเนินการ',
     kindAnomaly: 'ความผิดปกติ', kindDrift: 'ค่าดริฟต์', kindFlatline: 'ค่านิ่งค้าง', kindFlapping: 'คุณภาพสลับถี่',
     score: 'คะแนน', open: 'เปิดอยู่', closed: 'ปิดแล้ว',
     viewAll: 'ดูทั้งหมด', empty: 'ไม่มีอินไซต์', openInTrends: 'เปิดในกราฟแนวโน้ม',
+    all: 'ทั้งหมด', state: 'สถานะ', kind: 'ชนิด', severity: 'ระดับ', tag: 'สัญญาณ', window: 'ช่วงเวลา',
+    emptyBody: 'กลไกยังไม่พบความผิดปกติ ค่าดริฟต์ ค่านิ่งค้าง หรือคุณภาพสลับถี่',
   },
   faceplate: {
     title: 'เฟสเพลต',

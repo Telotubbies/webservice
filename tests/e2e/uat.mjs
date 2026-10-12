@@ -123,6 +123,13 @@ try {
   await sleep(1500);
   ok('command panel renders', await page.locator('.cmd-panel').count() > 0);
   ok('command rows render', await page.locator('.cmd-row').count() > 0);
+
+  // ============ INSIGHTS feed (v3: Intelligence nav group) ============
+  ok('insights nav tab', await page.locator('a.tab[href="/insights"]').count() === 1);
+  await page.click('a.tab[href="/insights"]');
+  await sleep(1500);
+  ok('insights feed panel', await page.locator('.panel.insight-list').count() > 0);
+
   // edge was stopped for the alarm section; controls are (correctly) gated
   // while the edge is down — restart it and wait for the gate to open
   execSync('docker compose -f /home/supawich/Desktop/webservice/docker-compose.yml start edge-bridge');

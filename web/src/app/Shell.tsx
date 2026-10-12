@@ -17,16 +17,21 @@ const NAV: { group: string; items: { to: string; key: string; icon: IconName }[]
     { to: '/', key: 'nav.overview', icon: 'overview' },
     { to: '/line', key: 'nav.line', icon: 'line' },
     { to: '/trends', key: 'nav.trends', icon: 'trends' },
-    { to: '/alarms', key: 'nav.alarms', icon: 'alarm' },
   ] },
   { group: 'nav.operate', items: [
-    { to: '/tags', key: 'nav.tags', icon: 'tags' },
+    { to: '/alarms', key: 'nav.alarms', icon: 'alarm' },
     { to: '/commands', key: 'nav.commands', icon: 'commands' },
   ] },
-  { group: 'nav.system', items: [{ to: '/health', key: 'nav.health', icon: 'health' }] },
+  { group: 'nav.intelligence', items: [
+    { to: '/insights', key: 'nav.insights', icon: 'sparkle' },
+  ] },
+  { group: 'nav.system', items: [
+    { to: '/tags', key: 'nav.tags', icon: 'tags' },
+    { to: '/health', key: 'nav.health', icon: 'health' },
+  ] },
 ];
 
-const MOBILE = new Set(['/', '/alarms', '/trends', '/line']);
+const MOBILE = new Set(['/', '/alarms', '/trends', '/line', '/insights']);
 
 function LivePill() {
   const { t } = useTranslation();
