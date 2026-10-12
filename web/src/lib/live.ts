@@ -27,6 +27,13 @@ class LiveStore {
   sysHealth: SystemHealth | null = null;
   ws: WSState = 'connecting';
 
+  /** cold-start flags (v4 T12): false until the first REST seed lands —
+   *  pages show shaped skeletons before this, never an "empty" state that
+   *  would lie about the plant being quiet. */
+  tagsSeeded = false;
+  alarmsSeeded = false;
+  insightsSeeded = false;
+
   /** bumped on every flush that touched tag data */
   version = 0;
   alarmRev = 0;
@@ -65,6 +72,7 @@ class LiveStore {
 
   setTags(tags: TagInfo[]) {
     this.tags = tags;
+    this.tagsSeeded = true;
     this.tagRev++;
     this.poke();
   }
@@ -94,6 +102,7 @@ class LiveStore {
 
   setAlarms(alarms: Alarm[]) {
     this.alarms = alarms;
+    this.alarmsSeeded = true;
     this.alarmRev++;
     this.poke();
   }
@@ -110,6 +119,7 @@ class LiveStore {
 
   setInsights(insights: Insight[]) {
     this.insights = insights;
+    this.insightsSeeded = true;
     this.insightRev++;
     this.poke();
   }

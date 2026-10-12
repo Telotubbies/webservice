@@ -45,3 +45,19 @@ export function Notice({ tone = 'info', children, icon }: {
 export function Skeleton({ w = '100%', h = 16 }: { w?: number | string; h?: number }) {
   return <span className="skeleton" style={{ width: w, height: h }} aria-hidden />;
 }
+
+/** Shaped first-load placeholder for whole pages (v4 T12): context bar +
+ *  panel + row blocks — matches the page's structure, never a spinner. */
+export function PageSkeleton({ rows = 4 }: { rows?: number }) {
+  const { t } = useTranslation();
+  return (
+    <div className="page" role="status" aria-label={t('common.loading')}>
+      <div className="context-bar"><Skeleton w={200} h={20} /></div>
+      <section className="panel">
+        <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
+          {Array.from({ length: rows }, (_, i) => <Skeleton key={i} h={28} />)}
+        </div>
+      </section>
+    </div>
+  );
+}

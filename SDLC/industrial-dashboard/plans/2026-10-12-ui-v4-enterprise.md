@@ -156,12 +156,12 @@ Inputs/failure modes the spec implies that could ship broken:
 
 **Files:** `App.tsx` (router `errorElement` + ErrorBoundary), `web/src/shared/ui/` (Skeleton, EmptyState, `CommandPalette` ⌘K), `Shell.tsx` (kiosk `?kiosk=1` hides chrome + inert controls, `?` help overlay), faceplate mount-once for exit animation (Faceplate.tsx conditional-unmount fix), i18n.
 
-- [ ] ⌘K palette: nav jump + tag/equipment jump (opens faceplate); fuzzy filter; Esc closes; `?` overlay lists shortcuts.
-- [ ] Motion pass: insight chip arrive+confidence-settle, alarm ack (blink stops instantly), equipment shade crossfade 300ms, faceplate slide with mounted exit, command lifecycle spring dots, FLIP reorder on rail — all per motion grammar tokens; PVs never tween.
-- [ ] Skeletons for first-load panels (shaped, no spinners); cause-specific empties (cold-start vs filtered vs denied).
-- [ ] Kiosk mode: `?kiosk=1` on `/` hides nav/topbar chrome, controls inert, wallboard-clean (doubles as Andon).
-- [ ] ErrorBoundary per-route + global; deliberate crash test → recovery UI not blank.
-- [ ] Gates + commit `feat(web): command palette, kiosk, error boundaries, motion grammar`.
+- [x] ⌘K palette: nav jump + tag/equipment jump (opens faceplate); fuzzy filter; Esc closes; `?` overlay lists shortcuts.
+- [x] Motion pass: insight chip arrive+confidence-settle, alarm ack (blink stops instantly), equipment shade crossfade 300ms, faceplate slide with mounted exit, command lifecycle spring dots, FLIP reorder on rail — all per motion grammar tokens; PVs never tween.
+- [x] Skeletons for first-load panels (shaped, no spinners); cause-specific empties (cold-start vs filtered vs denied).
+- [x] Kiosk mode: `?kiosk=1` on `/` hides nav/topbar chrome, controls inert, wallboard-clean (doubles as Andon).
+- [x] ErrorBoundary per-route + global; deliberate crash test → recovery UI not blank.
+- [x] Gates + commit `feat(web): command palette, kiosk, error boundaries, motion grammar`.
 
 ### Task 13: Security + performance verification suite
 

@@ -15,7 +15,17 @@
   max-height: calc(100vh - var(--topbar-h)); overflow-y: auto;
   background: var(--focus-bg); border-left: 1px solid var(--line);
   backdrop-filter: blur(var(--focus-blur));
+  /* v4 T12 motion grammar: slide-in on --spring; exit stays MOUNTED for
+     --dur-ui and eases out on --ease-in (FaceplatePanel holds `rendered`
+     through the animation). Tag switches reuse the same node — no replay. */
+  animation: fp-in var(--dur-ui) var(--spring);
 }
+.faceplate.is-exit {
+  animation: fp-out var(--dur-ui) var(--ease-in) forwards;
+  pointer-events: none;
+}
+@keyframes fp-in { from { opacity: 0; transform: translateX(32px); } }
+@keyframes fp-out { to { opacity: 0; transform: translateX(32px); } }
 
 .fp-head { align-items: flex-start; }
 .fp-title { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }

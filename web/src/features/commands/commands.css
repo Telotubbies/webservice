@@ -1,6 +1,11 @@
 .cmd-result { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .cmd-result .lc-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid currentColor; }
 .cmd-result.is-ok { color: var(--ok); }
+/* terminal transitions pop the result dot in on the spring (v4 T12) —
+   the animation-name only exists on terminal tones so pending → done
+   re-triggers it exactly once. */
+.cmd-result.is-ok .lc-dot, .cmd-result.is-bad .lc-dot { animation: lc-pop var(--dur-ui) var(--spring) both; }
+@keyframes lc-pop { 0% { transform: scale(0.3); } 100% { transform: scale(1); } }
 .cmd-result.is-ok .lc-dot { background: currentColor; }
 .cmd-result.is-bad { color: var(--critical-text); }
 .cmd-result.is-pending { color: var(--accent-strong); }

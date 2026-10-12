@@ -69,7 +69,7 @@ a { color: var(--accent-strong); }
   min-height: var(--touch); padding: 0;
   border-radius: var(--radius); color: var(--text-secondary);
   text-decoration: none; font-size: var(--text-body);
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease);
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 /* active rail item = brand indigo (SDLC 20 §3.1: accent is nav/CTA only) */
@@ -240,7 +240,7 @@ a { color: var(--accent-strong); }
   border-radius: var(--radius); border: 1px solid var(--line-strong);
   background: var(--bg-raised); color: var(--text-primary);
   font-size: var(--text-body); font-weight: 500; cursor: pointer; white-space: nowrap;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition: background var(--dur-micro) var(--ease), border-color var(--dur-micro) var(--ease);
 }
 .btn:hover:not(:disabled) { background: var(--bg-hover); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -399,11 +399,29 @@ dialog.dialog::backdrop { background: var(--focus-dim); backdrop-filter: blur(4p
   border-radius: var(--radius); border: 1px solid var(--ai-accent);
   background: var(--ai-surface); color: var(--text-primary);
   font-size: var(--text-label); font-weight: 500; cursor: pointer; white-space: nowrap;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition: background var(--dur-micro) var(--ease), border-color var(--dur-micro) var(--ease);
+  /* arrive + confidence-settle (v4 T12): spring pop-in then the halo ring
+     decays over --dur-settle — the chip "earns" its place, once. */
+  animation: chip-settle var(--dur-settle) var(--spring);
+}
+@keyframes chip-settle {
+  0%   { opacity: 0; transform: scale(0.92); box-shadow: 0 0 0 3px var(--ai-ribbon); }
+  35%  { opacity: 1; }
+  100% { opacity: 1; transform: none; box-shadow: 0 0 0 0 transparent; }
 }
 .insight-chip:hover { background: var(--ai-ribbon); }
 .insight-chip .chip-glyph { color: var(--ai-accent); font-size: var(--text-caption); line-height: 1; }
 .insight-chip .chip-score { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ai-accent); }
+
+/* ============================================================= kiosk */
+/* ?kiosk=1 wallboard/Andon mode (v4 T12): the Shell drops the sidebar +
+   topbar and marks .main inert — pointer, keyboard AND screen-reader
+   interaction is suppressed. The pointer-events rule below is only the
+   no-inert fallback; nothing interactive may leak onto the wall. */
+.app.is-kiosk { grid-template-columns: minmax(0, 1fr); }
+.app.is-kiosk .main :is(a, button, input, select, textarea, [role="button"], [tabindex]) {
+  pointer-events: none;
+}
 
 /* ========================================================== too small */
 .too-small { min-height: 100%; display: grid; place-content: center; gap: var(--space-2); padding: var(--space-5); text-align: center; }

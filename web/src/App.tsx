@@ -25,7 +25,8 @@ import { AdminPage } from './features/admin/AdminPage';
 import { AlarmRulesPage } from './features/admin/AlarmRulesPage';
 import { UsersPage } from './features/admin/UsersPage';
 import { AuditPage } from './features/admin/AuditPage';
-import { ErrorState } from './shared/ui/Feedback';
+import { ErrorState, PageSkeleton } from './shared/ui/Feedback';
+import { CrashProbe, RouteBoundary, RouteError } from './shared/ui/ErrorBoundary';
 import type { TagInfo } from './types';
 
 // /line3d pulls in three (~160KB gz) — keep it out of the main chunk.
@@ -83,6 +84,8 @@ function useLiveBoot(tags: TagInfo[] | undefined) {
 function Root({ page }: { page: (tags: TagInfo[]) => JSX.Element }) {
   const q = useQuery({ queryKey: ['tags'], queryFn: api.tags, staleTime: 60_000 });
   if (q.isError) return <div className="page"><ErrorState onRetry={() => void q.refetch()} /></div>;
+  // cold-start: shaped skeleton, not an empty table (v4 T12)
+  if (q.isPending) return <PageSkeleton />;
   return page(q.data ?? []);
 }
 
@@ -135,28 +138,37 @@ function Boot() {
   return <AuthedApp />;
 }
 
+// Every page renders inside a route-level ErrorBoundary (v4 T12): a render
+// crash shows the recovery block in place and leaves the shell alive;
+// RouteError on the root is the last-resort catch for boot/lazy failures.
+const B = (el: JSX.Element) => <RouteBoundary>{el}</RouteBoundary>;
+
 const router = createBrowserRouter([
   {
     element: <Boot />,
+    errorElement: <RouteError />,
     children: [
-      { index: true, element: <OverviewPage /> },
-      { path: 'line', element: <LinePage /> },
-      { path: 'line3d', element: <Suspense fallback={<div className="page" />}><Line3DPage /></Suspense> },
-      { path: 'alarms', element: <AlarmsPage /> },
-      { path: 'trends', element: <Root page={(tags) => <TrendsPage tags={tags} />} /> },
-      { path: 'insights', element: <InsightsPage /> },
-      { path: 'tags', element: <Root page={(tags) => <TagsPage tags={tags} />} /> },
-      { path: 'commands', element: <CommandsPage /> },
-      { path: 'health', element: <HealthPage /> },
+      { index: true, element: B(<OverviewPage />) },
+      { path: 'line', element: B(<LinePage />) },
+      { path: 'line3d', element: B(<Suspense fallback={<PageSkeleton />}><Line3DPage /></Suspense>) },
+      { path: 'alarms', element: B(<AlarmsPage />) },
+      { path: 'trends', element: B(<Root page={(tags) => <TrendsPage tags={tags} />} />) },
+      { path: 'insights', element: B(<InsightsPage />) },
+      { path: 'tags', element: B(<Root page={(tags) => <TagsPage tags={tags} />} />) },
+      { path: 'commands', element: B(<CommandsPage />) },
+      { path: 'health', element: B(<HealthPage />) },
       // v4 T10 admin — role-gated inside the pages (nav hides them too)
-      { path: 'admin', element: <AdminPage /> },
-      { path: 'admin/rules', element: <AlarmRulesPage /> },
-      { path: 'admin/users', element: <UsersPage /> },
-      { path: 'admin/audit', element: <AuditPage /> },
+      { path: 'admin', element: B(<AdminPage />) },
+      { path: 'admin/rules', element: B(<AlarmRulesPage />) },
+      { path: 'admin/users', element: B(<UsersPage />) },
+      { path: 'admin/audit', element: B(<AuditPage />) },
+      // v4 T12 UAT hook — a route that throws on render so the boundary's
+      // recovery UI can be asserted end-to-end
+      { path: 'crash-test', element: B(<CrashProbe />) },
       // OIDC redirect targets — Boot handles them before the children render
       { path: 'auth/callback', element: null },
       { path: 'auth/silent-callback', element: null },
-      { path: '*', element: <OverviewPage /> },
+      { path: '*', element: B(<OverviewPage />) },
     ],
   },
 ]);

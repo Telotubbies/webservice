@@ -4,7 +4,7 @@
 // operable equipment gets controls; unknown/unmapped tags get a tag-level
 // faceplate (PV + limits + trend + insights + commands) and never crash.
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
@@ -35,8 +35,24 @@ function useTagRules(tag: string) {
   return useMemo(() => (q.data ?? []).filter((r) => r.tag === tag), [q.data, tag]);
 }
 
+// exit animation duration — must match --dur-ui (200ms) in tokens.css
+const FP_EXIT_MS = 200;
+
 export function FaceplatePanel() {
   const { activeTag, closeFaceplate } = useFaceplate();
+
+  // v4 T12 mount-once: `rendered` holds the tag through the exit animation so
+  // the panel can slide out before it unmounts. Switching tags (fp=a → fp=b)
+  // swaps content without re-running the enter/exit motion.
+  const [rendered, setRendered] = useState<string | null>(activeTag);
+  const exiting = rendered !== null && activeTag === null;
+
+  useEffect(() => {
+    if (activeTag) { setRendered(activeTag); return; }
+    if (!rendered) return;
+    const t = window.setTimeout(() => setRendered(null), FP_EXIT_MS);
+    return () => window.clearTimeout(t);
+  }, [activeTag, rendered]);
 
   // Esc closes — unless a modal dialog (e.g. ConfirmCommand) is open on top.
   useEffect(() => {
@@ -48,11 +64,11 @@ export function FaceplatePanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [activeTag, closeFaceplate]);
 
-  if (!activeTag) return null;
-  return <Faceplate tag={activeTag} onClose={closeFaceplate} />;
+  if (!rendered) return null;
+  return <Faceplate tag={rendered} exiting={exiting} onClose={closeFaceplate} />;
 }
 
-function Faceplate({ tag, onClose }: { tag: string; onClose: () => void }) {
+function Faceplate({ tag, exiting = false, onClose }: { tag: string; exiting?: boolean; onClose: () => void }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   useStore(() => live.version);
@@ -123,7 +139,7 @@ function Faceplate({ tag, onClose }: { tag: string; onClose: () => void }) {
   const showControls = equipmentOf(tag) === 'motor' && writable;
 
   return (
-    <aside className="faceplate" role="complementary" aria-label={t('faceplate.title')}>
+    <aside className={`faceplate${exiting ? ' is-exit' : ''}`} role="complementary" aria-label={t('faceplate.title')}>
       <header className="panel-head fp-head">
         <div className="fp-title">
           <h2 className="fp-name">{label(tag)}</h2>

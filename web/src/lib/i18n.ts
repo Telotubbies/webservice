@@ -32,7 +32,18 @@ const en = {
   palette: {
     title: 'Command palette',
     open: 'Search or jump',
-    placeholder: 'Jump to a page or signal — the full palette ships in the next task.',
+    placeholder: 'Jump to a page, signal or equipment…',
+    pages: 'Pages', equipment: 'Equipment', signals: 'Signals',
+    noMatch: 'Nothing matches “{{q}}”',
+    footer: '↑↓ move · Enter open · Esc close',
+  },
+  shortcuts: {
+    title: 'Keyboard shortcuts',
+    palette: 'Open the command palette',
+    help: 'Show or hide this shortcut list',
+    nav: 'Move through palette results',
+    select: 'Open the selected result',
+    close: 'Close the panel on top',
   },
   roles: { operator: 'Operator', viewer: 'Viewer', admin: 'Admin', owner: 'Owner', custom: 'Custom token', none: 'Guest' },
   auth: {
@@ -113,6 +124,8 @@ const en = {
     colDuration: 'Duration', colState: 'State', colAction: 'Action',
     ack: 'Acknowledge', ackedBy: 'Acknowledged by {{who}}',
     empty: 'No alarms in this view', emptyActive: 'No active alarms', emptyActiveBody: 'Nothing needs attention right now.',
+    emptyCold: 'No alarms yet', emptyColdBody: 'The alarm engine has not raised any alarms for this site.',
+    emptyFilteredBody: 'Nothing in this view — try widening the state or severity filters.',
     ackFailed: 'Could not acknowledge: {{reason}}',
     signInToAck: 'Sign in as an operator to acknowledge',
   },
@@ -196,6 +209,8 @@ const en = {
   errors: {
     load: 'Could not load data from the backend.', loadBody: 'Check that the backend is running, then try again.',
     rateLimited: 'Rate limit reached — wait a few seconds and try again.',
+    crashed: 'This view crashed',
+    crashedBody: 'The rest of the console is still running. Try again, or navigate to another page.',
   },
 };
 
@@ -225,7 +240,18 @@ const th: Dict = {
   palette: {
     title: 'แผงคำสั่ง',
     open: 'ค้นหาหรือข้ามไป',
-    placeholder: 'พิมพ์เพื่อข้ามไปยังหน้าหรือสัญญาณ — แผงคำสั่งเต็มรูปแบบจะมาในงานถัดไป',
+    placeholder: 'ข้ามไปยังหน้า สัญญาณ หรืออุปกรณ์…',
+    pages: 'หน้า', equipment: 'อุปกรณ์', signals: 'สัญญาณ',
+    noMatch: 'ไม่พบรายการที่ตรงกับ “{{q}}”',
+    footer: '↑↓ เลือก · Enter เปิด · Esc ปิด',
+  },
+  shortcuts: {
+    title: 'แป้นพิมพ์ลัด',
+    palette: 'เปิดแผงคำสั่ง',
+    help: 'แสดงหรือซ่อนรายการแป้นพิมพ์ลัดนี้',
+    nav: 'เลื่อนผ่านผลลัพธ์ในแผงคำสั่ง',
+    select: 'เปิดผลลัพธ์ที่เลือก',
+    close: 'ปิดแผงที่อยู่บนสุด',
   },
   roles: { operator: 'ผู้ควบคุม', viewer: 'ผู้ดู', admin: 'ผู้ดูแล', owner: 'เจ้าของ', custom: 'โทเคนกำหนดเอง', none: 'ผู้เยี่ยมชม' },
   auth: {
@@ -306,6 +332,8 @@ const th: Dict = {
     colDuration: 'ระยะเวลา', colState: 'สถานะ', colAction: 'การดำเนินการ',
     ack: 'รับทราบ', ackedBy: 'รับทราบโดย {{who}}',
     empty: 'ไม่มีสัญญาณเตือนในมุมมองนี้', emptyActive: 'ไม่มีสัญญาณเตือนที่เกิดอยู่', emptyActiveBody: 'ขณะนี้ไม่มีสิ่งที่ต้องดำเนินการ',
+    emptyCold: 'ยังไม่มีสัญญาณเตือน', emptyColdBody: 'กลไกเตือนยังไม่เคยสร้างสัญญาณเตือนสำหรับไซต์นี้',
+    emptyFilteredBody: 'ไม่มีรายการในมุมมองนี้ — ลองขยายตัวกรองสถานะหรือระดับ',
     ackFailed: 'รับทราบไม่สำเร็จ: {{reason}}',
     signInToAck: 'เข้าสู่ระบบในฐานะผู้ควบคุมเพื่อรับทราบ',
   },
@@ -389,6 +417,8 @@ const th: Dict = {
   errors: {
     load: 'โหลดข้อมูลจากแบ็กเอนด์ไม่ได้', loadBody: 'ตรวจสอบว่าแบ็กเอนด์ทำงานอยู่ แล้วลองอีกครั้ง',
     rateLimited: 'ส่งคำขอถี่เกินไป — รอสักครู่แล้วลองอีกครั้ง',
+    crashed: 'มุมมองนี้ล้มเหลว',
+    crashedBody: 'ส่วนอื่นของคอนโซลยังทำงานอยู่ ลองอีกครั้ง หรือไปยังหน้าอื่น',
   },
 };
 

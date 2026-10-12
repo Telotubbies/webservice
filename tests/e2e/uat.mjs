@@ -58,7 +58,11 @@ const page = await ctx.newPage();
 
 const consoleErrs = [];
 const badResponses = [];
-page.on('console', m => { if (m.type() === 'error') consoleErrs.push(m.text()); });
+// the /crash-test probe deliberately throws so the error boundary can be
+// asserted — React logs boundary-caught errors to console even in prod, so
+// that ONE expected error is excluded from the zero-console-errors gate.
+const isProbeErr = (txt) => txt.includes('UAT crash probe');
+page.on('console', m => { if (m.type() === 'error' && !isProbeErr(m.text())) consoleErrs.push(m.text()); });
 page.on('response', r => { if (r.status() >= 400) badResponses.push(`${r.status()} ${r.url()}`); });
 
 try {
@@ -128,13 +132,40 @@ try {
   await sleep(300);
   ok('ambient: calm toggle restores', await page.evaluate(() =>
     !document.documentElement.classList.contains('calm')));
-  // ⌘K seam → placeholder palette panel (real palette = T12)
+  // ⌘K seam → command palette (v4 T12)
   await page.keyboard.press('Control+k');
   await sleep(300);
   ok('cmdk: Ctrl+K opens the palette seam', await page.locator('.palette-panel').count() === 1);
   await page.keyboard.press('Escape');
   await sleep(300);
   ok('cmdk: Escape closes the palette', await page.locator('.palette-panel').count() === 0);
+
+  // ============ T12: palette deep-dive, ? overlay ============
+  // fuzzy filter + arrow/Enter navigation + equipment jump → faceplate (?fp)
+  await page.keyboard.press('Control+k');
+  await sleep(300);
+  ok('cmdk: input autofocused', await page.evaluate(() =>
+    document.activeElement?.classList?.contains('palette-input')));
+  await page.fill('.palette-input', 'motor');
+  await sleep(300);
+  const eqOpt = page.locator('.palette-option[data-item="eq-motor"]');
+  ok('cmdk: fuzzy filter finds equipment', await eqOpt.count() === 1);
+  await eqOpt.click();
+  await sleep(700);
+  ok('cmdk: equipment jump opens faceplate',
+    await page.locator('.faceplate').count() === 1
+    && !!new URL(page.url()).searchParams.get('fp'), page.url());
+  await page.locator('.faceplate .icon-btn').first().click();
+  await sleep(500);
+  // '?' opens the shortcuts overlay listing the bindings; Esc closes it
+  await page.keyboard.press('Shift+Slash');
+  await sleep(300);
+  ok('keys: ? opens shortcuts overlay', await page.locator('.shortcuts-panel').count() === 1);
+  ok('keys: overlay lists the ⌘K binding',
+    (await page.locator('.shortcuts-panel').innerText()).includes('Ctrl+K'));
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  ok('keys: Esc closes shortcuts overlay', await page.locator('.shortcuts-panel').count() === 0);
   {
     const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
     ok('overview: no horizontal overflow', sw <= iw + 20, `scrollWidth=${sw} innerWidth=${iw}`);
@@ -426,6 +457,74 @@ try {
   await sleep(1500);
   ok('admin: audit page renders export form',
     await page.locator('.admin-export-form').count() === 1);
+
+  // ============ T12: skeleton / kiosk / error boundary (fresh context) ============
+  // New context: no session, listeners fed into the same gate arrays.
+  // /api/tags is delayed so the first-load skeleton is observable.
+  {
+    const p2 = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+    p2.on('console', m => { if (m.type() === 'error' && !isProbeErr(m.text())) consoleErrs.push(m.text()); });
+    p2.on('response', r => { if (r.status() >= 400) badResponses.push(`${r.status()} ${r.url()}`); });
+    try {
+      await p2.route('**/api/tags', async (route) => { await sleep(1800); await route.continue(); });
+      await p2.goto(BASE, { waitUntil: 'domcontentloaded' });
+      await p2.waitForSelector('.token-input', { timeout: 20000 });
+      await p2.fill('.token-input', 'demo-operator');
+      await p2.keyboard.press('Enter');
+      // while /api/tags is in flight the overview must show shaped skeletons
+      await p2.waitForSelector('.skeleton', { timeout: 10000 });
+      ok('skeleton: shaped placeholders during first load', true);
+      await p2.waitForSelector('.tile', { timeout: 20000 });
+      ok('skeleton: real tiles replace skeletons', await p2.locator('.tile').count() >= 5);
+      await p2.unroute('**/api/tags');
+
+      // kiosk/wallboard: ?kiosk=1 hides chrome and inerts all controls —
+      // in-app navigation via pushState+popstate keeps the in-memory session
+      await p2.evaluate(() => {
+        history.pushState({}, '', '/?kiosk=1');
+        dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await sleep(700);
+      ok('kiosk: nav rail hidden', await p2.locator('.side-nav').count() === 0);
+      ok('kiosk: topbar hidden', await p2.locator('.topbar').count() === 0);
+      ok('kiosk: wallboard keeps live content', await p2.locator('.tile').count() >= 5);
+      ok('kiosk: controls inert (no interactive leak)', await p2.evaluate(() => {
+        const m = document.querySelector('.main');
+        return !!m && m.hasAttribute('inert');
+      }));
+      // and the palette keybinding is suppressed too
+      await p2.keyboard.press('Control+k');
+      await sleep(300);
+      ok('kiosk: palette suppressed', await p2.locator('.palette-panel').count() === 0);
+      await p2.evaluate(() => {
+        history.pushState({}, '', '/');
+        dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await sleep(700);
+      ok('kiosk: chrome returns without kiosk param',
+        await p2.locator('.side-nav').count() === 1);
+
+      // route error boundary: a crashing page shows recovery UI inside the
+      // shell — never a blank screen — and navigation away recovers it
+      await p2.evaluate(() => {
+        history.pushState({}, '', '/crash-test');
+        dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await sleep(700);
+      ok('boundary: crash shows recovery UI', await p2.locator('.error-state').count() === 1);
+      ok('boundary: shell nav survives route crash', await p2.locator('.side-nav').count() === 1);
+      await p2.evaluate(() => {
+        history.pushState({}, '', '/');
+        dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await sleep(800);
+      ok('boundary: navigation recovers the view', await p2.locator('.tile').count() >= 5);
+    } catch (e) {
+      ok('t12: enterprise polish block', false,
+        String(e && e.message || e).split('\n')[0].slice(0, 160));
+    }
+    await p2.close().catch(() => {});
+  }
 
   // ============ OIDC smoke — real Keycloak round-trip (v4 T5) ============
   // Fresh context: no demo-token session, no KC SSO cookie. Wall -> SSO ->

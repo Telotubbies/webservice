@@ -2,9 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { api } from '../../lib/api';
-import { useNow } from '../../lib/hooks';
+import { useNow, useStore } from '../../lib/hooks';
+import { live } from '../../lib/live';
 import { T } from '../../lib/plant';
-import { EmptyState } from '../../shared/ui/Feedback';
+import { EmptyState, Skeleton } from '../../shared/ui/Feedback';
 import { AlarmRows } from '../alarms/AlarmRows';
 import { useAlarms } from '../alarms/alarms';
 import { LineSchematic } from '../line/LineSchematic';
@@ -35,12 +36,29 @@ function useLimits() {
   return map;
 }
 
+/** KPI tile placeholder — same vertical rhythm as a MetricTile so first
+ *  load doesn't shift layout (v4 T12, skeletons not spinners). */
+function TileSkeleton() {
+  return (
+    <article className="kpi tile-skel" aria-hidden>
+      <header className="kpi-head"><Skeleton w="55%" h={14} /></header>
+      <p className="kpi-value"><Skeleton w={96} h={32} /></p>
+      <div className="kpi-band"><Skeleton h={10} /></div>
+      <div className="kpi-spark"><Skeleton h={40} /></div>
+    </article>
+  );
+}
+
 export function OverviewPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const now = useNow(1000);
   const limits = useLimits();
   const { open } = useAlarms();
+  // cold-start: skeleton tiles/rows until the first REST seed lands
+  useStore(() => live.tagRev);
+  const seeded = live.tagsSeeded;
+  const alarmsSeeded = live.alarmsSeeded;
 
   return (
     <>
@@ -63,7 +81,9 @@ export function OverviewPage() {
         </section>
 
         <section className="kpi-grid" aria-label={t('overview.title')}>
-          {KPIS.map((name) => <MetricTile key={name} name={name} band={limits.get(name)} now={now} />)}
+          {!seeded
+            ? KPIS.map((name) => <TileSkeleton key={name} />)
+            : KPIS.map((name) => <MetricTile key={name} name={name} band={limits.get(name)} now={now} />)}
         </section>
 
         {/* Equipment list and the insights mini-feed were cut (T11): the rail
@@ -76,9 +96,15 @@ export function OverviewPage() {
             <div className="tools"><Link to="/alarms" className="btn btn-sm btn-ghost">{t('shell.viewAlarms')}</Link></div>
           </header>
           <div className="panel-body flush">
-            {open.length === 0
-              ? <EmptyState title={t('overview.noActive')} body={t('overview.noActiveBody')} />
-              : <AlarmRows alarms={open.slice(0, 6)} compact />}
+            {!alarmsSeeded && open.length === 0 ? (
+              <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
+                {[0, 1, 2].map((i) => <Skeleton key={i} h={28} />)}
+              </div>
+            ) : open.length === 0 ? (
+              <EmptyState title={t('overview.noActive')} body={t('overview.noActiveBody')} />
+            ) : (
+              <AlarmRows alarms={open.slice(0, 6)} compact />
+            )}
           </div>
         </section>
       </div>

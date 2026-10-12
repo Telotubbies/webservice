@@ -19,6 +19,7 @@ export function InsightChip({ insight, onClick }: { insight: Insight; onClick?: 
       className="insight-chip"
       data-kind={insight.kind}
       data-sev={insight.severity}
+      data-insight-id={insight.id}
       title={`${kind} — ${insight.tag}`}
       aria-label={`${kind} — ${insight.tag}`}
       onClick={onClick}

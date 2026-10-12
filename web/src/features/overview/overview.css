@@ -58,16 +58,16 @@
 .kpi-band { position: relative; height: 10px; border-radius: var(--radius-sm); background: var(--bg-sunken); margin-top: var(--space-1); }
 .kpi-band-normal { position: absolute; top: 0; bottom: 0; border-radius: var(--radius-sm); background: var(--bg-raised); }
 .kpi-band-alarm { position: absolute; top: 0; bottom: 0; background: var(--sev-critical-soft); }
+/* PV-driven positions NEVER tween (motion grammar, SDLC 20 §3.0: tweening a
+   process value is dishonest) — the pointer and the SP tick snap instantly. */
 .kpi-pointer {
   position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1.5px;
   border-radius: var(--radius-sm); background: var(--text-primary);
-  transition: left 400ms var(--ease);
 }
 .kpi.is-alarm .kpi-pointer { background: var(--sev-critical); }
 .kpi-sp-tick {
   position: absolute; top: -5px; width: 2px; height: 6px; margin-left: -1px;
   border-radius: 1px; background: var(--state-selected);
-  transition: left 400ms var(--ease);
 }
 
 .kpi-spark { height: 40px; }

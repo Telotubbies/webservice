@@ -3,7 +3,7 @@
 // link to /insights. The rail element ALWAYS renders — with no open insights
 // it collapses to a single calm empty line (not a celebration).
 
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { live } from '../../lib/live';
@@ -36,13 +36,39 @@ export function InsightRail() {
   const { t } = useTranslation();
   const { openFaceplate } = useFaceplate();
   const open = useOpenInsights();
+  const trackRef = useRef<HTMLDivElement>(null);
+  const positions = useRef(new Map<string, number>());
+
+  // FLIP reorder (v4 T12): chips re-sort by severity as insights open/close —
+  // surviving chips glide to their new slot on --dur-state instead of
+  // teleporting. WAAPI, keyed on data-insight-id; skipped for reduced motion.
+  useLayoutEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const prev = positions.current;
+    const next = new Map<string, number>();
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    for (const chip of Array.from(track.querySelectorAll<HTMLElement>('[data-insight-id]'))) {
+      const id = chip.dataset.insightId!;
+      const x = chip.offsetLeft;
+      next.set(id, x);
+      const p = prev.get(id);
+      if (!calm && p !== undefined && p !== x) {
+        chip.animate(
+          [{ transform: `translateX(${p - x}px)` }, { transform: 'translateX(0)' }],
+          { duration: 300, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
+        );
+      }
+    }
+    positions.current = next;
+  }, [open]);
 
   return (
     <section className="insight-rail" aria-label={t('insights.title')}>
       {open.length === 0 ? (
         <p className="insight-rail-empty">{t('insights.empty')}</p>
       ) : (
-        <div className="insight-rail-track">
+        <div className="insight-rail-track" ref={trackRef}>
           {open.slice(0, RAIL_MAX).map((i) => (
             <InsightChip key={i.id} insight={i} onClick={() => openFaceplate(i.tag)} />
           ))}

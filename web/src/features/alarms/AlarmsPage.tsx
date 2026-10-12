@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
-import { EmptyState } from '../../shared/ui/Feedback';
+import { live } from '../../lib/live';
+import { EmptyState, Skeleton } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
 import { normSeverity } from '../../shared/ui/Status';
 import { AlarmRows } from './AlarmRows';
@@ -52,10 +53,21 @@ export function AlarmsPage() {
           />
         </div>
         <div className="panel-body flush">
-          {rows.length === 0 ? (
-            state === 'active'
-              ? <EmptyState title={t('alarms.emptyActive')} body={t('alarms.emptyActiveBody')} />
-              : <EmptyState title={t('alarms.empty')} icon="info" />
+          {/* cause-specific empties (v4 T12): pre-seed = skeleton rows;
+              truly zero alarms = cold-start copy; filters that exclude
+              everything = filtered-empty copy that points at the filters. */}
+          {!live.alarmsSeeded ? (
+            <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
+              {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} h={28} />)}
+            </div>
+          ) : rows.length === 0 ? (
+            all.length === 0 ? (
+              <EmptyState title={t('alarms.emptyCold')} body={t('alarms.emptyColdBody')} />
+            ) : state === 'active' ? (
+              <EmptyState title={t('alarms.emptyActive')} body={t('alarms.emptyActiveBody')} />
+            ) : (
+              <EmptyState title={t('alarms.empty')} body={t('alarms.emptyFilteredBody')} icon="info" />
+            )
           ) : (
             <AlarmRows alarms={rows} />
           )}

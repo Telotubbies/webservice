@@ -5,46 +5,16 @@ import { live } from '../lib/live';
 import { useNow, useStore, useViewport } from '../lib/hooks';
 import { setLang, type Lang } from '../lib/i18n';
 import { SIGNALS, shortName } from '../lib/plant';
-import { Icon, type IconName } from '../shared/ui/Icon';
+import { Icon } from '../shared/ui/Icon';
 import { SignInDialog } from '../features/auth/SignInDialog';
+import { CommandPalette, ShortcutsOverlay } from '../shared/ui/CommandPalette';
 import { FaceplateProvider } from '../features/faceplate/FaceplateContext';
 import { FaceplatePanel } from '../features/faceplate/Faceplate';
 import { FLOOD_THRESHOLD, useAlarms } from '../features/alarms/alarms';
 import { setCalm, useCalm } from '../features/overview/AmbientField';
 import { canOperate, signOut, useRole } from './session';
+import { NAV } from './nav';
 import { palette, usePaletteOpen } from './palette';
-
-interface NavItem { to: string; key: string; icon: IconName }
-interface NavGroup { group: string; items: NavItem[]; gated?: boolean }
-
-const NAV: NavGroup[] = [
-  { group: 'nav.monitor', items: [
-    { to: '/', key: 'nav.overview', icon: 'overview' },
-    { to: '/line', key: 'nav.line', icon: 'line' },
-    { to: '/line3d', key: 'nav.line3d', icon: 'line3d' },
-    { to: '/trends', key: 'nav.trends', icon: 'trends' },
-  ] },
-  { group: 'nav.operate', items: [
-    { to: '/alarms', key: 'nav.alarms', icon: 'alarm' },
-    { to: '/commands', key: 'nav.commands', icon: 'commands' },
-  ] },
-  { group: 'nav.intelligence', items: [
-    { to: '/insights', key: 'nav.insights', icon: 'sparkle' },
-  ] },
-  { group: 'nav.system', items: [
-    { to: '/tags', key: 'nav.tags', icon: 'tags' },
-    { to: '/health', key: 'nav.health', icon: 'health' },
-  ] },
-  // v4 T10: org administration — operators+ see it (mutations stay
-  // admin|owner server-side); viewers get no admin nav at all. Never in the
-  // mobile bar — MOBILE is unchanged (5-item UAT contract).
-  { group: 'nav.admin', gated: true, items: [
-    { to: '/admin', key: 'nav.adminOrg', icon: 'shield' },
-    { to: '/admin/rules', key: 'nav.adminRules', icon: 'alarm' },
-    { to: '/admin/users', key: 'nav.adminUsers', icon: 'user' },
-    { to: '/admin/audit', key: 'nav.adminAudit', icon: 'download' },
-  ] },
-];
 
 const MOBILE = new Set(['/', '/alarms', '/trends', '/line', '/insights']);
 
@@ -95,33 +65,43 @@ export function Shell() {
   const { active } = useAlarms();
   const loc = useLocation();
   const [signInOpen, setSignInOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const calm = useCalm();
   const paletteOpen = usePaletteOpen();
-  const palettePanelRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
 
-  // Palette placeholder focus: grab focus on open, return it on close.
-  // T12 replaces this panel — it must add a real focus trap + arrow-nav.
+  // kiosk/wallboard mode (v4 T12): ?kiosk=1 hides nav+topbar chrome and makes
+  // every control inert — the ops plane doubles as an Andon board. inert (not
+  // CSS-only) so pointer AND keyboard/SR interaction is suppressed.
+  const kiosk = new URLSearchParams(loc.search).get('kiosk') === '1';
   useEffect(() => {
-    if (!paletteOpen) return;
-    const prev = document.activeElement as HTMLElement | null;
-    palettePanelRef.current?.focus();
-    return () => prev?.focus();
-  }, [paletteOpen]);
+    mainRef.current?.toggleAttribute('inert', kiosk);
+    if (kiosk) { palette.close(); setHelpOpen(false); }
+  }, [kiosk]);
 
-  // ⌘K / Ctrl+K — command-palette seam (T11). The palette panel is a T12
-  // deliverable; the open/close signal and this binding are the contract.
+  // ⌘K / Ctrl+K palette + ? shortcuts overlay. The palette's open/close signal
+  // is the palette.ts seam (T11); the panel itself is the T12 component.
+  // Kiosk suppresses all overlays — a wallboard takes no input.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (kiosk) return;
+      const el = document.activeElement as HTMLElement | null;
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+        || el.tagName === 'SELECT' || el.isContentEditable);
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         palette.toggle();
+      } else if (e.key === '?' && !typing && !palette.isOpen()
+          && !document.querySelector('dialog[open]')) {
+        e.preventDefault();
+        setHelpOpen((v) => !v);
       } else if (e.key === 'Escape' && palette.isOpen() && !document.querySelector('dialog[open]')) {
         palette.close();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [kiosk]);
   // exact-or-segment match so '/admin' doesn't shadow '/admin/rules'
   const current = NAV.flatMap((g) => g.items).find(
     (i) => (i.to === '/' ? loc.pathname === '/'
@@ -138,7 +118,8 @@ export function Shell() {
   }
 
   return (
-    <div className="app">
+    <div className={`app${kiosk ? ' is-kiosk' : ''}`}>
+      {!kiosk && (
       <aside className="sidebar">
         <Link to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
           <span className="brand-mark"><Icon name="plant" size={20} /></span>
@@ -170,8 +151,10 @@ export function Shell() {
         </nav>
         <p className="sidebar-foot">v0.2</p>
       </aside>
+      )}
 
-      <div className="main">
+      <div className="main" ref={mainRef}>
+        {!kiosk && (
         <header className="topbar">
           <div className="crumbs">
             <span className="site">plant1</span>
@@ -221,30 +204,20 @@ export function Shell() {
             )}
           </div>
         </header>
+        )}
         <AlarmStrip />
         <FaceplateProvider>
           <div className="main-body">
             <main id="content">
               <Outlet />
             </main>
-            <FaceplatePanel />
+            {/* wallboard: the faceplate is a control surface — never renders in kiosk */}
+            {!kiosk && <FaceplatePanel />}
           </div>
+          {paletteOpen && !kiosk && <CommandPalette />}
         </FaceplateProvider>
       </div>
-      {paletteOpen && (
-        <div className="palette-scrim" onClick={() => palette.close()}>
-          <div
-            className="palette-panel" role="dialog" aria-modal="true"
-            aria-label={t('palette.title')} tabIndex={-1} ref={palettePanelRef}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="palette-head">
-              <Icon name="search" size={18} />
-              <span>{t('palette.placeholder')}</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {helpOpen && <ShortcutsOverlay onClose={() => setHelpOpen(false)} />}
       <SignInDialog open={signInOpen} onClose={() => setSignInOpen(false)} />
     </div>
   );

@@ -6,8 +6,9 @@
 .schematic-svg { display: block; width: 100%; height: auto; }
 
 .schematic .floor { stroke: var(--line); stroke-width: 2; }
-/* equipment state fill — driven by g.equip[data-state] */
-.schematic .body { fill: var(--equip-idle); stroke: var(--equip-edge); stroke-width: 2; }
+/* equipment state fill — driven by g.equip[data-state]. v4 T12: state
+   crossfades ride --dur-state (~300ms) shade-to-shade, never a hue-flash. */
+.schematic .body { fill: var(--equip-idle); stroke: var(--equip-edge); stroke-width: 2; transition: fill var(--dur-state) var(--ease); }
 .schematic .equip[data-state="running"] .body { fill: var(--equip-running); }
 .schematic .equip[data-state="manual"] .body { fill: var(--equip-manual); }
 .schematic .detail { fill: var(--equip-mid); stroke: var(--equip-detail); stroke-width: 1.5; }
@@ -20,13 +21,13 @@
 .schematic .fill { fill: var(--equip-fill); }
 .schematic .outline { fill: none; stroke: var(--equip-edge); stroke-width: 2; }
 .schematic .tick { stroke: var(--equip-detail); stroke-width: 2; }
-.schematic .lamp { fill: var(--equip-lamp); stroke: var(--equip-edge); }
+.schematic .lamp { fill: var(--equip-lamp); stroke: var(--equip-edge); transition: fill var(--dur-state) var(--ease); }
 .schematic .lamp-on { fill: var(--state-running); stroke: var(--state-running); }
 
 /* pipes / belt — static shade only; active shade while the line runs */
-.schematic .shaft { stroke: var(--pipe-inactive); stroke-width: 6; stroke-linecap: round; }
-.schematic .chute { stroke: var(--pipe-inactive); stroke-width: 10; fill: none; stroke-linecap: round; }
-.schematic .belt { fill: var(--pipe-inactive); }
+.schematic .shaft { stroke: var(--pipe-inactive); stroke-width: 6; stroke-linecap: round; transition: stroke var(--dur-state) var(--ease); }
+.schematic .chute { stroke: var(--pipe-inactive); stroke-width: 10; fill: none; stroke-linecap: round; transition: stroke var(--dur-state) var(--ease); }
+.schematic .belt { fill: var(--pipe-inactive); transition: fill var(--dur-state) var(--ease); }
 .schematic.is-running .shaft, .schematic.is-running .chute { stroke: var(--pipe-active); }
 .schematic.is-running .belt { fill: var(--pipe-active); }
 
@@ -51,7 +52,10 @@
 .schematic .equip.has-critical .hit { stroke: var(--sev-critical); stroke-width: 3; }
 
 /* alarm markers: shape-coded glyphs — ▲ critical, ◆ warning.
-   Unacked markers flash at 1 Hz; steady when acked or reduced-motion. */
+   Unacked markers flash at 1 Hz; steady when acked or reduced-motion.
+   v4 T12: the blink is step-end (hard on/off) and removing .is-unacked on
+   ack stops it INSTANTLY — alarm state never tweens. */
+
 .schematic .alarm-marker .glyph { stroke-linejoin: round; stroke-width: 2; }
 .schematic .alarm-marker.sev-critical .glyph { fill: var(--sev-critical); stroke: var(--sev-critical); }
 .schematic .alarm-marker.sev-warning .glyph { fill: var(--sev-warning); stroke: var(--sev-warning); }
@@ -133,7 +137,10 @@
 .lifecycle li + li::before { content: ""; width: 16px; height: 1px; background: var(--line-strong); margin-right: 2px; }
 .lifecycle .lc-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid currentColor; }
 .lifecycle li.lc-done { color: var(--text-primary); }
-.lifecycle li.lc-done .lc-dot { background: currentColor; }
+/* command lifecycle (v4 T12): each completed step pops the dot in on the
+   spring — the only motion a lifecycle element ever gets. */
+.lifecycle li.lc-done .lc-dot { background: currentColor; animation: lc-pop var(--dur-ui) var(--spring) both; }
+@keyframes lc-pop { 0% { transform: scale(0.3); } 100% { transform: scale(1); } }
 .lifecycle.lc-ok .lc-final { color: var(--ok); }
 .lifecycle.lc-bad .lc-final { color: var(--critical-text); }
 .lifecycle .lc-detail { display: block; margin-top: 6px; font-size: var(--text-caption); color: var(--text-muted); }
