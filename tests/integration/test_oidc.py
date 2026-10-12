@@ -176,6 +176,50 @@ def test_revoked_sid_ws_closes_4401(ws_base, db):
     assert code == 4401, f"revoked session should close WS 4401, got {code}"
 
 
+def test_revoked_sid_ws_closes_by_sweep_without_notify(ws_base, db):
+    """Missed-NOTIFY backstop (v4 T14, ADR-12 §7): a revoked_sessions row
+    written WITHOUT the wds_authz NOTIFY — exactly what happens when the
+    LISTEN connection is mid-reconnect — is still caught: the periodic
+    revalidation sweep closes the bound socket 4401 within the sweep
+    interval (AUTHZ_SWEEP_S, default 5 s)."""
+    websockets = pytest.importorskip("websockets")
+    token = _fresh_op_token()
+    sid = _payload(token)["sid"]
+
+    async def go():
+        import asyncpg
+        t0 = None
+        try:
+            async with websockets.connect(f"{ws_base}/ws",
+                                          open_timeout=10) as ws:
+                await ws.send(json.dumps(
+                    {"type": "auth", "token": token}))
+                first = json.loads(await asyncio.wait_for(ws.recv(), 10))
+                assert first.get("type") == "health", first
+                conn = await asyncpg.connect(APP_DSN)
+                try:
+                    # INSERT ONLY — deliberately no pg_notify: this is the
+                    # hole the sweep exists to close
+                    await conn.execute(
+                        "INSERT INTO revoked_sessions(sid) VALUES ($1)"
+                        " ON CONFLICT (sid) DO NOTHING", sid)
+                finally:
+                    await conn.close()
+                t0 = time.monotonic()
+                while True:
+                    await asyncio.wait_for(ws.recv(), timeout=15)
+        except Exception as e:
+            code = getattr(getattr(e, "rcvd", None), "code", None) or \
+                getattr(e, "code", None)
+            return code, (time.monotonic() - t0) if t0 is not None else None
+        return None, None
+
+    code, elapsed = asyncio.run(go())
+    assert code == 4401, f"sweep should close revoked WS 4401, got {code}"
+    assert elapsed is None or elapsed < 15, \
+        f"sweep close took {elapsed:.1f}s — expected within the sweep interval"
+
+
 def test_disabled_user_rest_401(api, db):
     """users.disabled_at set -> wds_authz 'user_disabled' drops the authz
     cache and the next call 401s (≤5 s)."""

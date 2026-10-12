@@ -48,7 +48,7 @@ const en = {
   roles: { operator: 'Operator', viewer: 'Viewer', admin: 'Admin', owner: 'Owner', custom: 'Custom token', none: 'Guest' },
   auth: {
     title: 'Sign in',
-    body: 'Development sign-in. Paste an access token; single sign-on replaces this step in the next release.',
+    body: 'Development sign-in. Paste a demo access token — this path only exists while the backend runs with APP_ENV=dev.',
     token: 'Access token', submit: 'Sign in', cancel: 'Cancel',
     demoHint: 'Demo tokens: demo-operator (can operate), demo-viewer (read only).',
     wallTitle: 'Plant Operations Console',
@@ -256,7 +256,7 @@ const th: Dict = {
   roles: { operator: 'ผู้ควบคุม', viewer: 'ผู้ดู', admin: 'ผู้ดูแล', owner: 'เจ้าของ', custom: 'โทเคนกำหนดเอง', none: 'ผู้เยี่ยมชม' },
   auth: {
     title: 'เข้าสู่ระบบ',
-    body: 'การเข้าสู่ระบบสำหรับการพัฒนา วางโทเคนการเข้าถึง ระบบ Single sign-on จะมาแทนขั้นตอนนี้ในรุ่นถัดไป',
+    body: 'การเข้าสู่ระบบสำหรับการพัฒนา วางโทเคนการเข้าถึงตัวอย่าง — วิธีนี้มีเฉพาะตอนที่แบ็กเอนด์รันด้วย APP_ENV=dev เท่านั้น',
     token: 'โทเคนการเข้าถึง', submit: 'เข้าสู่ระบบ', cancel: 'ยกเลิก',
     demoHint: 'โทเคนทดลอง: demo-operator (ควบคุมได้), demo-viewer (ดูอย่างเดียว)',
     wallTitle: 'คอนโซลปฏิบัติการโรงงาน',

@@ -12,7 +12,8 @@ import { FaceplateProvider } from '../features/faceplate/FaceplateContext';
 import { FaceplatePanel } from '../features/faceplate/Faceplate';
 import { FLOOD_THRESHOLD, useAlarms } from '../features/alarms/alarms';
 import { setCalm, useCalm } from '../features/overview/AmbientField';
-import { canOperate, signOut, useRole } from './session';
+import { signOut, useRole } from './session';
+import { useOperateAnyOrg } from '../features/admin/admin';
 import { NAV } from './nav';
 import { palette, usePaletteOpen } from './palette';
 
@@ -60,6 +61,9 @@ function AlarmStrip() {
 export function Shell() {
   const { t, i18n } = useTranslation();
   const role = useRole();
+  // admin nav shows for operator+ in ANY org — the shim-org role alone
+  // would hide it from an org-B admin (v4 T14)
+  const operateAny = useOperateAnyOrg();
   const vp = useViewport();
   const now = useNow(1000);
   const { active } = useAlarms();
@@ -132,7 +136,7 @@ export function Shell() {
           </span>
         </Link>
         <nav className="nav side-nav" aria-label="primary">
-          {NAV.filter((g) => !g.gated || canOperate(role)).map((g, gi) => (
+          {NAV.filter((g) => !g.gated || operateAny).map((g, gi) => (
             <div key={g.group} style={{ display: 'contents' }}>
               {/* icon rail: group labels stay in the a11y name of each item;
                   a hairline separator keeps the group structure visible */}

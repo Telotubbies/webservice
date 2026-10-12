@@ -101,6 +101,11 @@ OIDC_REALM = OIDC_ISSUER.rstrip("/").rsplit("/", 1)[-1]
 JWKS_TTL_S = float(os.environ.get("JWKS_TTL_S", "600"))        # ADR-12 §5
 JWKS_REFETCH_MIN_S = float(os.environ.get("JWKS_REFETCH_MIN_S", "30"))
 AUTHZ_TTL_S = float(os.environ.get("AUTHZ_TTL_S", "5"))        # ≤5s revocation SLA
+# WS revalidation sweep (v4 T14, ADR-12 §7): a NOTIFY lost while the LISTEN
+# connection reconnects is gone forever — connected clients are re-checked
+# against revoked_sessions/disabled_at/memberships on this cadence, so the
+# missed-notify worst case is this interval. Kept ≤ the 5 s SLA by default.
+AUTHZ_SWEEP_S = float(os.environ.get("AUTHZ_SWEEP_S", "5"))
 # X-Real-IP is trusted ONLY from loopback peers or these CIDRs — compose
 # pins the nginx container address and lists it here (docker-compose.yml).
 TRUSTED_PROXIES = [

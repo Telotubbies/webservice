@@ -27,7 +27,7 @@
     {
       "clientId": "wds-web",
       "name": "WDS Web (SPA)",
-      "description": "Public PKCE client — the React shell (ADR-12 §2)",
+      "description": "Public PKCE client — the React shell (ADR-12 §2). directAccessGrantsEnabled is ON for the dev/test realm ONLY: the token endpoint direct-grant is how the test harness mints JWTs without a browser. PRODUCTION realms MUST set it false — password grant on a public client bypasses MFA/WebAuthn and lets a leaked credential mint tokens non-interactively.",
       "publicClient": true,
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,

@@ -14,6 +14,12 @@ Layers:
   ``users`` upsert on first sight, ``memberships`` org roles, ``disabled_at``.
   The authz record is cached ``AUTHZ_TTL_S`` (5 s) and invalidated
   immediately by Postgres ``NOTIFY wds_authz`` — the ≤5 s revocation SLA.
+- WS revalidation (ADR-12): NOTIFY is the millisecond path, but Postgres
+  drops notifications while the LISTEN connection is down, so two backstops
+  bound the missed-notify window to ≤ ``AUTHZ_SWEEP_S``: the listener
+  revalidates every connected client on each (re)subscribe, and
+  :func:`authz_sweep` re-reads ``revoked_sessions`` + ``disabled_at`` +
+  ``memberships`` for the live sid/sub set on a fixed cadence.
 - Backchannel logout: ``verify_logout_token`` + ``record_logout`` writes
   ``revoked_sessions`` and NOTIFYs the channel.
 
@@ -443,17 +449,112 @@ class Security:
                 with contextlib.suppress(Exception):
                     await client.ws.close(code=close)
 
+    # ------------------------------------------------ revalidation sweep
+    async def revalidate_ws_clients(self) -> None:
+        """Re-read the revocation tables for every connected WS client.
+
+        The NOTIFY path is millisecond-fast but a notification published
+        while the LISTEN connection is down is gone forever — this is the
+        ADR-12 backstop that bounds that hole to one sweep interval:
+
+        - ``sid`` present in ``revoked_sessions``      -> close 4401
+        - ``users.disabled_at`` set                     -> close 4401
+        - membership in the socket's served org lost    -> close 4403
+        - role changed elsewhere                        -> applied in place
+
+        Bounded: ONE batched sid probe + ONE batched disabled probe + one
+        memberships read per DISTINCT user — O(connected users), never
+        O(sockets). The sweep keys on ``user_id``/``sid`` rather than
+        ``sub`` so dev clients (whose bearer token carries no IdP sub)
+        revalidate through the same tables.
+        A failed probe aborts the tick: clients are only evicted on
+        positively-verified state, never on a transient DB error.
+        """
+        if self._ws is None or self.pools is None:
+            return
+        clients = [c for c in self._ws.clients()
+                   if c.user_id is not None and c.user_id.int != 0]
+        if not clients:
+            return
+        sids = [c.sid for c in clients if c.sid]
+        uids = list({c.user_id for c in clients})
+        try:
+            async with global_tx(self.pools.app) as conn:
+                revoked = {r["sid"] for r in await conn.fetch(
+                    "SELECT sid FROM revoked_sessions"
+                    " WHERE sid = ANY($1::text[])", sids)} if sids else set()
+                disabled = {r["id"] for r in await conn.fetch(
+                    "SELECT id FROM users WHERE id = ANY($1::uuid[])"
+                    " AND disabled_at IS NOT NULL", uids)}
+        except Exception:  # noqa: BLE001 — retry next tick; evict nothing
+            log.exception("authz sweep: revocation probe failed — skipping")
+            return
+        # memberships are RLS user-scoped — one read per distinct user
+        roles_by_uid: dict[UUID, dict[UUID, str] | None] = {}
+        for uid in uids:
+            try:
+                async with user_tx(self.pools.app, uid) as conn:
+                    rows = await conn.fetch(
+                        "SELECT org_id, role FROM memberships")
+                roles_by_uid[uid] = {r["org_id"]: r["role"] for r in rows}
+            except Exception:  # noqa: BLE001 — skip this user this tick
+                log.exception("authz sweep: membership read failed — skipping user")
+                roles_by_uid[uid] = None
+        for client in clients:
+            close = None
+            if client.sid and client.sid in revoked:
+                close = 4401
+            elif client.user_id in disabled:
+                close = 4401
+            else:
+                roles = roles_by_uid.get(client.user_id)
+                if roles is not None:
+                    scope = client.org_id or config.V1_ORG_ID
+                    if roles.get(scope, Principal.ROLE_NONE) == Principal.ROLE_NONE:
+                        close = 4403  # membership in the served org is gone
+                    else:
+                        client.role = roles.get(
+                            config.V1_ORG_ID, Principal.ROLE_NONE)
+                        client.org_roles = dict(roles)
+            if close is not None:
+                log.info("ws evicted by authz sweep", extra={"code": close})
+                with contextlib.suppress(Exception):
+                    await client.ws.close(code=close)
+
+
+async def authz_sweep(security: Security, interval_s: float) -> None:
+    """Periodic WS revalidation (ADR-12 §7). NOTIFY is the fast path; this
+    bounds a notification lost during a listener reconnect gap to
+    ``interval_s`` — kept ≤ the 5 s revocation SLA by config."""
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            await security.revalidate_ws_clients()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — a tick failure must not kill it
+            log.exception("wds_authz sweep tick failed")
+
 
 async def authz_listener(security: Security) -> None:
     """Hold a dedicated LISTEN connection on the system pool; NOTIFY delivery
-    drives on_notify. Reconnects forever on failure — the 5 s authz-cache TTL
-    bounds staleness even while the listener is down."""
+    drives on_notify. Reconnects forever on failure — and every (re)subscribe
+    runs a full client revalidation, because Postgres discards notifications
+    that were published while the listener socket was down (the same
+    reload-on-resubscribe pattern as the alarm_rules listener). The
+    ``authz_sweep`` task covers the gap between reconnect attempts."""
     while True:
         conn = None
         try:
             conn = await security.pools.system.acquire()
             await conn.add_listener(AUTHZ_CHANNEL, security._notify_cb)
             log.info("wds_authz listener connected")
+            # Revalidate now: anything NOTIFY'd while we were disconnected
+            # never arrives — catch it here instead of waiting a full sweep.
+            try:
+                await security.revalidate_ws_clients()
+            except Exception:  # noqa: BLE001 — sweep ticks will retry
+                log.exception("wds_authz resubscribe revalidation failed")
             while not conn.is_closed():
                 await asyncio.sleep(30)
             raise ConnectionError("listener connection closed")

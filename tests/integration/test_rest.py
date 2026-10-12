@@ -295,3 +295,70 @@ def test_commands_list_authz(api, anon_api, operator_headers, viewer_headers):
     r = api.get("/api/commands", params={"limit": 5}, headers=operator_headers)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+# ------------------------------------------- REST Origin gate (v4 T14)
+# CONTRACT.v2 §2 + ADR-12 §8: a mutating /api request that CARRIES an Origin
+# header must satisfy the same allowlist/same-origin policy as the WS
+# upgrade — missing Origin is allowed (non-browser clients send none;
+# browsers always send it on cross-origin mutations).
+
+BAD_ORIGIN = {"Origin": "http://evil.example"}
+
+
+def test_mutation_bad_origin_403(anon_api):
+    r = anon_api.post("/api/commands",
+                      json={"tag": TAGS["running"], "value": True},
+                      headers=BAD_ORIGIN)
+    assert r.status_code == 403
+
+
+def test_mutation_bad_origin_403_even_authenticated(api):
+    """The gate runs before auth — a valid operator token can't rescue a
+    cross-site write attempt."""
+    r = api.post("/api/commands",
+                 json={"tag": TAGS["running"], "value": True},
+                 headers=BAD_ORIGIN)
+    assert r.status_code == 403
+
+
+def test_mutation_bad_origin_403_on_v2_route(anon_api):
+    """The guard covers every /api mutation, not just the v1 shim surface."""
+    r = anon_api.post("/api/v1/invites/accept",
+                      json={"token": "x" * 64}, headers=BAD_ORIGIN)
+    assert r.status_code == 403
+
+
+def test_mutation_missing_origin_reaches_auth(anon_api):
+    """No Origin header (curl/pytest posture) -> the gate passes the request
+    through to the normal auth layer, which answers 401 — proof the check
+    didn't 403 blindly."""
+    r = anon_api.post("/api/commands",
+                      json={"tag": TAGS["running"], "value": True})
+    assert r.status_code == 401
+
+
+def test_mutation_same_origin_passes_gate(api):
+    """Origin host[:port] == Host -> same-origin, the write proceeds."""
+    host = api.base_url.host
+    if api.base_url.port:
+        host = f"{host}:{api.base_url.port}"
+    r = api.post("/api/commands",
+                 json={"tag": TAGS["running"], "value": True, "ttl_s": 15},
+                 headers={"Origin": f"http://{host}"})
+    assert r.status_code == 201, r.text
+
+
+def test_safe_method_ignores_origin(anon_api):
+    """The gate only applies to mutating verbs — a GET with a foreign
+    Origin still reaches the auth layer (401), never 403."""
+    r = anon_api.get("/api/me", headers=BAD_ORIGIN)
+    assert r.status_code == 401
+
+
+def test_options_preflight_reaches_cors(anon_api):
+    """OPTIONS is a safe method — preflight lands on CORSMiddleware, which
+    answers its own 'Disallowed CORS origin' 400, not the gate's 403."""
+    r = anon_api.options("/api/commands", headers={
+        **BAD_ORIGIN, "Access-Control-Request-Method": "POST"})
+    assert r.status_code == 400

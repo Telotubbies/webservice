@@ -6,8 +6,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { adminApi, ApiError } from '../../lib/api';
-import { useRole, canAdmin } from '../../app/session';
-import { EmptyState, ErrorState, Notice } from '../../shared/ui/Feedback';
+import { canAdmin } from '../../app/session';
+import { EmptyState, ErrorState, Notice, PageSkeleton } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
 import { fmtClock } from '../../lib/format';
 import { useAdminOrg } from './admin';
@@ -20,9 +20,9 @@ function localInputToIso(v: string): string | undefined {
 
 export function AuditPage() {
   const { t } = useTranslation();
-  const role = useRole();
-  const { orgId } = useAdminOrg();
-  const admin = canAdmin(role);
+  // gate on the role in the managed org, not the v1 shim org (v4 T14)
+  const { orgId, orgRole, loading } = useAdminOrg();
+  const admin = canAdmin(orgRole ?? 'none');
   const qc = useQueryClient();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -37,7 +37,8 @@ export function AuditPage() {
     enabled: admin && orgId != null,
   });
 
-  if (!canAdmin(role)) {
+  if (loading) return <PageSkeleton />;
+  if (!admin) {
     return (
       <div className="page admin-page">
         <header className="page-head"><div><h1>{t('admin.auditTitle')}</h1></div></header>

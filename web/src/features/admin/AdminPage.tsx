@@ -5,16 +5,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, adminApi } from '../../lib/api';
-import { useRole, canOperate } from '../../app/session';
-import { EmptyState, ErrorState } from '../../shared/ui/Feedback';
+import { canOperate } from '../../app/session';
+import { EmptyState, ErrorState, PageSkeleton } from '../../shared/ui/Feedback';
 import { fmtClock } from '../../lib/format';
 import { useAdminOrg } from './admin';
 import './admin.css';
 
 export function AdminPage() {
   const { t } = useTranslation();
-  const role = useRole();
-  const { orgId } = useAdminOrg();
+  // gate on the role in the managed org, not the v1 shim org (v4 T14)
+  const { orgId, orgRole, loading } = useAdminOrg();
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
   const org = useQuery({
     queryKey: ['admin-org', orgId],
@@ -27,7 +27,8 @@ export function AdminPage() {
     enabled: orgId != null,
   });
 
-  if (!canOperate(role)) {
+  if (loading) return <PageSkeleton />;
+  if (!canOperate(orgRole ?? 'none')) {
     return (
       <div className="page admin-page">
         <header className="page-head"><div><h1>{t('admin.title')}</h1></div></header>

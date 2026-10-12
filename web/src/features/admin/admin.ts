@@ -6,12 +6,20 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, adminApi } from '../../lib/api';
-import { canAdmin, useRole } from '../../app/session';
+import { canAdmin, canOperate, useRole } from '../../app/session';
 
 /** Resolve the org the admin pages operate on: the first membership where
  * the user holds admin|owner (sorted by name), else the first membership —
- * a pure operator still gets the read-only admin surface. */
-export function useAdminOrg(): { orgId: string | null; meRole: string; orgRole: string | null } {
+ * a pure operator still gets the read-only admin surface.
+ *
+ * `orgRole` is the role in THAT org — the only role the admin pages may gate
+ * on (v4 T14 fix): `useRole()`/`me.role` is the v1-shim-org role, which says
+ * nothing about org B — an admin of org B whose shim membership is
+ * viewer/none was wrongly locked out of org B's own admin UI. `loading` lets
+ * the pages skeleton instead of flashing "restricted" while /api/me lands. */
+export function useAdminOrg(): {
+  orgId: string | null; meRole: string; orgRole: string | null; loading: boolean;
+} {
   const meRole = useRole();
   const q = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
   const memberships = q.data?.memberships ?? [];
@@ -21,7 +29,20 @@ export function useAdminOrg(): { orgId: string | null; meRole: string; orgRole: 
       || (a.org_name ?? '').localeCompare(b.org_name ?? ''),
   );
   const chosen = sorted[0] ?? null;
-  return { orgId: chosen?.org_id ?? null, meRole, orgRole: chosen?.role ?? null };
+  return {
+    orgId: chosen?.org_id ?? null, meRole,
+    orgRole: chosen?.role ?? null, loading: q.isLoading,
+  };
+}
+
+/** operator+ in ANY org — the nav/palette gate for the admin section.
+ * `useRole()` is the shim-org role only; a user who operates a different
+ * org (and isn't a shim member at all) still owns an admin surface. */
+export function useOperateAnyOrg(): boolean {
+  const role = useRole();
+  const q = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
+  if (canOperate(role)) return true;
+  return (q.data?.memberships ?? []).some((m) => canOperate(m.role));
 }
 
 /** First site of the admin org (selector rendered when the org has >1). */

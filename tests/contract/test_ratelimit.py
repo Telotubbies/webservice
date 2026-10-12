@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
 from app.ratelimit import RateLimiter  # noqa: E402
-from app.ws import origin_allowed  # noqa: E402
+from app.ws import OriginGuardMiddleware, origin_allowed  # noqa: E402
 
 
 def run(coro):
@@ -152,3 +152,77 @@ def test_origin_dev_loopback_carveout():
     # and a loopback origin to a non-loopback host is rejected too
     assert origin_allowed("http://localhost:5173", "ops.example.com", None,
                           dev=True) is False
+
+
+# -------------------------------------------- REST mutation Origin gate
+# v4 T14 (CONTRACT.v2 §2, ADR-12 §8): OriginGuardMiddleware enforces the same
+# policy on mutating /api requests — offline ASGI-level tests, no services.
+
+def _origin_guard_hit(method, path, headers):
+    """Run OriginGuardMiddleware around a stub app; return what happened."""
+    hit = {"app": False, "status": None}
+
+    async def stub_app(scope, receive, send):
+        hit["app"] = True
+        await send({"type": "http.response.start", "status": 200,
+                    "headers": []})
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            hit["status"] = message["status"]
+
+    mw = OriginGuardMiddleware(
+        stub_app,
+        lambda origin, host: origin_allowed(origin, host, None, dev=False))
+    scope = {"type": "http", "method": method, "path": path,
+             "headers": list(headers)}
+    run(mw(scope, None, send))
+    return hit
+
+
+def test_rest_mutation_bad_origin_403():
+    hit = _origin_guard_hit("POST", "/api/commands",
+                            [(b"origin", b"http://evil.example"),
+                             (b"host", b"localhost:8000")])
+    assert hit["status"] == 403
+    assert hit["app"] is False  # refused before routing
+
+
+def test_rest_mutation_missing_origin_allowed():
+    # the documented carve-out: non-browser clients send no Origin
+    hit = _origin_guard_hit("POST", "/api/commands",
+                            [(b"host", b"localhost:8000")])
+    assert hit["app"] is True
+
+
+def test_rest_mutation_same_origin_passes():
+    hit = _origin_guard_hit("POST", "/api/commands",
+                            [(b"origin", b"http://localhost:8000"),
+                             (b"host", b"localhost:8000")])
+    assert hit["app"] is True
+
+
+def test_rest_get_with_bad_origin_not_gated():
+    # safe verbs are never origin-checked — CORS/GETs stay untouched
+    for method in ("GET", "HEAD", "OPTIONS"):
+        hit = _origin_guard_hit(method, "/api/me",
+                                [(b"origin", b"http://evil.example"),
+                                 (b"host", b"localhost:8000")])
+        assert hit["app"] is True, method
+
+
+def test_rest_mutation_non_api_path_not_gated():
+    # the guard is scoped to /api — a POST elsewhere never reaches the check
+    hit = _origin_guard_hit("POST", "/webhooks/x",
+                            [(b"origin", b"http://evil.example"),
+                             (b"host", b"localhost:8000")])
+    assert hit["app"] is True
+
+
+def test_rest_delete_and_patch_gated_too():
+    for method in ("DELETE", "PATCH", "PUT"):
+        hit = _origin_guard_hit(method, "/api/v1/orgs/x/members/y",
+                                [(b"origin", b"http://evil.example"),
+                                 (b"host", b"localhost:8000")])
+        assert hit["status"] == 403 and hit["app"] is False, method

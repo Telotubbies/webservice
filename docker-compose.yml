@@ -206,6 +206,9 @@ services:
       OIDC_AUDIENCE: "${OIDC_AUDIENCE:-wds-api}"
       OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-wds-web}"
       OIDC_JWKS_URI: "${OIDC_JWKS_URI:-http://keycloak:8080/realms/wds/protocol/openid-connect/certs}"
+      # WS revalidation sweep cadence — the missed-NOTIFY backstop bound
+      # (ADR-12 §7; keep ≤5 to hold the revocation SLA).
+      AUTHZ_SWEEP_S: "${AUTHZ_SWEEP_S:-5}"
       # T5 review F10 — X-Real-IP is trusted ONLY from loopback or these
       # CIDRs. The default network is pinned (below) and `web` has a fixed
       # address, so only the nginx container can claim client IPs — other

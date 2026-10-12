@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import WebSocket
+from fastapi.responses import JSONResponse
 
 from .auth import OPERATOR_ROLES
 
@@ -39,7 +40,8 @@ def _hostname(netloc: str) -> str:
 
 def origin_allowed(origin: str | None, host: str | None,
                    allowlist: list[str] | None, dev: bool = False) -> bool:
-    """WS Origin gate (v4 T4).
+    """Origin gate shared by the WS upgrade (v4 T4) and REST mutations
+    (v4 T14, OriginGuardMiddleware).
 
     - No Origin header -> allowed: browsers always send Origin on a WebSocket
       upgrade, so absence means a non-browser client (curl, python-websockets,
@@ -67,6 +69,62 @@ def origin_allowed(origin: str | None, host: str | None,
         return (_hostname(netloc) in _LOOPBACK
                 and _hostname(host_l) in _LOOPBACK)
     return False
+
+
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+class OriginGuardMiddleware:
+    """REST counterpart of the WS Origin gate (v4 T14; CONTRACT.v2 §2,
+    ADR-12 §8): a mutating ``/api`` request that CARRIES an ``Origin``
+    header must satisfy the same allowlist/same-origin policy as a
+    WebSocket upgrade — a mismatch is refused 403 before routing, so a
+    cross-site page can never ride the API from a user's browser.
+
+    A MISSING ``Origin`` is allowed — the documented WS carve-out applied
+    to REST for the same reasons:
+
+    - browsers ALWAYS send ``Origin`` on cross-origin mutations (and on
+      every non-GET fetch), so the header's presence is exactly the
+      browser case this gate exists to police;
+    - non-browser clients — curl, pytest, the IdP's server-side
+      backchannel logout POST — send no ``Origin`` and would be
+      unfixable collateral;
+    - the API authenticates with bearer tokens, not ambient cookie
+      credentials, so a forged cross-site form can't ride a session —
+      the check is defense in depth, not the CSRF control itself.
+
+    Pure ASGI (no Request construction): scope headers are lower-case
+    bytes, so the lookup is a straight dict read. The policy callable is
+    injected so the gate stays environment-agnostic — main.py wires it to
+    :func:`origin_allowed` with the live ``ALLOWED_ORIGINS``/``APP_ENV``.
+    """
+
+    def __init__(self, app, is_allowed) -> None:
+        self.app = app
+        # (origin, host) -> bool — injected so tests can stub the policy
+        self._is_allowed = is_allowed
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if (scope.get("type") != "http"
+                or scope.get("method") not in _MUTATING_METHODS
+                or not (path == "/api" or path.startswith("/api/"))):
+            await self.app(scope, receive, send)
+            return
+        headers = {}
+        for k, v in scope.get("headers", []):
+            headers[k.decode("latin-1")] = v.decode("latin-1", "replace")
+        if not self._is_allowed(headers.get("origin"), headers.get("host")):
+            log.info("rest mutation rejected by origin gate",
+                     extra={"origin": headers.get("origin"),
+                            "method": scope.get("method"),
+                            "path": scope.get("path")})
+            response = JSONResponse(
+                status_code=403, content={"detail": "origin not allowed"})
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 class WSAuthError(Exception):
@@ -120,6 +178,7 @@ class Client:
     org_id: UUID | None = None  # org of the site this connection serves
     sub: str = ""               # IdP subject — for wds_authz eviction (v4 T5)
     sid: str = ""               # OIDC session id — revoked_sessions eviction
+    user_id: UUID | None = None  # users.id — the authz sweep's stable key
     # org_id -> role, from the principal's memberships (v4 T9): broadcast
     # scoping — a client only receives events for orgs it belongs to.
     org_roles: dict = field(default_factory=dict)
@@ -161,11 +220,13 @@ class WSManager:
     async def connect(self, ws: WebSocket, role: str,
                       sub: str = "", sid: str = "",
                       org_id: UUID | None = None,
-                      org_roles: dict | None = None) -> Client:
+                      org_roles: dict | None = None,
+                      user_id: UUID | None = None) -> Client:
         # the endpoint accepts before connect() — the socket must be open
         # to read the first-frame auth handshake
         client = Client(ws=ws, role=role, sub=sub, sid=sid,
-                        org_id=org_id, org_roles=dict(org_roles or {}))
+                        org_id=org_id, org_roles=dict(org_roles or {}),
+                        user_id=user_id)
         async with self._lock:
             self._clients.add(client)
         log.info(

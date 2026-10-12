@@ -6,8 +6,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { adminApi, ApiError, type AdminRule, type RuleInput } from '../../lib/api';
-import { useRole, canOperate, canAdmin } from '../../app/session';
-import { EmptyState, ErrorState, Notice } from '../../shared/ui/Feedback';
+import { canOperate, canAdmin } from '../../app/session';
+import { EmptyState, ErrorState, Notice, PageSkeleton } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
 import { useAdminOrg, useAdminSite } from './admin';
 
@@ -143,13 +143,13 @@ function RuleEditor({ org, site, tags, draft, onDone }: {
 
 export function AlarmRulesPage() {
   const { t } = useTranslation();
-  const role = useRole();
-  const { orgId } = useAdminOrg();
+  // gate on the role in the managed org, not the v1 shim org (v4 T14)
+  const { orgId, orgRole, loading } = useAdminOrg();
   const { site, sites, setSiteId } = useAdminSite(orgId);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const qc = useQueryClient();
-  const admin = canAdmin(role);
+  const admin = canAdmin(orgRole ?? 'none');
 
   const rules = useQuery({
     queryKey: ['admin-rules', orgId, site?.id],
@@ -163,7 +163,8 @@ export function AlarmRulesPage() {
     enabled: orgId != null && site != null,
   });
 
-  if (!canOperate(role)) {
+  if (loading) return <PageSkeleton />;
+  if (!canOperate(orgRole ?? 'none')) {
     return (
       <div className="page admin-page">
         <header className="page-head"><div><h1>{t('admin.rulesTitle')}</h1></div></header>

@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router';
 import { live } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
 import { EQUIPMENT, SIGNALS } from '../../lib/plant';
-import { canOperate, useRole } from '../../app/session';
+import { useOperateAnyOrg } from '../../features/admin/admin';
 import { NAV } from '../../app/nav';
 import { palette } from '../../app/palette';
 import { useFaceplate } from '../../features/faceplate/FaceplateContext';
@@ -48,13 +48,15 @@ function fuzzy(needle: string, hay: string): number | null {
 function useItems(): Item[] {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const role = useRole();
+  // gated nav (admin) is visible to operator+ in ANY org — the v1-shim-org
+  // role alone would hide it from an org-B admin (v4 T14)
+  const operateAny = useOperateAnyOrg();
   const { openFaceplate } = useFaceplate();
   useStore(() => live.tagRev); // tags may arrive after the palette mounts
   return useMemo(() => {
     const items: Item[] = [];
     for (const g of NAV) {
-      if (g.gated && !canOperate(role)) continue;
+      if (g.gated && !operateAny) continue;
       for (const i of g.items) {
         items.push({
           id: `nav:${i.to}`, group: 'nav', icon: i.icon,
@@ -81,7 +83,7 @@ function useItems(): Item[] {
     }
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, role, navigate, openFaceplate, live.tagRev]);
+  }, [t, operateAny, navigate, openFaceplate, live.tagRev]);
 }
 
 const GROUP_ORDER: Group[] = ['nav', 'equip', 'tag'];

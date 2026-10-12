@@ -45,12 +45,12 @@ export function useDenied(): boolean {
   return meResolved && getToken() !== '' && sessionRole === 'none';
 }
 
-export function canOperate(role: SessionRole): boolean {
+export function canOperate(role: string): boolean {
   return role === 'operator' || role === 'admin' || role === 'owner';
 }
 
 /** admin|owner — config:write / member:manage / audit:read (CONTRACT.v2 §1). */
-export function canAdmin(role: SessionRole): boolean {
+export function canAdmin(role: string): boolean {
   return role === 'admin' || role === 'owner';
 }
 

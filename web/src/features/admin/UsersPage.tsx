@@ -6,8 +6,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { adminApi, api, ApiError } from '../../lib/api';
-import { useRole, canAdmin } from '../../app/session';
-import { EmptyState, ErrorState, Notice } from '../../shared/ui/Feedback';
+import { canAdmin } from '../../app/session';
+import { EmptyState, ErrorState, Notice, PageSkeleton } from '../../shared/ui/Feedback';
 import { useAdminOrg } from './admin';
 
 const ASSIGNABLE = ['viewer', 'operator', 'admin', 'owner'] as const;
@@ -15,9 +15,10 @@ const INVITABLE = ['viewer', 'operator', 'admin'] as const;
 
 export function UsersPage() {
   const { t } = useTranslation();
-  const role = useRole();
-  const { orgId } = useAdminOrg();
-  const admin = canAdmin(role);
+  const { orgId, orgRole, loading } = useAdminOrg();
+  // gate on the role in the org this page manages — an admin of org B is
+  // not blocked by holding viewer/none in the v1 shim org (v4 T14)
+  const admin = canAdmin(orgRole ?? 'none');
   const qc = useQueryClient();
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
   const [busy, setBusy] = useState<string | null>(null);
@@ -40,7 +41,8 @@ export function UsersPage() {
     enabled: admin && orgId != null,
   });
 
-  if (!canAdmin(role)) {
+  if (loading) return <PageSkeleton />;
+  if (!admin) {
     return (
       <div className="page admin-page">
         <header className="page-head"><div><h1>{t('admin.usersTitle')}</h1></div></header>

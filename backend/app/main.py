@@ -58,9 +58,14 @@ from .observability import (
 )
 from .ratelimit import RateLimiter
 from .registry import Registry
-from .security import AuthError, ForbiddenError, Security, authz_listener
+from .security import (
+    AuthError, ForbiddenError, Security, authz_listener, authz_sweep,
+)
 from .seed import seed
-from .ws import WSManager, WSAuthError, origin_allowed, read_auth_frame
+from .ws import (
+    OriginGuardMiddleware, WSManager, WSAuthError, origin_allowed,
+    read_auth_frame,
+)
 
 START_TIME = time.monotonic()
 
@@ -486,8 +491,12 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(st.insights.run_forever()),
         asyncio.create_task(health_watchdog(st)),
         # wds_authz NOTIFY -> ≤5s revocation (backchannel logout, disabled
-        # users, membership changes) — v4 T5, ADR-12 §7
+        # users, membership changes) — v4 T5, ADR-12 §7. The sweep is the
+        # missed-NOTIFY backstop: a notification published while the LISTEN
+        # socket is down is gone forever, so connected clients are
+        # revalidated against the source tables every AUTHZ_SWEEP_S (v4 T14).
         asyncio.create_task(authz_listener(st.auth)),
+        asyncio.create_task(authz_sweep(st.auth, config.AUTHZ_SWEEP_S)),
         # alarm_rules_changed NOTIFY -> rule reload without restart (v4 T10)
         asyncio.create_task(rules_notify_listener(st.alarms)),
     ]
@@ -548,6 +557,17 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+# REST Origin gate (v4 T14, CONTRACT.v2 §2, ADR-12 §8): mutating /api calls
+# that carry an Origin header must pass the same allowlist/same-origin
+# policy as the WS upgrade — missing Origin is allowed (non-browser clients
+# send none; browsers always send it on cross-origin mutations). Runs inside
+# ObservabilityMiddleware so a 403 still carries X-Request-ID + access log.
+app.add_middleware(
+    OriginGuardMiddleware,
+    is_allowed=lambda origin, host: origin_allowed(
+        origin, host, config.ALLOWED_ORIGINS,
+        dev=config.APP_ENV in ("dev", "test")),
 )
 # Outermost (added last): every HTTP request gets a request-id, a JSON access
 # log line and Prometheus counters — including requests CORS rejects (v4 T8).
@@ -2112,7 +2132,8 @@ async def ws_endpoint(ws: WebSocket):
                 await ws.close(code=4403)
             return
         client = await manager.connect(ws, roles[org_id], sub=p.sub, sid=p.sid,
-                                       org_id=org_id, org_roles=roles)
+                                       org_id=org_id, org_roles=roles,
+                                       user_id=p.user_id)
         pump: asyncio.Task | None = None
         exp_task: asyncio.Task | None = None
         if p.exp:

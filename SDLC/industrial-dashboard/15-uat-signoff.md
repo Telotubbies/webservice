@@ -1,5 +1,7 @@
 # 15 — UAT Sign-off & Release Blockers
 
+> **Historical note (v4, 2026-10-12):** §§1–4 below document the **pre-v4 stack** sign-off — SQLite persistence, static mosquitto password/ACL files on plaintext 1883, and token-badge auth. The shipped v4 stack (Postgres + RLS, Keycloak OIDC, dynsec over TLS 8883, v2 topics, Origin-gated REST/WS) superseded that baseline; v4 evidence lives in the v4 plan (`plans/2026-10-12-ui-v4-enterprise.md`) and the final-fix report. Keep §§1–4 for the audit trail — do not read them as the current architecture.
+
 Date: post-attack-remediation build (backend + edge-bridge + web rebuilt after P0/P1 fixes).
 Scope: demo stack — `mosquitto` (authenticated, ACL'd), `backend` (FastAPI + SQLite), `edge-bridge` (sim adapter), `web` (nginx + React build). Target = AWS deploy; this sign-off covers the **local demo readiness gate**, not production AWS acceptance.
 

@@ -45,7 +45,7 @@ organization ─ membership(user, role) ─ site ─ line ─ device ─ tag
 ## 2. HTTP conventions
 
 - Base path `/api/v1`. JSON only. Auth via `Authorization: Bearer <access JWT>` (ADR-12).
-- Mutating requests must send an `Origin` listed in `ALLOWED_ORIGINS`.
+- Mutating requests (`POST`/`PUT`/`PATCH`/`DELETE` under `/api`) that carry an `Origin` header must satisfy the Origin policy — `ALLOWED_ORIGINS` match or same-origin (the Origin's `host[:port]` equals the request `Host`) — or the request is refused **403** before routing. A *missing* `Origin` is allowed: browsers always send `Origin` on cross-origin mutations, so its absence means a non-browser client (curl, tests, the IdP's server-side back-channel POST), and bearer-token auth carries no ambient credentials for a forged form to ride. This is the same documented carve-out the WS upgrade gate applies (§5.1); `GET`/`HEAD`/`OPTIONS` are never Origin-checked.
 - IDs are UUIDv7 strings. Timestamps are RFC 3339 UTC with a `Z` suffix.
 - Errors use `application/problem+json`: `{type, title, status, code, detail?, request_id, errors?}`. `code` is stable and machine-readable.
 - Lists use cursor pagination: `?limit=` (default 50, max 500) and `?cursor=`. The response is `{items, next_cursor}` — `next_cursor: null` is a contract-permitted empty page meaning "no more results". As of T9, `GET …/commands` implements keyset pagination on `cursor`; the other list routes return their full (bounded) page with `next_cursor: null` until T10+ adds cursors.
