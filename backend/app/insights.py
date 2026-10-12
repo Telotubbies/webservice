@@ -64,6 +64,10 @@ _DRIFT_MIN_SPAN_S = 600.0  # need >= 10 min of post-start data before judging
 _DRIFT_MIN_N = 30
 _MIN_BASE_N = 10           # samples before z-scores are meaningful
 _CLAMP_SIGMAS = 3.0        # winsorize out-of-band baseline feed
+_SIGMA_ABS_FLOOR = 1e-3    # absolute sigma floor: on a near-zero tag
+                           # (|mu| ~ 0) the relative 2%-of-mean floor alone
+                           # would bottom at ~1e-9, turning sub-unit noise
+                           # into astronomical z-scores
 
 
 def _is_num(v) -> bool:
@@ -189,27 +193,52 @@ class InsightEngine:
         tags = [t for t in self.registry.all() if t.type == "number"]
         if not tags:
             return
+        # Serialized insight rows broadcast AFTER the pass commits — an event
+        # emitted mid-transaction would still reach clients if a later tag's
+        # work rolled the writes back.
+        events: list[dict] = []
         async with tenant_tx(self.pools.system, config.V1_ORG_ID) as tc:
             deadband_min = {
                 r["tag_id"]: r["dmin"] for r in await tc.fetch(
                     "SELECT tag_id, min(deadband) AS dmin FROM alarm_rules"
                     " WHERE enabled GROUP BY tag_id")}
             for tag in tags:
-                st = self._tags.setdefault(tag.id, TagStats())
-                if not st.seeded:
-                    await self._seed_baseline(tc, tag, st)
-                rows = await tc.fetch(
-                    "SELECT ts, v, q FROM tag_history WHERE tag_id=$1 AND ts > $2"
-                    " ORDER BY ts", tag.id, st.last_ts or self.started_at)
-                for r in rows:
-                    self._process_sample(st, r["ts"], r["v"], r["q"])
-                opens = {
-                    r["kind"]: r for r in await tc.fetch(
-                        "SELECT id, kind, ts_end FROM insights"
-                        " WHERE tag_id=$1 AND state='open'", tag.id)}
-                await self._eval_anomaly(tc, tag, st, opens)
-                await self._eval_windowed(tc, tag, st, opens, now,
-                                          deadband_min.get(tag.id, 0.0), tags)
+                tag_events: list[dict] = []
+                try:
+                    # per-tag savepoint: one bad tag rolls back only its own
+                    # writes, never the whole pass
+                    async with tc.conn.transaction():
+                        await self._eval_tag(tc, tag, now,
+                                             deadband_min.get(tag.id, 0.0),
+                                             tags, tag_events)
+                    events.extend(tag_events)   # only committed tag work
+                except Exception:  # noqa: BLE001 — isolate, keep evaluating
+                    log.exception("insight evaluation failed for tag %s",
+                                  getattr(tag, "v1_name", tag.id))
+        for insight in events:
+            self.ws.broadcast({"type": "insight", "insight": insight})
+
+    async def _eval_tag(self, tc: TenantConn, tag, now: datetime,
+                        deadband_min: float, all_tags,
+                        events: list[dict]) -> None:
+        """One tag's pass: ingest new samples, evaluate all detectors. Runs
+        inside the caller's per-tag savepoint; serialized insight events are
+        appended to `events` and broadcast by the caller post-commit."""
+        st = self._tags.setdefault(tag.id, TagStats())
+        if not st.seeded:
+            await self._seed_baseline(tc, tag, st)
+        rows = await tc.fetch(
+            "SELECT ts, v, q FROM tag_history WHERE tag_id=$1 AND ts > $2"
+            " ORDER BY ts", tag.id, st.last_ts or self.started_at)
+        for r in rows:
+            self._process_sample(st, r["ts"], r["v"], r["q"])
+        opens = {
+            r["kind"]: r for r in await tc.fetch(
+                "SELECT id, kind, ts_end, score FROM insights"
+                " WHERE tag_id=$1 AND state='open'", tag.id)}
+        await self._eval_anomaly(tc, tag, st, opens, now, events)
+        await self._eval_windowed(tc, tag, st, opens, now, deadband_min,
+                                  all_tags, events)
 
     async def _seed_baseline(self, tc: TenantConn, tag, st: TagStats) -> None:
         """Warm the EWMA from pre-start history — statistics only, never an
@@ -301,11 +330,12 @@ class InsightEngine:
 
     @staticmethod
     def _sigma_floor(st: TagStats) -> float:
-        return max(0.02 * abs(st.mu), 1e-9)
+        return max(0.02 * abs(st.mu), _SIGMA_ABS_FLOOR, 1e-9)
 
     # ---------------------------------------------------------- detectors
     async def _eval_anomaly(self, tc: TenantConn, tag, st: TagStats,
-                            opens: dict) -> None:
+                            opens: dict, now: datetime,
+                            events: list[dict]) -> None:
         row = opens.get("anomaly")
         st.open_anomaly = row is not None
         if row is None:
@@ -315,7 +345,7 @@ class InsightEngine:
                                  "warning" if zmax > 6 else "info",
                                  zmax, first_ts, last_ts,
                                  {"mu": st.mu, "sigma": math.sqrt(st.var),
-                                  "z": zmax})
+                                  "z": zmax}, events)
                 st.ep_zmax = zmax
                 st.ep_last_offense = last_ts
             st.pending = None
@@ -323,18 +353,28 @@ class InsightEngine:
             # the same pass — one full period of open state is guaranteed.
             return
         st.pending = None
+        if st.ep_last_offense is None:
+            # post-restart: the episode accumulators are empty but the row is
+            # still open — re-seed them from the row's last known peak/window
+            # so the score can't regress and a close never writes NULL ts_end.
+            st.ep_zmax = max(st.ep_zmax, float(row["score"] or 0.0))
+            st.ep_last_offense = row["ts_end"]
         if st.ep_last_offense and (row["ts_end"] is None
                                    or st.ep_last_offense > row["ts_end"]):
+            # severity rides on the episode peak: a row opened at z~4 (info)
+            # escalates to warning when a later offense pushes zmax past 6
             await self._update(tc, row["id"], tag, st.ep_last_offense, st.ep_zmax,
                                {"mu": st.mu, "sigma": math.sqrt(st.var),
-                                "z": st.ep_zmax})
+                                "z": st.ep_zmax},
+                               "warning" if st.ep_zmax > 6 else "info", events)
         if st.inband >= config.INSIGHT_CLOSE_N:
-            await self._close(tc, row["id"], tag, st.ep_last_offense)
+            await self._close(tc, row["id"], tag, st.ep_last_offense or now,
+                              events)
             st.ep_zmax = 0.0
 
     async def _eval_windowed(self, tc: TenantConn, tag, st: TagStats,
                              opens: dict, now: datetime, deadband_min: float,
-                             all_tags) -> None:
+                             all_tags, events: list[dict]) -> None:
         # ---- drift: OLS on the 30-min good-sample window
         cutoff = now - timedelta(seconds=_DRIFT_WIN_S)
         while st.win and st.win[0][0] < cutoff:
@@ -351,11 +391,13 @@ class InsightEngine:
             if row is None:
                 if self._fresh(st):
                     await self._open(tc, tag, "drift", "info", score,
-                                     st.win[0][0], st.win[-1][0], detail)
+                                     st.win[0][0], st.win[-1][0], detail, events)
             elif st.win[-1][0] != row["ts_end"]:
-                await self._update(tc, row["id"], tag, st.win[-1][0], score, detail)
+                await self._update(tc, row["id"], tag, st.win[-1][0], score,
+                                   detail, "info", events)
         elif row is not None:
-            await self._close(tc, row["id"], tag, st.win[-1][0] if st.win else now)
+            await self._close(tc, row["id"], tag,
+                              st.win[-1][0] if st.win else now, events)
 
         # ---- flatline: zero variance for INSIGHT_FLAT_S while a peer moved
         peer_moved = any(
@@ -372,11 +414,13 @@ class InsightEngine:
             detail = {"flat_minutes": score}
             if row is None:
                 await self._open(tc, tag, "flatline", "warning", score,
-                                 st.last_change_ts, st.last_good_ts, detail)
+                                 st.last_change_ts, st.last_good_ts, detail,
+                                 events)
             elif st.last_good_ts != row["ts_end"]:
-                await self._update(tc, row["id"], tag, st.last_good_ts, score, detail)
+                await self._update(tc, row["id"], tag, st.last_good_ts, score,
+                                   detail, "warning", events)
         elif row is not None:
-            await self._close(tc, row["id"], tag, st.last_good_ts or now)
+            await self._close(tc, row["id"], tag, st.last_good_ts or now, events)
 
         # ---- flapping: good<->non-good quality transitions in INSIGHT_FLAP_S
         cutoff = now - timedelta(seconds=config.INSIGHT_FLAP_S)
@@ -391,13 +435,16 @@ class InsightEngine:
                 if self._fresh(st):
                     await self._open(tc, tag, "flapping", "info",
                                      float(len(st.transitions)),
-                                     st.transitions[0], st.transitions[-1], detail)
+                                     st.transitions[0], st.transitions[-1],
+                                     detail, events)
             elif st.transitions[-1] != row["ts_end"]:
                 await self._update(tc, row["id"], tag, st.transitions[-1],
-                                   float(len(st.transitions)), detail)
+                                   float(len(st.transitions)), detail, "info",
+                                   events)
         elif row is not None:
             await self._close(tc, row["id"], tag,
-                              st.transitions[-1] if st.transitions else now)
+                              st.transitions[-1] if st.transitions else now,
+                              events)
 
     @staticmethod
     def _fresh(st: TagStats) -> bool:
@@ -409,7 +456,7 @@ class InsightEngine:
     # ------------------------------------------------------------- writes
     async def _open(self, tc: TenantConn, tag, kind: str, severity: str,
                     score: float, ts_start: datetime, ts_end: datetime,
-                    detail: dict) -> None:
+                    detail: dict, events: list[dict]) -> None:
         try:
             async with tc.conn.transaction():  # savepoint: losing the race is fine
                 iid = await tc.fetchval(
@@ -424,30 +471,35 @@ class InsightEngine:
                            {"kind": kind, "severity": severity, "score": score})
         log.info("insight opened", extra={"insight_id": str(iid), "kind": kind,
                                           "tag": tag.v1_name})
-        self.ws.broadcast({"type": "insight",
-                           "insight": await self._serialize(tc, iid)})
+        events.append(await self._serialize(tc, iid))
 
     async def _update(self, tc: TenantConn, insight_id: UUID, tag,
-                      ts_end: datetime, score: float, detail: dict) -> None:
+                      ts_end: datetime, score: float, detail: dict,
+                      severity: str, events: list[dict]) -> None:
+        # severity is re-written on every update so an episode's peak can
+        # escalate (or settle) — e.g. an anomaly opened at z~4 as info that
+        # later peaks at z~9 becomes warning.
         n = await tc.execute(
-            "UPDATE insights SET ts_end=$2, score=$3, detail=$4, updated_at=now()"
-            " WHERE id=$1 AND state='open'", insight_id, ts_end, score, detail)
+            "UPDATE insights SET ts_end=$2, score=$3, detail=$4, severity=$5,"
+            " updated_at=now() WHERE id=$1 AND state='open'",
+            insight_id, ts_end, score, detail, severity)
         if n == "UPDATE 0":
             return
-        self.ws.broadcast({"type": "insight",
-                           "insight": await self._serialize(tc, insight_id)})
+        events.append(await self._serialize(tc, insight_id))
 
     async def _close(self, tc: TenantConn, insight_id: UUID, tag,
-                     ts_end: datetime) -> None:
+                     ts_end: datetime | None, events: list[dict]) -> None:
+        # ts_end=None must never be written: a closed row with NULL ts_end
+        # reads as still-open in every overlap query (list_insights, trends
+        # ribbons). Fall back to now.
         n = await tc.execute(
             "UPDATE insights SET state='closed', ts_end=$2, updated_at=now()"
-            " WHERE id=$1 AND state='open'", insight_id, ts_end)
+            " WHERE id=$1 AND state='open'", insight_id, ts_end or utcnow())
         if n == "UPDATE 0":
             return
         await audit.append(tc, "insight-engine", "insight.close",
                            {"insight_id": str(insight_id), "tag_id": str(tag.id)})
-        self.ws.broadcast({"type": "insight",
-                           "insight": await self._serialize(tc, insight_id)})
+        events.append(await self._serialize(tc, insight_id))
 
     # -------------------------------------------------------------- queries
     async def list_insights(self, tc: TenantConn, state: str | None,

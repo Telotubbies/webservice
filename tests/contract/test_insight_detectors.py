@@ -9,7 +9,9 @@ INSIGHT_FLAT_S / drift windows.
 import asyncio
 import os
 import sys
+import types
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
@@ -160,3 +162,117 @@ def test_bad_quality_samples_are_invisible():
 
 def test_evaluate_once_is_serialized():
     assert isinstance(_engine()._lock, asyncio.Lock)
+
+
+# ------------------------------------------------------- write-path fixes
+# _open/_update/_close take a TenantConn; these tests substitute a recorder —
+# they assert on the emitted SQL/args, not on a live DB.
+
+class _FakeTC:
+    """Records execute() calls; audit.append works against it unchanged."""
+    org_id = uuid4()
+
+    def __init__(self):
+        self.calls = []                      # [(sql, args)]
+
+    async def execute(self, sql, *args):
+        self.calls.append((sql, args))
+        return "UPDATE 1"
+
+
+def _tag():
+    return types.SimpleNamespace(id=uuid4(), v1_name="plant1.sort.line1.x.sig")
+
+
+@pytest.fixture
+def _serialize_stub(monkeypatch):
+    """_serialize hits the DB + tag registry — stub it for write-path tests."""
+    async def fake(self, tc, iid):
+        return {"id": str(iid)}
+    monkeypatch.setattr(InsightEngine, "_serialize", fake)
+
+
+def test_sigma_floor_has_absolute_minimum():
+    """|mu|~0 tags (a ratio hovering at zero) used to floor at ~1e-9, turning
+    sub-unit noise into astronomical z-scores — the floor is now bounded."""
+    st = TagStats()
+    st.mu = 0.0
+    assert InsightEngine._sigma_floor(st) >= 1e-3
+    st.mu = 100.0
+    assert InsightEngine._sigma_floor(st) == 2.0     # 0.02*|mu| still wins
+
+
+def test_close_never_writes_null_ts_end(_serialize_stub):
+    """Post-restart ep_last_offense may be None — the close must still write a
+    real timestamp (a NULL ts_end reads as still-open in every overlap query)."""
+    eng = _engine()
+    tc = _FakeTC()
+    events = []
+    asyncio.run(eng._close(tc, uuid4(), _tag(), None, events))
+    sql, args = tc.calls[0]
+    assert "state='closed'" in sql
+    assert isinstance(args[1], datetime)             # not None
+    assert len(events) == 1                          # queued for post-commit broadcast
+
+
+def test_open_row_reseeds_episode_state():
+    """An open row surviving a restart must repopulate the empty episode
+    accumulators (ep_zmax/ep_last_offense) from its stored score/ts_end so
+    the score can't regress and a later close has a real ts_end."""
+    eng = _engine()
+    st = _primed()
+    st.ep_zmax, st.ep_last_offense = 0.0, None       # fresh post-restart state
+    last = T0 + timedelta(seconds=30)
+    opens = {"anomaly": {"id": uuid4(), "kind": "anomaly",
+                         "ts_end": last, "score": 7.5}}
+    asyncio.run(eng._eval_anomaly(_FakeTC(), _tag(), st, opens,
+                                T0 + timedelta(minutes=1), []))
+    assert st.ep_zmax == 7.5
+    assert st.ep_last_offense == last
+
+
+def test_restart_close_uses_seeded_ts_end(_serialize_stub):
+    """Close on the very first pass after a restart (no new offenses): the
+    seeded ts_end reaches the UPDATE — not NULL."""
+    eng = _engine()
+    st = _primed()
+    st.inband = config.INSIGHT_CLOSE_N
+    st.ep_zmax, st.ep_last_offense = 0.0, None
+    last = T0 + timedelta(seconds=30)
+    opens = {"anomaly": {"id": uuid4(), "kind": "anomaly",
+                         "ts_end": last, "score": 7.5}}
+    tc = _FakeTC()
+    asyncio.run(eng._eval_anomaly(tc, _tag(), st, opens,
+                                T0 + timedelta(minutes=1), []))
+    closes = [c for c in tc.calls if "state='closed'" in c[0]]
+    assert closes, "open row was not closed after CLOSE_N in-band samples"
+    assert closes[0][1][1] == last                   # seeded ts_end, not NULL
+
+
+def test_anomaly_update_escalates_severity(_serialize_stub):
+    """An episode opening at z~4 (info) that peaks at z~9 must escalate the
+    open row to warning — severity is recomputed from ep_zmax on _update."""
+    eng = _engine()
+    st = _primed()
+    st.ep_zmax, st.ep_last_offense = 9.0, T0 + timedelta(seconds=40)
+    opens = {"anomaly": {"id": uuid4(), "kind": "anomaly",
+                         "ts_end": T0, "score": 4.0}}   # opened at z~4 -> info
+    tc = _FakeTC()
+    events = []
+    asyncio.run(eng._eval_anomaly(tc, _tag(), st, opens,
+                                T0 + timedelta(minutes=1), events))
+    upds = [c for c in tc.calls if "severity=$5" in c[0]]
+    assert upds, "open row was not updated"
+    assert upds[0][1][-1] == "warning"
+    assert len(events) == 1
+
+
+def test_writes_enqueue_events_not_broadcast(_serialize_stub):
+    """WS events are collected during the pass and broadcast post-commit by
+    the caller — _open/_update/_close never touch self.ws."""
+    eng = _engine()
+    assert eng.ws is None                            # would raise if broadcast fired
+    tc = _FakeTC()
+    events = []
+    asyncio.run(eng._close(tc, uuid4(), _tag(), T0, events))
+    assert len(events) == 1                          # no exception, event queued
