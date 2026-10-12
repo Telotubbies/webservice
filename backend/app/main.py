@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import config
 from .alarms import (
-    AlarmEngine, RULES_NOTIFY_CHANNEL, rules_notify_listener,
+    AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener,
 )
 from .auth import OPERATOR_ROLES, Principal
 from .commands import CommandManager
@@ -1495,6 +1495,7 @@ INVITABLE_ROLES = frozenset({"admin", "operator", "viewer"})  # schema CHECK
 RULE_KINDS = frozenset({"hi", "hihi", "lo", "lolo", "stale"})
 RULE_SEVERITIES = frozenset({"info", "warning", "critical"})
 INVITE_TTL_D = 7
+MEMBER_LIST_MAX = 5000  # T10-review F9 — same bound as the audit export
 
 
 class AlarmRuleIn(BaseModel):
@@ -1536,6 +1537,12 @@ class InviteIn(BaseModel):
         return v
 
 
+class InviteAcceptIn(BaseModel):
+    # T10-review F1: the token travels in the body, never the URL path —
+    # a path token lands in access logs and proxy traces.
+    token: str = Field(min_length=1, max_length=128)
+
+
 def _validate_rule(kind: str, threshold, stale_s, severity: str,
                    deadband: float) -> None:
     """Mirror the alarm_rules CHECK constraints in request terms (400, not a
@@ -1558,6 +1565,13 @@ def _rule_json(r) -> dict:
             "kind": r["kind"], "threshold": r["threshold"],
             "stale_s": r["stale_s"], "deadband": r["deadband"],
             "severity": r["severity"], "enabled": r["enabled"]}
+
+
+def _row_to_rule(row, org_id: UUID) -> Rule:
+    """_RULE_COLS row -> engine Rule (the row carries `enabled`, which the
+    engine dataclass does not)."""
+    d = {k: v for k, v in dict(row).items() if k != "enabled"}
+    return Rule(org_id=org_id, **d)
 
 
 _RULE_COLS = ("id, tag_id, name, kind, threshold, stale_s, deadband,"
@@ -1641,6 +1655,11 @@ async def v2_patch_alarm_rule(org: str, site: str, rule_id: str,
                 merged["enabled"])
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "alarm rule name already exists on this tag")
+        if merged["enabled"] is False:
+            # T10-review F6: a disabled rule can never evaluate-clear again —
+            # resolve its open alarms now, through the engine's close path.
+            await st(request).alarms.close_for_rule(
+                tc, _row_to_rule(row, org_id))
         await audit.append(tc, f"user:{p.user_id}", "alarm_rule.updated",
                            {"rule_id": str(cur["id"])}, changes)
         await tc.execute("SELECT pg_notify($1, $2)",
@@ -1658,6 +1677,10 @@ async def v2_delete_alarm_rule(org: str, site: str, rule_id: str,
     await _mutation_gate(request, p.user_id)
     async with org_tx(request, org_id, p.user_id) as tc:
         cur = await _rule_or_404(tc, rule_id, site_id)
+        # T10-review F6: resolve open alarms BEFORE the row disappears —
+        # _clear's serialize joins alarm_rules for the broadcast payload.
+        await st(request).alarms.close_for_rule(
+            tc, _row_to_rule(cur, org_id))
         await tc.execute("DELETE FROM alarm_rules WHERE id=$1", cur["id"])
         await audit.append(tc, f"user:{p.user_id}", "alarm_rule.deleted",
                            {"rule_id": str(cur["id"])},
@@ -1699,7 +1722,7 @@ async def v2_list_members(org: str, request: Request,
         rows = await tc.fetch(
             "SELECT m.user_id, m.role, u.sub, u.display_name, u.email,"
             " u.disabled_at FROM memberships m JOIN users u ON u.id = m.user_id"
-            " ORDER BY u.display_name")
+            " ORDER BY u.display_name LIMIT $1", MEMBER_LIST_MAX)
     return {"items": [_member_json(r) for r in rows], "next_cursor": None}
 
 
@@ -1861,16 +1884,16 @@ async def v2_revoke_invite(org: str, invite_id: str, request: Request,
     return {"id": str(iid), "revoked": True}
 
 
-@app.post("/api/v1/invites/{token}/accept")
-async def v2_accept_invite(token: str, request: Request,
+@app.post("/api/v1/invites/accept")
+async def v2_accept_invite(body: InviteAcceptIn, request: Request,
                            p: Principal = Depends(require_user)):
     """Accept an invite (CONTRACT.v2 §3): the token resolves to exactly one
     invite via the invite_hash RLS context; the caller's VERIFIED email must
     match the invite email. Single-use — accepted/expired/unknown all 404 so
     the endpoint is not an existence oracle."""
-    if len(token) != 64:
+    if len(body.token) != 64:
         raise HTTPException(404, "invite not found")
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
     await _mutation_gate(request, p.user_id)
     async with invite_tx(st(request).pools.app, token_hash) as conn:
         invite = await conn.fetchrow(
@@ -1889,22 +1912,34 @@ async def v2_accept_invite(token: str, request: Request,
             != invite["email"].lower():
         raise ForbiddenError("invite email does not match your verified email")
     async with tenant_tx(st(request).pools.app, invite["org_id"], p.user_id) as tc:
-        await tc.execute(
-            "INSERT INTO memberships(org_id, user_id, role) VALUES ($1,$2,$3)"
-            " ON CONFLICT (org_id, user_id) DO UPDATE SET role=excluded.role",
-            invite["org_id"], p.user_id, invite["role"])
-        await tc.execute(
-            "UPDATE invites SET accepted_at=now(), accepted_by=$2 WHERE id=$1",
-            invite["id"], p.user_id)
+        # T10-review F2: the single-use claim is the row UPDATE itself —
+        # a racing second accept gets UPDATE 0 → 404, not a double-write.
+        n = await tc.execute(
+            "UPDATE invites SET accepted_at=now(), accepted_by=$2"
+            " WHERE id=$1 AND accepted_at IS NULL", invite["id"], p.user_id)
+        if n == "UPDATE 0":
+            raise HTTPException(404, "invite not found")
+        # T10-review F3: an EXISTING member keeps their current role — the
+        # invite only confirms membership. A blind upsert would let an admin
+        # demote (e.g.) the last owner by inviting their email.
+        cur = await tc.fetchrow(
+            "SELECT role FROM memberships WHERE user_id=$1", p.user_id)
+        if cur is None:
+            await tc.execute(
+                "INSERT INTO memberships(org_id, user_id, role)"
+                " VALUES ($1,$2,$3)", invite["org_id"], p.user_id,
+                invite["role"])
         await audit.append(tc, f"user:{p.user_id}", "invite.accepted",
                            {"invite_id": str(invite["id"])},
-                           {"role": invite["role"]})
+                           {"role": invite["role"],
+                            "membership": "created" if cur is None
+                            else "existing"})
     async with global_tx(st(request).pools.app) as conn:
         await conn.execute(
             "SELECT pg_notify($1, $2)", "wds_authz",
             json.dumps({"type": "membership_changed", "sub": p.sub}))
     return {"status": "accepted", "org_id": str(invite["org_id"]),
-            "role": invite["role"]}
+            "role": invite["role"] if cur is None else cur["role"]}
 
 
 # ---------------------------------------------------------------------------

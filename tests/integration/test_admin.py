@@ -248,16 +248,19 @@ def test_invite_create_accept_single_use(admin_api, viewer_api):
     listed = admin_api.get(f"/api/v1/orgs/{O}/invites").json()["items"]
     inv = next(i for i in listed if i["id"] == invite_id)
     assert "token" not in inv and inv["accepted_at"] is None
-    # accept as the matching user (same role — membership unchanged)
-    r = viewer_api.post(f"/api/v1/invites/{body['token']}/accept")
+    # accept as the matching user (same role — membership unchanged);
+    # the token travels in the body, never the URL path (T10-review F1)
+    r = viewer_api.post("/api/v1/invites/accept",
+                        json={"token": body["token"]})
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "accepted"
     # single-use
-    assert viewer_api.post(
-        f"/api/v1/invites/{body['token']}/accept").status_code == 404
+    assert viewer_api.post("/api/v1/invites/accept",
+                           json={"token": body["token"]}).status_code == 404
     # bogus token is the same 404 (no oracle)
-    assert viewer_api.post(
-        f"/api/v1/invites/{uuid.uuid4().hex * 2}/accept").status_code == 404
+    assert viewer_api.post("/api/v1/invites/accept",
+                           json={"token": uuid.uuid4().hex * 2}
+                           ).status_code == 404
 
 
 def test_invite_email_mismatch(admin_api, viewer_api):
@@ -268,30 +271,29 @@ def test_invite_email_mismatch(admin_api, viewer_api):
     invite_id, token = r.json()["invite"]["id"], r.json()["token"]
     try:
         # demo-viewer's verified email does not match
-        r = viewer_api.post(f"/api/v1/invites/{token}/accept")
+        r = viewer_api.post("/api/v1/invites/accept", json={"token": token})
         assert r.status_code == 403, r.text
     finally:
         d = admin_api.delete(f"/api/v1/orgs/{O}/invites/{invite_id}")
         assert d.status_code == 200, d.text
 
 
-def test_invite_role_upgrade_via_accept(admin_api, viewer_api):
-    """Accept upgrades the caller's role — restore viewer afterwards so the
-    rest of the suite keeps a real viewer."""
+def test_invite_accept_preserves_existing_role(admin_api, viewer_api):
+    """T10-review F3: an existing member's accept is a safe no-op — the
+    invite confirms membership but never overwrites the current role
+    (a blind upsert would let an admin demote the last owner by inviting
+    their email)."""
     r = admin_api.post(f"/api/v1/orgs/{O}/invites",
                        json={"email": "demo-viewer@dev.local", "role": "operator"})
     assert r.status_code == 201, r.text
     token = r.json()["token"]
-    try:
-        r = viewer_api.post(f"/api/v1/invites/{token}/accept")
-        assert r.status_code == 200, r.text
-        assert r.json()["role"] == "operator"
-        mem = admin_api.get(f"/api/v1/orgs/{O}/members").json()["items"]
-        v = next(m for m in mem if m["user_id"] == str(VIEWER_UID))
-        assert v["role"] == "operator"
-    finally:
-        admin_api.patch(f"/api/v1/orgs/{O}/members/{VIEWER_UID}",
-                        json={"role": "viewer"})
+    r = viewer_api.post("/api/v1/invites/accept", json={"token": token})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "accepted"
+    assert r.json()["role"] == "viewer"  # the PRESERVED role, not the invite's
+    mem = admin_api.get(f"/api/v1/orgs/{O}/members").json()["items"]
+    v = next(m for m in mem if m["user_id"] == str(VIEWER_UID))
+    assert v["role"] == "viewer"
 
 
 # -------------------------------------------------------------- audit export

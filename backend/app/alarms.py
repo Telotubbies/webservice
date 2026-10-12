@@ -268,6 +268,19 @@ class AlarmEngine:
         }
 
 
+    async def close_for_rule(self, tc: TenantConn, rule: Rule) -> int:
+        """Resolve every open alarm of a rule that was just disabled or
+        deleted — an orphaned active alarm could never evaluate-clear again
+        (T10-review F6). Runs the normal close path (cleared_at, audit,
+        broadcast) and returns the count closed."""
+        rows = await tc.fetch(
+            "SELECT id FROM alarms WHERE rule_id=$1 AND state = ANY($2::text[])",
+            rule.id, list(OPEN_STATES))
+        for r in rows:
+            await self._clear(tc, r["id"], rule)
+        return len(rows)
+
+
 # ---------------------------------------------------------------------------
 # Rule-change reload (v4 T10): admin CRUD NOTIFYs `alarm_rules_changed` so an
 # edit takes effect without a backend restart (doc 20 §3.3). Mirrors the
@@ -276,19 +289,53 @@ class AlarmEngine:
 RULES_NOTIFY_CHANNEL = "alarm_rules_changed"
 
 
+class _RuleReloader:
+    """Coalesce NOTIFY bursts (T10-review F4): at most one load_rules in
+    flight — a notification landing mid-load marks a single trailing reload
+    instead of queueing N unbounded tasks."""
+
+    def __init__(self, engine: AlarmEngine) -> None:
+        self._engine = engine
+        self._dirty = False
+        self._task: asyncio.Task | None = None
+
+    def kick(self) -> None:
+        if self._task is not None and not self._task.done():
+            self._dirty = True
+            return
+        self._task = asyncio.ensure_future(self._drain())
+
+    async def _drain(self) -> None:
+        while True:
+            self._dirty = False
+            try:
+                await self._engine.load_rules()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.exception("alarm rule reload failed")
+            if not self._dirty:
+                return
+
+
 async def rules_notify_listener(engine: AlarmEngine) -> None:
     """Hold a dedicated LISTEN connection on the system pool; every NOTIFY
     re-runs load_rules. Reconnects forever on failure — the periodic cadence
     is intentionally absent: rules are engine state, so on a dropped listener
     the reconnect happens fast and the missed window is seconds, not minutes.
     """
+    reloader = _RuleReloader(engine)
     while True:
         conn = None
         try:
             conn = await engine.pools.system.acquire()
             await conn.add_listener(
                 RULES_NOTIFY_CHANNEL,
-                lambda *_: asyncio.ensure_future(engine.load_rules()))
+                lambda *_: reloader.kick())
+            # T10-review F5: PG LISTEN drops notifications while the socket
+            # is down — resync on every (re)subscribe rather than waiting
+            # for the next rule change.
+            reloader.kick()
             log.info("alarm_rules_changed listener connected")
             while not conn.is_closed():
                 await asyncio.sleep(30)

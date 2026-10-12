@@ -340,11 +340,15 @@ try {
     });
     ok('admin: invite create 201', inv.status === 201, `${inv.status}`);
     const invBody = inv.ok ? await inv.json() : { token: 'x'.repeat(64) };
-    const acc = await fetch(`${API}/api/v1/invites/${invBody.token}/accept`,
-      { method: 'POST', headers: H('demo-viewer') });
+    const acc = await fetch(`${API}/api/v1/invites/accept`, {
+      method: 'POST', headers: { ...H('demo-viewer'), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: invBody.token }),
+    });
     ok('admin: invite accept 200', acc.status === 200, `${acc.status}`);
-    const acc2 = await fetch(`${API}/api/v1/invites/${invBody.token}/accept`,
-      { method: 'POST', headers: H('demo-viewer') });
+    const acc2 = await fetch(`${API}/api/v1/invites/accept`, {
+      method: 'POST', headers: { ...H('demo-viewer'), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: invBody.token }),
+    });
     ok('admin: invite single-use (404 replay)', acc2.status === 404, `${acc2.status}`);
 
     // audit export — json rows + csv header
