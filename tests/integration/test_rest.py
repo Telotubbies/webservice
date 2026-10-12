@@ -47,9 +47,52 @@ def test_system_health(api):
     assert "clock_ok" in body["edge"]
 
 
-def test_health_allows_anonymous(api):
-    # public read-only — no Authorization header at all
-    assert api.get("/api/health").status_code == 200
+def test_health_allows_anonymous(anon_api):
+    # /api/health is the machine-level probe — the ONE public read left.
+    assert anon_api.get("/api/health").status_code == 200
+
+
+# --------------------------------------------------- anonymous reads -> 401
+# v4 T5: every /api/* read requires a member principal (ADR-12).
+
+@pytest.mark.parametrize("path", [
+    "/api/tags",
+    "/api/tags/latest",
+    "/api/alarms",
+    "/api/insights",
+    "/api/alarm-rules",
+    "/api/commands",
+    "/api/system/health",
+    "/api/me",
+])
+def test_anonymous_reads_are_401(anon_api, path):
+    assert anon_api.get(path).status_code == 401, path
+
+
+def test_garbage_bearer_is_401(anon_api):
+    r = anon_api.get("/api/tags",
+                     headers={"Authorization": "Bearer not-a-jwt"})
+    assert r.status_code == 401
+
+
+def test_auth_config_is_public(anon_api):
+    """The unauthenticated bootstrap endpoint the sign-in wall needs."""
+    r = anon_api.get("/api/auth/config")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["env"] == "dev"
+    assert body["dev_tokens"] is True
+    assert body["oidc"]["client_id"] == "wds-web"
+    assert body["oidc"]["realm"] == "wds"
+
+
+def test_me_returns_member_role(api):
+    r = api.get("/api/me")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["role"] == "operator"
+    assert body["kind"] == "dev"          # dev-token path (APP_ENV=dev)
+    assert body["user"]["sub"].startswith("dev:")
 
 
 # --------------------------------------------------------------------- tags
@@ -116,8 +159,8 @@ def test_command_happy_path_setpoint(api, operator_headers):
     assert final["status"] == "done", final
 
 
-def test_command_no_token_401(api):
-    r = api.post("/api/commands", json={"tag": TAGS["running"], "value": True})
+def test_command_no_token_401(anon_api):
+    r = anon_api.post("/api/commands", json={"tag": TAGS["running"], "value": True})
     assert r.status_code == 401
 
 
@@ -191,10 +234,10 @@ def test_idempotency_key_replay(api, operator_headers):
     _wait_command_status(api, id1, operator_headers)  # settle for later tests
 
 
-def test_commands_list_authz(api, operator_headers, viewer_headers):
+def test_commands_list_authz(api, anon_api, operator_headers, viewer_headers):
     # Command data is operator-only (consistent with WS command events):
     # anonymous -> 401, viewer -> 403, operator -> 200.
-    assert api.get("/api/commands").status_code == 401
+    assert anon_api.get("/api/commands").status_code == 401
     assert api.get("/api/commands", headers=viewer_headers).status_code == 403
     r = api.get("/api/commands", params={"limit": 5}, headers=operator_headers)
     assert r.status_code == 200

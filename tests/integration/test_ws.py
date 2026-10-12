@@ -3,10 +3,10 @@
 Requires BASE_URL. Uses `websockets` (async) wrapped in asyncio.run.
 
 v4 T3: auth is a first-frame handshake — the client sends
-{"type":"auth","token":…} (empty/absent token = anonymous until T5) within
-5 s of connect. Anything else first, an unresolvable token, or timeout
-closes the socket with 4401. `?token=` is gone — query strings leak into
-access logs and proxy traces.
+{"type":"auth","token":…} within 5 s of connect. v4 T5 removed anonymous:
+an empty/absent/unresolvable token, a non-auth first frame, or a timeout
+all close the socket with 4401; authenticated-but-not-a-member -> 4403.
+`?token=` is gone — query strings leak into access logs and proxy traces.
 """
 
 import asyncio
@@ -19,7 +19,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from conftest import TAGS, OPERATOR_TOKEN  # noqa: E402
+from conftest import TAGS, OPERATOR_TOKEN, VIEWER_TOKEN  # noqa: E402
 
 
 def _close_code(e):
@@ -71,7 +71,7 @@ async def _close_code_after(ws_url, first_frame=None, wait_s=15):
 
 
 def test_ws_receives_tag_events(ws_base):
-    events, _ = asyncio.run(_collect(f"{ws_base}/ws", 12,
+    events, _ = asyncio.run(_collect(f"{ws_base}/ws", 12, token=OPERATOR_TOKEN,
                                    predicate=lambda e: e.get("type") == "tag"))
     tag_events = [e for e in events if e.get("type") == "tag"]
     assert tag_events, f"no tag events in 12s, got: {[e.get('type') for e in events]}"
@@ -83,17 +83,18 @@ def test_ws_receives_tag_events(ws_base):
     assert e["ts"].endswith("Z")
 
 
-def test_ws_anonymous_connects(ws_base):
-    # anonymous = {type:'auth'} with no token; read-only until T5 flips it
-    events, code = asyncio.run(_collect(f"{ws_base}/ws", 5))
-    assert code in (None, 1000, 1001)
+def test_ws_anonymous_rejected(ws_base):
+    # v4 T5: {"type":"auth"} with no token -> 4401 (anonymous is gone)
+    code = asyncio.run(
+        _close_code_after(f"{ws_base}/ws", {"type": "auth"}))
+    assert code == 4401, f"anonymous WS should close 4401, got {code}"
 
 
-def test_ws_anonymous_empty_token_connects(ws_base):
-    # {"type":"auth","token":""} is the anonymous path too — a *non-empty*
-    # token that doesn't resolve is the failure case, not an empty one
-    events, code = asyncio.run(_collect(f"{ws_base}/ws", 5, token=""))
-    assert code in (None, 1000, 1001)
+def test_ws_anonymous_empty_token_rejected(ws_base):
+    # {"type":"auth","token":""} is anonymous too — same 4401
+    code = asyncio.run(
+        _close_code_after(f"{ws_base}/ws", {"type": "auth", "token": ""}))
+    assert code == 4401, f"empty-token WS should close 4401, got {code}"
 
 
 def test_ws_first_frame_auth_operator(ws_base):
@@ -221,26 +222,24 @@ async def _command_leak_probe(ws_url, auth_frame, operator_headers, api):
     return leaked
 
 
-def test_ws_anonymous_no_command_events(ws_base, operator_headers, api):
-    """09 §7 security test: WS '*' must not leak command events to anonymous.
-
-    NOTE: 06 §2 restricts public streams to tag/tags/alarm/health. CONTRACT.md
-    does not state this explicitly — flagged DIVERGENCE; failure here is a
-    red-team finding, not necessarily a contract violation."""
+def test_ws_viewer_no_command_events(ws_base, operator_headers, api):
+    """09 §7 security test: a read-only (viewer) connection must not leak
+    command events — least privilege on the authenticated stream."""
     leaked = asyncio.run(
-        _command_leak_probe(f"{ws_base}/ws", {"type": "auth"},
+        _command_leak_probe(f"{ws_base}/ws",
+                            {"type": "auth", "token": VIEWER_TOKEN},
                             operator_headers, api))
-    assert not leaked, f"anonymous WS leaked command events: {leaked}"
+    assert not leaked, f"viewer WS leaked command events: {leaked}"
 
 
-def test_ws_url_token_is_inert(ws_base, operator_headers, api):
+def test_ws_url_token_is_inert(ws_base):
     """v4 T3 regression: ?token= in the URL must NOT authenticate — the
-    first-frame auth is the only credential channel. A valid token in the
-    URL + an anonymous auth frame stays anonymous -> no command events."""
-    leaked = asyncio.run(
-        _command_leak_probe(f"{ws_base}/ws?token={OPERATOR_TOKEN}",
-                            {"type": "auth"}, operator_headers, api))
-    assert not leaked, f"?token= authenticated a URL — leaked: {leaked}"
+    first-frame auth is the only credential channel. A VALID token in the
+    URL + an anonymous auth frame is still anonymous -> 4401 (v4 T5)."""
+    code = asyncio.run(
+        _close_code_after(f"{ws_base}/ws?token={OPERATOR_TOKEN}",
+                          {"type": "auth", "token": ""}))
+    assert code == 4401, f"?token= must not authenticate — got {code}"
 
 
 def test_ws_auth_expired_shape_documented(ws_base):

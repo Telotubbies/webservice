@@ -31,7 +31,8 @@ def motor_on(api, operator_headers):
                    "idempotency_key": f"alarm-off-{uuid.uuid4()}", "ttl_s": 20})
 
 
-def test_alarm_fires_above_80_and_ack_works(api, operator_headers, motor_on):
+def test_alarm_fires_above_80_and_ack_works(api, anon_api, operator_headers,
+                                            motor_on):
     # 1. wait for temp to actually cross the threshold
     def temp_above():
         r = api.get(f"/api/tags/{TAGS['temp_c']}/latest")
@@ -61,8 +62,8 @@ def test_alarm_fires_above_80_and_ack_works(api, operator_headers, motor_on):
                  headers={"Authorization": "Bearer demo-viewer"})
     assert r.status_code == 403
 
-    # 4. anonymous cannot ack
-    assert api.post(f"/api/alarms/{alarm['id']}/ack").status_code == 401
+    # 4. anonymous cannot ack (v4 T5: every /api/* read/mutation authed)
+    assert anon_api.post(f"/api/alarms/{alarm['id']}/ack").status_code == 401
 
     # 5. operator acks → state flips to acked
     r = api.post(f"/api/alarms/{alarm['id']}/ack", headers=operator_headers)

@@ -274,7 +274,10 @@ def test_ws_spoofed_xff_does_not_bypass_ip_cap(ws_base):
                         additional_headers={
                             "X-Forwarded-For": f"203.0.113.{i + 1}"},
                         open_timeout=10)
-                    await ws.send(json.dumps({"type": "auth"}))
+                    # v4 T5: a valid token is required to HOLD the socket —
+                    # anonymous auth frames now close 4401 within the window
+                    await ws.send(json.dumps(
+                        {"type": "auth", "token": OPERATOR_TOKEN}))
                 except Exception as e:
                     code = _close_code(e)
                     break
@@ -307,7 +310,9 @@ def test_ws_per_ip_cap_closes_4403(ws_base):
         try:
             for _ in range(max(WS_CAP + 3, 10)):
                 try:
-                    ws = await _connect(f"{ws_base}/ws")
+                    # valid token: only then does the socket stay held under
+                    # the cap (anonymous closes 4401 — v4 T5)
+                    ws = await _connect(f"{ws_base}/ws", token=OPERATOR_TOKEN)
                 except Exception as e:
                     code = _close_code(e)
                     break

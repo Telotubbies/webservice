@@ -62,6 +62,37 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # OIDC provider (v4 T5, ADR-12). Realm `wds` is imported at startup from
+  # infra/keycloak/realm-wds.json — no credentials live in the artifact;
+  # `make seed-dev` sets the demo user passwords + org memberships.
+  # KC_HOSTNAME is the WEB origin (nginx proxies /realms/ + /resources/ +
+  # /admin/ to this service) so issuer == browser authority == backend's
+  # expected iss — the same URL on every hop.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: "${KC_ADMIN:-admin}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KC_ADMIN_PASSWORD:-admin-dev-pass}"
+      KC_HOSTNAME: "${KC_HOSTNAME:-http://localhost:5173}"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY_HEADERS: "xforwarded"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    ports:
+      # loopback only — browsers reach it through the web proxy
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    restart: unless-stopped
+    logging: *default-logging
+
   edge-bridge:
     build: ./edge-bridge
     environment:
@@ -102,6 +133,18 @@ services:
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
       TAGS_CONFIG: /config/tags.yaml
       ALARM_RULES_CONFIG: /config/alarm_rules.yaml
+      # v4 T5 — OIDC (ADR-12). iss is the public web origin (nginx proxies
+      # the realm); JWKS is fetched on the compose network. Dev tokens only
+      # resolve when APP_ENV=dev.
+      OIDC_ISSUER: "${OIDC_ISSUER:-http://localhost:5173/realms/wds}"
+      OIDC_AUDIENCE: "${OIDC_AUDIENCE:-wds-api}"
+      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-wds-web}"
+      OIDC_JWKS_URI: "${OIDC_JWKS_URI:-http://keycloak:8080/realms/wds/protocol/openid-connect/certs}"
+      # seed_oidc (`make seed-dev`) — KC admin + demo-user password from env
+      KC_INTERNAL_URL: "http://keycloak:8080"
+      KC_ADMIN: "${KC_ADMIN:-admin}"
+      KC_ADMIN_PASSWORD: "${KC_ADMIN_PASSWORD:-admin-dev-pass}"
+      KC_DEMO_PASSWORD: "${KC_DEMO_PASSWORD:-kc-demo-pass}"
     volumes:
       # Tag registry + alarm thresholds are operator-editable config, not
       # image content — single source for backend + edge-bridge.
@@ -112,6 +155,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health',timeout=3).status==200 else 1)"]
       interval: 15s
@@ -127,6 +172,9 @@ services:
       - "127.0.0.1:5173:80"
     depends_on:
       backend:
+        condition: service_healthy
+      keycloak:
+        # nginx resolves the /realms/ upstream at startup — must exist
         condition: service_healthy
     restart: unless-stopped
     logging: *default-logging

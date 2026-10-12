@@ -26,7 +26,9 @@ docker run -p 8000:8000 -e MQTT_HOST=host.docker.internal idb-backend
 | `app/mqtt_client.py` | paho bridge: subscribe `{site}/#`, publish commands |
 | `app/commands.py` | command lifecycle state machine |
 | `app/ws.py` | WS manager, bounded per-client queues (drop-oldest) |
-| `app/auth.py` | dev-token auth (**demo only**) |
+| `app/auth.py` | `Principal` model + dev-token path (**APP_ENV=dev only**) |
+| `app/security.py` | OIDC: JWKS cache, RS256 verify, authz cache, `wds_authz` listener, back-channel logout |
+| `app/seed_oidc.py` | dev provisioning: KC demo passwords + org memberships (`make seed-dev`) |
 | `app/alarms.py` | alarm rule engine |
 
 ## Env vars
@@ -47,16 +49,58 @@ a missing Origin is allowed for non-browser clients; outside `APP_ENV=prod`,
 loopback↔loopback port mismatches are also allowed so a vite dev proxy on a
 random port still works).
 
-## Auth (dev-only — NOT production security)
+## Auth — OIDC via Keycloak (v4 T5, ADR-12)
 
-`Authorization: Bearer <token>`:
+`Authorization: Bearer <access JWT>` — RS256 tokens from the Keycloak realm
+`wds` (`iss` = `<web origin>/realms/wds`, `aud` must include `wds-api`).
+The verifier pins RS256 (the token's `alg` header is never trusted), applies
+30 s leeway, requires `iss/aud/exp/iat/sub/sid`, and serves JWKS from a
+bounded 10-minute cache with rate-limited unknown-`kid` refetches. **Fail
+closed**: IdP down or DB down → 401, never a degraded pass.
+
+- **No anonymous reads.** Every `/api/*` requires a verified token with a
+  `memberships` row in the org (401 unauthenticated, 403 non-member). Only
+  `/healthz`, `/api/health` and `/api/auth/config` stay public.
+- Users are upserted from verified claims on first sight; authorization is
+  always the `memberships` table — never token claims.
+- Revocation: `revoked_sessions(sid)` + Postgres `NOTIFY wds_authz` takes
+  effect ≤5 s on REST (5 s authz-cache TTL) and immediately evicts bound WS
+  clients (4401 revoked / 4403 membership lost). `users.disabled_at` → 401.
+- Back-channel logout: `POST /api/auth/backchannel-logout` (form-encoded
+  `logout_token`; aud = `wds-web`, backchannel event, no `nonce`).
+- `/api/me` returns `{user, role, kind, orgs}` — any valid token, even
+  without membership (`role: "none"` → the SPA shows the denied wall).
+- `/api/auth/config` is the unauthenticated SPA bootstrap
+  (`{env, dev_tokens, oidc:{realm, client_id}}`).
+
+WS takes the same token in a first-frame `{"type":"auth"}` message (never
+`?token=` — query strings leak into logs); no/empty/bad token → close 4401,
+non-member → 4403. OIDC sockets close at `exp + 30 s` — the SPA silently
+renews and reconnects.
+
+### Dev tokens (APP_ENV=dev only)
 
 - `demo-operator` → operator (read + command + alarm ack)
 - `demo-viewer` → viewer (read only; mutating POST → 403)
-- missing/unknown → anonymous (GET allowed; POST → 401)
 
-Tokens are compared in constant time (`hmac.compare_digest`). In prod this is
-JWT verification (SDLC 06 §5). WS takes the same token in a first-frame `{"type":"auth"}` message (never `?token=` — query strings leak into logs).
+Under any other `APP_ENV` the dev-token branch doesn't exist — a demo token
+falls through to JWT verification and 401s like any other bad token. Token
+comparison is constant-time (`hmac.compare_digest`).
+
+### OIDC env vars
+
+`OIDC_ISSUER` (default `http://localhost:5173/realms/wds` — the PUBLIC realm
+URL; nginx proxies `/realms/` to Keycloak so iss == browser authority),
+`OIDC_AUDIENCE` (`wds-api`), `OIDC_CLIENT_ID` (`wds-web`),
+`OIDC_JWKS_URI` (compose-internal `http://keycloak:8080/realms/wds/protocol/openid-connect/certs`),
+`JWKS_TTL_S` (600), `JWKS_REFETCH_MIN_S` (30), `AUTHZ_TTL_S` (5 — the
+revocation SLA). Keycloak itself: `KC_HOSTNAME` (must equal the web origin),
+`KC_ADMIN`/`KC_ADMIN_PASSWORD` (bootstrap), `KC_DEMO_PASSWORD` (realm test
+users, set by `make seed-dev`).
+
+Realm test users (`admin@demo`/`operator@demo`/`viewer@demo`, password
+`KC_DEMO_PASSWORD`) get their org roles from `seed_oidc` memberships — the
+realm `wds-*` roles are markers only.
 
 ## Command lifecycle
 
@@ -90,5 +134,5 @@ JWT verification (SDLC 06 §5). WS takes the same token in a first-frame `{"type
 - Tag `v`/`commands.value` stored JSON-encoded in TEXT columns (bool vs
   number round-trips losslessly; portable SQL).
 - Staleness measured on backend receive-time, not payload `ts` (SDLC 05 §6).
-- `/ws` broadcasts `command` events to anonymous clients too — CONTRACT.md
-  §"WebSocket" doesn't restrict them (SDLC 06 §2 does); contract wins.
+- `/ws` no longer broadcasts to anonymous clients at all — v4 T5 removed
+  anonymous connections; `command` events go to operator+ roles only.

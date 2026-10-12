@@ -41,6 +41,25 @@ ALLOWED_ORIGINS: list[str] | None = [
     o.strip() for o in _origins.split(",") if o.strip()
 ] or None
 
+# --- OIDC (v4 T5; ADR-12) ----------------------------------------------------
+# The issuer is the PUBLIC URL of the realm — the same origin the browser
+# uses (nginx proxies /realms/ + /resources/ + /admin/ to keycloak), so
+# OIDC_ISSUER is the web origin + /realms/wds. JWKS is fetched server-side
+# through OIDC_JWKS_URI, which points at the compose-internal hostname.
+OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "http://localhost:5173/realms/wds")
+OIDC_AUDIENCE = os.environ.get("OIDC_AUDIENCE", "wds-api")
+OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "wds-web")
+OIDC_JWKS_URI = os.environ.get("OIDC_JWKS_URI") or (
+    f"{OIDC_ISSUER.rstrip('/')}/protocol/openid-connect/certs")
+OIDC_REALM = OIDC_ISSUER.rstrip("/").rsplit("/", 1)[-1]
+JWKS_TTL_S = float(os.environ.get("JWKS_TTL_S", "600"))        # ADR-12 §5
+JWKS_REFETCH_MIN_S = float(os.environ.get("JWKS_REFETCH_MIN_S", "30"))
+AUTHZ_TTL_S = float(os.environ.get("AUTHZ_TTL_S", "5"))        # ≤5s revocation SLA
+TRUSTED_PROXIES = [
+    ip.strip() for ip in os.environ.get("TRUSTED_PROXIES", "").split(",")
+    if ip.strip()
+]
+
 EDGE_STALE_AFTER_S = 15.0
 ALARM_FRESH_S = 15.0        # alarm engine ignores samples older than this (doc 16 / CONTRACT.v2 §6)
 HISTORY_MAX_AGE_S = 8 * 3600

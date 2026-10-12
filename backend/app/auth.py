@@ -1,17 +1,16 @@
-"""Dev-token auth — DEMO ONLY, not production security.
+"""Principal model + dev-token auth (APP_ENV=dev only).
 
-Tokens are injected via env so a deployment can rotate them without a code
-change (and demo defaults are never the only line of defence):
+Production authentication is OIDC JWT verification in `app.security`
+(ADR-12). This module keeps:
 
-  API_TOKEN_OPERATOR -> operator role (read + command + ack)
-  API_TOKEN_VIEWER   -> viewer role  (read only)
+- ``Principal`` — the resolved caller: role in the v1 shim org, IdP ``sub``,
+  session ``sid``, ``user_id``, org memberships, token ``exp``.
+- ``dev_principal`` — the demo bearer-token path. It returns a Principal only
+  when ``APP_ENV=dev``; in any other env it returns ``None`` so a demo token
+  falls through to JWT verification and fails like any other bad token.
+  Read ``config.APP_ENV`` lazily so tests can flip it.
 
-Unset env falls back to the well-known demo values for local dev/tests.
-Missing/unknown token -> anonymous (GET allowed, POST 401).
-
-Tokens are compared with hmac.compare_digest (constant-time) to avoid leaking
-valid prefixes via timing. In prod this would be JWT signature verification
-(SDLC 06 §5, Cognito) — see README.
+Token comparison uses hmac.compare_digest (constant-time).
 """
 
 from __future__ import annotations
@@ -19,9 +18,10 @@ from __future__ import annotations
 import hmac
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request
+from . import config
 
 log = logging.getLogger("backend.auth")
 
@@ -30,58 +30,49 @@ TOKENS = {
     os.environ.get("API_TOKEN_VIEWER", "demo-viewer"): "viewer",
 }
 
-if "demo-operator" in TOKENS:
-    log.warning(
-        "API_TOKEN_OPERATOR unset — using well-known demo token. "
-        "Set API_TOKEN_OPERATOR/API_TOKEN_VIEWER outside local dev."
-    )
-
 ROLE_ANONYMOUS = "anonymous"
+ROLE_NONE = "none"          # authenticated but no membership in the org
+OPERATOR_ROLES = frozenset({"operator", "admin", "owner"})
+
+if "demo-operator" in TOKENS and config.APP_ENV != "dev":
+    log.warning(
+        "demo token present but APP_ENV != dev — dev-token path disabled")
 
 
 @dataclass(frozen=True)
 class Principal:
-    user: str          # token name ("demo-operator") or "anonymous"
-    role: str          # operator | viewer | anonymous
+    user: str          # display key: IdP sub or token name
+    role: str          # owner|admin|operator|viewer|none in the shim org
+    kind: str = "anonymous"        # "dev" | "oidc" | "anonymous"
+    sub: str = ""
+    sid: str = ""
+    user_id: UUID | None = None
+    org_roles: tuple = field(default_factory=tuple)  # ((org_id, role), ...)
+    exp: float = 0.0   # JWT exp (epoch s); 0 = never expires (dev tokens)
+
+    ROLE_NONE = ROLE_NONE
 
     @property
     def authenticated(self) -> bool:
-        return self.role != ROLE_ANONYMOUS
+        return self.kind != ROLE_ANONYMOUS
+
+    @property
+    def member(self) -> bool:
+        return self.role != ROLE_NONE
+
+    @property
+    def can_operate(self) -> bool:
+        return self.role in OPERATOR_ROLES
 
 
-def resolve_token(token: str | None) -> Principal:
-    """Resolve a raw bearer token to a Principal (also used by /ws auth frame)."""
-    if token:
-        for known, role in TOKENS.items():
-            if hmac.compare_digest(token, known):
-                return Principal(user=known, role=role)
-    return Principal(user=ROLE_ANONYMOUS, role=ROLE_ANONYMOUS)
-
-
-def principal(request: Request) -> Principal:
-    """FastAPI dependency: parse Authorization header -> Principal."""
-    header = request.headers.get("authorization", "")
-    token = None
-    if header.lower().startswith("bearer "):
-        token = header[7:].strip()
-    return resolve_token(token)
-
-
-def require_operator(p: Principal = Depends(principal)) -> Principal:
-    """Mutating endpoints: anonymous -> 401, viewer -> 403, operator -> ok."""
-    if p.role == ROLE_ANONYMOUS:
-        raise HTTPException(status_code=401, detail="authentication required")
-    if p.role != "operator":
-        raise HTTPException(status_code=403, detail="operator role required")
-    return p
-
-
-def require_authenticated(p: Principal = Depends(principal)) -> Principal:
-    """Endpoints that need any authenticated role (e.g. alarm ack)."""
-    if p.role == ROLE_ANONYMOUS:
-        raise HTTPException(status_code=401, detail="authentication required")
-    if p.role == "viewer":
-        # viewers are read-only; ack is a mutation -> 403 (contract: operator
-        # has read+command+ack, viewer is read only)
-        raise HTTPException(status_code=403, detail="operator role required")
-    return p
+def dev_principal(token: str) -> Principal | None:
+    """Resolve a dev bearer token — only under APP_ENV=dev (ADR-12 §10)."""
+    if config.APP_ENV != "dev":
+        return None
+    for known, role in TOKENS.items():
+        if hmac.compare_digest(token, known):
+            from .seed import DEMO_USERS  # lazy: keeps import graph light
+            by_role = {r: uid for uid, r in DEMO_USERS.values()}
+            return Principal(user=token, role=role, kind="dev",
+                             sub=f"dev:{role}", user_id=by_role.get(role))
+    return None

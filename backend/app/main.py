@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import config
 from .alarms import AlarmEngine
-from .auth import Principal, require_authenticated, require_operator, resolve_token
+from .auth import Principal
 from .commands import CommandManager
 from .insights import INSIGHT_KINDS, InsightEngine
 from .db.context import tenant_tx
@@ -37,7 +37,8 @@ from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .mqtt_client import MQTTBridge
 from .ratelimit import RateLimiter
 from .registry import Registry
-from .seed import DEMO_USERS, seed
+from .security import AuthError, ForbiddenError, Security, authz_listener
+from .seed import seed
 from .ws import WSManager, WSAuthError, origin_allowed, read_auth_token
 
 START_TIME = time.monotonic()
@@ -131,10 +132,40 @@ class TelemetryMsg(BaseModel):
         return v
 
 
-def user_id_for(p: Principal) -> UUID:
-    """v1 shim: bearer token role -> seeded demo user (CONTRACT.md auth)."""
-    by_role = {role: uid for uid, role in DEMO_USERS.values()}
-    return by_role[p.role]
+# ---------------------------------------------------------------------------
+# Auth dependencies (v4 T5 — anonymous reads removed; ADR-12)
+# ---------------------------------------------------------------------------
+async def _authenticate(request: Request) -> Principal:
+    """Authorization header -> verified Principal. AuthError -> 401."""
+    header = request.headers.get("authorization", "")
+    token = None
+    if header.lower().startswith("bearer "):
+        token = header[7:].strip()
+    return await st(request).auth.authenticate(token)
+
+
+async def require_user(request: Request) -> Principal:
+    """Any verified caller — even without org membership (for /api/me)."""
+    return await _authenticate(request)
+
+
+async def require_principal(request: Request) -> Principal:
+    """Verified caller WITH membership in the shim org — every /api/* read."""
+    p = await _authenticate(request)
+    if not p.member:
+        raise ForbiddenError("not a member of this organization")
+    return p
+
+
+async def require_operator(request: Request) -> Principal:
+    """Mutating endpoints: operator/admin/owner in the shim org."""
+    p = await require_principal(request)
+    if not p.can_operate:
+        raise ForbiddenError("operator role required")
+    return p
+
+
+require_authenticated = require_operator  # ack is an operator-level mutation
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +190,7 @@ class State:
                                        cmd_limiter=self.cmd_limiter)
         self.alarms = AlarmEngine(pools, self.ws, self.registry)
         self.insights = InsightEngine(pools, self.ws, self.registry)
+        self.auth = Security(pools, self.ws)  # v4 T5 — OIDC verify + authz
         self.history_buf: list[tuple] = []
         self.edge = {"last_rx": None, "last_heartbeat_ts": None, "clock_ok": None,
                      "adapter": None}
@@ -314,6 +346,15 @@ async def health_watchdog(st: State) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    if config.APP_ENV not in ("dev", "test"):
+        # Production fail-fast (ADR-12): the OIDC endpoints must be explicit —
+        # never boot on localhost/dev defaults, and dev tokens don't exist.
+        missing = [k for k in ("OIDC_ISSUER", "OIDC_JWKS_URI")
+                   if not os.environ.get(k)]
+        if missing:
+            raise RuntimeError(
+                f"APP_ENV={config.APP_ENV} requires explicit {missing} "
+                "— refusing to start on dev defaults")
     pools = await create_pools()
     if config.APP_ENV == "dev":
         await seed(pools)
@@ -332,6 +373,9 @@ async def lifespan(app: FastAPI):
                                    "stale-rule sweep")),
         asyncio.create_task(st.insights.run_forever()),
         asyncio.create_task(health_watchdog(st)),
+        # wds_authz NOTIFY -> ≤5s revocation (backchannel logout, disabled
+        # users, membership changes) — v4 T5, ADR-12 §7
+        asyncio.create_task(authz_listener(st.auth)),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
                                        "site": config.V1_SITE_CODE})
@@ -351,6 +395,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="industrial-dashboard backend", lifespan=lifespan)
+
+
+@app.exception_handler(AuthError)
+async def auth_error_handler(request: Request, exc: AuthError):
+    return JSONResponse(status_code=401, content={"detail": exc.detail})
+
+
+@app.exception_handler(ForbiddenError)
+async def forbidden_handler(request: Request, exc: ForbiddenError):
+    return JSONResponse(status_code=403, content={"detail": exc.detail})
 
 
 @app.exception_handler(RequestValidationError)
@@ -424,10 +478,69 @@ async def health(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# v1 REST
+# Auth surface (v4 T5, ADR-12)
+# ---------------------------------------------------------------------------
+@app.get("/api/auth/config")
+async def auth_config():
+    """Unauthenticated bootstrap: which sign-in paths the shell may offer.
+    The frontend builds the OIDC authority as <origin>/realms/<realm> —
+    nginx proxies the IdP same-origin so iss==authority and no CSP change
+    is needed."""
+    return {
+        "env": config.APP_ENV,
+        "dev_tokens": config.APP_ENV == "dev",
+        "oidc": {"realm": config.OIDC_REALM, "client_id": config.OIDC_CLIENT_ID},
+    }
+
+
+@app.get("/api/me")
+async def me(request: Request, p: Principal = Depends(require_user)):
+    """Who the bearer token resolves to (CONTRACT.v2 `/api/v1/me`, v1 alias).
+    `role`/`orgs` reflect the memberships table — orgs is the full list so a
+    no-membership user gets role 'none' rather than a 403 on this endpoint."""
+    return {
+        "user": {"sub": p.sub, "display_name": p.user},
+        "role": p.role,                       # role in the v1 shim org
+        "kind": p.kind,
+        "orgs": [{"org_id": str(o), "role": r} for o, r in p.org_roles],
+    }
+
+
+@app.post("/api/auth/backchannel-logout")
+@app.post("/api/v1/auth/backchannel-logout")
+async def backchannel_logout(request: Request):
+    """Keycloak back-channel logout (ADR-12 §7). KC POSTs
+    `logout_token` (form-encoded); we verify it as an RS256 JWT with
+    aud=wds-web, the backchannel event claim and NO nonce, then revoke the
+    session — revoked_sessions + wds_authz NOTIFY -> ≤5s effect."""
+    content_type = request.headers.get("content-type", "")
+    token = None
+    if "application/x-www-form-urlencoded" in content_type:
+        # parse urlencoded by hand — python-multipart is a heavy dep for one
+        # IdP-facing field
+        import urllib.parse
+        fields = urllib.parse.parse_qs((await request.body()).decode("utf-8"))
+        vals = fields.get("logout_token") or []
+        token = vals[0] if vals and isinstance(vals[0], str) else None
+    else:
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = None
+        if isinstance(body, dict) and isinstance(body.get("logout_token"), str):
+            token = body["logout_token"]
+    if not token:
+        raise AuthError("logout_token required")
+    claims = await st(request).auth.verify_logout_token(token)
+    await st(request).auth.record_logout(claims)
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# v1 REST — every read requires an authenticated member (anonymous removed)
 # ---------------------------------------------------------------------------
 @app.get("/api/tags")
-async def list_tags(request: Request):
+async def list_tags(request: Request, p: Principal = Depends(require_principal)):
     s = st(request)
     await s.registry.maybe_refresh()
     return [{"name": t.v1_name, "writable": t.writable, **({"unit": t.unit} if t.unit else {})}
@@ -435,7 +548,8 @@ async def list_tags(request: Request):
 
 
 @app.get("/api/tags/latest")
-async def tags_latest_bulk(request: Request):
+async def tags_latest_bulk(request: Request,
+                           p: Principal = Depends(require_principal)):
     """All latest values for the site in one call (CONTRACT.v2 `/tags/latest`)."""
     s = st(request)
     await s.registry.maybe_refresh()
@@ -451,7 +565,8 @@ async def tags_latest_bulk(request: Request):
 
 
 @app.get("/api/alarm-rules")
-async def list_alarm_rules(request: Request):
+async def list_alarm_rules(request: Request,
+                           p: Principal = Depends(require_principal)):
     s = st(request)
     async with v1_tx(request) as tc:
         rows = await tc.fetch("SELECT tag_id, name, kind, threshold, stale_s, deadband, severity,"
@@ -467,7 +582,8 @@ async def list_alarm_rules(request: Request):
 
 
 @app.get("/api/tags/{name:path}/latest")
-async def tag_latest(name: str, request: Request):
+async def tag_latest(name: str, request: Request,
+                     p: Principal = Depends(require_principal)):
     tag = st(request).registry.by_v1_name(name)
     if tag is None:
         raise HTTPException(404, "tag not found or no data yet")
@@ -486,6 +602,7 @@ async def tag_history(
     from_: str | None = Query(None, alias="from"),
     to: str | None = Query(None),
     limit: int = Query(500, ge=1, le=5000),
+    p: Principal = Depends(require_principal),
 ):
     tag = st(request).registry.by_v1_name(name)
     if tag is None:
@@ -519,7 +636,7 @@ async def post_command(body: CommandIn, request: Request,
                        p: Principal = Depends(require_operator)):
     code, resp = await st(request).commands.issue(
         tag_name=body.tag, value=body.value, ttl_s=body.ttl_s,
-        idempotency_key=body.idempotency_key, user_id=user_id_for(p))
+        idempotency_key=body.idempotency_key, user_id=p.user_id)
     out = JSONResponse(status_code=code, content=resp)
     if code == 429:
         # RFC 6585 — clients back off on the header, not the body
@@ -547,7 +664,8 @@ async def get_command(cid: str, request: Request, p: Principal = Depends(require
 @app.get("/api/alarms")
 async def list_alarms(request: Request, status: str | None = Query(None),
                       severity: str | None = Query(None),
-                      limit: int = Query(100, ge=1, le=500)):
+                      limit: int = Query(100, ge=1, le=500),
+                      p: Principal = Depends(require_principal)):
     async with v1_tx(request) as tc:
         return await st(request).alarms.list_alarms(tc, status, severity, limit)
 
@@ -558,9 +676,10 @@ async def list_insights(request: Request,
                         kind: str | None = Query(None),
                         tag: str | None = Query(None),
                         from_: str | None = Query(None, alias="from"),
-                        to: str | None = Query(None)):
+                        to: str | None = Query(None),
+                        p: Principal = Depends(require_principal)):
     """Engine-generated insights (doc 19 §4.3) — additive v1 endpoint.
-    Anonymous read, same policy as /api/alarms."""
+    Member read, same policy as /api/alarms (anonymous removed, v4 T5)."""
     s = st(request)
     if state is not None and state not in ("open", "closed"):
         raise HTTPException(400, "invalid_request")
@@ -584,7 +703,7 @@ async def list_insights(request: Request,
 @app.post("/api/alarms/{alarm_id}/ack")
 async def ack_alarm(alarm_id: str, request: Request,
                     p: Principal = Depends(require_authenticated)):
-    uid = user_id_for(p)
+    uid = p.user_id
     await _mutation_gate(request, uid)
     async with v1_tx(request, uid) as tc:
         alarm = await st(request).alarms.ack(tc, _uuid_or_404(alarm_id, "alarm"), uid,
@@ -595,7 +714,8 @@ async def ack_alarm(alarm_id: str, request: Request,
 
 
 @app.get("/api/system/health")
-async def system_health(request: Request):
+async def system_health(request: Request,
+                        p: Principal = Depends(require_principal)):
     s = st(request)
     return {
         "mqtt": {"connected": s.mqtt.connected},
@@ -639,13 +759,31 @@ def _client_ip(ws: WebSocket) -> str:
     return peer or "unknown"
 
 
+async def _close_at_exp(client, exp: float) -> None:
+    """Close the socket at token exp + 30 s (ADR-12 WS section: the server
+    ends a connection at exp + 30s unless the client re-auths; v1 has no
+    reauth frame — the SPA reconnects with a silently-renewed token)."""
+    delay = exp + 30 - time.time()
+    if delay <= 0:
+        delay = 0.01
+    try:
+        await asyncio.sleep(delay)
+        with contextlib.suppress(Exception):
+            await client.ws.close(code=4401)
+    except asyncio.CancelledError:
+        raise
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     # First-frame auth (v4 T3): the token rides in the first client frame —
     # {"type":"auth","token":"…"} — never ?token= in the URL, which leaked
-    # into access logs and proxy traces. An empty/absent token connects as
-    # anonymous (read-only) until T5 flips to authenticated-only; a non-empty
-    # token that doesn't resolve is an auth failure -> close 4401.
+    # into access logs and proxy traces.
+    #
+    # v4 T5: anonymous connections are gone. The auth frame must carry a
+    # valid OIDC JWT (or an APP_ENV=dev dev token) — absent/unresolvable ->
+    # 4401; authenticated but not a member of the shim org -> 4403
+    # (CONTRACT.v2 §5 step 2).
     #
     # v4 T4 gates run before the auth handshake: Origin allowlist/same-origin
     # and a per-IP connection cap both close 4403. accept() happens first
@@ -671,22 +809,30 @@ async def ws_endpoint(ws: WebSocket):
     try:
         try:
             token = await read_auth_token(ws)
+            p = await ws.app.state.st.auth.authenticate(token or None)
         except WSAuthError as e:
             log.info("ws auth failed — closing 4401", extra={"reason": str(e)})
             # client may already be gone mid-handshake — don't traceback on close
             with contextlib.suppress(Exception):
                 await ws.close(code=4401)
             return
-        p = resolve_token(token)
-        if token and not p.authenticated:
+        except AuthError as e:
             # reason only — NEVER the token value
             log.info("ws auth failed — closing 4401",
-                     extra={"reason": "unresolvable token"})
+                     extra={"reason": e.detail})
             with contextlib.suppress(Exception):
                 await ws.close(code=4401)
             return
-        client = await manager.connect(ws, p.role)
+        if not p.member:
+            log.info("ws authenticated but not a member — closing 4403")
+            with contextlib.suppress(Exception):
+                await ws.close(code=4403)
+            return
+        client = await manager.connect(ws, p.role, sub=p.sub, sid=p.sid)
         pump: asyncio.Task | None = None
+        exp_task: asyncio.Task | None = None
+        if p.exp:
+            exp_task = asyncio.create_task(_close_at_exp(client, p.exp))
         try:
             pump = asyncio.create_task(manager.pump(client))
             with contextlib.suppress(asyncio.QueueFull):
@@ -705,6 +851,10 @@ async def ws_endpoint(ws: WebSocket):
         finally:
             # disconnect must run even if pump creation raised above —
             # otherwise the Client leaks in _clients forever
+            if exp_task is not None:
+                exp_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await exp_task
             if pump is not None:
                 pump.cancel()
                 with contextlib.suppress(asyncio.CancelledError):

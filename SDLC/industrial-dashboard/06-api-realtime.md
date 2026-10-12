@@ -49,13 +49,14 @@ GET    /api/audit?action=&user=&from&to  — audit trail (auth: admin)
 
 ```
 ws://api.example.com/ws                    ← connect (all clients)
-→ first frame {"type":"auth","token":"<jwt>"}  ← operator (full stream)
-→ first frame {"type":"auth"}                  ← public (telemetry + alarms เท่านั้น)
+→ first frame {"type":"auth","token":"<jwt>"}  ← member (stream ตาม role)
 ```
 
 The token rides in the first client frame, never `?token=` — query strings
 leak into access logs and proxy traces (v4 T3). The server closes **4401**
 on a non-auth first frame, an unresolvable token, or no frame within 5 s.
+v4 T5: the anonymous public frame is gone — no/empty token also closes
+**4401**; a valid token without org membership closes **4403**.
 
 ### Server → Client messages
 
@@ -146,13 +147,24 @@ WS burst ท่วม main thread คือปัญหาจริงที่ 
 - ถ้า ring buffer เต็มต่อเนื่อง >2 รอบ flush → client ขยับไป subscribe แบบ coarse (ขอ server batch หนักขึ้น / เหลือเฉพาะ visible tags)
 - metric ฝั่ง client: `ws_msgs_dropped`, `ws_reconnects` — log ไป `/api/health` heartbeat เผื่อ debug
 
-## 5. Auth Flow
+## 5. Auth Flow (v4 T5 — ADR-12 supersedes the Cognito sketch below)
 
-- Cognito Hosted UI → Authorization Code + PKCE → JWT (access token)
-- Frontend เก็บ access token ใน memory (ไม่ใช่ localStorage) + refresh ผ่าน HttpOnly cookie (Cognito)
-- REST/WS ตรวจ JWT ฝั่ง backend (verify signature + `cognito:groups` claim)
-- Role mapping: group `operators` → write allowed; group `admins` → + config; ไม่มี group → public read
-- Public read: REST GET + WS ที่ไม่มี token ก็ได้ — แต่ POST/PATCH/DELETE ต้องมี token + group
+- Keycloak realm `wds` → Authorization Code + PKCE (S256) → RS256 access JWT
+  (`iss` = `<web origin>/realms/wds`, `aud` includes `wds-api`, `sub`+`sid` required)
+- Frontend เก็บ access token ใน memory เท่านั้น (`oidc-client-ts`,
+  `InMemoryWebStorage`) — silent renew ผ่าน hidden iframe + IdP SSO cookie,
+  refresh token rotates (revokeRefreshToken)
+- REST/WS ตรวจ JWT ฝั่ง backend: JWKS cache 10 นาที, RS256 เท่านั้น (ไม่
+  trust alg ใน header), leeway 30 s, iss/aud/exp/iat/sub/sid บังคับ
+- Role mapping: `memberships` table เป็น authoritative เสมอ — ไม่เชื่อ
+  group/role claims ใน token (ADR-12 §4)
+- **ไม่มี public read แล้ว (v4 T5)**: ทุก `/api/*` ต้องมี member principal
+  (401 ถ้าไม่มี/ไม่ผ่าน, 403 ถ้าไม่ใช่ member) — เหลือ `/api/health`,
+  `/healthz`, `/api/auth/config` เป็น machine-public เท่านั้น. Demo tokens
+  (`demo-operator`/`demo-viewer`) ใช้ได้เฉพาะ `APP_ENV=dev`
+- Revocation: `revoked_sessions(sid)` + `NOTIFY wds_authz` → มีผล ≤5 s ทั้ง
+  REST (authz cache TTL) และ WS (evict 4401); back-channel logout ที่
+  `POST /api/auth/backchannel-logout` (logout_token ต้องไม่มี `nonce`)
 
 ### Token expiry กลาง WS session (ล็อกไว้ — JWT ~1 ชม. แต่ WS อยู่ได้เป็นวัน)
 

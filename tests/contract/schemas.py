@@ -625,8 +625,9 @@ def expected_mutation_status(role: str, endpoint: str) -> int:
 
 
 def can_read(role: str) -> bool:
-    """GET endpoints allow anonymous — public read-only (CONTRACT.md)."""
-    return role in (ROLE_ANONYMOUS, "viewer", "operator")
+    """v4 T5 / CONTRACT.v2: anonymous reads are gone — every /api/* GET
+    requires an authenticated org member; /api/health stays machine-public."""
+    return role != ROLE_ANONYMOUS
 
 
 # --------------------------------------------------------------------------

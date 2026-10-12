@@ -1,28 +1,37 @@
-// Typed REST client for CONTRACT.md endpoints. Token is a dev/demo Bearer token
-// stored in localStorage (per demo spec — no login flow).
+// Typed REST client for the v1 API surface.
+// v4 T5 (ADR-12): the bearer token is an OIDC access token (or an APP_ENV=dev
+// demo token) held IN MEMORY ONLY — nothing touches localStorage/sessionStorage.
+// A page reload re-authenticates through the IdP SSO cookie (silent renew)
+// or falls back to the sign-in wall.
 
 import type {
   Alarm, AlarmRule, Command, CommandStatus, Health, Insight, SystemHealth, TagInfo, TagValue,
 } from '../types';
 
-const TOKEN_KEY = 'wds.token';
+let memToken = '';
 
 export function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? '';
+  return memToken;
 }
 
-export function setToken(token: string): void {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+export function setSessionToken(token: string): void {
+  memToken = token;
 }
 
-export type TokenRole = 'operator' | 'viewer' | 'custom' | 'none';
+export type SessionRole = 'owner' | 'admin' | 'operator' | 'viewer' | 'none';
 
-export function tokenRole(token = getToken()): TokenRole {
-  if (!token) return 'none';
-  if (token === 'demo-operator') return 'operator';
-  if (token === 'demo-viewer') return 'viewer';
-  return 'custom';
+export interface MeResponse {
+  user: { sub: string; display_name: string };
+  role: SessionRole | string;
+  kind: 'dev' | 'oidc';
+  orgs: { org_id: string; role: string }[];
+}
+
+/** Called once after a request fails with 401 — wired by features/auth/oidc
+ * to drop the session and surface the sign-in wall. */
+export let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn;
 }
 
 export class ApiError extends Error {
@@ -51,6 +60,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     data = text;
   }
   if (!res.ok) {
+    if (res.status === 401) onUnauthorized?.();
     const detail =
       data && typeof data === 'object' && 'detail' in data
         ? String((data as { detail: unknown }).detail)
@@ -79,6 +89,7 @@ export interface ConflictBody {
 export const api = {
   health: () => request<Health>('/api/health'),
   systemHealth: () => request<SystemHealth>('/api/system/health'),
+  me: () => request<MeResponse>('/api/me'),
   tags: () => request<TagInfo[]>('/api/tags'),
   latestAll: () => request<(TagValue & { name: string })[]>('/api/tags/latest'),
   alarmRules: () => request<AlarmRule[]>('/api/alarm-rules'),

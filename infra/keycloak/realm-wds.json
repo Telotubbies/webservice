@@ -1,0 +1,122 @@
+{
+  "realm": "wds",
+  "enabled": true,
+  "displayName": "WDS",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "bruteForceProtected": true,
+  "browserSecurityHeaders": {
+    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self' http://localhost:5173 http://127.0.0.1:5173; object-src 'none'",
+    "xFrameOptions": "SAMEORIGIN",
+    "xContentTypeOptions": "nosniff",
+    "xRobotsTag": "none",
+    "xXSSProtection": "1; mode=block",
+    "strictTransportSecurity": "max-age=31536000; includeSubDomains"
+  },
+  "roles": {
+    "realm": [
+      { "name": "wds-admin", "description": "WDS demo role marker" },
+      { "name": "wds-operator", "description": "WDS demo role marker" },
+      { "name": "wds-viewer", "description": "WDS demo role marker" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "wds-web",
+      "name": "WDS Web (SPA)",
+      "description": "Public PKCE client — the React shell (ADR-12 §2)",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://127.0.0.1:5173/*",
+        "backchannel.logout.url": "http://backend:8000/api/auth/backchannel-logout",
+        "backchannel.logout.session.required": "true",
+        "backchannel.logout.revoke.offline.tokens": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "wds-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "included.client.audience": "wds-api"
+          }
+        }
+      ],
+      "defaultClientScopes": [
+        "web-origins", "acr", "profile", "email", "roles"
+      ],
+      "optionalClientScopes": ["offline_access"]
+    },
+    {
+      "clientId": "wds-api",
+      "name": "WDS API (audience target)",
+      "description": "Audience marker only — tokens for wds-api are minted for wds-web via the audience mapper.",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": []
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@demo",
+      "enabled": true,
+      "email": "admin@demo",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Admin",
+      "realmRoles": ["wds-admin"]
+    },
+    {
+      "username": "operator@demo",
+      "enabled": true,
+      "email": "operator@demo",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Operator",
+      "realmRoles": ["wds-operator"]
+    },
+    {
+      "username": "viewer@demo",
+      "enabled": true,
+      "email": "viewer@demo",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Viewer",
+      "realmRoles": ["wds-viewer"]
+    }
+  ]
+}

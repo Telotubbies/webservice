@@ -7,6 +7,7 @@
 
 import { api, getToken } from './api';
 import { live } from './live';
+import { ensureFreshToken } from '../features/auth/oidc';
 import type { Alarm, CommandStatus, Insight, Quality, WSEvent } from '../types';
 
 const BACKOFF_BASE_MS = 500;
@@ -60,8 +61,8 @@ function connect(): void {
 
   s.onopen = () => {
     // First-frame auth — the server closes 4401 if this doesn't arrive in
-    // its auth window or the token doesn't resolve. An empty token connects
-    // as anonymous (read-only) until the T5 sign-in wall.
+    // its auth window or the token doesn't resolve. Anonymous is gone (T5):
+    // the frame must carry a real OIDC/dev token.
     s.send(JSON.stringify({ type: 'auth', token: getToken() }));
     attempt = 0;
     live.setWsState('open');
@@ -87,9 +88,18 @@ function connect(): void {
     if (sock === s) sock = null;
     if (stopped) return;
     if (ev.code === 4401) {
-      // token expired server-side; surface banner, do not reconnect
-      stopped = true;
-      live.setWsState('auth_expired');
+      // token expired/revoked server-side. Try a silent renew once — a
+      // renewed token reconnects immediately; a dead session drops to the
+      // sign-in wall (auth_expired state + 401 sweep clears the token).
+      void ensureFreshToken().then((ok) => {
+        if (ok && !stopped) {
+          attempt = 0;
+          connect();
+        } else {
+          stopped = true;
+          live.setWsState('auth_expired');
+        }
+      });
       return;
     }
     scheduleReconnect();

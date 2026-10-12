@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 
 from fastapi import WebSocket
 
+from .auth import OPERATOR_ROLES
+
 log = logging.getLogger("backend.ws")
 
 QUEUE_MAX = 256
@@ -107,6 +109,8 @@ async def read_auth_token(ws: WebSocket) -> str:
 class Client:
     ws: WebSocket
     role: str
+    sub: str = ""               # IdP subject — for wds_authz eviction (v4 T5)
+    sid: str = ""               # OIDC session id — revoked_sessions eviction
     queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(QUEUE_MAX))
     dropped: int = 0
     connected_at: float = field(default_factory=time.monotonic)
@@ -138,10 +142,15 @@ class WSManager:
             else:
                 self._by_ip[ip] = n - 1
 
-    async def connect(self, ws: WebSocket, role: str) -> Client:
+    def clients(self) -> list[Client]:
+        """Snapshot of connected clients (wds_authz eviction iterates this)."""
+        return list(self._clients)
+
+    async def connect(self, ws: WebSocket, role: str,
+                      sub: str = "", sid: str = "") -> Client:
         # the endpoint accepts before connect() — the socket must be open
         # to read the first-frame auth handshake
-        client = Client(ws=ws, role=role)
+        client = Client(ws=ws, role=role, sub=sub, sid=sid)
         async with self._lock:
             self._clients.add(client)
         log.info(
@@ -176,7 +185,7 @@ class WSManager:
         """
         restricted = event.get("type") == "command"
         for client in list(self._clients):
-            if restricted and client.role != "operator":
+            if restricted and client.role not in OPERATOR_ROLES:
                 continue
             try:
                 client.queue.put_nowait(event)

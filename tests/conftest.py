@@ -22,6 +22,9 @@ import time
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))  # `contract` package import
+# `app.*` imports for offline unit tests (JWT verifier, auth gates) — the
+# modules are import-safe: config reads env once, nothing connects at import.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
 MQTT_HOST = os.environ.get("MQTT_HOST", "")
@@ -30,6 +33,35 @@ MQTT_USER = os.environ.get("MQTT_USER", "tester")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "tester-demo-pass")
 OPERATOR_TOKEN = os.environ.get("OPERATOR_TOKEN", "demo-operator")
 VIEWER_TOKEN = os.environ.get("VIEWER_TOKEN", "demo-viewer")
+
+# v4 T5 — OIDC via Keycloak (ADR-12). The compose stack publishes KC on
+# 127.0.0.1:8080; the public iss is the web origin (KC_HOSTNAME), so a token
+# minted via the loopback port still carries iss=http://localhost:5173/realms/wds.
+KC_URL = os.environ.get("KC_URL", "http://localhost:8080")
+KC_REALM = os.environ.get("KC_REALM", "wds")
+KC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "wds-web")
+KC_DEMO_PASSWORD = os.environ.get("KC_DEMO_PASSWORD", "kc-demo-pass")
+
+
+def kc_password_token(username: str, password: str = KC_DEMO_PASSWORD) -> str:
+    """Resource-owner password grant against the test realm (direct access
+    grants are enabled on wds-web for exactly this — headless test auth).
+    Returns the access_token, or '' when KC isn't reachable."""
+    import urllib.parse
+    import urllib.request
+    try:
+        import json as _json
+        body = urllib.parse.urlencode({
+            "grant_type": "password", "client_id": KC_CLIENT_ID,
+            "username": username, "password": password,
+        }).encode()
+        url = f"{KC_URL}/realms/{KC_REALM}/protocol/openid-connect/token"
+        with urllib.request.urlopen(
+                urllib.request.Request(url, data=body), timeout=8) as r:
+            return _json.loads(r.read())["access_token"]
+    except Exception:  # noqa: BLE001
+        return ""
+
 
 TAGS = {
     "running": "plant1.sort.line1.motor1.running",
@@ -65,7 +97,19 @@ def base_url() -> str:
 
 
 @pytest.fixture()
-def api(base_url):
+def api(base_url, operator_headers):
+    """Authenticated client (operator token). v4 T5 ended anonymous reads —
+    tests that probe the unauthenticated path must use `anon_api`."""
+    httpx = pytest.importorskip("httpx")
+    with httpx.Client(base_url=base_url, timeout=10.0,
+                      headers=operator_headers) as client:
+        yield client
+
+
+@pytest.fixture()
+def anon_api(base_url):
+    """Client with NO Authorization header — the only way to exercise the
+    anonymous -> 401 path now that anonymous reads are gone (v4 T5)."""
     httpx = pytest.importorskip("httpx")
     with httpx.Client(base_url=base_url, timeout=10.0) as client:
         yield client
@@ -79,6 +123,17 @@ def operator_headers() -> dict:
 @pytest.fixture(scope="session")
 def viewer_headers() -> dict:
     return {"Authorization": f"Bearer {VIEWER_TOKEN}"}
+
+
+@pytest.fixture(scope="session")
+def oidc_headers() -> dict:
+    """A REAL Keycloak access token (operator@demo) — requires `make seed-dev`
+    to have set the demo password. Skips cleanly when the realm isn't up."""
+    token = kc_password_token("operator@demo")
+    if not token:
+        pytest.skip("keycloak realm not reachable / demo user not provisioned "
+                    "(run `make seed-dev`)")
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture()

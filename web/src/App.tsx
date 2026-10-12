@@ -1,11 +1,18 @@
-import { Suspense, lazy, useEffect } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { createBrowserRouter, RouterProvider } from 'react-router';
-import { api, tokenRole } from './lib/api';
+import { createBrowserRouter, RouterProvider, useLocation, useNavigate } from 'react-router';
+import { api } from './lib/api';
 import { live } from './lib/live';
 import { startWS, stopWS } from './lib/ws';
 import { useStore } from './lib/hooks';
 import { Shell } from './app/Shell';
+import {
+  canOperate, getSessionRole, hasToken, refreshSession, useDenied,
+} from './app/session';
+import {
+  completeRedirectCallback, initAuth, isCallbackPath, restoreSession,
+} from './features/auth/oidc';
+import { SignInWall } from './features/auth/SignInWall';
 import { OverviewPage } from './features/overview/OverviewPage';
 import { LinePage } from './features/line/LinePage';
 import { AlarmsPage } from './features/alarms/AlarmsPage';
@@ -49,8 +56,7 @@ function useLiveBoot(tags: TagInfo[] | undefined) {
 
   // command history is operator-only server-side: re-seed when the role changes
   useEffect(() => {
-    const role = tokenRole();
-    if (role !== 'operator' && role !== 'custom') return;
+    if (!canOperate(getSessionRole())) return;
     void api.listCommands(20).then((cmds) => cmds.forEach((c) => live.mergeCommand(c))).catch(() => {});
   }, [authRev]);
 }
@@ -61,10 +67,53 @@ function Root({ page }: { page: (tags: TagInfo[]) => JSX.Element }) {
   return page(q.data ?? []);
 }
 
-function Boot() {
+/** Mounted only when a session token exists — every query inside is
+ * authenticated, so an unauthenticated load produces zero 401 traffic. */
+function AuthedApp() {
   const q = useQuery({ queryKey: ['tags'], queryFn: api.tags, staleTime: 60_000 });
   useLiveBoot(q.data);
+  useEffect(() => { void refreshSession(); }, []);
   return <Shell />;
+}
+
+/**
+ * Auth gate (v4 T5): bootstrap the auth layer, restore the session, then
+ * either render the app or the sign-in wall. No API traffic happens before
+ * a token exists — the UAT's "zero unexpected 4xx" gate covers this.
+ */
+function Boot() {
+  const loc = useLocation();
+  const navigate = useNavigate();
+  const [ready, setReady] = useState(false);
+  const denied = useDenied();
+  useStore(() => live.authRev); // re-render when the session token changes
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await initAuth();
+      if (cancelled) return;
+      if (isCallbackPath(loc.pathname)) {
+        await completeRedirectCallback(loc.pathname);
+        if (loc.pathname !== '/auth/silent-callback') {
+          navigate('/', { replace: true });
+        }
+      } else {
+        await restoreSession();
+      }
+      if (!cancelled) setReady(true);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // hidden silent-renew iframe — boot the callback, render nothing
+  if (loc.pathname === '/auth/silent-callback') return null;
+  if (!ready || loc.pathname === '/auth/callback') {
+    return <div className="auth-splash" />;
+  }
+  if (!hasToken() || denied) return <SignInWall denied={denied} />;
+  return <AuthedApp />;
 }
 
 const router = createBrowserRouter([
@@ -80,6 +129,9 @@ const router = createBrowserRouter([
       { path: 'tags', element: <Root page={(tags) => <TagsPage tags={tags} />} /> },
       { path: 'commands', element: <CommandsPage /> },
       { path: 'health', element: <HealthPage /> },
+      // OIDC redirect targets — Boot handles them before the children render
+      { path: 'auth/callback', element: null },
+      { path: 'auth/silent-callback', element: null },
       { path: '*', element: <OverviewPage /> },
     ],
   },

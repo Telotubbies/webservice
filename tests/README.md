@@ -51,6 +51,18 @@ DISRUPTIVE=1 BASE_URL=http://localhost:8000 MQTT_HOST=localhost \
 | `DISRUPTIVE` | — | tests that stop/start compose services |
 | `COMPOSE_FILE` | `../docker-compose.yml` | disruptive tests |
 | `SITE` / `EDGE_ID` | `plant1` / `edge1` | topic construction |
+| `KC_URL` / `KC_REALM` | `http://localhost:8080` / `wds` | real-IdP token fetches (`test_oidc.py`) |
+| `KC_DEMO_PASSWORD` | `kc-demo-pass` | realm test-user password grant |
+| `WDS_TEST_APP_DSN` | — (skips revocation tests) | `revoked_sessions` + `wds_authz` NOTIFY writes |
+
+v4 T5 notes: `api` is authenticated (operator) by default — anonymous probes
+use `anon_api`. `test_oidc.py` exercises the REAL Keycloak (password grant
+on `wds-web`, `make seed-dev` required): token shape, member reads, viewer
+403, sid revocation → REST 401 + WS 4401 within 5 s, disabled user → 401.
+`contract/test_jwt_security.py` covers the offline matrix: expired/wrong
+iss/aud tokens, `none`+HS256+forged-key confusion, missing claims, JWKS
+refetch rate-limiting, IdP outage fail-closed, dev-token prod rejection,
+logout_token validation.
 
 ## Known contract divergences (for the red-team review)
 
@@ -68,10 +80,9 @@ where docs disagree or are silent, and the choice this suite encodes:
    05 §1: `cmd/{edge_id}/{req}` (no site). → site-prefixed.
 5. **Alarm `state`** — CONTRACT.md shape: `active|acked`; 05 §3 DB CHECK adds
    `cleared`. → strict `active|acked`.
-6. **Anonymous WS + command events** — CONTRACT.md lists `command` events
-   without scoping; 06 §2 / 08 §2 / 09 §7 forbid leaking them to anonymous.
-   → restrictive reading encoded; `test_ws_anonymous_no_command_events`
-   failing is a red-team finding.
+6. **Anonymous WS + command events** — RESOLVED in v4 T5: anonymous
+   connections (and anonymous REST reads) are gone entirely; `command`
+   events additionally stay operator-scoped on authenticated sockets.
 7. **Non-writable tag POST** — 06 §1 says `403` upfront; CONTRACT.md expects
    `denied/not_writable` in the lifecycle. → 201→denied preferred; a 4xx
    upfront is `xfail`ed, not failed.
@@ -100,10 +111,17 @@ tests/
 │   ├── test_tagvalue.py    # telemetry + heartbeat payloads, ISO8601-Z
 │   ├── test_command_payloads.py  # REST/MQTT cmd + cmd-resp + alarm shapes
 │   ├── test_lifecycle.py   # state machine, dedup ordering, edge pipeline
-│   └── test_auth_ws.py     # tokens, RBAC matrix, WS event scope/shape
-└── integration/
-    ├── test_rest.py        # health, tags, commands, auth 401/403, idempotency
-    ├── test_adversarial.py # 409 race, replay-after-409, MQTT attacks, skew
-    ├── test_ws.py          # tag/command event streams, anonymous scoping
-    └── test_alarms.py      # temp>80 → alarm → ack (slow)
+│   ├── test_auth_ws.py     # tokens, RBAC matrix, WS event scope/shape
+│   └── test_jwt_security.py# offline JWT matrix: bad/expired/iss/aud,
+│                           #   alg-confusion, JWKS, logout_token (v4 T5)
+├── integration/
+│   ├── test_rest.py        # health, tags, commands, auth 401/403, idempotency
+│   ├── test_adversarial.py # 409 race, replay-after-409, MQTT attacks, skew
+│   ├── test_ws.py          # tag/command event streams, WS auth frames
+│   ├── test_oidc.py        # real Keycloak: token shape, revocation ≤5s
+│   ├── test_ratelimit.py   # 429/Retry-After, WS origin + per-IP cap
+│   ├── test_insights.py    # insights API + filters
+│   └── test_alarms.py      # temp>80 → alarm → ack (slow)
+├── e2e/uat.mjs             # browser UAT incl. Keycloak round-trip smoke
+└── tenancy/                # RLS + audit tests as the runtime DB roles
 ```

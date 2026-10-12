@@ -20,7 +20,7 @@ import pytest
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-from conftest import TAGS, wait_until  # noqa: E402
+from conftest import TAGS, OPERATOR_TOKEN, wait_until  # noqa: E402
 
 ANOM_TAG = TAGS["gravel_ratio"]    # calm random-walk, no alarm rules
 FLAP_TAG = TAGS["speed_mps"]       # steady follower of speed_sp + noise
@@ -165,7 +165,8 @@ async def _collect_ws(ws_url, duration_s, predicate=None):
     events = []
     try:
         async with websockets.connect(ws_url, open_timeout=10) as ws:
-            await ws.send(json.dumps({"type": "auth"}))  # first-frame auth (v4 T3)
+            # first-frame auth (v4 T3) — a real token is mandatory since v4 T5
+            await ws.send(json.dumps({"type": "auth", "token": OPERATOR_TOKEN}))
             end = asyncio.get_event_loop().time() + duration_s
             while asyncio.get_event_loop().time() < end:
                 try:
@@ -303,7 +304,13 @@ def test_insights_api_filters(api, mqtt_client):
     assert api.get("/api/insights", params={"from": "not-a-date"}).status_code == 400
 
 
-def test_insights_anonymous_read(api):
-    """Same anonymous-read policy as /api/alarms — no Authorization header."""
+def test_insights_anonymous_read(anon_api):
+    """v4 T5: anonymous reads are gone — /api/insights without a token -> 401."""
+    assert anon_api.get("/api/insights").status_code == 401
+    assert anon_api.get("/api/insights", params={"state": "open"}).status_code == 401
+
+
+def test_insights_member_read(api):
+    """An authenticated member reads the insights feed."""
     assert api.get("/api/insights").status_code == 200
     assert api.get("/api/insights", params={"state": "open"}).status_code == 200

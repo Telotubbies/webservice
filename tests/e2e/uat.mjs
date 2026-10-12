@@ -49,9 +49,31 @@ page.on('console', m => { if (m.type() === 'error') consoleErrs.push(m.text()); 
 page.on('response', r => { if (r.status() >= 400) badResponses.push(`${r.status()} ${r.url()}`); });
 
 try {
-  // ============ ANONYMOUS ============
+  // ============ ANONYMOUS -> SIGN-IN WALL (v4 T5) ============
+  // No anonymous reads: the unauthenticated load must produce a formal
+  // sign-in wall — no shell, no tiles, no API traffic beyond public probes.
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await sleep(1500);
+  // the silent-renew probe runs before the wall — give it room to settle
+  await page.waitForSelector('.signin-card', { timeout: 20000 }).catch(() => {});
+  ok('wall: sign-in card renders', await page.locator('.signin-card').count() === 1);
+  ok('wall: SSO button renders', await page.locator('.oidc-signin').count() === 1);
+  ok('wall: no shell while signed out', await page.locator('.side-nav').count() === 0);
+  ok('wall: no tiles while signed out', await page.locator('.tile').count() === 0);
+  {
+    const r = await fetch(`${API}/api/tags`);
+    ok('api: anonymous read is 401', r.status === 401, `${r.status}`);
+    const h = await fetch(`${API}/api/health`);
+    ok('api: health probe stays public', h.status === 200, `${h.status}`);
+  }
+  // dev-mode wall offers the demo-token row (UAT runs APP_ENV=dev)
+  ok('wall: dev-token input (dev only)', await page.locator('.token-input').count() === 1);
+
+  // ============ OPERATOR (dev-token sign-in via the wall) ============
+  await page.fill('.token-input', 'demo-operator');
+  await page.keyboard.press('Enter');
+  await sleep(2000);
+  ok('operator: shell renders after sign-in', await page.locator('.side-nav').count() === 1);
+  ok('operator: signed in (role shown)', await page.locator('.user-btn').count() === 1);
 
   // NEW: sidebar shell
   ok('sidebar nav renders', await page.locator('.side-nav').count() === 1);
@@ -74,16 +96,9 @@ try {
     await page.locator('.insight-rail').count() === 1
     && await page.locator('.insight-rail .insight-chip, .insight-rail .insight-rail-empty').count() > 0);
 
-  // Controls hidden for anonymous
-  const tabTexts = await page.locator('a.tab, button.tab').allTextContents();
-  ok('anon: no Controls tab', !tabTexts.some(t => /control/i.test(t)));
-
-  // ============ OPERATOR (sign-in dialog) ============
-  await page.click('.signin-btn');
-  await page.fill('.token-input', 'demo-operator');
-  await page.keyboard.press('Enter');
-  await sleep(2000);
-  ok('operator: signed in (role shown)', await page.locator('.user-btn').count() === 1);
+  // Operator sees the Controls/Commands surface (a viewer would not)
+  ok('operator: commands tab visible',
+    await page.locator('a.tab[href="/commands"]').count() === 1);
 
   // ============ ALARM LIFECYCLE via real MQTT injection ============
   // fire alarm
@@ -140,7 +155,8 @@ try {
     await pub('temp_c', 120, 'good');
     await sleep(1200);
     try {
-      const r = await page.request.get(`${API}/api/insights?state=open`);
+      const r = await page.request.get(`${API}/api/insights?state=open`,
+        { headers: { Authorization: 'Bearer demo-operator' } });
       const rows = r.ok() ? await r.json() : [];
       openInsight = rows.find((i) => (i.tag || '').includes('temp_c')) || null;
     } catch { /* engine pass not due yet — keep injecting */ }
@@ -249,6 +265,46 @@ try {
   ok('<480px: tiny placeholder', (await page.locator('body').innerText()).toLowerCase().includes('too small') || (await page.locator('.tile').count()) === 0);
   await page.setViewportSize({ width: 1440, height: 900 });
   await sleep(500);
+
+  // ============ OIDC smoke — real Keycloak round-trip (v4 T5) ============
+  // Fresh context: no demo-token session, no KC SSO cookie. Wall -> SSO ->
+  // Keycloak login form -> realm test user -> /auth/callback -> shell.
+  // Requires `make seed-dev` (sets the demo user password).
+  {
+    const kcCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const kcPage = await kcCtx.newPage();
+    try {
+      await kcPage.goto(BASE, { waitUntil: 'networkidle' });
+      // wall appears after the silent-renew probe settles
+      await kcPage.waitForSelector('.oidc-signin', { timeout: 20000 }).catch(() => {});
+      const ssoBtn = kcPage.locator('.oidc-signin');
+      ok('oidc: SSO button on wall', await ssoBtn.count() === 1);
+      await ssoBtn.click();
+      await kcPage.waitForSelector('input#username', { timeout: 15000 });
+      ok('oidc: redirect lands on keycloak login',
+        /\/realms\/wds\//.test(kcPage.url()), kcPage.url());
+      await kcPage.fill('input#username', 'operator@demo');
+      await kcPage.fill('input#password', process.env.KC_DEMO_PASSWORD || 'kc-demo-pass');
+      await kcPage.click('#kc-login');
+      await kcPage.waitForSelector('.side-nav', { timeout: 20000 });
+      ok('oidc: authenticated shell after callback',
+        await kcPage.locator('.user-btn').count() === 1);
+      // the access token is memory-only (ADR-12): oidc.user must never land
+      // in web storage; only the transient sign-in state may touch
+      // sessionStorage, and the UI language pref is the one localStorage key.
+      const storeDump = await kcPage.evaluate(() => ({
+        ls: Object.keys(localStorage), ss: Object.keys(sessionStorage),
+      }));
+      ok('oidc: no access token in web storage',
+        !storeDump.ls.concat(storeDump.ss).some(k => k.startsWith('oidc.user')),
+        JSON.stringify(storeDump));
+      await kcPage.close();
+    } catch (e) {
+      ok('oidc: keycloak round-trip', false,
+        String(e && e.message || e).split('\n')[0].slice(0, 160));
+      await kcCtx.close().catch(() => {});
+    }
+  }
 
   // ============ GLOBAL HYGIENE ============
   ok('zero console errors', consoleErrs.length === 0, consoleErrs.slice(0, 3).join(' | '));

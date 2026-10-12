@@ -6,7 +6,7 @@ DB_TEST_ENV := WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-de
   WDS_TEST_SYSTEM_DSN=postgresql://wds_system:$${WDS_SYSTEM_PASSWORD:-system-dev-pass}@127.0.0.1:5433/wds \
   WDS_TEST_SUPER_DSN=postgresql://postgres:$${POSTGRES_SUPERUSER_PASSWORD:-postgres-dev-pass}@127.0.0.1:5433/wds
 
-.PHONY: help up up-test down ps logs build clean secrets test test-contract test-db test-integration uat web-build migrate verify-audit
+.PHONY: help up up-test down ps logs build clean secrets test test-contract test-db test-integration uat web-build migrate verify-audit seed-dev
 
 help: ## show this
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -15,8 +15,9 @@ help: ## show this
 secrets: ## regenerate broker credentials (infra/passwd — gitignored)
 	./infra/gen-passwd.sh
 
-up: ## build + start the full stack, wait for health
+up: ## build + start the full stack, wait for health (+ Keycloak seed in dev)
 	$(COMPOSE) up -d --build --wait
+	@if [ "$${APP_ENV:-dev}" = "dev" ]; then $(MAKE) seed-dev; fi
 
 down: ## stop the stack (data volume survives)
 	$(COMPOSE) down
@@ -38,6 +39,7 @@ test-contract: ## contract/unit tests — no services needed
 
 up-test: ## start the stack with the test overlay (Postgres on 127.0.0.1:5433)
 	$(COMPOSE_TEST) up -d --build --wait
+	@if [ "$${APP_ENV:-dev}" = "dev" ]; then $(MAKE) seed-dev; fi
 
 test-db: ## tenant-isolation / RLS / audit gate as the runtime DB roles (needs up-test)
 	cd tests && $(DB_TEST_ENV) $(PY) -m pytest tenancy -m db
@@ -49,8 +51,12 @@ migrate: ## pg_dump backup, then alembic upgrade head (doc 18 §2)
 verify-audit: ## recompute every org's audit hash chain; non-zero exit on a break
 	$(COMPOSE) exec -T backend python -m app.db.audit_cli
 
+seed-dev: ## provision Keycloak test users + org memberships (APP_ENV=dev only)
+	$(COMPOSE) exec -T backend python -m app.seed_oidc
+
 test-integration: ## integration tests against the running stack
 	cd tests && BASE_URL=http://localhost:8000 MQTT_HOST=localhost \
+	  WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
 	  python -m pytest -m integration
 
 test: test-contract test-db test-integration ## all suites (needs up-test)

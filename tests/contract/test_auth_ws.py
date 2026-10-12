@@ -31,10 +31,16 @@ def test_unknown_or_absent_token_is_anonymous(token):
 
 # -------------------------------------------------------------- read access
 
-@pytest.mark.parametrize("role", ["anonymous", "viewer", "operator"])
-def test_all_roles_can_read(role):
-    # CONTRACT.md: GET endpoints allow anonymous (public read-only)
+@pytest.mark.parametrize("role", ["viewer", "operator", "admin", "owner"])
+def test_authenticated_members_can_read(role):
+    # v4 T5 / CONTRACT.v2: every /api/* read requires a member principal
     assert can_read(role)
+
+
+def test_anonymous_cannot_read():
+    # v4 T5: anonymous reads removed — no token -> 401 on every /api/*
+    # endpoint except the machine-level health probes.
+    assert not can_read(ROLE_ANONYMOUS)
 
 
 # ----------------------------------------------------------- mutation access
@@ -70,8 +76,10 @@ def test_ws_auth_expired_close_code_is_4401():
 # ------------------------------------------------------------ WS event scope
 
 def test_anonymous_ws_scope_excludes_command_events():
-    # 06 §2 + 09 §7: public connections must not receive command events.
-    # CONTRACT.md doesn't state this explicitly — flagged DIVERGENCE.
+    # 06 §2 + 09 §7: a hypothetical public connection must not receive
+    # command events. v4 T5 goes further — anonymous never connects at all
+    # (first-frame auth is mandatory); the scope model stays as the
+    # least-privilege floor for any non-operator principal.
     allowed = ws_events_allowed("anonymous")
     assert "command" not in allowed
     assert {"tag", "alarm", "health"} <= allowed
