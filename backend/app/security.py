@@ -230,9 +230,17 @@ class Security:
                             async with user_tx(self.pools.app, p.user_id) as conn:
                                 rows = await conn.fetch(
                                     "SELECT org_id, role FROM memberships")
+                                disabled = await conn.fetchval(
+                                    "SELECT disabled_at IS NOT NULL FROM users"
+                                    " WHERE id=$1", p.user_id)
                         except Exception:  # noqa: BLE001 — fail closed
                             log.exception("dev membership lookup failed — failing closed")
                             raise AuthError("authorization store unavailable") from None
+                        if disabled:
+                            # admin disabled this user (v4 T10 member:manage) —
+                            # the OIDC path checks the same column in
+                            # _load_authz; dev tokens must honor it too.
+                            raise AuthError("user disabled")
                         org_roles = {r["org_id"]: r["role"] for r in rows}
                         # T9-review F1: the token's nominal role is a fallback
                         # ONLY for an unhydrated principal (no membership rows

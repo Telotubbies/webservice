@@ -94,9 +94,14 @@ async def seed(pools: Pools) -> None:
     org, site, edge = config.V1_ORG_ID, config.V1_SITE_ID, config.V1_EDGE_ID
     async with global_tx(pools.app) as conn:
         for token, (uid, _role) in DEMO_USERS.items():
+            # email_verified + a stable dev email so the invite-accept path
+            # (CONTRACT.v2 §3: verified-email match) is exercisable in dev —
+            # ON CONFLICT UPDATE backfills rows seeded before v4 T10.
             await conn.execute(
-                "INSERT INTO users(id, sub, display_name, email_verified) VALUES ($1,$2,$3,true)"
-                " ON CONFLICT (id) DO NOTHING", uid, f"dev:{token}", token)
+                "INSERT INTO users(id, sub, display_name, email, email_verified)"
+                " VALUES ($1,$2,$3,$4,true)"
+                " ON CONFLICT (id) DO UPDATE SET email=excluded.email",
+                uid, f"dev:{token}", token, f"{token}@dev.local")
     async with tenant_tx(pools.app, org) as tc:
         await tc.execute("INSERT INTO organizations(id, name) VALUES ($1,'Demo')"
                          " ON CONFLICT (id) DO NOTHING", org)

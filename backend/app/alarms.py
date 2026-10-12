@@ -12,6 +12,8 @@ One open (active|acked) alarm per rule is enforced by a partial unique index.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -264,3 +266,39 @@ class AlarmEngine:
             "acked_by": r["acked_by"],
             "version": r["version"],
         }
+
+
+# ---------------------------------------------------------------------------
+# Rule-change reload (v4 T10): admin CRUD NOTIFYs `alarm_rules_changed` so an
+# edit takes effect without a backend restart (doc 20 §3.3). Mirrors the
+# wds_edges LISTEN pattern in dynsec.Reconciler._listen.
+# ---------------------------------------------------------------------------
+RULES_NOTIFY_CHANNEL = "alarm_rules_changed"
+
+
+async def rules_notify_listener(engine: AlarmEngine) -> None:
+    """Hold a dedicated LISTEN connection on the system pool; every NOTIFY
+    re-runs load_rules. Reconnects forever on failure — the periodic cadence
+    is intentionally absent: rules are engine state, so on a dropped listener
+    the reconnect happens fast and the missed window is seconds, not minutes.
+    """
+    while True:
+        conn = None
+        try:
+            conn = await engine.pools.system.acquire()
+            await conn.add_listener(
+                RULES_NOTIFY_CHANNEL,
+                lambda *_: asyncio.ensure_future(engine.load_rules()))
+            log.info("alarm_rules_changed listener connected")
+            while not conn.is_closed():
+                await asyncio.sleep(30)
+            raise ConnectionError("alarm_rules listener connection closed")
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("alarm_rules_changed listener down — retrying in 5s")
+            await asyncio.sleep(5)
+        finally:
+            if conn is not None:
+                with contextlib.suppress(Exception):
+                    await engine.pools.system.release(conn)

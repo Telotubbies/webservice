@@ -21,6 +21,10 @@ import { TagsPage } from './features/tags/TagsPage';
 import { InsightsPage } from './features/insights/InsightsPage';
 import { CommandsPage } from './features/commands/CommandsPage';
 import { HealthPage } from './features/health/HealthPage';
+import { AdminPage } from './features/admin/AdminPage';
+import { AlarmRulesPage } from './features/admin/AlarmRulesPage';
+import { UsersPage } from './features/admin/UsersPage';
+import { AuditPage } from './features/admin/AuditPage';
 import { ErrorState } from './shared/ui/Feedback';
 import type { TagInfo } from './types';
 
@@ -144,6 +148,11 @@ const router = createBrowserRouter([
       { path: 'tags', element: <Root page={(tags) => <TagsPage tags={tags} />} /> },
       { path: 'commands', element: <CommandsPage /> },
       { path: 'health', element: <HealthPage /> },
+      // v4 T10 admin — role-gated inside the pages (nav hides them too)
+      { path: 'admin', element: <AdminPage /> },
+      { path: 'admin/rules', element: <AlarmRulesPage /> },
+      { path: 'admin/users', element: <UsersPage /> },
+      { path: 'admin/audit', element: <AuditPage /> },
       // OIDC redirect targets — Boot handles them before the children render
       { path: 'auth/callback', element: null },
       { path: 'auth/silent-callback', element: null },

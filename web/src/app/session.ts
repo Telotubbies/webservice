@@ -49,6 +49,11 @@ export function canOperate(role: SessionRole): boolean {
   return role === 'operator' || role === 'admin' || role === 'owner';
 }
 
+/** admin|owner — config:write / member:manage / audit:read (CONTRACT.v2 §1). */
+export function canAdmin(role: SessionRole): boolean {
+  return role === 'admin' || role === 'owner';
+}
+
 /** APP_ENV=dev sign-in path — a demo bearer token. */
 export function signIn(token: string): void {
   meResolved = false;

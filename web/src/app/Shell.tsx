@@ -10,9 +10,12 @@ import { SignInDialog } from '../features/auth/SignInDialog';
 import { FaceplateProvider } from '../features/faceplate/FaceplateContext';
 import { FaceplatePanel } from '../features/faceplate/Faceplate';
 import { FLOOD_THRESHOLD, useAlarms } from '../features/alarms/alarms';
-import { signOut, useRole } from './session';
+import { canOperate, signOut, useRole } from './session';
 
-const NAV: { group: string; items: { to: string; key: string; icon: IconName }[] }[] = [
+interface NavItem { to: string; key: string; icon: IconName }
+interface NavGroup { group: string; items: NavItem[]; gated?: boolean }
+
+const NAV: NavGroup[] = [
   { group: 'nav.monitor', items: [
     { to: '/', key: 'nav.overview', icon: 'overview' },
     { to: '/line', key: 'nav.line', icon: 'line' },
@@ -29,6 +32,15 @@ const NAV: { group: string; items: { to: string; key: string; icon: IconName }[]
   { group: 'nav.system', items: [
     { to: '/tags', key: 'nav.tags', icon: 'tags' },
     { to: '/health', key: 'nav.health', icon: 'health' },
+  ] },
+  // v4 T10: org administration — operators+ see it (mutations stay
+  // admin|owner server-side); viewers get no admin nav at all. Never in the
+  // mobile bar — MOBILE is unchanged (5-item UAT contract).
+  { group: 'nav.admin', gated: true, items: [
+    { to: '/admin', key: 'nav.adminOrg', icon: 'shield' },
+    { to: '/admin/rules', key: 'nav.adminRules', icon: 'alarm' },
+    { to: '/admin/users', key: 'nav.adminUsers', icon: 'user' },
+    { to: '/admin/audit', key: 'nav.adminAudit', icon: 'download' },
   ] },
 ];
 
@@ -81,7 +93,10 @@ export function Shell() {
   const { active } = useAlarms();
   const loc = useLocation();
   const [signInOpen, setSignInOpen] = useState(false);
-  const current = NAV.flatMap((g) => g.items).find((i) => (i.to === '/' ? loc.pathname === '/' : loc.pathname.startsWith(i.to)));
+  // exact-or-segment match so '/admin' doesn't shadow '/admin/rules'
+  const current = NAV.flatMap((g) => g.items).find(
+    (i) => (i.to === '/' ? loc.pathname === '/'
+      : loc.pathname === i.to || loc.pathname.startsWith(`${i.to}/`)));
   const mobile = vp === 'xs';
 
   if (vp === 'tiny') {
@@ -104,7 +119,7 @@ export function Shell() {
           </span>
         </Link>
         <nav className="nav side-nav" aria-label="primary">
-          {NAV.map((g) => (
+          {NAV.filter((g) => !g.gated || canOperate(role)).map((g) => (
             <div key={g.group} style={{ display: 'contents' }}>
               {!mobile && <span className="nav-group">{t(g.group)}</span>}
               {g.items.filter((i) => !mobile || MOBILE.has(i.to)).map((i) => (

@@ -14,16 +14,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import csv
+import hashlib
+import io
 import json
 import logging
 import math
 import os
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import UUID
 
+import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -32,7 +37,9 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from . import config
-from .alarms import AlarmEngine
+from .alarms import (
+    AlarmEngine, RULES_NOTIFY_CHANNEL, rules_notify_listener,
+)
 from .auth import OPERATOR_ROLES, Principal
 from .commands import CommandManager
 from .dynsec import (
@@ -41,7 +48,7 @@ from .dynsec import (
 )
 from .insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
-from .db.context import tenant_tx, user_tx
+from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .mqtt_client import MQTTBridge
@@ -481,6 +488,8 @@ async def lifespan(app: FastAPI):
         # wds_authz NOTIFY -> ≤5s revocation (backchannel logout, disabled
         # users, membership changes) — v4 T5, ADR-12 §7
         asyncio.create_task(authz_listener(st.auth)),
+        # alarm_rules_changed NOTIFY -> rule reload without restart (v4 T10)
+        asyncio.create_task(rules_notify_listener(st.alarms)),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
                                        "site": config.V1_SITE_CODE})
@@ -1470,6 +1479,487 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
             await st(request).dynsec.disable_client(username)
     await st(request).registry.refresh()
     return {"edge_id": str(eid), "status": "disabled"}
+
+
+# ---------------------------------------------------------------------------
+# v2 admin (v4 T10, CONTRACT.v2 §3): alarm-rule CRUD, memberships, invites,
+# audit export.
+#
+# Permission mapping (CONTRACT.v2 §1 table): config:write, member:manage and
+# audit:read ALL sit in the admin|owner band — the _CONFIG check is the same
+# gate for each. Operators get read access where the table allows
+# (alarm-rules list is site:read) and a flat 403 on mutations.
+# ---------------------------------------------------------------------------
+MEMBER_ROLES = frozenset({"owner", "admin", "operator", "viewer"})
+INVITABLE_ROLES = frozenset({"admin", "operator", "viewer"})  # schema CHECK
+RULE_KINDS = frozenset({"hi", "hihi", "lo", "lolo", "stale"})
+RULE_SEVERITIES = frozenset({"info", "warning", "critical"})
+INVITE_TTL_D = 7
+
+
+class AlarmRuleIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    tag_id: str
+    kind: str
+    threshold: float | None = None
+    stale_s: int | None = None
+    deadband: float = Field(default=0, ge=0)
+    severity: str
+    enabled: bool = True
+
+
+class AlarmRulePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    kind: str | None = None
+    threshold: float | None = None
+    stale_s: int | None = None
+    deadband: float | None = Field(default=None, ge=0)
+    severity: str | None = None
+    enabled: bool | None = None
+
+
+class MemberPatch(BaseModel):
+    role: str | None = None
+    disabled: bool | None = None
+
+
+class InviteIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    role: str
+
+    @field_validator("email")
+    @classmethod
+    def email_shape(cls, v: str) -> str:
+        v = v.strip().lower()
+        if "@" not in v or v.startswith("@") or v.endswith("@"):
+            raise ValueError("invalid email")
+        return v
+
+
+def _validate_rule(kind: str, threshold, stale_s, severity: str,
+                   deadband: float) -> None:
+    """Mirror the alarm_rules CHECK constraints in request terms (400, not a
+    500 from a violated CHECK)."""
+    if kind not in RULE_KINDS:
+        raise HTTPException(400, "invalid_request: kind")
+    if severity not in RULE_SEVERITIES:
+        raise HTTPException(400, "invalid_request: severity")
+    if deadband is not None and deadband < 0:
+        raise HTTPException(400, "invalid_request: deadband")
+    if kind == "stale":
+        if stale_s is None or not (5 <= stale_s <= 86400):
+            raise HTTPException(400, "invalid_request: stale rule needs stale_s 5..86400")
+    elif threshold is None:
+        raise HTTPException(400, "invalid_request: threshold rule needs a threshold")
+
+
+def _rule_json(r) -> dict:
+    return {"id": str(r["id"]), "tag_id": str(r["tag_id"]), "name": r["name"],
+            "kind": r["kind"], "threshold": r["threshold"],
+            "stale_s": r["stale_s"], "deadband": r["deadband"],
+            "severity": r["severity"], "enabled": r["enabled"]}
+
+
+_RULE_COLS = ("id, tag_id, name, kind, threshold, stale_s, deadband,"
+              " severity, enabled")
+
+
+async def _rule_or_404(tc, rule_id: str, site_id: UUID):
+    """Rule resolved inside the path site — a foreign-site rule id is 404,
+    never a cross-tenant leak (same oracle rule as _v2_tag_or_404)."""
+    try:
+        rid = UUID(rule_id)
+    except ValueError:
+        raise HTTPException(404, "alarm rule not found") from None
+    row = await tc.fetchrow(
+        f"SELECT {_RULE_COLS} FROM alarm_rules WHERE id=$1"
+        " AND tag_id IN (SELECT id FROM tags WHERE site_id=$2)", rid, site_id)
+    if row is None:
+        raise HTTPException(404, "alarm rule not found")
+    return row
+
+
+@app.post("/api/v1/orgs/{org}/sites/{site}/alarm-rules", status_code=201)
+async def v2_create_alarm_rule(org: str, site: str, body: AlarmRuleIn,
+                               request: Request,
+                               p: Principal = Depends(require_user)):
+    """config:write in the path org. NOTIFYs alarm_rules_changed so the
+    engine reloads its rule set without a restart (v4 T10)."""
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    tag = await _v2_tag_or_404(request, org_id, site_id, body.tag_id)
+    _validate_rule(body.kind, body.threshold, body.stale_s,
+                   body.severity, body.deadband)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        try:
+            row = await tc.fetchrow(
+                f"INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold,"
+                " stale_s, deadband, severity, enabled)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING " + _RULE_COLS,
+                org_id, tag.id, body.name, body.kind, body.threshold,
+                body.stale_s, body.deadband, body.severity, body.enabled)
+        except asyncpg.UniqueViolationError:
+            raise HTTPException(409, "alarm rule name already exists on this tag")
+        await audit.append(tc, f"user:{p.user_id}", "alarm_rule.created",
+                           {"rule_id": str(row["id"]), "tag_id": str(tag.id)},
+                           {"name": body.name, "kind": body.kind})
+        await tc.execute("SELECT pg_notify($1, $2)",
+                         RULES_NOTIFY_CHANNEL, str(org_id))
+    return {"rule": _rule_json(row)}
+
+
+@app.patch("/api/v1/orgs/{org}/sites/{site}/alarm-rules/{rule_id}")
+async def v2_patch_alarm_rule(org: str, site: str, rule_id: str,
+                              body: AlarmRulePatch, request: Request,
+                              p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    changes = body.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(400, "invalid_request: empty patch")
+    async with org_tx(request, org_id, p.user_id) as tc:
+        cur = await _rule_or_404(tc, rule_id, site_id)
+        merged = {
+            "name": changes.get("name", cur["name"]),
+            "kind": changes.get("kind", cur["kind"]),
+            "threshold": changes.get("threshold", cur["threshold"]),
+            "stale_s": changes.get("stale_s", cur["stale_s"]),
+            "deadband": changes.get("deadband", cur["deadband"]),
+            "severity": changes.get("severity", cur["severity"]),
+            "enabled": changes.get("enabled", cur["enabled"]),
+        }
+        _validate_rule(merged["kind"], merged["threshold"], merged["stale_s"],
+                       merged["severity"], merged["deadband"])
+        try:
+            row = await tc.fetchrow(
+                "UPDATE alarm_rules SET name=$2, kind=$3, threshold=$4, stale_s=$5,"
+                " deadband=$6, severity=$7, enabled=$8 WHERE id=$1"
+                " RETURNING " + _RULE_COLS,
+                cur["id"], merged["name"], merged["kind"], merged["threshold"],
+                merged["stale_s"], merged["deadband"], merged["severity"],
+                merged["enabled"])
+        except asyncpg.UniqueViolationError:
+            raise HTTPException(409, "alarm rule name already exists on this tag")
+        await audit.append(tc, f"user:{p.user_id}", "alarm_rule.updated",
+                           {"rule_id": str(cur["id"])}, changes)
+        await tc.execute("SELECT pg_notify($1, $2)",
+                         RULES_NOTIFY_CHANNEL, str(org_id))
+    return {"rule": _rule_json(row)}
+
+
+@app.delete("/api/v1/orgs/{org}/sites/{site}/alarm-rules/{rule_id}",
+            status_code=204)
+async def v2_delete_alarm_rule(org: str, site: str, rule_id: str,
+                               request: Request,
+                               p: Principal = Depends(require_user)):
+    """Deletes the rule; its alarms cascade away with it (schema FK)."""
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        cur = await _rule_or_404(tc, rule_id, site_id)
+        await tc.execute("DELETE FROM alarm_rules WHERE id=$1", cur["id"])
+        await audit.append(tc, f"user:{p.user_id}", "alarm_rule.deleted",
+                           {"rule_id": str(cur["id"])},
+                           {"name": cur["name"]})
+        await tc.execute("SELECT pg_notify($1, $2)",
+                         RULES_NOTIFY_CHANNEL, str(org_id))
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Memberships — member:manage (admin|owner)
+# ---------------------------------------------------------------------------
+def _member_json(r) -> dict:
+    return {"user_id": str(r["user_id"]), "role": r["role"],
+            "sub": r["sub"], "display_name": r["display_name"],
+            "email": r["email"],
+            "disabled": r["disabled_at"] is not None}
+
+
+async def _membership_or_404(tc, user_id: str):
+    try:
+        uid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(404, "member not found") from None
+    row = await tc.fetchrow(
+        "SELECT m.user_id, m.role, u.sub, u.display_name, u.email, u.disabled_at"
+        " FROM memberships m JOIN users u ON u.id = m.user_id"
+        " WHERE m.user_id=$1", uid)
+    if row is None:
+        raise HTTPException(404, "member not found")
+    return row
+
+
+@app.get("/api/v1/orgs/{org}/members")
+async def v2_list_members(org: str, request: Request,
+                          p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT m.user_id, m.role, u.sub, u.display_name, u.email,"
+            " u.disabled_at FROM memberships m JOIN users u ON u.id = m.user_id"
+            " ORDER BY u.display_name")
+    return {"items": [_member_json(r) for r in rows], "next_cursor": None}
+
+
+@app.patch("/api/v1/orgs/{org}/members/{user_id}")
+async def v2_patch_member(org: str, user_id: str, body: MemberPatch,
+                          request: Request,
+                          p: Principal = Depends(require_user)):
+    """Role change and/or user disable (CONTRACT.v2 §3 member:manage).
+
+    Guards: an admin cannot touch an owner row (demote OR disable), nobody
+    can demote the last owner, and only an owner can grant 'owner'. A
+    membership change NOTIFYs wds_authz so the ≤5s revocation path applies.
+    """
+    org_id = _v2_org(org, p, need=_CONFIG)
+    if body.role is None and body.disabled is None:
+        raise HTTPException(400, "invalid_request: empty patch")
+    if body.role is not None and body.role not in MEMBER_ROLES:
+        raise HTTPException(400, "invalid_request: role")
+    caller_role = _effective_org_roles(p)[org_id]
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        target = await _membership_or_404(tc, user_id)
+        if target["user_id"] == p.user_id and (
+                body.disabled or (body.role and body.role != target["role"])):
+            raise HTTPException(400, "cannot change your own role or disable yourself")
+        if caller_role != "owner":
+            # an admin may not demote/disable an owner, nor mint a new one
+            if target["role"] == "owner" or body.role == "owner":
+                raise ForbiddenError("owner rows are managed by owners")
+        if body.role is not None and target["role"] == "owner" \
+                and body.role != "owner":
+            owners = await tc.fetchval(
+                "SELECT count(*) FROM memberships WHERE role='owner'")
+            if owners <= 1:
+                raise HTTPException(409, "org must keep at least one owner")
+        if body.role is not None and body.role != target["role"]:
+            await tc.execute(
+                "UPDATE memberships SET role=$2 WHERE user_id=$1",
+                target["user_id"], body.role)
+        if body.disabled is not None:
+            if body.disabled and target["role"] == "owner":
+                owners_active = await tc.fetchval(
+                    "SELECT count(*) FROM memberships m JOIN users u"
+                    " ON u.id=m.user_id WHERE m.role='owner'"
+                    " AND u.disabled_at IS NULL")
+                if owners_active <= 1:
+                    raise HTTPException(409, "org must keep at least one active owner")
+            await tc.execute(
+                "UPDATE users SET disabled_at = CASE WHEN $2 THEN now() ELSE NULL END"
+                " WHERE id=$1", target["user_id"], body.disabled)
+        await audit.append(tc, f"user:{p.user_id}", "member.updated",
+                           {"user_id": str(target["user_id"])},
+                           body.model_dump(exclude_unset=True))
+    # local eviction now, NOTIFY for other replicas/listeners (same pattern
+    # as Security.record_logout — no need to wait the listener round-trip)
+    st(request).auth.on_notify(json.dumps(
+        {"type": "user_disabled" if body.disabled else "membership_changed",
+         "sub": target["sub"]}))
+    async with global_tx(st(request).pools.app) as conn:
+        await conn.execute(
+            "SELECT pg_notify($1, $2)", "wds_authz",
+            json.dumps({"type": "user_disabled" if body.disabled
+                        else "membership_changed", "sub": target["sub"]}))
+    async with org_tx(request, org_id) as tc:
+        row = await _membership_or_404(tc, str(target["user_id"]))
+    return {"member": _member_json(row)}
+
+
+@app.delete("/api/v1/orgs/{org}/members/{user_id}")
+async def v2_delete_member(org: str, user_id: str, request: Request,
+                           p: Principal = Depends(require_user)):
+    """Remove the membership. The user row survives — it is global and may
+    hold memberships elsewhere; this revokes THIS org only (wds_authz)."""
+    org_id = _v2_org(org, p, need=_CONFIG)
+    caller_role = _effective_org_roles(p)[org_id]
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        target = await _membership_or_404(tc, user_id)
+        if target["user_id"] == p.user_id and target["role"] == "owner":
+            raise HTTPException(400, "an owner cannot remove themselves")
+        if caller_role != "owner" and target["role"] == "owner":
+            raise ForbiddenError("owner rows are managed by owners")
+        if target["role"] == "owner":
+            owners = await tc.fetchval(
+                "SELECT count(*) FROM memberships WHERE role='owner'")
+            if owners <= 1:
+                raise HTTPException(409, "org must keep at least one owner")
+        await tc.execute("DELETE FROM memberships WHERE user_id=$1",
+                         target["user_id"])
+        await audit.append(tc, f"user:{p.user_id}", "member.removed",
+                           {"user_id": str(target["user_id"])},
+                           {"role": target["role"]})
+    async with global_tx(st(request).pools.app) as conn:
+        await conn.execute(
+            "SELECT pg_notify($1, $2)", "wds_authz",
+            json.dumps({"type": "membership_changed", "sub": target["sub"]}))
+    return {"user_id": str(target["user_id"]), "removed": True}
+
+
+# ---------------------------------------------------------------------------
+# Invites — member:manage; accept is a global route (CONTRACT.v2 §3 identity)
+# ---------------------------------------------------------------------------
+def _invite_json(r) -> dict:
+    return {"id": str(r["id"]), "email": r["email"], "role": r["role"],
+            "expires_at": iso_z(r["expires_at"]),
+            "accepted_at": iso_z(r["accepted_at"]) if r["accepted_at"] else None}
+
+
+@app.get("/api/v1/orgs/{org}/invites")
+async def v2_list_invites(org: str, request: Request,
+                          p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT id, email, role, expires_at, accepted_at FROM invites"
+            " ORDER BY created_at DESC LIMIT 200")
+    return {"items": [_invite_json(r) for r in rows], "next_cursor": None}
+
+
+@app.post("/api/v1/orgs/{org}/invites", status_code=201)
+async def v2_create_invite(org: str, body: InviteIn, request: Request,
+                           p: Principal = Depends(require_user)):
+    """Mint an invite; the raw token is returned ONCE and only its sha256 is
+    stored (CONTRACT.v2 §3: 32 random bytes, single-use, 7-day expiry)."""
+    org_id = _v2_org(org, p, need=_CONFIG)
+    if body.role not in INVITABLE_ROLES:
+        raise HTTPException(400, "invalid_request: role")
+    await _mutation_gate(request, p.user_id)
+    token = secrets.token_hex(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    iid = uuid.uuid4()
+    async with org_tx(request, org_id, p.user_id) as tc:
+        row = await tc.fetchrow(
+            "INSERT INTO invites(id, org_id, email, role, token_hash, invited_by,"
+            " expires_at) VALUES ($1,$2,$3,$4,$5,$6, now() + $7::int * interval '1 day')"
+            " RETURNING id, email, role, expires_at, accepted_at",
+            iid, org_id, body.email, body.role, token_hash, p.user_id,
+            INVITE_TTL_D)
+        await audit.append(tc, f"user:{p.user_id}", "invite.created",
+                           {"invite_id": str(iid)},
+                           {"email": body.email, "role": body.role})
+    return {"invite": _invite_json(row), "token": token}
+
+
+@app.delete("/api/v1/orgs/{org}/invites/{invite_id}")
+async def v2_revoke_invite(org: str, invite_id: str, request: Request,
+                           p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    iid = _uuid_or_404(invite_id, "invite")
+    async with org_tx(request, org_id, p.user_id) as tc:
+        row = await tc.fetchrow(
+            "DELETE FROM invites WHERE id=$1 AND accepted_at IS NULL"
+            " RETURNING id, email", iid)
+        if row is None:
+            raise HTTPException(404, "invite not found")
+        await audit.append(tc, f"user:{p.user_id}", "invite.revoked",
+                           {"invite_id": str(iid)}, {"email": row["email"]})
+    return {"id": str(iid), "revoked": True}
+
+
+@app.post("/api/v1/invites/{token}/accept")
+async def v2_accept_invite(token: str, request: Request,
+                           p: Principal = Depends(require_user)):
+    """Accept an invite (CONTRACT.v2 §3): the token resolves to exactly one
+    invite via the invite_hash RLS context; the caller's VERIFIED email must
+    match the invite email. Single-use — accepted/expired/unknown all 404 so
+    the endpoint is not an existence oracle."""
+    if len(token) != 64:
+        raise HTTPException(404, "invite not found")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    await _mutation_gate(request, p.user_id)
+    async with invite_tx(st(request).pools.app, token_hash) as conn:
+        invite = await conn.fetchrow(
+            "SELECT id, org_id, email, role, expires_at, accepted_at"
+            " FROM invites")
+    if invite is None or invite["accepted_at"] is not None \
+            or invite["expires_at"] <= utcnow():
+        raise HTTPException(404, "invite not found")
+    async with global_tx(st(request).pools.app) as conn:
+        user = await conn.fetchrow(
+            "SELECT email, email_verified, disabled_at FROM users WHERE id=$1",
+            p.user_id)
+    if user is None or user["disabled_at"] is not None:
+        raise ForbiddenError("account cannot accept invites")
+    if not user["email_verified"] or (user["email"] or "").lower() \
+            != invite["email"].lower():
+        raise ForbiddenError("invite email does not match your verified email")
+    async with tenant_tx(st(request).pools.app, invite["org_id"], p.user_id) as tc:
+        await tc.execute(
+            "INSERT INTO memberships(org_id, user_id, role) VALUES ($1,$2,$3)"
+            " ON CONFLICT (org_id, user_id) DO UPDATE SET role=excluded.role",
+            invite["org_id"], p.user_id, invite["role"])
+        await tc.execute(
+            "UPDATE invites SET accepted_at=now(), accepted_by=$2 WHERE id=$1",
+            invite["id"], p.user_id)
+        await audit.append(tc, f"user:{p.user_id}", "invite.accepted",
+                           {"invite_id": str(invite["id"])},
+                           {"role": invite["role"]})
+    async with global_tx(st(request).pools.app) as conn:
+        await conn.execute(
+            "SELECT pg_notify($1, $2)", "wds_authz",
+            json.dumps({"type": "membership_changed", "sub": p.sub}))
+    return {"status": "accepted", "org_id": str(invite["org_id"]),
+            "role": invite["role"]}
+
+
+# ---------------------------------------------------------------------------
+# Audit export — audit:read (admin|owner), bounded
+# ---------------------------------------------------------------------------
+AUDIT_EXPORT_MAX = 5000
+
+
+@app.get("/api/v1/orgs/{org}/audit")
+async def v2_audit_export(org: str, request: Request,
+                          from_: str | None = Query(None, alias="from"),
+                          to: str | None = Query(None),
+                          action: str | None = Query(None),
+                          actor: str | None = Query(None),
+                          format: str = Query("json"),
+                          limit: int = Query(500, ge=1, le=AUDIT_EXPORT_MAX),
+                          p: Principal = Depends(require_user)):
+    """Tenant-scoped audit export (CONTRACT.v2 §3): the hash-chained log for
+    THIS org only — RLS makes cross-tenant reads structurally impossible."""
+    org_id = _v2_org(org, p, need=_CONFIG)
+    if format not in ("json", "csv"):
+        raise HTTPException(400, "invalid_request: format")
+    try:
+        t_from = parse_ts(from_) if from_ else None
+        t_to = parse_ts(to) if to else None
+    except ValueError:
+        raise HTTPException(400, "invalid_request") from None
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT seq, at, actor, action, target, detail, hash FROM audit_log"
+            " WHERE ($1::timestamptz IS NULL OR at >= $1)"
+            " AND ($2::timestamptz IS NULL OR at <= $2)"
+            " AND ($3::text IS NULL OR action = $3)"
+            " AND ($4::text IS NULL OR actor = $4)"
+            " ORDER BY seq ASC LIMIT $5",
+            t_from, t_to, action, actor, limit)
+    items = [{"seq": r["seq"], "at": iso_z(r["at"]), "actor": r["actor"],
+              "action": r["action"], "target": r["target"],
+              "detail": r["detail"], "hash": r["hash"]} for r in rows]
+    if format == "csv":
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["seq", "at", "actor", "action", "target", "detail", "hash"])
+        for it in items:
+            w.writerow([it["seq"], it["at"], it["actor"], it["action"],
+                        json.dumps(it["target"], separators=(",", ":"))
+                        if it["target"] is not None else "",
+                        json.dumps(it["detail"], separators=(",", ":"))
+                        if it["detail"] is not None else "",
+                        it["hash"]])
+        return Response(
+            content=buf.getvalue(), media_type="text/csv",
+            headers={"Content-Disposition":
+                     f'attachment; filename="audit-{org_id}.csv"'})
+    return {"items": items, "next_cursor": None}
 
 
 # ---------------------------------------------------------------------------

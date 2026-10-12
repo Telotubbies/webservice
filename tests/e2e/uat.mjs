@@ -279,6 +279,119 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 });
   await sleep(500);
 
+  // ============ ADMIN (v4 T10) ============
+  // The Admin nav group is visible to operators+ (spec); mutations stay
+  // admin|owner server-side. API-level roundtrips + a nav-visibility check.
+  // The bearer token lives in memory only (ADR-12): the goto above destroyed
+  // the operator session — sign back in before asserting on nav.
+  await page.waitForSelector('.token-input', { timeout: 20000 }).catch(() => {});
+  if (await page.locator('.token-input').count() === 1) {
+    await page.fill('.token-input', 'demo-operator');
+    await page.keyboard.press('Enter');
+    await sleep(2000);
+  }
+  let adminNavOp = false;
+  try {
+    await page.waitForSelector('a.tab[href="/admin"]', { timeout: 10000 });
+    adminNavOp = await page.locator('a.tab[href="/admin"]').count() === 1;
+  } catch { /* stays false */ }
+  ok('admin: nav group visible to operator', adminNavOp);
+  {
+    const H = (tok) => ({ Authorization: `Bearer ${tok}` });
+    const memOp = await fetch(`${API}/api/v1/orgs/${ORG}/members`, { headers: H('demo-operator') });
+    ok('admin: members 403 for operator', memOp.status === 403, `${memOp.status}`);
+    const memV = await fetch(`${API}/api/v1/orgs/${ORG}/members`, { headers: H('demo-viewer') });
+    ok('admin: members 403 for viewer', memV.status === 403, `${memV.status}`);
+    const memA = await fetch(`${API}/api/v1/orgs/${ORG}/members`, { headers: H('demo-admin') });
+    const memBody = memA.ok ? await memA.json() : { items: [] };
+    ok('admin: members 200 for admin', memA.status === 200 && memBody.items.length >= 3,
+      `${memA.status}, ${memBody.items.length} rows`);
+
+    // alarm-rule CRUD roundtrip — a created rule must evaluate without a
+    // backend restart (alarm_rules_changed NOTIFY -> engine reload)
+    const tagsR = await fetch(`${API}/api/v1/orgs/${ORG}/sites/${SITE_ID}/tags`,
+      { headers: H('demo-admin') });
+    const tempTag = (await tagsR.json()).items.find((x) => x.path.endsWith('temp_c'));
+    const cr = await fetch(`${API}/api/v1/orgs/${ORG}/sites/${SITE_ID}/alarm-rules`, {
+      method: 'POST', headers: { ...H('demo-admin'), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'uat-rule-watch', tag_id: tempTag.id,
+        kind: 'hi', threshold: -9999, severity: 'info' }),
+    });
+    ok('admin: alarm-rule create 201', cr.status === 201, `${cr.status}`);
+    const newRule = cr.ok ? (await cr.json()).rule : null;
+    let tripped = false;
+    for (let i = 0; i < 25 && !tripped && newRule; i++) {
+      await pub('temp_c', 30, 'good');
+      await sleep(1000);
+      tripped = (await getAlarms('active')).some((a) => a.rule === 'uat-rule-watch');
+    }
+    ok('admin: new rule evaluates without restart', tripped);
+    if (newRule) {
+      const del = await fetch(
+        `${API}/api/v1/orgs/${ORG}/sites/${SITE_ID}/alarm-rules/${newRule.id}`,
+        { method: 'DELETE', headers: H('demo-admin') });
+      ok('admin: alarm-rule delete 204', del.status === 204, `${del.status}`);
+    }
+
+    // invite create -> one-time token -> accept -> single-use
+    const inv = await fetch(`${API}/api/v1/orgs/${ORG}/invites`, {
+      method: 'POST', headers: { ...H('demo-admin'), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'demo-viewer@dev.local', role: 'viewer' }),
+    });
+    ok('admin: invite create 201', inv.status === 201, `${inv.status}`);
+    const invBody = inv.ok ? await inv.json() : { token: 'x'.repeat(64) };
+    const acc = await fetch(`${API}/api/v1/invites/${invBody.token}/accept`,
+      { method: 'POST', headers: H('demo-viewer') });
+    ok('admin: invite accept 200', acc.status === 200, `${acc.status}`);
+    const acc2 = await fetch(`${API}/api/v1/invites/${invBody.token}/accept`,
+      { method: 'POST', headers: H('demo-viewer') });
+    ok('admin: invite single-use (404 replay)', acc2.status === 404, `${acc2.status}`);
+
+    // audit export — json rows + csv header
+    const aj = await fetch(`${API}/api/v1/orgs/${ORG}/audit?format=json`, { headers: H('demo-admin') });
+    const aItems = aj.ok ? (await aj.json()).items : [];
+    ok('admin: audit json returns rows', aj.status === 200 && aItems.length > 0,
+      `${aItems.length} rows`);
+    const ac = await fetch(`${API}/api/v1/orgs/${ORG}/audit?format=csv`, { headers: H('demo-admin') });
+    const acsv = ac.ok ? await ac.text() : '';
+    ok('admin: audit csv export', ac.status === 200 && acsv.startsWith('seq,'), `${ac.status}`);
+  }
+
+  // admin pages render — org/sites/rules are member-read so the operator
+  // session exercises them without tripping the zero-4xx gate
+  await page.click('a.tab[href="/admin"]');
+  await sleep(1500);
+  ok('admin: org page renders', await page.locator('.admin-page').count() === 1);
+  await page.click('a.tab[href="/admin/rules"]');
+  await sleep(1500);
+  ok('admin: rules page renders', await page.locator('.admin-page').count() === 1);
+  ok('admin: rules table renders', await page.locator('.admin-page .admin-table').count() > 0);
+
+  // viewer session: the admin nav group is hidden entirely (spec: operators+)
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.waitForSelector('.token-input', { timeout: 20000 }).catch(() => {});
+  await page.fill('.token-input', 'demo-viewer');
+  await page.keyboard.press('Enter');
+  await sleep(2000);
+  ok('admin: nav group hidden for viewer',
+    await page.locator('a.tab[href="/admin"]').count() === 0);
+
+  // admin session: member + audit pages render their tables
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.waitForSelector('.token-input', { timeout: 20000 }).catch(() => {});
+  await page.fill('.token-input', 'demo-admin');
+  await page.keyboard.press('Enter');
+  await sleep(2000);
+  ok('admin: admin session signs in', await page.locator('.side-nav').count() === 1);
+  await page.click('a.tab[href="/admin/users"]');
+  await sleep(1500);
+  ok('admin: users page renders members',
+    await page.locator('.admin-page .admin-table').count() > 0);
+  await page.click('a.tab[href="/admin/audit"]');
+  await sleep(1500);
+  ok('admin: audit page renders export form',
+    await page.locator('.admin-export-form').count() === 1);
+
   // ============ OIDC smoke — real Keycloak round-trip (v4 T5) ============
   // Fresh context: no demo-token session, no KC SSO cookie. Wall -> SSO ->
   // Keycloak login form -> realm test user -> /auth/callback -> shell.
