@@ -6,6 +6,18 @@ Two layers, one command runner:
 |---|---|---|---|
 | **contract/unit** | `contract/` | no | CONTRACT.md semantics: payload validators, tag/topic grammar, command lifecycle state machine, dedup-before-409 ordering, edge deny pipeline, RBAC matrix, WS event shapes |
 | **integration** | `integration/` | yes (compose) | live backend + edge + broker: REST, commands end-to-end, alarm pipeline, WS streams, adversarial MQTT/REST attacks |
+| **security** | `security/` | yes (compose) | OWASP API Top-10 sweep: BOLA over every v2 route family, auth bypass (alg=none / HS256 confusion / expired / wrong-aud / wrong-iss) on REST+WS, viewer RBAC 403 matrix, 429+Retry-After proof, response-header scan, WS admission, compose/inspect secret leak checks |
+| **perf** | `perf/` | yes (compose) | SLO harness: history p95, 100-conn WS fan-out, insight eval duration, bundle gz budget, ops-wall LCP |
+
+`security/` and `perf/` are NOT in `testpaths` — they run via their own
+make targets (`make test-security` / `make test-perf`) so the standard
+integration gate stays unchanged. They still carry the `integration`
+marker for `-m` filtering.
+
+Safety boundary (ICS doctrine): the security suite exercises only the
+SaaS surface — org A/B REST + WS + the test-profile `tester` MQTT
+identity — and the command path only through the normal guarded REST
+lifecycle. Nothing fuzzes the edge/PLC-facing side.
 
 `contract/schemas.py` is the **executable reading of CONTRACT.md** — pure
 stdlib, no imports from service code. If a doc disagrees with CONTRACT.md,
@@ -123,5 +135,7 @@ tests/
 │   ├── test_insights.py    # insights API + filters
 │   └── test_alarms.py      # temp>80 → alarm → ack (slow)
 ├── e2e/uat.mjs             # browser UAT incl. Keycloak round-trip smoke
+├── security/               # OWASP sweep — `make test-security` (v4 T13)
+├── perf/                   # SLO harness — `make test-perf` (v4 T13)
 └── tenancy/                # RLS + audit tests as the runtime DB roles
 ```

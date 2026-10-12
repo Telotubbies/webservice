@@ -21,6 +21,13 @@ services:
       RATE_COMMANDS_PER_TAG: "${RATE_COMMANDS_PER_TAG:-5}"
       RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-60}"
       RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"
+      # v4 T13: also trust the pinned gateway (172.30.10.1 = host-side
+      # docker-proxy). Host-published ports NAT the peer to the gateway, so
+      # without this the test harness can never exercise X-Real-IP bucketing
+      # (the 100-socket perf fan-out needs distinct client IPs per socket).
+      # Prod compose keeps nginx-only trust; the cap test still proves the
+      # real-peer bucket because it sends no X-Real-IP.
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-172.30.10.10/32,172.30.10.1/32}"
       # Fault-injection identity (doc 17 §2): the reconciler only creates the
       # `tester` dynsec client when this secret is mounted — i.e. ONLY under
       # this overlay. TLS on 8883 stays the transport for tests too.

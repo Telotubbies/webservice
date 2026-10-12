@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -174,6 +175,10 @@ class InsightEngine:
         # v4 T8 — engine counters, exported by /metrics + /api/system/health
         self.counters = {"insight_eval_passes": 0, "insight_eval_errors": 0,
                          "insights_opened": 0, "insights_closed": 0}
+        # v4 T13 — duration of the last completed pass (a real gauge, read
+        # by the perf suite via wds_insight_eval_last_seconds — the 15 s
+        # SLO on an eval pass needs a measured number, not a cadence guess)
+        self.last_eval_s = 0.0
 
     async def run_forever(self) -> None:
         while True:
@@ -190,7 +195,11 @@ class InsightEngine:
         multi-tenant). Exposed so tests can force a pass without waiting
         INSIGHT_PERIOD_S."""
         async with self._lock:
-            await self._evaluate()
+            t0 = time.monotonic()
+            try:
+                await self._evaluate()
+            finally:
+                self.last_eval_s = time.monotonic() - t0
 
     async def _evaluate(self) -> None:
         await self.registry.maybe_refresh()

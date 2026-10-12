@@ -7,7 +7,7 @@ DB_TEST_ENV := WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-de
   WDS_TEST_SYSTEM_DSN=postgresql://wds_system:$${WDS_SYSTEM_PASSWORD:-system-dev-pass}@127.0.0.1:5433/wds \
   WDS_TEST_SUPER_DSN=postgresql://postgres:$${POSTGRES_SUPERUSER_PASSWORD:-postgres-dev-pass}@127.0.0.1:5433/wds
 
-.PHONY: help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration uat web-build migrate verify-audit seed-dev backup restore migrate-sqlite
+.PHONY: help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev backup restore migrate-sqlite
 
 help: ## show this
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -58,7 +58,7 @@ clean: ## stop the stack AND delete the data volumes (fresh DB + dynsec state)
 	$(COMPOSE) down -v
 
 test-contract: ## contract/unit tests — no services needed
-	cd tests && python -m pytest -m "not integration"
+	cd tests && $(PY) -m pytest -m "not integration"
 
 up-test: secrets certs ## start the stack with the test overlay (Postgres on 127.0.0.1:5433, MQTT :1883, tester identity)
 	$(COMPOSE_TEST) up -d --build --wait
@@ -130,7 +130,20 @@ test-integration: ## integration tests against the running stack (TLS :8883, v2 
 	cd tests && BASE_URL=http://localhost:8000 MQTT_HOST=localhost MQTT_PORT=8883 \
 	  MQTT_CA_FILE=../infra/certs/ca.crt \
 	  WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
-	  python -m pytest -m integration
+	  $(PY) -m pytest -m integration
+
+test-security: ## security verification sweep (v4 T13): BOLA/auth-bypass/RBAC/429/headers/WS/infra (needs up-test)
+	cd tests && BASE_URL=http://localhost:8000 WEB_URL=http://localhost:5173 \
+	  KC_URL=http://localhost:8080 MQTT_HOST=localhost MQTT_PORT=8883 \
+	  MQTT_CA_FILE=../infra/certs/ca.crt \
+	  WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
+	  $(PY) -m pytest security -s
+
+test-perf: ## performance harness (v4 T13): history p95, WS fan-out, insight eval, bundle gz, LCP (needs up-test)
+	cd tests && BASE_URL=http://localhost:8000 WEB_URL=http://localhost:5173 \
+	  MQTT_HOST=localhost MQTT_PORT=8883 MQTT_CA_FILE=../infra/certs/ca.crt \
+	  PLAYWRIGHT_PATH=$${PLAYWRIGHT_PATH:-/home/supawich/Desktop/adas/hmi/web/node_modules/playwright/index.mjs} \
+	  $(PY) -m pytest perf -s
 
 test: test-contract test-db test-integration ## all suites (needs up-test)
 

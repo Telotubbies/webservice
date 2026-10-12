@@ -99,6 +99,10 @@ class _RuntimeCollector:
             "wds_revoked_sessions_cached",
             "Sids in the in-memory revoked_sessions fast path (bounded)",
             value=float(st.auth.revoked_cache_size))
+        yield GaugeMetricFamily(
+            "wds_insight_eval_last_seconds",
+            "Duration of the last completed insight evaluation pass",
+            value=float(st.insights.last_eval_s))
         counters = CounterMetricFamily(
             "wds_internal_counters_total",
             "Internal ingest/dynsec/engine counters",
