@@ -1,0 +1,29 @@
+.alarm-table td { font-size: var(--text-body); }
+.alarm-row.alarm-active td:first-child { box-shadow: inset 3px 0 0 var(--sev-critical); }
+.alarm-row.alarm-active[data-sev="warning"] td:first-child { box-shadow: inset 3px 0 0 var(--sev-warning); }
+.alarm-row.alarm-cleared td { color: var(--text-secondary); }
+.alarm-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.alarm-signal { font-weight: 500; color: var(--text-primary); }
+.alarm-rule { font-size: var(--text-caption); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.alarm-action { text-align: right; width: 1%; white-space: nowrap; }
+
+.alarm-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.alarm-state::before { content: ""; width: 9px; height: 9px; }
+.alarm-state.is-active { color: var(--text-primary); }
+.alarm-state.is-active::before { background: var(--sev-critical); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.alarm-state.is-acked { color: var(--text-secondary); }
+.alarm-state.is-acked::before { border-radius: 50%; border: 1.5px solid var(--text-secondary); }
+.alarm-state.is-cleared { color: var(--text-muted); }
+.alarm-state.is-cleared::before { border-radius: 50%; background: var(--state-running); }
+
+.alarm-filters { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; padding: var(--space-4) var(--space-4) var(--space-2); }
+
+@media (max-width: 1023px) {
+  .alarm-table thead { display: none; }
+  .alarm-table, .alarm-table tbody, .alarm-table tr, .alarm-table td { display: block; }
+  .alarm-table tr { display: grid; grid-template-columns: auto 1fr auto; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+  .alarm-table td { padding: 0; border: 0; }
+  .alarm-table .alarm-what { grid-column: 2 / 4; }
+  .alarm-action { grid-column: 1 / -1; text-align: left; }
+  .alarm-action .btn { width: 100%; min-height: var(--touch-control); }
+}

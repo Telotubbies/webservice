@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt pytest pytest-timeout httpx websockets
+      - name: Contract + unit tests (no services needed)
+        run: cd tests && python -m pytest -m "not integration"
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt pytest pytest-timeout httpx websockets
+      - name: Generate broker credentials
+        run: ./infra/gen-passwd.sh
+      - name: Bring up stack
+        run: docker compose up -d --build --wait
+      - name: Integration tests against live stack
+        run: cd tests && BASE_URL=http://localhost:8000 MQTT_HOST=localhost python -m pytest -m integration
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Typecheck + build
+        run: cd web && bun install --frozen-lockfile && bun run build

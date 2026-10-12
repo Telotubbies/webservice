@@ -1,0 +1,4 @@
+paho-mqtt==2.1.0
+PyYAML==6.0.2
+# Optional — only needed for ADAPTER=modbus against a real device:
+# pymodbus==3.8.3

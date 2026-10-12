@@ -1,0 +1,7 @@
+# Test-only overlay: `docker compose -f docker-compose.yml -f docker-compose.test.yml …`
+# Publishes Postgres on loopback so tests/tenancy can connect AS THE RUNTIME
+# ROLES (wds_app / wds_system). Never use this overlay outside local testing.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5433:5432"

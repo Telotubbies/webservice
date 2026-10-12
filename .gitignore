@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Node / Bun — bun.lock is the canonical lockfile (web/Dockerfile uses it);
+# `npm install` works locally but never commit its lockfile (it will drift).
+node_modules/
+dist/
+web/package-lock.json
+
+# Env / secrets — demo passwords are documented in .env.example;
+# infra/passwd is generated (see infra/gen-passwd.sh).
+.env
+.env.local
+infra/passwd
+
+# Runtime data
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# DB dumps (doc 18)
+backups/

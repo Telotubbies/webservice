@@ -1,0 +1,78 @@
+# Tag registry — one file per edge node, loaded via TAGS_CONFIG (default: ./tags.yaml).
+#
+# Tag naming: {site}.{area}.{line}.{device}.{signal}  (UNS-style; dots map to
+# MQTT topic slashes). Only `writable: true` tags accept commands.
+#
+# `sim:` configures ADAPTER=sim. `modbus:` (commented) is the register-map
+# for ADAPTER=modbus — adapter swap = edit this file, no code changes.
+
+sim:
+  # These entries mirror CONTRACT.md §Sim tags. The dynamics (speed follows
+  # setpoint, temp drifts up, bin fills, gravel random-walks) live in
+  # adapters/sim.py — the yaml supplies registry metadata only.
+  tags:
+    sort.line1.motor1.running:
+      writable: true
+      initial: false
+      behavior: state            # writable value holder
+      unit: bool
+    sort.line1.motor1.speed_sp:
+      writable: true
+      initial: 45.0
+      min: 0.0                   # writes outside [min,max] -> denied/out_of_range
+      max: 60.0
+      behavior: state
+      unit: Hz
+    sort.line1.conv1.speed_mps:
+      writable: false
+      initial: 0.0
+      behavior: conv_speed       # first-order follow of motor1, + noise
+      unit: m/s
+    sort.line1.conv1.temp_c:
+      writable: false
+      initial: 28.0
+      behavior: conv_temp        # drifts up while running; >80 = alarm territory
+      unit: degC
+    sort.line1.bin1.level_pct:
+      writable: false
+      initial: 20.0
+      behavior: bin_level        # ramps 0->100 running, decays stopped
+      unit: "%"
+    sort.vision.cam1.gravel_ratio:
+      writable: false
+      initial: 0.3
+      behavior: random_walk      # slow random walk 0..1 (vision stub)
+
+# ---------------------------------------------------------------------------
+# modbus:                          # uncomment for ADAPTER=modbus (requires pymodbus)
+#   host: 127.0.0.1                # Factory I/O / OpenPLC / PLC address
+#   port: 502
+#   unit_id: 1
+#   request_timeout_ms: 2000       # >= 3x normal device response (field rule)
+#   tags:
+#     sort.line1.motor1.running:
+#       address: "%QX0.0"          # or plain int; bit refs decode as 8*byte+bit
+#       type: coil                 # coil | discrete_input | holding_register | input_register
+#       writable: true
+#     sort.line1.motor1.speed_sp:
+#       address: "%QW2"
+#       type: holding_register
+#       writable: true
+#       scale: 0.1                 # raw register units -> engineering units
+#       min: 0.0
+#       max: 60.0
+#     sort.line1.conv1.speed_mps:
+#       address: "%IW4"
+#       type: input_register
+#       scale: 0.01
+#     sort.line1.conv1.temp_c:
+#       address: "%IW6"
+#       type: input_register
+#       scale: 0.1
+#     sort.line1.bin1.level_pct:
+#       address: "%IW8"
+#       type: input_register
+#     sort.vision.cam1.gravel_ratio:
+#       address: "%IW10"
+#       type: input_register
+#       scale: 0.001

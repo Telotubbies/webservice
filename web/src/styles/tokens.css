@@ -1,0 +1,98 @@
+/* Design tokens — ADR-14. Values are acceptance criteria (SDLC 07 floors),
+   checked by web/scripts/check-tokens.mjs. Informed by ISA-101 high-
+   performance HMI principles: quiet graphite surfaces, equipment drawn in
+   neutral greys, colour reserved for abnormal state. Red/amber = alarms only. */
+
+:root {
+  /* surfaces — graphite, not black: reduces glare on control-room monitors */
+  --bg-app:      #1b2027;
+  --bg-sunken:   #161a20;
+  --bg-panel:    #222831;
+  --bg-raised:   #2b333d;
+  --bg-hover:    #313a46;
+  --line:        #3b4552;
+  --line-strong: #4d5867;
+
+  /* text (contrast on --bg-panel: primary 12.9:1, secondary 6.9:1, muted 4.6:1) */
+  --text-primary:   #e8ebef;
+  --text-secondary: #b0b9c4;
+  --text-muted:     #929cab;
+  --text-inverse:   #11151a;
+
+  /* interaction — instrument blue; never used for process state */
+  --accent:        #4f9fe0;
+  --accent-strong: #79b6ea;
+  --accent-soft:   rgba(79, 159, 224, 0.16);
+  --focus-ring:    #8cc4f2;
+
+  /* process state */
+  --state-running:  #34b27d;
+  --state-stopped:  #8ea3bd;
+  --state-stale:    #6b7685;
+  --state-unknown:  #a78bfa;
+
+  /* alarm severity — RESERVED: nothing else may use these hues */
+  --sev-critical:      #e5484d;
+  --sev-critical-soft: rgba(229, 72, 77, 0.16);
+  --sev-warning:       #e2a72e;
+  --sev-warning-soft:  rgba(226, 167, 46, 0.16);
+  --sev-info:          #8ea3bd;
+
+  /* equipment drawing (mimic) */
+  --equip-body:   #3a4451;
+  --equip-edge:   #5c6878;
+  --equip-detail: #7d8a9b;
+  --equip-mid:    #47525f;
+  --equip-belt:   #2a313a;
+  --equip-tread:  #56616f;
+  --equip-fill:   #6d7380;
+  --equip-hover:  #43505e;
+  --equip-lamp:   #3a434f;
+  --material:     #8d939c;
+  --on-severity:  #ffffff;
+  --critical-text:#ffb3b5;  /* text in critical red — readable on our graphite */
+
+  /* chart series — no red/amber */
+  --series-1: #4f9fe0;
+  --series-2: #5cc8c2;
+  --series-3: #c2a3f0;
+  --series-4: #e8ebef;
+  --series-5: #8fb7ff;
+  --series-6: #93c47d;
+
+  /* type — floors from SDLC 07 (body 15, label 14, value ≥19, display 28–40) */
+  --font-ui:   "IBM Plex Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --text-caption: 12px;   /* timestamps, units — never values or alarms */
+  --text-label:   14px;
+  --text-body:    15px;
+  --text-md:      16px;
+  --text-lg:      19px;
+  --text-value:   20px;
+  --text-xl:      24px;
+  --text-display: 32px;
+
+  /* layout */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-sm: 4px;
+  --radius:    6px;
+  --radius-lg: 10px;
+
+  --touch:         44px;  /* WCAG minimum target */
+  --touch-control: 48px;  /* anything that writes to equipment */
+
+  --sidebar-w: 232px;
+  --topbar-h:  56px;
+
+  --shadow-pop: 0 12px 32px rgba(5, 8, 12, 0.45), 0 0 0 1px var(--line);
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur:  160ms;
+}

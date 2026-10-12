@@ -1,0 +1,107 @@
+/* Process schematic — equipment neutral, state via shape/motion, alarm via
+   reserved red/amber + triangle marker. */
+
+.schematic { position: relative; width: 100%; }
+.schematic-svg { display: block; width: 100%; height: auto; }
+
+.schematic .floor { stroke: var(--line); stroke-width: 2; }
+.schematic .body { fill: var(--equip-body); stroke: var(--equip-edge); stroke-width: 2; }
+.schematic .detail { fill: var(--equip-mid); stroke: var(--equip-detail); stroke-width: 1.5; }
+.schematic .spoke { stroke: var(--equip-detail); stroke-width: 3; stroke-linecap: round; }
+.schematic .shaft { stroke: var(--equip-detail); stroke-width: 6; stroke-linecap: round; }
+.schematic .leg { stroke: var(--equip-edge); stroke-width: 4; stroke-linecap: round; fill: none; }
+.schematic .belt { fill: var(--equip-belt); }
+.schematic .tread { stroke: var(--equip-tread); stroke-width: 2; stroke-linecap: round; }
+.schematic .roller { fill: var(--equip-mid); stroke: var(--equip-detail); stroke-width: 2; }
+.schematic .lens { fill: var(--bg-sunken); }
+.schematic .cone { stroke: var(--equip-detail); stroke-width: 1.5; stroke-dasharray: 4 6; fill: none; }
+.schematic .chute { stroke: var(--equip-edge); stroke-width: 10; fill: none; stroke-linecap: round; }
+.schematic .fill { fill: var(--equip-fill); }
+.schematic .outline { fill: none; stroke: var(--equip-edge); stroke-width: 2; }
+.schematic .tick { stroke: var(--equip-detail); stroke-width: 2; }
+.schematic .lamp { fill: var(--equip-lamp); stroke: var(--equip-edge); }
+.schematic .lamp-on { fill: var(--state-running); stroke: var(--state-running); }
+
+/* motion = running (and only when running) */
+.schematic .belt-tread.moving { animation: belt 0.9s linear infinite; }
+@keyframes belt { from { transform: translateX(0); } to { transform: translateX(24px); } }
+.schematic .rotor.spin { animation: spin 1.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.schematic .material { fill: var(--material); animation: carry 4.5s linear infinite; }
+@keyframes carry { from { transform: translateX(-60px); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } to { transform: translateX(170px); opacity: 0; } }
+
+/* interaction */
+.schematic .equip.is-interactive { cursor: pointer; }
+.schematic .equip.is-interactive:hover .hit { fill: var(--equip-hover); }
+.schematic .equip:focus { outline: none; }
+.schematic .equip:focus-visible .hit,
+.schematic .equip.is-selected .hit { stroke: var(--accent-strong); stroke-width: 3; }
+
+/* abnormal */
+.schematic .equip.has-critical .hit { stroke: var(--sev-critical); stroke-width: 3; }
+.schematic .equip.has-warning .hit { stroke: var(--sev-warning); stroke-width: 3; }
+.schematic .alarm-marker path:first-child { stroke-linejoin: round; stroke-width: 2; }
+.schematic .alarm-marker.sev-critical path:first-child { fill: var(--sev-critical); stroke: var(--sev-critical); }
+.schematic .alarm-marker.sev-warning path:first-child { fill: var(--sev-warning); stroke: var(--sev-warning); }
+.schematic .alarm-marker .mark { stroke: var(--on-severity); stroke-width: 2.4; stroke-linecap: round; }
+.schematic .alarm-marker.sev-warning .mark { stroke: var(--text-inverse); }
+
+/* readouts: real CSS px so they never fall below the type floors */
+.readouts { position: absolute; inset: 0; pointer-events: none; }
+.readout {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 12px; border-radius: var(--radius);
+  background: rgba(22, 26, 32, 0.86); border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.readout-left { transform: translate(0, -50%); align-items: flex-start; }
+.readout-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-label); color: var(--text-secondary); }
+.readout-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-xl); font-weight: 500; line-height: 1.1; }
+.readout-unit { margin-left: 4px; font-size: var(--text-caption); color: var(--text-muted); font-family: var(--font-ui); }
+.readout.is-stale { border-style: dashed; }
+.readout.is-stale .readout-value { color: var(--text-muted); font-size: var(--text-md); }
+.readout.is-alarm { border-color: var(--sev-critical); box-shadow: inset 3px 0 0 var(--sev-critical); }
+.readout-state { gap: 6px; }
+
+.schematic-hint { display: flex; align-items: center; gap: var(--space-2); color: var(--text-muted); font-size: var(--text-label); padding: 0 var(--space-4) var(--space-3); }
+
+/* compact = overview hero: drop the lower readout row */
+.schematic.is-compact .readout { padding: 4px 10px; }
+
+/* narrow schematic (small viewport OR inspector open): stack readouts */
+.schematic { container-type: inline-size; }
+@container (max-width: 900px) {
+  .readouts { position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-2); padding: var(--space-3); }
+  .readout, .readout-left { position: static; transform: none; align-items: flex-start; }
+}
+
+/* ===================================================== line page layout */
+.line-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--space-5); align-items: start; }
+.line-layout.no-inspector { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1279px) { .line-layout { grid-template-columns: minmax(0, 1fr); } }
+
+.inspector { position: sticky; top: calc(var(--topbar-h) + var(--space-4)); display: flex; flex-direction: column; }
+.inspector .panel-head h2 { font-size: var(--text-lg); }
+.signal-list { list-style: none; margin: 0; padding: 0; }
+.signal-list li { display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); }
+.signal-list .name { color: var(--text-secondary); flex: 1; }
+.signal-list .val { font-family: var(--font-mono); font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+.signal-list .unit { color: var(--text-muted); font-size: var(--text-caption); margin-left: 4px; }
+
+.controls { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); border-top: 1px solid var(--line); }
+.controls h3 { font-size: var(--text-md); }
+.control-row { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: flex-end; }
+.control-row .field { flex: 1; min-width: 140px; }
+.btn-start { border-color: var(--state-running); color: var(--state-running); background: transparent; }
+.btn-start:hover:not(:disabled) { background: rgba(52, 178, 125, 0.14); }
+
+.lifecycle ol { list-style: none; display: flex; gap: var(--space-2); padding: 0; margin: 0; flex-wrap: wrap; }
+.lifecycle li { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-label); color: var(--text-muted); }
+.lifecycle li + li::before { content: ""; width: 16px; height: 1px; background: var(--line-strong); margin-right: 2px; }
+.lifecycle .lc-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid currentColor; }
+.lifecycle li.lc-done { color: var(--text-primary); }
+.lifecycle li.lc-done .lc-dot { background: currentColor; }
+.lifecycle.lc-ok .lc-final { color: var(--state-running); }
+.lifecycle.lc-bad .lc-final { color: var(--critical-text); }
+.lifecycle .lc-detail { display: block; margin-top: 6px; font-size: var(--text-caption); color: var(--text-muted); }
