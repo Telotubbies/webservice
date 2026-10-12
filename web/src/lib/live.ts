@@ -3,7 +3,7 @@
 // subscribers once per frame max (browser-side backpressure per design doc 07).
 
 import type {
-  Alarm, Command, Health, Quality, SystemHealth, TagInfo, TagValue, WSState,
+  Alarm, Command, Health, Insight, Quality, SystemHealth, TagInfo, TagValue, WSState,
 } from '../types';
 
 export const BUFFER_CAP = 3600; // ~1h at 1s sim cadence
@@ -21,6 +21,7 @@ class LiveStore {
   latest = new Map<string, TagValue>();
   buffers = new Map<string, BufferPoint[]>();
   alarms: Alarm[] = [];
+  insights: Insight[] = [];
   commands = new Map<string, Command>();
   health: Health | null = null;
   sysHealth: SystemHealth | null = null;
@@ -29,6 +30,7 @@ class LiveStore {
   /** bumped on every flush that touched tag data */
   version = 0;
   alarmRev = 0;
+  insightRev = 0;
   cmdRev = 0;
   healthRev = 0;
   wsRev = 0;
@@ -93,6 +95,22 @@ class LiveStore {
   setAlarms(alarms: Alarm[]) {
     this.alarms = alarms;
     this.alarmRev++;
+    this.poke();
+  }
+
+  mergeInsight(i: Insight) {
+    const idx = this.insights.findIndex((x) => x.id === i.id);
+    if (idx >= 0) this.insights[idx] = { ...this.insights[idx], ...i };
+    else this.insights.unshift(i);
+    // keep list bounded
+    if (this.insights.length > 500) this.insights.length = 500;
+    this.insightRev++;
+    this.poke();
+  }
+
+  setInsights(insights: Insight[]) {
+    this.insights = insights;
+    this.insightRev++;
     this.poke();
   }
 

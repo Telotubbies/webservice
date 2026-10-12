@@ -2,7 +2,7 @@
 // stored in localStorage (per demo spec — no login flow).
 
 import type {
-  Alarm, AlarmRule, Command, CommandStatus, Health, SystemHealth, TagInfo, TagValue,
+  Alarm, AlarmRule, Command, CommandStatus, Health, Insight, SystemHealth, TagInfo, TagValue,
 } from '../types';
 
 const TOKEN_KEY = 'wds.token';
@@ -95,6 +95,18 @@ export const api = {
     );
   },
   alarms: () => request<Alarm[]>('/api/alarms'),
+  insights: (
+    params: { state?: string; kind?: string; tag?: string; from?: string; to?: string } = {},
+  ) => {
+    const q = new URLSearchParams();
+    if (params.state) q.set('state', params.state);
+    if (params.kind) q.set('kind', params.kind);
+    if (params.tag) q.set('tag', params.tag);
+    if (params.from) q.set('from', params.from);
+    if (params.to) q.set('to', params.to);
+    const qs = q.toString();
+    return request<Insight[]>(`/api/insights${qs ? `?${qs}` : ''}`);
+  },
   ackAlarm: (id: Alarm['id']) =>
     request<unknown>(`/api/alarms/${encodeURIComponent(String(id))}/ack`, { method: 'POST' }),
   postCommand: (body: CommandRequest) =>

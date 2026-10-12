@@ -29,6 +29,7 @@ function useLiveBoot(tags: TagInfo[] | undefined) {
     live.setTags(tags);
     void api.latestAll().then((rows) => rows.forEach((r) => live.pushTag(r.name, r.v, r.q, r.ts))).catch(() => {});
     void api.alarms().then((a) => live.setAlarms(a)).catch(() => {});
+    void api.insights({ state: 'open' }).then((a) => live.setInsights(a)).catch(() => {});
   }, [tags]);
 
   useEffect(() => {

@@ -25,6 +25,20 @@ export interface Alarm {
   version?: number;
 }
 
+export type Severity = 'info' | 'warning' | 'critical';
+
+export interface Insight {
+  id: string;
+  tag: string;
+  kind: 'anomaly' | 'drift' | 'flatline' | 'flapping';
+  severity: Severity;
+  score: number;
+  state: 'open' | 'closed';
+  ts_start: string;
+  ts_end?: string | null;
+  detail?: Record<string, unknown>;
+}
+
 export interface AlarmRule {
   tag: string | null;
   name: string;
@@ -68,6 +82,7 @@ export type WSEvent =
   | { type: 'tag'; name: string; v: number | boolean; q: Quality; ts: string }
   | { type: 'alarm' } & { alarm?: Alarm } & Partial<Alarm>
   | ({ type: 'alarm_update' } & { alarm?: Alarm } & Partial<Alarm>)
+  | ({ type: 'insight' } & { insight?: Insight } & Partial<Insight>)
   | { type: 'command'; command_id: string; status: CommandStatus; tag?: string; detail?: string }
   | { type: 'health'; mqtt: string; edge: string }
   | { type: 'auth_expired' };

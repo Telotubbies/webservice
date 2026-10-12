@@ -69,3 +69,28 @@ export function shortName(name: string): string {
 export function equipmentOf(name: string): EquipmentId | undefined {
   return SIGNALS[name]?.equipment;
 }
+
+/** leaf substring -> ISA-5.1-style function letters for instrument bubbles */
+const BUBBLE_LEAF: Record<string, string> = {
+  temp: 'TT', speed: 'ST', level: 'LT', ratio: 'RT', running: 'XR', cam: 'VC',
+};
+
+/** Measurement signals get the loop number; `running` is a state flag, not a
+ *  loop instrument, so it falls back to its raw SIGNALS position. */
+const BUBBLE_SERIES = Object.keys(SIGNALS).filter((k) => k !== T.running);
+
+/** ISA-5.1-flavor short code for bubble readouts, e.g. conv1.temp_c -> "TT-03".
+ *  Pure: derived only from the tag leaf + the tag's position in SIGNALS. */
+export function bubbleCode(tag: string): string {
+  const leaf = tag.split('.').pop() ?? '';
+  let prefix = `${(leaf[0] ?? 'x').toUpperCase()}X`;
+  for (const [key, code] of Object.entries(BUBBLE_LEAF)) {
+    if (leaf.includes(key)) {
+      prefix = code;
+      break;
+    }
+  }
+  const i = BUBBLE_SERIES.indexOf(tag);
+  const n = i >= 0 ? i + 1 : Math.max(0, Object.keys(SIGNALS).indexOf(tag) + 1);
+  return `${prefix}-${String(n).padStart(2, '0')}`;
+}

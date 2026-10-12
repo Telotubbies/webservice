@@ -5,7 +5,7 @@
 
 import { getToken } from './api';
 import { live } from './live';
-import type { Alarm, CommandStatus, Quality, WSEvent } from '../types';
+import type { Alarm, CommandStatus, Insight, Quality, WSEvent } from '../types';
 
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_MAX_MS = 15_000;
@@ -112,6 +112,12 @@ function dispatch(msg: WSEvent): void {
       // backend may send {type, alarm:{...}} or a flat alarm object
       const a = (msg.alarm ?? msg) as Alarm;
       if (a && a.id != null) live.upsertAlarm(a);
+      break;
+    }
+    case 'insight': {
+      // backend may send {type, insight:{...}} or a flat insight object
+      const i = (msg.insight ?? msg) as Insight;
+      if (i && i.id != null) live.mergeInsight(i);
       break;
     }
     case 'command':
