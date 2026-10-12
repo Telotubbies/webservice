@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
 import { live } from '../lib/live';
@@ -10,7 +10,9 @@ import { SignInDialog } from '../features/auth/SignInDialog';
 import { FaceplateProvider } from '../features/faceplate/FaceplateContext';
 import { FaceplatePanel } from '../features/faceplate/Faceplate';
 import { FLOOD_THRESHOLD, useAlarms } from '../features/alarms/alarms';
+import { setCalm, useCalm } from '../features/overview/AmbientField';
 import { canOperate, signOut, useRole } from './session';
+import { palette, usePaletteOpen } from './palette';
 
 interface NavItem { to: string; key: string; icon: IconName }
 interface NavGroup { group: string; items: NavItem[]; gated?: boolean }
@@ -93,6 +95,23 @@ export function Shell() {
   const { active } = useAlarms();
   const loc = useLocation();
   const [signInOpen, setSignInOpen] = useState(false);
+  const calm = useCalm();
+  const paletteOpen = usePaletteOpen();
+
+  // ⌘K / Ctrl+K — command-palette seam (T11). The palette panel is a T12
+  // deliverable; the open/close signal and this binding are the contract.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        palette.toggle();
+      } else if (e.key === 'Escape' && palette.isOpen() && !document.querySelector('dialog[open]')) {
+        palette.close();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   // exact-or-segment match so '/admin' doesn't shadow '/admin/rules'
   const current = NAV.flatMap((g) => g.items).find(
     (i) => (i.to === '/' ? loc.pathname === '/'
@@ -119,8 +138,11 @@ export function Shell() {
           </span>
         </Link>
         <nav className="nav side-nav" aria-label="primary">
-          {NAV.filter((g) => !g.gated || canOperate(role)).map((g) => (
+          {NAV.filter((g) => !g.gated || canOperate(role)).map((g, gi) => (
             <div key={g.group} style={{ display: 'contents' }}>
+              {/* icon rail: group labels stay in the a11y name of each item;
+                  a hairline separator keeps the group structure visible */}
+              {!mobile && gi > 0 && <span className="nav-sep" aria-hidden />}
               {!mobile && <span className="nav-group">{t(g.group)}</span>}
               {g.items.filter((i) => !mobile || MOBILE.has(i.to)).map((i) => (
                 <NavLink key={i.to} to={i.to} end={i.to === '/'} className="nav-item tab" aria-label={t(i.key)}>
@@ -151,10 +173,24 @@ export function Shell() {
             <span className="clock top-clock" aria-label="time">
               {new Date(now).toLocaleTimeString('en-GB', { hour12: false })}
             </span>
+            <button
+              type="button" className="icon-btn"
+              aria-label={t('palette.open')} title={t('palette.open')}
+              onClick={() => palette.open()}
+            >
+              <Icon name="search" />
+            </button>
             <Link to="/alarms?state=active" className="icon-btn" aria-label={t('shell.alarmsButton', { count: active.length })}>
               <Icon name="alarm" />
               {active.length > 0 && <span className="count num">{active.length}</span>}
             </Link>
+            <button
+              type="button" className="icon-btn calm-toggle"
+              aria-pressed={calm} aria-label={t('shell.calm')} title={t('shell.calm')}
+              onClick={() => setCalm(!calm)}
+            >
+              <Icon name="waves" />
+            </button>
             <div className="lang-toggle" role="group" aria-label={t('shell.language')}>
               {(['th', 'en'] as Lang[]).map((l) => (
                 <button key={l} type="button" aria-pressed={i18n.language === l} onClick={() => setLang(l)}>
@@ -185,6 +221,20 @@ export function Shell() {
           </div>
         </FaceplateProvider>
       </div>
+      {paletteOpen && (
+        <div className="palette-scrim" onClick={() => palette.close()}>
+          <div
+            className="palette-panel" role="dialog" aria-modal="true"
+            aria-label={t('palette.title')}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="palette-head">
+              <Icon name="search" size={18} />
+              <span>{t('palette.placeholder')}</span>
+            </div>
+          </div>
+        </div>
+      )}
       <SignInDialog open={signInOpen} onClose={() => setSignInOpen(false)} />
     </div>
   );

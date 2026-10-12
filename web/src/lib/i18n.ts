@@ -27,6 +27,12 @@ const en = {
     flood: 'Alarm flood: {{count}} active alarms. Alarms are grouped by rule.',
     tooSmallTitle: 'This screen is too small',
     tooSmallBody: 'Open the console on a display at least 480 px wide.',
+    calm: 'Calm mode — freeze the ambient background',
+  },
+  palette: {
+    title: 'Command palette',
+    open: 'Search or jump (Ctrl+K)',
+    placeholder: 'Jump to a page or signal — the full palette ships in the next task.',
   },
   roles: { operator: 'Operator', viewer: 'Viewer', admin: 'Admin', owner: 'Owner', custom: 'Custom token', none: 'Guest' },
   auth: {
@@ -55,8 +61,7 @@ const en = {
     activeAlarms: 'Active alarms', openLine: 'Open line view',
     noActive: 'No active alarms', noActiveBody: 'The line is running without abnormal conditions.',
     stub: 'Simulated', stubTitle: 'Vision pipeline not connected yet: this value is simulated',
-    equipment: 'Equipment', limit: 'Alarm at {{v}}',
-    insightsFeed: 'Insights', noInsights: 'No open insights',
+    limit: 'Alarm at {{v}}',
   },
   line: {
     title: 'Line view', lede: 'Select equipment to inspect it and, if permitted, operate it.',
@@ -215,6 +220,12 @@ const th: Dict = {
     flood: 'สัญญาณเตือนท่วม: {{count}} รายการ ระบบจัดกลุ่มตามกฎให้แล้ว',
     tooSmallTitle: 'หน้าจอเล็กเกินไป',
     tooSmallBody: 'เปิดคอนโซลบนจอที่กว้างอย่างน้อย 480 พิกเซล',
+    calm: 'โหมดสงบ — หยุดการเคลื่อนไหวของพื้นหลัง',
+  },
+  palette: {
+    title: 'แผงคำสั่ง',
+    open: 'ค้นหาหรือข้ามไป (Ctrl+K)',
+    placeholder: 'พิมพ์เพื่อข้ามไปยังหน้าหรือสัญญาณ — แผงคำสั่งเต็มรูปแบบจะมาในงานถัดไป',
   },
   roles: { operator: 'ผู้ควบคุม', viewer: 'ผู้ดู', admin: 'ผู้ดูแล', owner: 'เจ้าของ', custom: 'โทเคนกำหนดเอง', none: 'ผู้เยี่ยมชม' },
   auth: {
@@ -243,8 +254,7 @@ const th: Dict = {
     activeAlarms: 'สัญญาณเตือนที่เกิดอยู่', openLine: 'เปิดผังไลน์',
     noActive: 'ไม่มีสัญญาณเตือน', noActiveBody: 'ไลน์ทำงานโดยไม่มีสภาวะผิดปกติ',
     stub: 'จำลอง', stubTitle: 'ยังไม่ได้เชื่อมระบบวิชัน ค่านี้เป็นค่าจำลอง',
-    equipment: 'อุปกรณ์', limit: 'เตือนที่ {{v}}',
-    insightsFeed: 'อินไซต์', noInsights: 'ไม่มีอินไซต์ที่เปิดอยู่',
+    limit: 'เตือนที่ {{v}}',
   },
   line: {
     title: 'ผังไลน์', lede: 'เลือกอุปกรณ์เพื่อดูรายละเอียด และควบคุมหากมีสิทธิ์',

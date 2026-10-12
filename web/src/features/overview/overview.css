@@ -1,3 +1,15 @@
+/* ========================================================= context bar */
+/* v4 T11: the per-page h1+lede collapses to a single context line — the
+   topbar breadcrumb already carries site/section; the bar keeps only the
+   title, a muted qualifier and the page actions. */
+.context-bar {
+  display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap;
+  min-height: 32px;
+}
+.context-title { font-size: var(--text-md); font-weight: 600; }
+.context-sub { font-size: var(--text-label); color: var(--text-muted); }
+.context-actions { margin-left: auto; display: flex; gap: var(--space-2); align-items: center; }
+
 .hero { overflow: hidden; background: linear-gradient(180deg, var(--bg-panel) 0%, var(--bg-sunken) 100%); }
 .hero .schematic { padding: var(--space-3) var(--space-4) 0; }
 
@@ -67,33 +79,7 @@
 .kpi-foot { display: flex; gap: var(--space-3); flex-wrap: wrap; font-size: var(--text-caption); color: var(--text-muted); }
 
 /* ===================================================== right column stack */
-.side-col { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
-
-.equip-list { list-style: none; margin: 0; padding: 0; }
-.equip-list li + li { border-top: 1px solid var(--line); }
-.equip-link {
-  display: flex; align-items: center; gap: var(--space-3);
-  min-height: 56px; padding: 0 var(--space-4); color: var(--text-primary); text-decoration: none;
-}
-.equip-link:hover { background: var(--bg-hover); }
-.equip-name { flex: 1; font-weight: 500; }
-
-/* insights mini-feed — tag + kind + score + age, row opens the faceplate.
-   Scoped under .insight-feed-list: the /insights table reuses .insight-row on
-   its <tr>s (UAT counts on it) and a global display:flex would break the
-   table layout at >=1024px. */
-.insight-feed-list { list-style: none; margin: 0; padding: 0; }
-.insight-feed-list li + li { border-top: 1px solid var(--line); }
-.insight-feed-list .insight-row {
-  display: flex; align-items: center; gap: var(--space-3); width: 100%;
-  min-height: var(--touch); padding: 0 var(--space-4);
-  background: transparent; border: 0; color: var(--text-primary);
-  font-size: var(--text-body); cursor: pointer; text-align: left;
-}
-.insight-feed-list .insight-row:hover { background: var(--bg-hover); }
-.insight-feed-list .insight-row .chip-glyph { flex: none; color: var(--ai-accent); font-size: var(--text-caption); line-height: 1; }
-.insight-row-tag { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.insight-row-kind { font-size: var(--text-label); color: var(--ai-accent); white-space: nowrap; }
-.insight-row-score { color: var(--text-secondary); }
-.insight-row-age { font-size: var(--text-caption); color: var(--text-muted); white-space: nowrap; }
-.insight-feed-empty { padding: var(--space-4); }
+/* T11 cut: the equipment list + insights mini-feed panels were removed — the
+   icon rail nav, the InsightRail chips and the hero schematic already carry
+   that state. (.insight-row on the /insights table is unaffected — those
+   styles live in features/insights/insights.css.) */

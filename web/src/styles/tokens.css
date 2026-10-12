@@ -135,8 +135,17 @@
   --touch:         44px;  /* WCAG minimum target */
   --touch-control: 48px;  /* anything that writes to equipment */
 
-  --sidebar-w: 232px;
+  --sidebar-w: 48px;   /* v4 T11: 48px icon rail (was a 232px named sidebar) */
   --topbar-h:  56px;
+
+  /* focus tier (v4 T11) — the ONLY glass in the app: faceplate / ⌘K palette /
+     dialogs float at ~72% opacity over a dimmed ops plane; translucency itself
+     is the attention signal (SDLC 20 §3.0). RED-ZONE: alarm surfaces
+     (alarm-strip, severity fills, alarm panels) NEVER consume these tokens —
+     alarm information stays on opaque matte. */
+  --focus-bg:    rgba(20, 22, 26, 0.72);  /* --bg-panel at 72% */
+  --focus-blur:  14px;
+  --focus-dim:   rgba(8, 11, 15, 0.60);   /* scrim dimming the ops plane */
 
   --shadow-pop: 0 12px 32px rgba(5, 8, 12, 0.45), 0 0 0 1px var(--line);
 

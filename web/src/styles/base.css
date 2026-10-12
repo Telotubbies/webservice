@@ -40,13 +40,13 @@ a { color: var(--accent-strong); }
 
 .sidebar {
   position: sticky; top: 0; height: 100vh;
-  display: flex; flex-direction: column; gap: var(--space-5);
-  padding: var(--space-4) var(--space-3);
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-2) 2px;
   background: var(--bg-sunken);
   border-right: 1px solid var(--line);
 }
 
-.brand { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-2); }
+.brand { display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-1) 0; }
 .brand-mark {
   width: 34px; height: 34px; display: grid; place-items: center;
   border-radius: var(--radius); background: var(--bg-raised); border: 1px solid var(--line-strong);
@@ -55,22 +55,46 @@ a { color: var(--accent-strong); }
 .brand-name { font-weight: 600; font-size: var(--text-md); }
 .brand-sub { display: block; font-size: var(--text-caption); color: var(--text-muted); }
 
+/* v4 T11 icon rail: 48px, icon-only. Group labels, the brand wordmark and
+   the version foot never render in the rail — each item's text stays in the
+   DOM as an accessible name (aria-label) and doubles as the hover/focus
+   tooltip on desktop widths. */
+.brand-text, .nav-group, .sidebar-foot { display: none; }
+.nav-sep { width: 24px; margin: var(--space-1) auto; border-top: 1px solid var(--line); }
+
 .nav { display: flex; flex-direction: column; gap: 2px; }
-.nav-group { font-size: var(--text-caption); color: var(--text-muted); padding: var(--space-3) var(--space-3) var(--space-1); }
 .nav-item {
-  display: flex; align-items: center; gap: var(--space-3);
-  min-height: var(--touch); padding: 0 var(--space-3);
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: var(--space-3);
+  min-height: var(--touch); padding: 0;
   border-radius: var(--radius); color: var(--text-secondary);
   text-decoration: none; font-size: var(--text-body);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-.nav-item.active { background: var(--bg-raised); color: var(--text-primary); box-shadow: inset 3px 0 0 var(--accent); }
+/* active rail item = brand indigo (SDLC 20 §3.1: accent is nav/CTA only) */
+.nav-item.active { background: var(--accent-soft); color: var(--accent-strong); box-shadow: inset 3px 0 0 var(--accent); }
 .nav-item svg { flex: none; }
+.nav-item .label {
+  position: absolute; left: calc(100% + var(--space-3)); top: 50%;
+  translate: 0 -50%; z-index: 45;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); border: 1px solid var(--line-strong);
+  background: var(--bg-overlay); color: var(--text-primary);
+  font-size: var(--text-label); font-weight: 500; white-space: nowrap;
+  box-shadow: var(--shadow-pop);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity var(--dur-micro) var(--ease), visibility var(--dur-micro);
+}
+@media (min-width: 768px) {
+  .nav-item:hover .label,
+  .nav-item:focus-visible .label { opacity: 1; visibility: visible; }
+}
 .nav-badge {
-  margin-left: auto; min-width: 24px; padding: 0 7px; border-radius: 12px;
+  position: absolute; left: calc(50% + 4px); top: 5px; margin: 0;
+  min-width: 18px; padding: 0 4px; border-radius: 9px;
   background: var(--sev-critical); color: var(--on-severity); font-size: var(--text-caption); font-weight: 600;
-  text-align: center; line-height: 22px;
+  text-align: center; line-height: 16px;
 }
 .sidebar-foot { margin-top: auto; padding: var(--space-2); font-size: var(--text-caption); color: var(--text-muted); }
 
@@ -127,6 +151,31 @@ a { color: var(--accent-strong); }
   border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: var(--text-label);
 }
 .user-btn:hover { background: var(--bg-hover); }
+
+/* pressed topbar toggle (calm mode) — neutral raised state */
+.icon-btn[aria-pressed="true"] {
+  background: var(--bg-raised); color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* ⌘K command-palette seam (T11 placeholder — T12 ships the real palette).
+   Focus-tier glass: dimmed scrim + translucent blurred panel. */
+.palette-scrim {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 14vh; background: var(--focus-dim);
+}
+.palette-panel {
+  width: min(560px, calc(100vw - 32px)); border-radius: var(--radius-lg);
+  background: var(--focus-bg); backdrop-filter: blur(var(--focus-blur));
+  box-shadow: var(--shadow-pop);
+}
+.palette-head {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  color: var(--text-secondary); font-size: var(--text-body);
+}
+.palette-head svg { color: var(--text-muted); flex: none; }
 .avatar {
   width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
   background: var(--bg-raised); color: var(--text-primary); font-size: 12px; font-weight: 600;
@@ -134,17 +183,29 @@ a { color: var(--accent-strong); }
 .role-tag { color: var(--text-secondary); }
 
 /* =========================================================== critical banner */
+/* red-zone: alarm surfaces are NEVER glass — the severity tint composites
+   over an opaque base so the ambient field cannot shimmer through. */
 .alarm-strip {
   display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-3) var(--space-5);
-  background: var(--sev-critical-soft);
+  background: linear-gradient(var(--sev-critical-soft), var(--sev-critical-soft)) , var(--bg-canvas);
   border-bottom: 1px solid var(--sev-critical);
   font-size: var(--text-md); font-weight: 500;
 }
 .alarm-strip .sev-icon { color: var(--sev-critical); flex: none; }
 .alarm-strip .grow { flex: 1; min-width: 0; }
-.alarm-strip.is-flood { background: var(--sev-warning-soft); border-color: var(--sev-warning); }
+.alarm-strip.is-flood {
+  background: linear-gradient(var(--sev-warning-soft), var(--sev-warning-soft)), var(--bg-canvas);
+  border-color: var(--sev-warning);
+}
 .alarm-strip.is-flood .sev-icon { color: var(--sev-warning); }
+
+/* ambient tier — fullscreen contour canvas UNDER all content (z-index: -1);
+   decorative chrome: never interactive, never announced. */
+.ambient-field {
+  position: fixed; inset: 0; z-index: -1;
+  width: 100%; height: 100%; pointer-events: none;
+}
 
 /* ================================================================ page */
 .page { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-5); max-width: 1680px; width: 100%; }
@@ -292,11 +353,14 @@ a { color: var(--accent-strong); }
 .search .input { padding-left: 38px; width: 280px; }
 
 /* ============================================================== dialog */
+/* focus tier = the only glass (SDLC 20 §3.0): ~72%-opaque panel blurring a
+   dimmed ops plane behind it. Alarm surfaces never consume --focus-*. */
 dialog.dialog {
   width: min(520px, calc(100vw - 32px)); padding: 0; border: 0; border-radius: var(--radius-lg);
-  background: var(--bg-panel); color: var(--text-primary); box-shadow: var(--shadow-pop);
+  background: var(--focus-bg); color: var(--text-primary); box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(var(--focus-blur));
 }
-dialog.dialog::backdrop { background: rgba(8, 11, 15, 0.66); }
+dialog.dialog::backdrop { background: var(--focus-dim); backdrop-filter: blur(4px); }
 .dialog-head { padding: var(--space-5) var(--space-5) var(--space-2); display: flex; gap: var(--space-3); align-items: flex-start; }
 .dialog-head h2 { font-size: var(--text-lg); }
 .dialog-head .danger-icon { color: var(--sev-critical); }
@@ -346,11 +410,6 @@ dialog.dialog::backdrop { background: rgba(8, 11, 15, 0.66); }
 
 /* ========================================================= responsive */
 @media (max-width: 1279px) {
-  :root { --sidebar-w: 76px; }
-  .brand-text, .nav-item .label, .nav-group, .sidebar-foot { display: none; }
-  .nav-item { justify-content: center; padding: 0; }
-  .nav-badge { position: absolute; margin: 0; transform: translate(14px, -12px); min-width: 20px; line-height: 18px; }
-  .nav-item { position: relative; }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 767px) {
@@ -361,6 +420,7 @@ dialog.dialog::backdrop { background: rgba(8, 11, 15, 0.66); }
   }
   .brand { display: none; }
   .nav { flex-direction: row; width: 100%; justify-content: space-around; }
+  .nav-item .label { display: none; }
   .main { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   .topbar { padding: 0 var(--space-3); }
   .clock, .user-btn .role-tag { display: none; }

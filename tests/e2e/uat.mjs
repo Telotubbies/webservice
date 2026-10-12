@@ -109,6 +109,37 @@ try {
     await page.locator('.insight-rail').count() === 1
     && await page.locator('.insight-rail .insight-chip, .insight-rail .insight-rail-empty').count() > 0);
 
+  // ============ MISSION SURFACE (v4 T11) ============
+  // ambient tier: fullscreen contour canvas under all content on /
+  ok('ambient: field canvas on /', await page.locator('canvas.ambient-field').count() === 1);
+  ok('ambient: canvas is decorative (aria-hidden)',
+    await page.locator('canvas.ambient-field').getAttribute('aria-hidden') === 'true');
+  // icon rail keeps the .side-nav .tab contract — operator sees every group
+  ok('rail: all nav tabs present', await page.locator('.side-nav a.tab').count() === 13);
+  ok('rail: items are keyboard-reachable links',
+    await page.locator('.side-nav a.tab[aria-label]').count() === 13);
+  // calm toggle persists the preference + freezes the field
+  await page.click('.calm-toggle');
+  await sleep(400);
+  ok('ambient: calm toggle sets .calm on <html>',
+    await page.evaluate(() => document.documentElement.classList.contains('calm')
+      && localStorage.getItem('wds.calm') === '1'));
+  await page.click('.calm-toggle');
+  await sleep(300);
+  ok('ambient: calm toggle restores', await page.evaluate(() =>
+    !document.documentElement.classList.contains('calm')));
+  // ⌘K seam → placeholder palette panel (real palette = T12)
+  await page.keyboard.press('Control+k');
+  await sleep(300);
+  ok('cmdk: Ctrl+K opens the palette seam', await page.locator('.palette-panel').count() === 1);
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  ok('cmdk: Escape closes the palette', await page.locator('.palette-panel').count() === 0);
+  {
+    const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+    ok('overview: no horizontal overflow', sw <= iw + 20, `scrollWidth=${sw} innerWidth=${iw}`);
+  }
+
   // Operator sees the Controls/Commands surface (a viewer would not)
   ok('operator: commands tab visible',
     await page.locator('a.tab[href="/commands"]').count() === 1);

@@ -5,11 +5,16 @@
 .main-body { display: flex; align-items: stretch; flex: 1; min-height: 0; }
 .main-body #content { flex: 1 1 auto; min-width: 0; }
 
+/* Focus-tier glass (v4 T11): the faceplate panel floats at ~72% opacity and
+   blurs whatever sits beneath it — on "/" that is the ambient field. The
+   CONTENT inside is never glass: severity badges/alarm elements keep their
+   own opaque fills (red-zone). */
 .faceplate {
   flex: none; width: 380px; align-self: flex-start;
   position: sticky; top: var(--topbar-h);
   max-height: calc(100vh - var(--topbar-h)); overflow-y: auto;
-  background: var(--bg-panel); border-left: 1px solid var(--line);
+  background: var(--focus-bg); border-left: 1px solid var(--line);
+  backdrop-filter: blur(var(--focus-blur));
 }
 
 .fp-head { align-items: flex-start; }
