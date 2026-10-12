@@ -46,6 +46,7 @@ const en = {
     noActive: 'No active alarms', noActiveBody: 'The line is running without abnormal conditions.',
     stub: 'Simulated', stubTitle: 'Vision pipeline not connected yet: this value is simulated',
     equipment: 'Equipment', limit: 'Alarm at {{v}}',
+    insightsFeed: 'Insights', noInsights: 'No open insights',
   },
   line: {
     title: 'Line view', lede: 'Select equipment to inspect it and, if permitted, operate it.',
@@ -181,6 +182,7 @@ const th: Dict = {
     noActive: 'ไม่มีสัญญาณเตือน', noActiveBody: 'ไลน์ทำงานโดยไม่มีสภาวะผิดปกติ',
     stub: 'จำลอง', stubTitle: 'ยังไม่ได้เชื่อมระบบวิชัน ค่านี้เป็นค่าจำลอง',
     equipment: 'อุปกรณ์', limit: 'เตือนที่ {{v}}',
+    insightsFeed: 'อินไซต์', noInsights: 'ไม่มีอินไซต์ที่เปิดอยู่',
   },
   line: {
     title: 'ผังไลน์', lede: 'เลือกอุปกรณ์เพื่อดูรายละเอียด และควบคุมหากมีสิทธิ์',

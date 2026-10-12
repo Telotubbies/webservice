@@ -19,7 +19,7 @@ p { margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent-strong); }
 
-.num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 .muted { color: var(--text-secondary); }
 .dim { color: var(--text-muted); }
 .sr-only {

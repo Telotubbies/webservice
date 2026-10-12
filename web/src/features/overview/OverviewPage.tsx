@@ -5,75 +5,38 @@ import { api } from '../../lib/api';
 import { live, STALE_MS } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
 import { fmtAge } from '../../lib/format';
-import { EQUIPMENT, SIGNALS, T, displayNumber, formatSignal } from '../../lib/plant';
+import { EQUIPMENT, T } from '../../lib/plant';
 import { EmptyState } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
-import { Sparkline } from '../../shared/ui/Sparkline';
-import { QualityMark, SeverityBadge, StatePill } from '../../shared/ui/Status';
-import { AlarmRows } from '../alarms/AlarmRows';
+import { normSeverity, SeverityBadge, StatePill } from '../../shared/ui/Status';
+import { AlarmRows, useSignalLabel } from '../alarms/AlarmRows';
 import { useAlarms } from '../alarms/alarms';
 import { useFaceplate } from '../faceplate/FaceplateContext';
 import { LineSchematic, useEquipmentAlarm } from '../line/LineSchematic';
+import { InsightRail, useOpenInsights } from './InsightRail';
+import { MetricTile, type TileBand } from './MetricTile';
 import './overview.css';
 
 const KPIS = [T.beltSpeed, T.beltTemp, T.binLevel, T.gravel, T.speedSp];
 
+/** Per-tag analog band edges from alarm rules: `hi` = min enabled hi/hihi
+ *  threshold, `lo` = max enabled lo/lolo threshold (raw units). */
 function useLimits() {
   const q = useQuery({ queryKey: ['alarm-rules'], queryFn: api.alarmRules, staleTime: 60_000 });
-  const map = new Map<string, number>();
+  const map = new Map<string, TileBand>();
   for (const r of q.data ?? []) {
-    if (r.tag && r.threshold != null && (r.kind === 'hi' || r.kind === 'hihi') && r.enabled) {
-      const prev = map.get(r.tag);
-      map.set(r.tag, prev === undefined ? r.threshold : Math.min(prev, r.threshold));
+    if (!r.tag || r.threshold == null || !r.enabled) continue;
+    const band = map.get(r.tag) ?? {};
+    if (r.kind === 'hi' || r.kind === 'hihi') {
+      band.hi = band.hi === undefined ? r.threshold : Math.min(band.hi, r.threshold);
+    } else if (r.kind === 'lo' || r.kind === 'lolo') {
+      band.lo = band.lo === undefined ? r.threshold : Math.max(band.lo, r.threshold);
+    } else {
+      continue;
     }
+    map.set(r.tag, band);
   }
   return map;
-}
-
-function Kpi({ name, limit, now }: { name: string; limit?: number; now: number }) {
-  const { t, i18n } = useTranslation();
-  const { openFaceplate } = useFaceplate();
-  const v = useStore(() => live.latest.get(name));
-  useStore(() => live.version);
-  const meta = SIGNALS[name];
-  const stale = !v || now - (Date.parse(v.ts) || 0) > STALE_MS;
-  const num = typeof v?.v === 'number' ? displayNumber(name, v.v) : undefined;
-  const [lo, hi] = meta.range ?? [0, 100];
-  const pct = num === undefined ? 0 : Math.max(0, Math.min(100, ((num - lo) / (hi - lo)) * 100));
-  const limitPct = limit === undefined ? undefined : ((limit - lo) / (hi - lo)) * 100;
-  const inAlarm = live.alarms.some((a) => a.tag === name && a.state !== 'cleared');
-  const scale = name === T.gravel ? 100 : 1;
-
-  return (
-    <article
-      className={`kpi tile${stale ? ' is-stale' : ''}${inAlarm ? ' is-alarm' : ''}`} data-signal={name}
-      role="button" tabIndex={0} aria-label={t(meta.labelKey)}
-      onClick={() => openFaceplate(name)}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFaceplate(name); } }}
-    >
-      <header className="kpi-head">
-        <h3>{t(meta.labelKey)}</h3>
-        {meta.stub && <span className="badge badge-stub tile-stub-badge" title={t('overview.stubTitle')}>{t('overview.stub')}</span>}
-        {inAlarm && <SeverityBadge severity="critical" />}
-      </header>
-      <p className="kpi-value tile-val">
-        <span className="num">{stale ? '—' : formatSignal(name, v?.v, i18n.language)}</span>
-        {meta.unit && <span className="kpi-unit">{meta.unit}</span>}
-      </p>
-      <div className="kpi-bar" aria-hidden>
-        <span className="kpi-bar-fill" style={{ width: `${stale ? 0 : pct}%` }} />
-        {limitPct !== undefined && limitPct >= 0 && limitPct <= 100 && (
-          <span className="kpi-bar-limit" style={{ left: `${limitPct}%` }} />
-        )}
-      </div>
-      <div className="kpi-spark"><Sparkline tag={name} limit={limit} scale={scale} /></div>
-      <footer className="kpi-foot">
-        <span>{v ? t('state.updated', { age: fmtAge(v.ts, now) }) : t('state.never')}</span>
-        {limit !== undefined && <span>{t('overview.limit', { v: `${limit} ${meta.unit ?? ''}`.trim() })}</span>}
-        <QualityMark q={v?.q} stale={stale && !!v} />
-      </footer>
-    </article>
-  );
 }
 
 function EquipmentList() {
@@ -107,6 +70,55 @@ function EquipmentList() {
   );
 }
 
+const KIND_KEY = { anomaly: 'kindAnomaly', drift: 'kindDrift', flatline: 'kindFlatline', flapping: 'kindFlapping' } as const;
+
+/** Insights mini-feed (§3.3-A.4): top 3 open insights — tag label, kind,
+ *  score, age; clicking a row opens that tag's faceplate. */
+function InsightFeed() {
+  const { t } = useTranslation();
+  const now = useNow(1000);
+  const { openFaceplate } = useFaceplate();
+  const label = useSignalLabel();
+  const open = useOpenInsights();
+  const top = open.slice(0, 3);
+
+  return (
+    <section className="panel insight-feed">
+      <header className="panel-head">
+        <h2>{t('overview.insightsFeed')}</h2>
+        <span className="meta num">{open.length}</span>
+        <div className="tools">
+          <Link to="/insights" className="btn btn-sm btn-ghost">{t('insights.viewAll')}</Link>
+        </div>
+      </header>
+      <div className="panel-body flush">
+        {top.length === 0 ? (
+          <p className="hint insight-feed-empty">{t('overview.noInsights')}</p>
+        ) : (
+          <ul className="insight-feed-list">
+            {top.map((i) => (
+              <li key={i.id}>
+                <button
+                  type="button"
+                  className="insight-row"
+                  data-sev={normSeverity(i.severity)}
+                  onClick={() => openFaceplate(i.tag)}
+                >
+                  <span className="chip-glyph" aria-hidden>✦</span>
+                  <span className="insight-row-tag" title={i.tag}>{label(i.tag)}</span>
+                  <span className="insight-row-kind">{t(`insights.${KIND_KEY[i.kind]}`)}</span>
+                  <span className="num insight-row-score">{i.score.toFixed(1)}</span>
+                  <span className="insight-row-age">{fmtAge(i.ts_start, now)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function OverviewPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -126,12 +138,14 @@ export function OverviewPage() {
         </div>
       </header>
 
+      <InsightRail />
+
       <section className="panel hero">
         <LineSchematic compact onSelect={(id) => navigate(`/line?eq=${id}`)} />
       </section>
 
       <section className="kpi-grid" aria-label={t('overview.title')}>
-        {KPIS.map((name) => <Kpi key={name} name={name} limit={limits.get(name)} now={now} />)}
+        {KPIS.map((name) => <MetricTile key={name} name={name} band={limits.get(name)} now={now} />)}
       </section>
 
       <div className="grid-2">
@@ -147,10 +161,13 @@ export function OverviewPage() {
               : <AlarmRows alarms={open.slice(0, 6)} compact />}
           </div>
         </section>
-        <section className="panel">
-          <header className="panel-head"><h2>{t('overview.equipment')}</h2></header>
-          <div className="panel-body flush"><EquipmentList /></div>
-        </section>
+        <div className="side-col">
+          <section className="panel">
+            <header className="panel-head"><h2>{t('overview.equipment')}</h2></header>
+            <div className="panel-body flush"><EquipmentList /></div>
+          </section>
+          <InsightFeed />
+        </div>
       </div>
     </div>
   );
