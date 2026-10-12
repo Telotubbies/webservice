@@ -79,7 +79,8 @@ const EQUIP_ANCHOR: Record<EquipmentId, [number, number]> = {
 interface Source {
   key: string;
   ax: number; ay: number;  // anchor (normalized 0..1)
-  radius: number;          // normalized falloff radius (half-strength point)
+  radius: number;          // eased normalized falloff radius
+  radiusT: number;         // target radius
   amp: number;             // eased amplitude
   target: number;
   phase: number;           // drift phase offset
@@ -188,7 +189,6 @@ export function startAmbientField(
   let last = 0;
   let disposed = false;
   let visible = !document.hidden;
-  let inView = true;
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
@@ -203,32 +203,42 @@ export function startAmbientField(
     field = new Float32Array((cols + 1) * (rows + 1));
   }
 
-  /** Sync the source set with live state. `snap` = static/frozen repaint —
-   *  amplitudes jump straight to target (a repaint, not an animation). */
-  function syncSources(snap: boolean) {
+  /** Sync the source set with live state — targets only. New sources start
+   *  at amp 0 and ease in (never pop); departed sources fade to 0 first. */
+  function syncSources() {
     const want = desiredSources();
     for (const [key, v] of want) {
       let s = sources.get(key);
       if (!s) {
         const hh = hash(key);
         s = {
-          key, ax: v.x, ay: v.y, radius: v.radius,
-          amp: snap ? v.amp : 0, target: v.amp,
+          key, ax: v.x, ay: v.y, radius: v.radius, radiusT: v.radius,
+          amp: 0, target: v.amp,
           phase: (hh % 628) / 100,
           spin: 0.035 + ((hh >> 6) % 40) / 1000, // 0.035–0.075 rad/s
         };
         sources.set(key, s);
       } else {
         s.target = v.amp;
-        s.ax = v.x; s.ay = v.y; s.radius = v.radius;
-        if (snap) s.amp = s.target;
+        s.radiusT = v.radius;
       }
     }
     for (const [key, s] of sources) {
       if (!want.has(key)) {
-        if (snap || s.amp < 0.004) sources.delete(key);
+        if (s.amp < 0.004) sources.delete(key);
         else s.target = 0;
       }
+    }
+  }
+
+  /** One exponential-ease step toward targets (amp + radius). Repaint-mode
+   *  calls this with dt≈1s so frozen/static state changes drift in over
+   *  several repaints instead of popping in a single frame. */
+  function easeAmps(dt: number) {
+    const k = 1 - Math.exp(-dt / EASE_TAU);
+    for (const s of sources.values()) {
+      s.amp += (s.target - s.amp) * k;
+      s.radius += (s.radiusT - s.radius) * k;
     }
   }
 
@@ -316,7 +326,9 @@ export function startAmbientField(
   /* -------------------------------------------------------------- */
 
   const staticMode = () => isStatic() || media.matches;
-  const wantAnim = () => !disposed && visible && inView && !staticMode() && !frozen();
+  // a fixed inset:0 canvas is always in view — tab visibility is the only
+  // gate that matters (visibilitychange), so no IntersectionObserver here
+  const wantAnim = () => !disposed && visible && !staticMode() && !frozen();
 
   function schedule() {
     if (!raf && wantAnim()) {
@@ -331,21 +343,21 @@ export function startAmbientField(
     const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
     last = now;
     t += dt;
-    syncSources(false);
-    const k = 1 - Math.exp(-dt / EASE_TAU);
-    for (const s of sources.values()) s.amp += (s.target - s.amp) * k;
+    syncSources();
+    easeAmps(dt);
     draw();
     schedule();
   }
 
   function drawStatic() {
-    syncSources(true);
+    syncSources();
+    easeAmps(1); // ~1s of easing per repaint — state changes drift in
     draw();
   }
 
   /** Any relevant change → either (re)start the loop or repaint one frame. */
   function refresh() {
-    if (disposed || !visible || !inView) return;
+    if (disposed || !visible) return;
     if (wantAnim()) schedule();
     else {
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
@@ -357,11 +369,6 @@ export function startAmbientField(
   const onVis = () => { visible = !document.hidden; refresh(); };
   const onResize = () => { resize(); refresh(); };
   const onMedia = () => refresh();
-  const io = new IntersectionObserver((entries) => {
-    inView = entries[0]?.isIntersecting ?? true;
-    refresh();
-  });
-  io.observe(canvas);
   document.addEventListener('visibilitychange', onVis);
   window.addEventListener('resize', onResize);
   media.addEventListener('change', onMedia);
@@ -374,7 +381,6 @@ export function startAmbientField(
     disposed = true;
     if (raf) cancelAnimationFrame(raf);
     unLive();
-    io.disconnect();
     document.removeEventListener('visibilitychange', onVis);
     window.removeEventListener('resize', onResize);
     media.removeEventListener('change', onMedia);

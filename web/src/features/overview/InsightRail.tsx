@@ -16,8 +16,8 @@ import type { Insight } from '../../types';
 const SEV_RANK = { critical: 0, warning: 1, info: 2 } as const;
 const RAIL_MAX = 6;
 
-/** Open insights, severity first then newest — shared by the rail, the
- *  overview mini-feed, and the tile .is-anomaly lookups. */
+/** Open insights, severity first then newest — shared by the rail and the
+ *  tile .is-anomaly lookups. (The overview mini-feed was cut in v4 T11.) */
 export function sortOpenInsights(list: Insight[]): Insight[] {
   return list
     .filter((i) => i.state === 'open')

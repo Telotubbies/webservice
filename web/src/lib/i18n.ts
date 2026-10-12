@@ -31,7 +31,7 @@ const en = {
   },
   palette: {
     title: 'Command palette',
-    open: 'Search or jump (Ctrl+K)',
+    open: 'Search or jump',
     placeholder: 'Jump to a page or signal — the full palette ships in the next task.',
   },
   roles: { operator: 'Operator', viewer: 'Viewer', admin: 'Admin', owner: 'Owner', custom: 'Custom token', none: 'Guest' },
@@ -224,7 +224,7 @@ const th: Dict = {
   },
   palette: {
     title: 'แผงคำสั่ง',
-    open: 'ค้นหาหรือข้ามไป (Ctrl+K)',
+    open: 'ค้นหาหรือข้ามไป',
     placeholder: 'พิมพ์เพื่อข้ามไปยังหน้าหรือสัญญาณ — แผงคำสั่งเต็มรูปแบบจะมาในงานถัดไป',
   },
   roles: { operator: 'ผู้ควบคุม', viewer: 'ผู้ดู', admin: 'ผู้ดูแล', owner: 'เจ้าของ', custom: 'โทเคนกำหนดเอง', none: 'ผู้เยี่ยมชม' },

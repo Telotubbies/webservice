@@ -448,6 +448,10 @@ try {
       await kcPage.fill('input#password', process.env.KC_DEMO_PASSWORD || 'kc-demo-pass');
       await kcPage.click('#kc-login');
       await kcPage.waitForSelector('.side-nav', { timeout: 20000 });
+      // /api/me resolves async — the shell mounts with role='none'
+      // (.signin-btn) for a beat before .user-btn swaps in. Wait for the
+      // swap instead of racing it.
+      await kcPage.waitForSelector('.user-btn', { timeout: 10000 }).catch(() => {});
       ok('oidc: authenticated shell after callback',
         await kcPage.locator('.user-btn').count() === 1);
       // the access token is memory-only (ADR-12): oidc.user must never land

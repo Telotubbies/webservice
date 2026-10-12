@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
 import { live } from '../lib/live';
@@ -97,6 +97,16 @@ export function Shell() {
   const [signInOpen, setSignInOpen] = useState(false);
   const calm = useCalm();
   const paletteOpen = usePaletteOpen();
+  const palettePanelRef = useRef<HTMLDivElement>(null);
+
+  // Palette placeholder focus: grab focus on open, return it on close.
+  // T12 replaces this panel — it must add a real focus trap + arrow-nav.
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const prev = document.activeElement as HTMLElement | null;
+    palettePanelRef.current?.focus();
+    return () => prev?.focus();
+  }, [paletteOpen]);
 
   // ⌘K / Ctrl+K — command-palette seam (T11). The palette panel is a T12
   // deliverable; the open/close signal and this binding are the contract.
@@ -225,7 +235,7 @@ export function Shell() {
         <div className="palette-scrim" onClick={() => palette.close()}>
           <div
             className="palette-panel" role="dialog" aria-modal="true"
-            aria-label={t('palette.title')}
+            aria-label={t('palette.title')} tabIndex={-1} ref={palettePanelRef}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="palette-head">
