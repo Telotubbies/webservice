@@ -1,6 +1,6 @@
 .cmd-result { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .cmd-result .lc-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid currentColor; }
-.cmd-result.is-ok { color: var(--state-running); }
+.cmd-result.is-ok { color: var(--ok); }
 .cmd-result.is-ok .lc-dot { background: currentColor; }
 .cmd-result.is-bad { color: var(--critical-text); }
 .cmd-result.is-pending { color: var(--accent-strong); }

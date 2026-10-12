@@ -3,7 +3,7 @@
 
 .hop { position: relative; display: flex; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius); background: var(--bg-sunken); border: 1px solid var(--line); }
 .hop-node { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; border: 2px solid currentColor; }
-.hop.is-ok .hop-node { color: var(--state-running); }
+.hop.is-ok .hop-node { color: var(--ok); }
 .hop.is-bad .hop-node { color: var(--sev-critical); }
 .hop.is-bad { border-color: var(--sev-critical); }
 .hop.is-warn .hop-node { color: var(--sev-warning); }

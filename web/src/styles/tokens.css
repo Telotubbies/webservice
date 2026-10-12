@@ -1,64 +1,96 @@
-/* Design tokens — ADR-14. Values are acceptance criteria (SDLC 07 floors),
-   checked by web/scripts/check-tokens.mjs. Informed by ISA-101 high-
-   performance HMI principles: quiet graphite surfaces, equipment drawn in
-   neutral greys, colour reserved for abnormal state. Red/amber = alarms only. */
+/* Design tokens — ADR-14 + UI v3 "Plant Ops OS" (SDLC 19 §3.2). Values are
+   acceptance criteria (SDLC 07 floors), checked by web/scripts/check-tokens.mjs.
+   Informed by ISA-101 high-performance HMI principles: cool steel surfaces,
+   equipment drawn in neutral shade (state = shade, not hue), colour reserved
+   for abnormal state. Severity hues are RESERVED — nothing else may use them. */
 
 :root {
-  /* surfaces — graphite, not black: reduces glare on control-room monitors */
-  --bg-app:      #1b2027;
-  --bg-sunken:   #161a20;
-  --bg-panel:    #222831;
-  --bg-raised:   #2b333d;
-  --bg-hover:    #313a46;
-  --line:        #3b4552;
-  --line-strong: #4d5867;
+  /* surfaces — cool steel ramp; canvas is the darkest tone */
+  --bg-canvas:   #101417;
+  --bg-app:      #101417;   /* = canvas (v2 name kept) */
+  --bg-sunken:   #101417;   /* = canvas */
+  --bg-panel:    #161b1f;
+  --bg-raised:   #1e2429;
+  --bg-overlay:  #262c32;
+  --bg-hover:    #262c32;   /* = overlay */
 
-  /* text (contrast on --bg-panel: primary 12.9:1, secondary 6.9:1, muted 4.6:1) */
-  --text-primary:   #e8ebef;
-  --text-secondary: #b0b9c4;
-  --text-muted:     #929cab;
+  /* hairlines — weak | medium | strong */
+  --line:          rgba(204, 214, 220, 0.10);
+  --border-medium: rgba(204, 214, 220, 0.20);
+  --line-strong:   rgba(204, 214, 220, 0.30);
+
+  /* text (on --bg-panel) */
+  --text-primary:   #dde1e6;
+  --text-secondary: #a2a9b0;
+  --text-muted:     #697077;
+  --text-disabled:  #4d5358;
   --text-inverse:   #11151a;
 
-  /* interaction — instrument blue; never used for process state */
-  --accent:        #4f9fe0;
-  --accent-strong: #79b6ea;
-  --accent-soft:   rgba(79, 159, 224, 0.16);
-  --focus-ring:    #8cc4f2;
+  /* interaction — violet accent; never used for process state */
+  --accent:        #7c5cff;
+  --accent-strong: #9d85ff;
+  --accent-soft:   rgba(124, 92, 255, 0.16);
+  --focus-ring:    #b3a5ff;
 
-  /* process state */
-  --state-running:  #34b27d;
-  --state-stopped:  #8ea3bd;
-  --state-stale:    #6b7685;
-  --state-unknown:  #a78bfa;
+  /* AI layer — violet; deliberately outside the alarm palette */
+  --ai-accent:  #b98df0;
+  --ai-surface: rgba(185, 141, 240, 0.08);
+  --ai-ribbon:  rgba(185, 141, 240, 0.15);
 
-  /* alarm severity — RESERVED: nothing else may use these hues */
-  --sev-critical:      #e5484d;
-  --sev-critical-soft: rgba(229, 72, 77, 0.16);
-  --sev-warning:       #e2a72e;
-  --sev-warning-soft:  rgba(226, 167, 46, 0.16);
-  --sev-info:          #8ea3bd;
+  /* alarm severity — RESERVED: nothing else may use these hues.
+     Severity 'info' in data displays as "Advisory" (shape ●). */
+  --sev-critical:      #f4534a;
+  --sev-critical-soft: rgba(244, 83, 74, 0.16);
+  --sev-warning:       #ff9830;
+  --sev-warning-soft:  rgba(255, 152, 48, 0.16);
+  --sev-advisory:      #f2cc0c;
+  --sev-info:          #f2cc0c;   /* = advisory (v2 name kept) */
+  --sev-baddata:       #e06cd8;   /* quality axis: bad/uncertain/stale — NOT a severity */
 
-  /* equipment drawing (mimic) */
-  --equip-body:   #3a4451;
-  --equip-edge:   #5c6878;
-  --equip-detail: #7d8a9b;
-  --equip-mid:    #47525f;
-  --equip-belt:   #2a313a;
-  --equip-tread:  #56616f;
-  --equip-fill:   #6d7380;
-  --equip-hover:  #43505e;
-  --equip-lamp:   #3a434f;
-  --material:     #8d939c;
-  --on-severity:  #ffffff;
-  --critical-text:#ffb3b5;  /* text in critical red — readable on our graphite */
+  /* process state — shade, not hue: running is light, never green.
+     (stopped/manual dark fills live on --equip-* for mimic drawing) */
+  --state-running:  #c1c7cd;
+  --state-stopped:  #a2a9b0;
+  --state-stale:    #e06cd8;    /* stale = quality axis → baddata */
+  --state-unknown:  #697077;
+  --state-selected: #3fc6d8;    /* operator selection / actuated element */
 
-  /* chart series — no red/amber */
-  --series-1: #4f9fe0;
-  --series-2: #5cc8c2;
-  --series-3: #c2a3f0;
-  --series-4: #e8ebef;
-  --series-5: #8fb7ff;
-  --series-6: #93c47d;
+  /* equipment drawing (mimic) — neutral steel greys */
+  --equip-body:   #2a3138;
+  --equip-edge:   #4d565f;
+  --equip-detail: #7a848e;
+  --equip-mid:    #39414a;
+  --equip-belt:   #1c2126;
+  --equip-tread:  #46505a;
+  --equip-fill:   #697077;    /* uninstrumented mid-grey */
+  --equip-hover:  #3a434c;
+  --equip-lamp:   #2e353c;
+  /* equipment state fills — shade coding per §3.2 */
+  --equip-running: #c1c7cd;   /* running = light fill */
+  --equip-idle:    #343a3f;   /* stopped = dark fill */
+  --equip-manual:  #4d5358;   /* manual/hand = mid-dark fill */
+  --material:      #8d939c;
+  --on-severity:   #ffffff;
+  --critical-text: #ffb0a4;   /* critical hue lightened for text on steel */
+
+  /* pipes (mimic) — static; shade only */
+  --pipe-inactive: #2b333b;
+  --pipe-active:   #697077;
+
+  /* live data — desaturated cyan; PV numerals on the mimic only */
+  --live-data: #4fa8b8;
+
+  /* ok / info — forms, toasts, diffs only; never process state */
+  --ok:   #3dad72;
+  --info: #4c7dd9;
+
+  /* chart series — categorical; no red/amber overlap with severity */
+  --series-1: #4c9be0;
+  --series-2: #7c5cff;
+  --series-3: #3fc6d8;
+  --series-4: #e0a54c;
+  --series-5: #3dad72;
+  --series-6: #d66ba0;
 
   /* type — floors from SDLC 07 (body 15, label 14, value ≥19, display 28–40) */
   --font-ui:   "IBM Plex Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
@@ -82,9 +114,9 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  --radius-sm: 4px;
-  --radius:    6px;
-  --radius-lg: 10px;
+  --radius-sm: 2px;   /* mimic elements & alarm indicators */
+  --radius:    4px;   /* chrome */
+  --radius-lg: 8px;
 
   --touch:         44px;  /* WCAG minimum target */
   --touch-control: 48px;  /* anything that writes to equipment */

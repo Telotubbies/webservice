@@ -14,7 +14,7 @@
 .alarm-state.is-acked { color: var(--text-secondary); }
 .alarm-state.is-acked::before { border-radius: 50%; border: 1.5px solid var(--text-secondary); }
 .alarm-state.is-cleared { color: var(--text-muted); }
-.alarm-state.is-cleared::before { border-radius: 50%; background: var(--state-running); }
+.alarm-state.is-cleared::before { border-radius: 50%; background: var(--ok); }
 
 .alarm-filters { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; padding: var(--space-4) var(--space-4) var(--space-2); }
 

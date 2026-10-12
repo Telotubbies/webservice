@@ -96,7 +96,7 @@ a { color: var(--accent-strong); }
   border: 1px solid var(--line); font-size: var(--text-label); color: var(--text-secondary);
 }
 .live-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--state-stale); }
-.live-pill.is-live .dot { background: var(--state-running); box-shadow: 0 0 0 3px rgba(52, 178, 125, 0.22); }
+.live-pill.is-live .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 173, 114, 0.22); }
 .live-pill.is-down { border-color: var(--sev-warning); color: var(--text-primary); }
 .live-pill.is-down .dot { background: var(--sev-warning); }
 
@@ -221,13 +221,19 @@ a { color: var(--accent-strong); }
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
   border-radius: var(--radius-sm); font-size: var(--text-label); font-weight: 600;
 }
+/* ISA-101 redundant coding: severity = colour + shape + text. Shapes are
+   text glyphs keyed on data-severity so any element can carry them. */
+.sev::before { font-size: var(--text-caption); line-height: 1; }
+.sev[data-severity='critical']::before { content: '▲'; }
+.sev[data-severity='warning']::before { content: '◆'; }
+.sev[data-severity='info']::before,
+.sev[data-severity='advisory']::before { content: '●'; }
 .sev-critical { background: var(--sev-critical); color: var(--on-severity); }
 .sev-warning { background: var(--sev-warning); color: var(--text-inverse); }
-.sev-info { background: var(--bg-raised); color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.sev-info, .sev-advisory { background: var(--sev-advisory); color: var(--text-inverse); }
 
 .qmark { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-caption); color: var(--text-muted); }
-.qmark-bad { color: var(--critical-text); }
-.qmark-uncertain { color: var(--sev-warning); }
+.qmark-bad, .qmark-uncertain, .qmark[data-q='stale'] { color: var(--sev-baddata); }
 
 .badge {
   display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 11px;
@@ -241,7 +247,7 @@ a { color: var(--accent-strong); }
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--space-2);
   padding: var(--space-6) var(--space-4); color: var(--text-secondary);
 }
-.empty svg { color: var(--state-running); }
+.empty svg { color: var(--ok); }
 .empty h3, .error-state h3 { color: var(--text-primary); font-size: var(--text-md); }
 .error-state svg { color: var(--sev-warning); }
 
@@ -310,6 +316,22 @@ dialog.dialog::backdrop { background: rgba(8, 11, 15, 0.66); }
 .table tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .table .num { text-align: right; }
 .table td.value { font-family: var(--font-mono); font-size: var(--text-md); text-align: right; }
+
+/* ======================================================== insight chip */
+/* AI-layer marker: ✦ + violet accent — deliberately outside the alarm
+   palette so insights never read as alarms. data-kind / data-sev are
+   styling hooks for rail, cards and mimic halos. */
+.insight-chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  min-height: 26px; padding: 0 var(--space-3);
+  border-radius: var(--radius); border: 1px solid var(--ai-accent);
+  background: var(--ai-surface); color: var(--text-primary);
+  font-size: var(--text-label); font-weight: 500; cursor: pointer; white-space: nowrap;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.insight-chip:hover { background: var(--ai-ribbon); }
+.insight-chip .chip-glyph { color: var(--ai-accent); font-size: var(--text-caption); line-height: 1; }
+.insight-chip .chip-score { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ai-accent); }
 
 /* ========================================================== too small */
 .too-small { min-height: 100%; display: grid; place-content: center; gap: var(--space-2); padding: var(--space-5); text-align: center; }

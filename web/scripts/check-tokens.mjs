@@ -9,7 +9,7 @@ const ROOT = new URL('../src', import.meta.url).pathname;
 const TOKEN_FILE = 'styles/tokens.css';
 const MIN_FONT_PX = 12;              // captions may not go below this (07)
 const MIN_BODY_PX = 15;              // body/value floor check: warn-only for 13/14
-const FORBIDDEN_RESERVATION = /#(e5484d|e2a72e)/i; // alarm hues outside allowed files
+const FORBIDDEN_RESERVATION = /#(f4534a|ff9830|f2cc0c|e06cd8)/i; // reserved alarm/quality hues outside allowed files
 const RESERVATION_OK = [/^sev/, /alarm/, /status|State|Status/];
 
 const files = [];

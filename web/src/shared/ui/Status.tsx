@@ -28,9 +28,10 @@ export function normSeverity(s: string): Severity {
 export function SeverityBadge({ severity }: { severity: string }) {
   const { t } = useTranslation();
   const s = normSeverity(severity);
+  // Shape glyph (▲/◆/●) comes from .sev::before keyed on data-severity —
+  // colour + shape + text, never colour alone (ISA-101).
   return (
     <span className={`sev sev-${s}`} data-severity={s}>
-      <Icon name={s === 'info' ? 'info' : 'warn'} size={15} />
       {t(`alarms.${s}`)}
     </span>
   );
