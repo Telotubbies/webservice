@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 import math
@@ -614,13 +615,28 @@ async def system_health(request: Request):
 # WebSocket (v1)
 # ---------------------------------------------------------------------------
 def _client_ip(ws: WebSocket) -> str:
-    """Real client IP for the per-IP cap: X-Forwarded-For (first hop) when a
-    trusted proxy fronts us — nginx sets it on /ws (web/nginx.conf) — else
-    the socket peer (direct hits in dev/tests)."""
-    xff = ws.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    return ws.client.host if ws.client else "unknown"
+    """Client IP for the per-IP cap.
+
+    X-Real-IP is trusted only when the peer sits on the private/loopback
+    compose network — the only ingresses are nginx and direct hits on the
+    127.0.0.1-published port. nginx OVERWRITES X-Real-IP with $remote_addr
+    (no client-controlled append, unlike XFF which $proxy_add_x_forwarded_for
+    extends after the client-supplied prefix — its first element is
+    attacker-controlled and must not key the bucket).
+    Residual: a client already on the docker/loopback net can spoof
+    X-Real-IP on a direct hit; closing that needs a TRUSTED_PROXIES
+    allowlist — lands with T5.
+    """
+    peer = ws.client.host if ws.client else ""
+    try:
+        private_peer = ipaddress.ip_address(peer).is_private
+    except ValueError:
+        private_peer = False
+    if private_peer:
+        rip = ws.headers.get("x-real-ip")
+        if rip:
+            return rip.strip()
+    return peer or "unknown"
 
 
 @app.websocket("/ws")
@@ -639,7 +655,9 @@ async def ws_endpoint(ws: WebSocket):
     ip = _client_ip(ws)
     if not origin_allowed(ws.headers.get("origin"), ws.headers.get("host"),
                           config.ALLOWED_ORIGINS,
-                          dev=config.APP_ENV != "prod"):
+                          # fail closed: only the named dev envs get the
+                          # loopback carve-out — a typo'd APP_ENV is strict
+                          dev=config.APP_ENV in ("dev", "test")):
         log.info("ws origin rejected — closing 4403",
                  extra={"origin": ws.headers.get("origin"), "ip": ip})
         with contextlib.suppress(Exception):
@@ -668,10 +686,11 @@ async def ws_endpoint(ws: WebSocket):
                 await ws.close(code=4401)
             return
         client = await manager.connect(ws, p.role)
-        pump = asyncio.create_task(manager.pump(client))
-        with contextlib.suppress(asyncio.QueueFull):
-            client.queue.put_nowait(ws.app.state.st.health_event())
+        pump: asyncio.Task | None = None
         try:
+            pump = asyncio.create_task(manager.pump(client))
+            with contextlib.suppress(asyncio.QueueFull):
+                client.queue.put_nowait(ws.app.state.st.health_event())
             while True:
                 text = await ws.receive_text()
                 try:
@@ -684,9 +703,12 @@ async def ws_endpoint(ws: WebSocket):
         except WebSocketDisconnect:
             pass
         finally:
-            pump.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await pump
+            # disconnect must run even if pump creation raised above —
+            # otherwise the Client leaks in _clients forever
+            if pump is not None:
+                pump.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pump
             await manager.disconnect(client)
     finally:
         await manager.release_ip(ip)
