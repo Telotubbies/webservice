@@ -91,6 +91,18 @@ BACKEND_ACLS = [
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/cmd-resp/+", "allow": True},
 ]
 
+# doc 17 §2 — svc-dynsec-admin is the ONLY $CONTROL identity. The
+# `mosquitto_ctrl dynsec init` bootstrap role is deliberately broad (# —
+# it is a recovery ladder); the reconciler converges it to least privilege.
+ADMIN_ACLS = [
+    {"acltype": "publishClientSend", "topic": "$CONTROL/dynamic-security/#",
+     "allow": True},
+    {"acltype": "publishClientReceive", "topic": "$CONTROL/dynamic-security/#",
+     "allow": True},
+    {"acltype": "subscribePattern", "topic": "$CONTROL/dynamic-security/#",
+     "allow": True},
+]
+
 # Fault-injection identity — TEST PROFILE ONLY. Wide inside v2 (it must be
 # able to impersonate an edge, a backend and emit garbage on valid-shaped
 # prefixes for the trust-rule tests), but still scoped: no $CONTROL, no $SYS,
@@ -169,18 +181,33 @@ class DynsecAdmin:
         self._loop.call_soon_threadsafe(self._deliver, corr, msg.payload)
 
     def _deliver(self, corr, payload: bytes) -> None:
-        fut = self._pending.pop(corr, None) if corr is not None else None
-        if fut is None and len(self._pending) == 1:
+        key = corr if corr in self._pending else None
+        if key is None and len(self._pending) == 1:
             # mosquitto does NOT echo CorrelationData on dynsec responses —
             # with single-flight (the call lock) the lone outstanding request
             # is the only possible attribution.
-            _k, fut = self._pending.popitem()
-        if fut is None or fut.done():
+            key = next(iter(self._pending))
+        if key is None:
+            return
+        fut, expected = self._pending[key]
+        if fut.done():
             return
         try:
-            fut.set_result(json.loads(payload))
+            body = json.loads(payload)
         except Exception as exc:  # noqa: BLE001
+            self._pending.pop(key, None)
             fut.set_exception(exc)
+            return
+        got = [r.get("command") for r in body.get("responses", [])]
+        if got != expected:
+            # A late response from a previously timed-out call must not be
+            # misattributed to the in-flight request — drop it and let the
+            # real response arrive (or the request time out honestly).
+            log.warning("dynsec stale response ignored",
+                        extra={"expected": expected, "got": got})
+            return
+        self._pending.pop(key, None)
+        fut.set_result(body)
 
     # -- command protocol ------------------------------------------------------
     async def call(self, *commands: dict, timeout: float = REQUEST_TIMEOUT_S) -> list[dict]:
@@ -193,7 +220,7 @@ class DynsecAdmin:
         async with self._lock:
             corr = os.urandom(16)
             fut = self._loop.create_future()
-            self._pending[corr] = fut
+            self._pending[corr] = (fut, [c.get("command") for c in commands])
             props = Properties(PacketTypes.PUBLISH)
             props.ResponseTopic = RESP_TOPIC
             props.CorrelationData = corr
@@ -217,10 +244,18 @@ class DynsecAdmin:
         res = await self.call(command)
         return res[0] if res else {"error": "empty dynsec response"}
 
+    async def get_role(self, role: str) -> dict | None:
+        r = await self._one({"command": "getRole", "rolename": role})
+        if r.get("error"):
+            return None
+        return (r.get("data") or {}).get("role")
+
     async def ensure_role(self, role: str, acls: list[dict],
                           known_roles: set[str] | None = None) -> None:
+        """Create the role if absent; if it already exists, repair ACL drift
+        (doc 17 §6 — the broker is a cache; desired ACLs are authoritative)."""
         if known_roles is not None and role in known_roles:
-            return
+            return await self._repair_role(role, acls)
         r = await self._one({"command": "createRole", "rolename": role})
         err = r.get("error", "")
         if err and "already exists" not in err:
@@ -233,6 +268,35 @@ class DynsecAdmin:
             # re-applying an ACL set is idempotent — duplicates are a no-op
             if err and "already exists" not in err and "Duplicate" not in err:
                 raise DynsecError(f"addRoleACL {role}: {err}")
+
+    async def _repair_role(self, role: str, acls: list[dict]) -> None:
+        """Diff desired ACLs against the broker's and converge — missing
+        entries are added before stale ones are removed, so a repair mid-
+        pass never leaves the role narrower than intended."""
+        cur = await self.get_role(role)
+        if cur is None:
+            return await self.ensure_role(role, acls)
+        have = {(a["acltype"], a["topic"], bool(a.get("allow", True)))
+                for a in cur.get("acls", [])}
+        want = {(a["acltype"], a["topic"], bool(a["allow"])) for a in acls}
+        missing, extra = want - have, have - want
+        if not missing and not extra:
+            return
+        for acltype, topic, allow in missing:
+            r = await self._one({"command": "addRoleACL", "rolename": role,
+                                 "acltype": acltype, "topic": topic,
+                                 "allow": allow})
+            if r.get("error"):
+                raise DynsecError(f"addRoleACL {role}: {r['error']}")
+        for acltype, topic, _allow in extra:
+            r = await self._one({"command": "removeRoleACL", "rolename": role,
+                                 "acltype": acltype, "topic": topic})
+            err = r.get("error", "")
+            if err and "not found" not in err.lower():
+                raise DynsecError(f"removeRoleACL {role}: {err}")
+        log.warning("mqtt.role_acl_drift repaired",
+                    extra={"role": role,
+                           "added": len(missing), "removed": len(extra)})
 
     async def create_client(self, username: str, password: str, role: str) -> None:
         """Create a dynsec client and attach it to `role`. 'Already exists'
@@ -384,12 +448,24 @@ class Reconciler:
         roles = await self.admin.list_roles()
 
         # --- infrastructure identities ------------------------------------
+        # The init-created `admin` role is broad by design (recovery ladder);
+        # converge it to $CONTROL-only here — adds apply before removals so
+        # the admin never loses the ACL mid-edit that it needs to finish it.
+        await self.admin.ensure_role("admin", ADMIN_ACLS, roles)
+
         pw = _read_secret_file(self.svc_backend_pw_file)
-        if pw and "svc-backend" not in clients:
+        if pw:
             await self.admin.ensure_role("svc-backend", BACKEND_ACLS, roles)
-            await self.admin.create_client("svc-backend", pw, "svc-backend")
-            clients = await self.admin.list_clients()
-            roles = await self.admin.list_roles()
+            if "svc-backend" not in clients:
+                await self.admin.create_client("svc-backend", pw, "svc-backend")
+                clients = await self.admin.list_clients()
+                roles = await self.admin.list_roles()
+            elif clients["svc-backend"]["disabled"]:
+                # svc-backend is a service identity with no DB lifecycle —
+                # a broker-side disable is tamper/accident, heal it (17 §6).
+                await self.admin.enable_client("svc-backend")
+                clients["svc-backend"]["disabled"] = False
+                log.warning("svc-backend re-enabled (broker-side disable healed)")
 
         tester_pw = _read_secret_file(self.tester_pw_file)
         if tester_pw:

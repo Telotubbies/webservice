@@ -199,6 +199,30 @@ def test_edge_cannot_touch_control_plane():
         p.stop()
 
 
+def test_sys_tree_denied_for_edge_and_tester():
+    """`#` never matches `$SYS` — it needs its own denial proof. Neither an
+    edge nor the wide tester identity may read or write broker internals."""
+    _needs_broker()
+    p = _edge_probe().ok()
+    try:
+        rc = p.sub_rc("$SYS/#")
+        assert _denied(rc), f"edge subscribed $SYS/# (rc={rc})"
+        rc = p.pub_rc("$SYS/broker/uptime", "0")
+        assert _denied(rc), f"edge published $SYS (rc={rc})"
+    finally:
+        p.stop()
+    if not _secret("tester_pw"):
+        pytest.skip("tester secret missing (test overlay)")
+    t = Probe("tester", _secret("tester_pw")).ok()
+    try:
+        rc = t.sub_rc("$SYS/#")
+        assert _denied(rc), f"tester subscribed $SYS/# (rc={rc})"
+        rc = t.pub_rc("$SYS/broker/uptime", "0")
+        assert _denied(rc), f"tester published $SYS (rc={rc})"
+    finally:
+        t.stop()
+
+
 def test_edge_own_prefix_still_works():
     """Sanity: the same client CAN publish its own tele/hb/cmd-resp."""
     _needs_broker()
@@ -273,19 +297,22 @@ def test_edge_lifecycle_provision_rotate_disable(api, admin_headers):
         u2, secret2 = r.json()["mqtt_username"], r.json()["secret"]
         assert u2 == f"edge-{eid}-v2" and secret2 != secret
 
-        # v2 connects; once it does, the reconciler retires v1 (cut-over)
-        p = Probe(u2, secret2).ok()
-        p.stop()
-        time.sleep(2)  # let the reconcile tick see the v2 connection
-
-        def old_disabled():
-            try:
-                Probe(u1, secret).refused()
-                return True
-            except Exception:
-                return False
-        # cut-over happens on the next reconcile pass (NOTIFY wakes it)
-        wait_until(old_disabled, 40, desc="v1 credential disabled after cut-over")
+        # v2 connects and STAYS connected — the reconciler only cuts v1 over
+        # once it observes a live connection on the newer credential, so
+        # dropping the probe early would race the pass that checks.
+        p2 = Probe(u2, secret2).ok()
+        try:
+            def old_disabled():
+                try:
+                    Probe(u1, secret).refused()
+                    return True
+                except Exception:
+                    return False
+            # cut-over happens on the next reconcile pass (NOTIFY wakes it)
+            wait_until(old_disabled, 40,
+                       desc="v1 credential disabled after cut-over")
+        finally:
+            p2.stop()
     finally:
         # disable: live connections kicked, reconnects refused, never re-enabled
         r = api.post(

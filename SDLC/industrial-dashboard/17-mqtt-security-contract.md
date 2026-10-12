@@ -145,3 +145,12 @@ Deviations / notes:
 - `getClient`-based cut-over check observes the *new* credential's live
   connection, then disables the grace-window predecessor (§5 "or until the
   edge connects with v{n+1}").
+- Edge **delete** lifecycle is deferred: `disable` fully covers credential
+  revocation (all versions disabled at the broker, reconnects refused,
+  never re-enabled). Orphan `edge-*` roles/clients from a hard delete are
+  not yet garbage-collected — they are disabled, never deleted, and a
+  cleanup pass is tracked for later.
+- Role ACL drift is repaired every reconcile pass (`getRole` diff →
+  add-missing-then-remove-extra), and `svc-backend` — a service identity
+  with no DB lifecycle — is re-enabled if found disabled. The init-seeded
+  `admin` role converges to `$CONTROL/dynamic-security/#` only.

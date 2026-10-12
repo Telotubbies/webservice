@@ -888,6 +888,19 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
     the DB stores only its sha256 fingerprint."""
     org_id, site_id = _v2_scope(org, site, p, need_config=True)
     await _site_or_404(st(request).pools, org_id, site_id)
+    await _mutation_gate(request, p.user_id)
+    async with tenant_tx(st(request).pools.app, org_id) as tc:
+        cap = await tc.fetchval(
+            "SELECT (plan_limits->>'max_edges')::int FROM organizations"
+            " WHERE id=$1", org_id)
+        # Disabled edges don't consume plan slots — with delete deferred
+        # (doc 17 §8) there is no re-enable path, so disabled is terminal
+        # and counting it would turn the cap into an unrecoverable wall.
+        n_edges = await tc.fetchval(
+            "SELECT count(*) FROM edges WHERE org_id=$1"
+            " AND status<>'disabled'", org_id)
+    if cap is not None and n_edges >= cap:
+        raise HTTPException(403, "plan_limit_exceeded: max_edges")
     eid = uuid.uuid4()
     version = 1
     username = edge_client_name(eid, version)
@@ -928,6 +941,7 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
     the same role; the old one keeps a grace window or is disabled at
     cut-over — the reconciler owns the retirement."""
     org_id, site_id = _v2_scope(org, site, p, need_config=True)
+    await _mutation_gate(request, p.user_id)
     eid = _uuid_or_404(edge_id, "edge")
     async with tenant_tx(st(request).pools.app, org_id) as tc:
         edge = await tc.fetchrow(
@@ -981,6 +995,7 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
     """Disable the edge: every credential version is disabled at the broker
     (dynsec kicks the live connection immediately — doc 17 §5)."""
     org_id, site_id = _v2_scope(org, site, p, need_config=True)
+    await _mutation_gate(request, p.user_id)
     eid = _uuid_or_404(edge_id, "edge")
     async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
         edge = await tc.fetchrow(
