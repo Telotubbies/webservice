@@ -2,7 +2,6 @@
 
 import { useTranslation } from 'react-i18next';
 import type { Quality } from '../../types';
-import { Icon } from './Icon';
 
 export type RunState = 'running' | 'stopped' | 'stale' | 'unknown';
 
@@ -42,9 +41,10 @@ export function QualityMark({ q, stale }: { q?: Quality; stale?: boolean }) {
   if (stale) return <span className="qmark" data-q="stale">{t('state.staleQ')}</span>;
   if (!q || q === 'good') return null; // normal is quiet
   const key = q === 'bad' ? 'bad' : q === 'uncertain' ? 'uncertain' : 'staleQ';
+  // Shape glyph (✚ bad / ◇ uncertain / ○ stale) comes from .qmark::before
+  // keyed on data-q — quality axis, colour + shape + text (ISA-101).
   return (
     <span className={`qmark qmark-${q}`} data-q={q}>
-      <Icon name="warn" size={13} />
       {t(`state.${key}`)}
     </span>
   );

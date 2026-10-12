@@ -95,7 +95,7 @@ a { color: var(--accent-strong); }
   height: 32px; padding: 0 var(--space-3); border-radius: 16px;
   border: 1px solid var(--line); font-size: var(--text-label); color: var(--text-secondary);
 }
-.live-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--state-stale); }
+.live-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--state-unknown); }
 .live-pill.is-live .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 173, 114, 0.22); }
 .live-pill.is-down { border-color: var(--sev-warning); color: var(--text-primary); }
 .live-pill.is-down .dot { background: var(--sev-warning); }
@@ -233,6 +233,12 @@ a { color: var(--accent-strong); }
 .sev-info, .sev-advisory { background: var(--sev-advisory); color: var(--text-inverse); }
 
 .qmark { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-caption); color: var(--text-muted); }
+/* Quality-axis shapes keyed on data-q: ✚ bad-data (spec §3.2), hollow
+   diamond/circle keep uncertain and stale visually distinct from bad. */
+.qmark::before { font-size: var(--text-caption); line-height: 1; }
+.qmark[data-q='bad']::before { content: '✚'; }
+.qmark[data-q='uncertain']::before { content: '◇'; }
+.qmark[data-q='stale']::before { content: '○'; }
 .qmark-bad, .qmark-uncertain, .qmark[data-q='stale'] { color: var(--sev-baddata); }
 
 .badge {

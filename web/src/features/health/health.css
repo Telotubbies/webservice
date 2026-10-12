@@ -8,7 +8,7 @@
 .hop.is-bad { border-color: var(--sev-critical); }
 .hop.is-warn .hop-node { color: var(--sev-warning); }
 .hop.is-warn { border-color: var(--sev-warning); }
-.hop.is-unknown .hop-node { color: var(--state-stale); border-style: dashed; }
+.hop.is-unknown .hop-node { color: var(--state-unknown); border-style: dashed; }
 .hop h3 { font-size: var(--text-md); }
 .hop-status { color: var(--text-secondary); margin-top: 2px; }
 .hop dl { margin: var(--space-3) 0 0; display: grid; gap: var(--space-1); }
