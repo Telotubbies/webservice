@@ -28,8 +28,13 @@
 # Usage: ./infra/gen-secrets.sh [--force]
 #   Default: create only MISSING files (safe to re-run).
 #   --force: rotate every file — after --force you MUST recreate the dynsec
-#   state (`docker compose down -v` wipes the dynsec-* volumes; the broker
-#   re-inits dynamic-security.json from the mounted secret on next boot).
+#   state. Scoped rebuild (broker re-inits dynamic-security.json from the
+#   mounted secret on next boot):
+#       docker compose stop mosquitto
+#       docker volume rm webservice_mosquitto-data   # dynsec cache ONLY
+#       docker compose up -d mosquitto
+#   WARNING: do NOT use `docker compose down -v` for rotation — it also
+#   deletes webservice_pgdata = ALL database rows. Data loss.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -77,4 +82,6 @@ chmod 0644 "$DIR/edge_bootstrap_user"
 echo "  wrote $DIR/edge_bootstrap_user"
 
 echo "infra/secrets ready. NOTE: if the dynsec volume already exists it keeps"
-echo "its old admin password — 'docker compose down -v' after rotating."
+echo "its old admin password — after rotating: 'docker compose stop mosquitto'"
+echo "+ 'docker volume rm webservice_mosquitto-data' + 'docker compose up -d'"
+echo "mosquitto — NEVER 'down -v' (that wipes pgdata = all DB rows)."

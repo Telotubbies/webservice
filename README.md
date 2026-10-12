@@ -49,7 +49,10 @@ Prod posture (v4 T7): `APP_ENV` defaults to `dev` for DX — a production
 deploy MUST set `APP_ENV=prod`, which fails fast when any required env is
 missing or still holds a dev-default secret (see `.env.example`). All
 secrets are file-mounted under `infra/secrets/` — `docker inspect` shows
-paths only, never values.
+paths only, never values. Postgres/Keycloak secret files are invisible to
+the backend, so prod bring-up must also run `make secrets-check` (auto-run
+by `make up` when `APP_ENV=prod`) — it fails while any file still holds a
+documented dev default.
 
 ## Layout
 

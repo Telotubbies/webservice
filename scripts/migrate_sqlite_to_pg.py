@@ -97,7 +97,10 @@ def _cols(conn: sqlite3.Connection, table: str) -> list[str]:
 def _rows(conn: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
     try:
         return conn.execute(f"SELECT * FROM {table}").fetchall()
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        # A corrupt/unreadable table must not silently import as "empty".
+        print(f"WARNING: failed to read source table {table!r}: {e} "
+              f"— importing it as empty", file=sys.stderr)
         return []
 
 
@@ -332,6 +335,21 @@ async def migrate(src: Source, dsn: str, org_id: uuid.UUID | None,
                 rule_new[r["id"]] = rid
                 rule_sev[r["id"]] = sev
 
+            # ---- users for legacy actors (needed before alarms/commands) -
+            actors = {str(c["user_id"]) for c in src.commands if c["user_id"]}
+            actors |= {str(r["user_id"]) for r in src.audit if r["user_id"]}
+            actors |= {str(a["acked_by"]) for a in src.alarms if a["acked_by"]}
+            user_map: dict[str, uuid.UUID] = {}
+            for uid_text in sorted(actors):
+                sub = f"imported:{uid_text}"
+                uid = await conn.fetchval(
+                    "INSERT INTO users(sub, display_name, email_verified)"
+                    " VALUES ($1,$2,false) ON CONFLICT (sub) DO NOTHING RETURNING id",
+                    sub, uid_text)
+                if uid is None:
+                    uid = await conn.fetchval("SELECT id FROM users WHERE sub=$1", sub)
+                user_map[uid_text] = uid
+
             # ---- alarms --------------------------------------------------
             for a in src.alarms:
                 tid_old = a["tag_id"]
@@ -344,12 +362,14 @@ async def migrate(src: Source, dsn: str, org_id: uuid.UUID | None,
                     else "cleared"
                 await conn.execute(
                     "INSERT INTO alarms(id, org_id, tag_id, rule_id, severity,"
-                    " state, raised_at, acked_at, cleared_at)"
-                    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING",
+                    " state, raised_at, acked_at, acked_by, cleared_at)"
+                    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING",
                     uuid.uuid5(org, f"v1alarm:{a['id']}"), org, tid, rid,
                     rule_sev.get(a["rule_id"], "warning"), state,
                     _parse_ts(a["raised_at"]) or datetime.now(timezone.utc),
-                    _parse_ts(a["acked_at"]), _parse_ts(a["cleared_at"]))
+                    _parse_ts(a["acked_at"]),
+                    user_map.get(str(a["acked_by"])) if a["acked_by"] else None,
+                    _parse_ts(a["cleared_at"]))
 
             # ---- telemetry ----------------------------------------------
             latest_n = hist_n = 0
@@ -383,21 +403,6 @@ async def migrate(src: Source, dsn: str, org_id: uuid.UUID | None,
                     tid, ts, org, v,
                     r["q"] if r["q"] in Q_OK else "uncertain")
                 hist_n += _n(st)
-
-            # ---- users for legacy actors ---------------------------------
-            actors = {str(c["user_id"]) for c in src.commands if c["user_id"]}
-            actors |= {str(r["user_id"]) for r in src.audit if r["user_id"]}
-            actors |= {str(a["acked_by"]) for a in src.alarms if a["acked_by"]}
-            user_map: dict[str, uuid.UUID] = {}
-            for uid_text in sorted(actors):
-                sub = f"imported:{uid_text}"
-                uid = await conn.fetchval(
-                    "INSERT INTO users(sub, display_name, email_verified)"
-                    " VALUES ($1,$2,false) ON CONFLICT (sub) DO NOTHING RETURNING id",
-                    sub, uid_text)
-                if uid is None:
-                    uid = await conn.fetchval("SELECT id FROM users WHERE sub=$1", sub)
-                user_map[uid_text] = uid
 
             # ---- commands ------------------------------------------------
             cmd_n = 0

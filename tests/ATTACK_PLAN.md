@@ -54,7 +54,7 @@ Legend: ✅ covered · 🔶 partial/indirect · ⬜ not yet covered
 ## Pre-merge / pre-demo gate
 
 - [ ] `pytest` green (unit layer, 289 tests)
-- [ ] `pytest -m integration` green against `docker compose up`
+- [ ] `pytest -m integration` green against the test-overlay stack (`make up-test` / `docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --wait`)
 - [ ] `DISRUPTIVE=1 pytest -m disruptive` passes (timeout path)
 - [ ] All `xfail`/skip reasons reviewed — none hiding a contract violation
 - [ ] README divergence list walked through with backend + edge owners

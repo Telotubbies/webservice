@@ -269,7 +269,9 @@ services:
 volumes:
   pgdata:
   # Dynsec plugin state — a CACHE of Postgres, not a source of truth
-  # (doc 17 §6). `docker compose down -v` + restart rebuilds it.
+  # (doc 17 §6). To rebuild ONLY this cache: `docker compose stop mosquitto`
+  # + `docker volume rm webservice_mosquitto-data` + `up -d mosquitto`.
+  # Never `down -v` for rotation — it deletes pgdata too (data loss).
   mosquitto-data:
   # Legacy v1 SQLite volume — kept read-only-in-spirit as the migration source
   # and rollback path (doc 18 §3). Nothing mounts it read-write any more.

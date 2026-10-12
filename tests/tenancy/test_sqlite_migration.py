@@ -50,6 +50,9 @@ def _fixture_db(path: Path) -> None:
     conn.execute("INSERT INTO alarm_rules VALUES (1,2,'overtemp','value > 80','critical',1)")
     conn.execute("INSERT INTO alarms VALUES (1,1,2,'2026-01-01T00:00:00Z',"
                  "NULL,NULL,NULL,NULL,'active')")
+    conn.execute("INSERT INTO alarms VALUES (2,1,2,'2026-01-01T00:05:00Z',"
+                 "'2026-01-01T00:06:00Z','demo-operator','2026-01-01T00:10:00Z',"
+                 "NULL,'cleared')")
     conn.execute(
         "INSERT INTO commands VALUES (?,?,?,?,?,?,?,?,?)",
         (str(uuid.uuid4()), "k1", "demo-operator",
@@ -107,6 +110,11 @@ def test_sqlite_migration_dry_run_and_idempotent_import(tmp_path):
                 row = await tc.fetchrow(
                     "SELECT status, reason FROM commands WHERE org_id=$1", org)
                 assert row["status"] == "acknowledged"
+                # cleared alarm carries its v1 acked_by mapped to a users row
+                arow = await tc.fetchrow(
+                    "SELECT acked_by, state FROM alarms WHERE org_id=$1"
+                    " AND state='cleared'", org)
+                assert arow is not None and arow["acked_by"] is not None
                 assert await tc.fetchval(
                     "SELECT count(*) FROM audit_log WHERE org_id=$1", org) == 2
                 gen = await tc.fetchrow(

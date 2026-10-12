@@ -54,9 +54,14 @@ mosquitto + Keycloak). Performed for real, not a rehearsal of the commands.
 
 | Step | Result | Evidence |
 |---|---|---|
-| `make backup` | PASS | `pg_dump -Fc` → `backups/wds-20261013005527.dump` (84K, seeded demo DB: 6 tags, memberships, rules, audit chain) |
-| `make restore DUMP=backups/wds-20261013005527.dump` | PASS in **13.7 s** wall | writers stopped → `DROP DATABASE wds WITH (FORCE)` → `CREATE DATABASE wds OWNER wds_owner` → `pg_restore --exit-on-error` → db-level CONNECT re-granted → backend healthy → `make verify-audit` → **"audit chains intact"** (exit 0) |
+| `make backup` | PASS | `pg_dump -Fc` → `backups/wds-20261013010627.dump` (84K, seeded demo DB: 6 tags, memberships, rules, audit chain); on pg_dump failure the partial file is removed |
+| `make restore` safety gates | PASS | bare `make restore DUMP=…` refuses and prints the compose project targets; `RESTORE_CONFIRM=1` required. A garbage file is rejected by `pg_restore -l` **before** `DROP DATABASE` runs |
+| `RESTORE_CONFIRM=1 make restore DUMP=backups/wds-20261013010627.dump` | PASS in **13.7 s** wall | TOC validated → writers stopped → `DROP DATABASE wds WITH (FORCE)` → `CREATE DATABASE wds OWNER wds_owner` → `pg_restore --exit-on-error` → db-level CONNECT re-granted → backend healthy → `make verify-audit` → **"audit chains intact"** (exit 0) |
 | post-restore smoke | PASS | `/api/health` = `{"status":"ok","db":"up","mqtt":"up","edge":"up"}`; `pg_class.relrowsecurity` still `t` (RLS re-applied by the dump); orgs/sites/edges/tags restored |
+
+Note: `make restore` does NOT run `alembic upgrade head` — a dump from an
+older schema revision needs `docker compose -f docker-compose.yml run --rm
+migrate` afterwards (doc 18 §2).
 
 Negative evidence also gathered: on a DB that had run the tenancy suite,
 `make restore` ended with `verify-audit` exiting non-zero on the
