@@ -192,11 +192,28 @@ class Security:
             JwksCache(config.OIDC_JWKS_URI, ttl_s=config.JWKS_TTL_S,
                       refetch_min_s=config.JWKS_REFETCH_MIN_S))
         self._authz: dict[str, _AuthzRec] = {}
-        # unbounded in the worst case (IdP logouts for unique sessions) —
-        # TODO(T8): bound/evict with metrics when the hardening task lands
-        self._revoked_sids: set[str] = set()
+        # v4 T8 (T6 review F9): bounded FIFO — sid -> monotonic insert time.
+        # This is only a fast-path cache over the revoked_sessions TABLE:
+        # evicting a still-revoked sid just falls back to the DB lookup in
+        # _is_revoked, which re-adds it. Correctness never depends on
+        # membership; the cap (10k) bounds memory under a logout flood.
+        self._revoked_sids: dict[str, float] = {}
         self._authz_lock = asyncio.Lock()
         self._ws = ws  # WSManager, for NOTIFY-driven eviction
+
+    _REVOKED_SIDS_MAX = 10_000
+
+    @property
+    def revoked_cache_size(self) -> int:
+        return len(self._revoked_sids)
+
+    def _mark_revoked(self, sid: str) -> None:
+        if not sid:
+            return
+        self._revoked_sids.pop(sid, None)
+        self._revoked_sids[sid] = time.monotonic()
+        while len(self._revoked_sids) > self._REVOKED_SIDS_MAX:
+            self._revoked_sids.pop(next(iter(self._revoked_sids)))
 
     # ------------------------------------------------------------- authenticate
     async def authenticate(self, token: str | None) -> Principal:
@@ -253,7 +270,7 @@ class Security:
             log.exception("revoked_sessions check failed — failing closed")
             raise AuthError("authorization store unavailable") from None
         if exists:
-            self._revoked_sids.add(sid)
+            self._mark_revoked(sid)
         return bool(exists)
 
     async def _authz_rec(self, sub: str, claims: dict) -> _AuthzRec:
@@ -360,7 +377,7 @@ class Security:
         etype = evt.get("type")
         sid, sub = evt.get("sid"), evt.get("sub")
         if sid:
-            self._revoked_sids.add(sid)
+            self._mark_revoked(sid)
         if sub:
             self._authz.pop(sub, None)
         else:

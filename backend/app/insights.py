@@ -171,6 +171,9 @@ class InsightEngine:
         # evaluate_once is also called by tests to force a pass — serialize
         # so a concurrent call can't double-process a batch of rows.
         self._lock = asyncio.Lock()
+        # v4 T8 — engine counters, exported by /metrics + /api/system/health
+        self.counters = {"insight_eval_passes": 0, "insight_eval_errors": 0,
+                         "insights_opened": 0, "insights_closed": 0}
 
     async def run_forever(self) -> None:
         while True:
@@ -178,6 +181,7 @@ class InsightEngine:
             try:
                 await self.evaluate_once()
             except Exception:  # noqa: BLE001 — one bad pass must not kill the loop
+                self.counters["insight_eval_errors"] += 1
                 log.exception("insight evaluation failed")
 
     # ---------------------------------------------------------- evaluation
@@ -213,8 +217,10 @@ class InsightEngine:
                                              tags, tag_events)
                     events.extend(tag_events)   # only committed tag work
                 except Exception:  # noqa: BLE001 — isolate, keep evaluating
+                    self.counters["insight_eval_errors"] += 1
                     log.exception("insight evaluation failed for tag %s",
                                   getattr(tag, "v1_name", tag.id))
+        self.counters["insight_eval_passes"] += 1
         for insight in events:
             self.ws.broadcast({"type": "insight", "insight": insight})
 
@@ -469,6 +475,7 @@ class InsightEngine:
         await audit.append(tc, "insight-engine", "insight.open",
                            {"insight_id": str(iid), "tag_id": str(tag.id)},
                            {"kind": kind, "severity": severity, "score": score})
+        self.counters["insights_opened"] += 1
         log.info("insight opened", extra={"insight_id": str(iid), "kind": kind,
                                           "tag": tag.v1_name})
         events.append(await self._serialize(tc, iid))
@@ -499,6 +506,7 @@ class InsightEngine:
             return
         await audit.append(tc, "insight-engine", "insight.close",
                            {"insight_id": str(insight_id), "tag_id": str(tag.id)})
+        self.counters["insights_closed"] += 1
         events.append(await self._serialize(tc, insight_id))
 
     # -------------------------------------------------------------- queries

@@ -47,6 +47,59 @@ def test_system_health(api):
     assert "clock_ok" in body["edge"]
 
 
+def test_system_health_viewer_403(api, viewer_headers):
+    """v4 T8: the detail endpoint is operator+ — a viewer polls the coarse
+    /api/health + WS health event instead (doc 20 §3.3)."""
+    assert api.get("/api/system/health", headers=viewer_headers).status_code == 403
+
+
+# ----------------------------------------------------- observability (v4 T8)
+
+def test_readyz_is_ready(anon_api):
+    """Unauthenticated liveness+migration smoke — backend port only (nginx
+    returns 404 for /readyz on the web origin, CONTRACT.v2:48)."""
+    r = anon_api.get("/readyz")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ready"
+    assert body["db"] == "up"
+    assert body["migrations"] == "at_head"
+
+
+def test_metrics_endpoint_shape(anon_api):
+    r = anon_api.get("/metrics")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/plain")
+    text = r.text
+    for metric in ("wds_http_requests_total", "wds_http_request_duration_seconds",
+                   "wds_ws_connections", "wds_db_pool_connections",
+                   "wds_internal_counters_total"):
+        assert metric in text, metric
+
+
+def test_metrics_no_path_param_leak(api):
+    """Scrape must label by route template — never the raw org/site/tag in
+    the URL (cardinality bomb + data leak)."""
+    org = "0199d000-0000-7000-8000-00000000a001"
+    site = "0199d000-0000-7000-8000-00000000b001"
+    assert api.get(f"/api/v1/orgs/{org}/sites/{site}/edges").status_code == 200
+    assert api.get("/api/tags/plant1.sort.line1.motor1.running/latest") \
+        .status_code in (200, 404)
+    text = api.get("/metrics").text
+    assert 'route="/api/v1/orgs/{org}/sites/{site}/edges"' in text
+    for line in text.splitlines():
+        if 'route="' in line:
+            assert org not in line and site not in line
+            assert "motor1.running" not in line
+
+
+def test_request_id_propagated(anon_api):
+    r = anon_api.get("/api/health", headers={"X-Request-ID": "itest-rid-7"})
+    assert r.headers.get("x-request-id") == "itest-rid-7"
+    r2 = anon_api.get("/api/health")
+    assert r2.headers.get("x-request-id")  # generated when absent
+
+
 def test_health_allows_anonymous(anon_api):
     # /api/health is the machine-level probe — the ONE public read left.
     assert anon_api.get("/api/health").status_code == 200

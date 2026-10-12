@@ -7,6 +7,8 @@ PyYAML==6.0.3
 asyncpg==0.31.0
 # OIDC JWT verification (v4 T5, ADR-12) — RS256/JWKS
 pyjwt[crypto]==2.15.1
+# Self-observability (v4 T8): /metrics exposition format
+prometheus-client==0.26.0
 # migrations only (run as wds_owner by the `migrate` job)
 alembic==1.20.0
 SQLAlchemy==2.0.54

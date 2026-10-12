@@ -44,15 +44,30 @@ function useLiveBoot(tags: TagInfo[] | undefined) {
   }, [tags]);
 
   useEffect(() => {
+    // /api/system/health detail is operator+ (v4 T8) — viewers/anon get the
+    // coarse /api/health + WS health events only. Fetching it under a viewer
+    // session would 403 every poll and trip the zero-4xx gate.
     const poll = async () => {
       try { live.setHealth(await api.health()); } catch { live.setHealth(null); }
-      try { live.setSysHealth(await api.systemHealth()); } catch { live.setSysHealth(null); }
+      if (canOperate(getSessionRole())) {
+        try { live.setSysHealth(await api.systemHealth()); } catch { live.setSysHealth(null); }
+      } else {
+        live.setSysHealth(null);
+      }
     };
     void poll();
     const id = setInterval(() => void poll(), 10_000);
     startWS();
     return () => { clearInterval(id); stopWS(); };
   }, []);
+
+  // Role arrives asynchronously via refreshSession (/api/me) — re-poll the
+  // detail endpoint the moment the session resolves so an operator doesn't
+  // wait a full poll interval for the health page to populate.
+  useEffect(() => {
+    if (!canOperate(getSessionRole())) { live.setSysHealth(null); return; }
+    api.systemHealth().then((h) => live.setSysHealth(h)).catch(() => live.setSysHealth(null));
+  }, [authRev]);
 
   // command history is operator-only server-side: re-seed when the role changes
   useEffect(() => {

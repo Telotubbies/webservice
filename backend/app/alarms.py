@@ -76,6 +76,9 @@ class AlarmEngine:
         self.ws = ws
         self.registry = registry
         self._rules: dict[UUID, list[Rule]] = {}
+        # v4 T8 — engine counters, exported by /metrics + /api/system/health
+        self.counters = {"alarms_raised": 0, "alarms_cleared": 0,
+                         "alarms_acked": 0}
 
     async def load_rules(self) -> None:
         async with tenant_tx(self.pools.system, config.V1_ORG_ID) as tc:
@@ -139,6 +142,7 @@ class AlarmEngine:
         await audit.append(tc, "alarm-engine", "alarm.raise",
                            {"alarm_id": str(aid), "tag_id": str(rule.tag_id)}, {"rule": rule.name})
         alarm = await self._serialize(tc, aid)
+        self.counters["alarms_raised"] += 1
         log.warning("alarm raised", extra={"alarm_id": str(aid), "rule": rule.name})
         self.ws.broadcast({"type": "alarm", **alarm})
 
@@ -151,6 +155,7 @@ class AlarmEngine:
         await audit.append(tc, "alarm-engine", "alarm.clear",
                            {"alarm_id": str(alarm_id), "tag_id": str(rule.tag_id)},
                            {"rule": rule.name})
+        self.counters["alarms_cleared"] += 1
         self.ws.broadcast({"type": "alarm_update", **await self._serialize(tc, alarm_id)})
 
     # ------------------------------------------------------------ API side
@@ -172,6 +177,7 @@ class AlarmEngine:
                 " WHERE id=$1 AND state='active'", alarm_id, user_id)
             await audit.append(tc, actor, "alarm.ack",
                                {"alarm_id": str(alarm_id), "tag_id": str(row["tag_id"])})
+            self.counters["alarms_acked"] += 1
             alarm = await self._serialize(tc, alarm_id)
             self.ws.broadcast({"type": "alarm_update", **alarm})
             return alarm

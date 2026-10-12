@@ -78,6 +78,34 @@ WS takes the same token in a first-frame `{"type":"auth"}` message (never
 non-member → 4403. OIDC sockets close at `exp + 30 s` — the SPA silently
 renews and reconnects.
 
+## Self-observability (v4 T8)
+
+- `GET /metrics` — Prometheus exposition (`prometheus-client`): HTTP request
+  count + latency histogram labelled by **route template** (never raw paths —
+  no tag/org/uuid label leaks), `wds_ws_connections`, `wds_db_pool_connections`,
+  `wds_internal_counters_total{counter=…}` (ingest, mqtt-security, dynsec
+  reconciler, alarm + insight engines). **Scrape path:** the backend port is
+  loopback-bound (`127.0.0.1:8000`) and nginx answers `404` for `/metrics` on
+  the web origin, so the endpoint is not publicly scrapeable:
+  `curl http://localhost:8000/metrics` from the host, or a metrics container
+  on the compose network scraping `http://backend:8000/metrics`.
+- `GET /readyz` — readiness: DB connect + `alembic_version` == migrations
+  head (wds_app reads the version table via the 0005 grant). 200/503.
+  Backend-only like /metrics (nginx `404`); the compose healthcheck stays on
+  `/api/health`.
+- Every HTTP request gets an `X-Request-ID` (a sane inbound value is
+  propagated, else minted) and a JSON access log line on the
+  `backend.access` logger: method, route template, status, latency_ms,
+  request_id, client ip, and the authenticated `sub`. Headers, query strings
+  and bodies are never logged — `app.observability.redact` scrubs
+  `token=`/`Authorization:`/`Bearer …`/cookie-shaped material as a second
+  fence.
+- `/docs`, `/redoc`, `/openapi.json` are served only under `APP_ENV=dev`
+  (T5-deferred F7); nginx `404`s them on the web origin in every env.
+- `GET /api/system/health` detail is operator+ (viewer → 403): viewers get
+  the coarse public `/api/health` + WS `health` events, and the SPA doesn't
+  poll the detail endpoint for them.
+
 ### Dev tokens (APP_ENV=dev only)
 
 - `demo-operator` → operator (read + command + alarm ack)

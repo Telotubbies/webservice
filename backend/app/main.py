@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import ipaddress
 import json
 import logging
 import math
@@ -41,6 +40,10 @@ from .db.context import tenant_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .mqtt_client import MQTTBridge
+from .observability import (
+    ObservabilityMiddleware, _client_ip, _trusted_peer,
+    metrics_response, migration_at_head, RUNTIME,
+)
 from .ratelimit import RateLimiter
 from .registry import Registry
 from .security import AuthError, ForbiddenError, Security, authz_listener
@@ -147,7 +150,11 @@ async def _authenticate(request: Request) -> Principal:
     token = None
     if header.lower().startswith("bearer "):
         token = header[7:].strip()
-    return await st(request).auth.authenticate(token)
+    p = await st(request).auth.authenticate(token)
+    # The access-log middleware reads this AFTER the request completes —
+    # the sub, never the token (v4 T8).
+    request.state.principal = p
+    return p
 
 
 async def require_user(request: Request) -> Principal:
@@ -417,6 +424,7 @@ async def lifespan(app: FastAPI):
         await seed(pools)
     st = State(pools)
     app.state.st = st
+    RUNTIME.bind(st)  # /metrics runtime collector (v4 T8)
     await st.registry.refresh()
     await st.alarms.load_rules()
     # svc-dynsec-admin comes up first so the reconciler's initial pass can
@@ -465,7 +473,14 @@ async def lifespan(app: FastAPI):
         await pools.close()
 
 
-app = FastAPI(title="industrial-dashboard backend", lifespan=lifespan)
+# Docs only exist in dev (v4 T8 — T5-deferred F7): a prod deployment must not
+# publish the API surface to anyone who can reach the port.
+_DEV_DOCS = config.APP_ENV == "dev"
+app = FastAPI(
+    title="industrial-dashboard backend", lifespan=lifespan,
+    docs_url="/docs" if _DEV_DOCS else None,
+    redoc_url="/redoc" if _DEV_DOCS else None,
+    openapi_url="/openapi.json" if _DEV_DOCS else None)
 
 
 @app.exception_handler(AuthError)
@@ -498,6 +513,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Outermost (added last): every HTTP request gets a request-id, a JSON access
+# log line and Prometheus counters — including requests CORS rejects (v4 T8).
+app.add_middleware(ObservabilityMiddleware)
 
 
 def st(request: Request) -> State:
@@ -521,6 +539,30 @@ def _uuid_or_404(s: str, what: str) -> UUID:
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz(request: Request):
+    """Readiness: DB connect + alembic_version at the code head (v4 T8,
+    doc 18 §1.3). Backend-only — nginx does not proxy it (CONTRACT.v2); the
+    compose healthcheck stays on /api/health."""
+    s = st(request)
+    db_up = await _db_up(s)
+    mig_ok, mig_detail = (await migration_at_head(s.pools.app)) if db_up \
+        else (False, "db_down")
+    ready = db_up and mig_ok
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ready" if ready else "not_ready",
+                 "db": "up" if db_up else "down",
+                 "migrations": mig_detail})
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus scrape — backend port only (loopback-bound; nginx returns
+    404 for /metrics on the web origin). See app.observability docstring."""
+    return metrics_response()
 
 
 async def _db_up(s: State) -> bool:
@@ -793,7 +835,11 @@ async def ack_alarm(alarm_id: str, request: Request,
 
 @app.get("/api/system/health")
 async def system_health(request: Request,
-                        p: Principal = Depends(require_principal)):
+                        p: Principal = Depends(require_operator)):
+    """Detail health — operator+ only (v4 T8, doc 20 §3.3): ws client counts,
+    ingest counters and dynsec internals are operational intel a viewer
+    doesn't need. Viewers get the coarse, public /api/health + the WS health
+    event; the SPA stops polling this endpoint for them."""
     s = st(request)
     return {
         "mqtt": {"connected": s.mqtt.connected},
@@ -804,7 +850,12 @@ async def system_health(request: Request,
             "ws_clients": s.ws.client_count(),
             "ws_msgs_dropped": s.ws.total_dropped,
             "mqtt_ingest_dropped": s.mqtt.dropped_msgs,
+            # ingest counters + dynsec reconciler + alarm/insight engines
+            # (the same dicts /metrics exports)
             **s.counters,
+            **s.reconciler.counters,
+            **s.alarms.counters,
+            **s.insights.counters,
         },
     }
 
@@ -1015,36 +1066,8 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
 # ---------------------------------------------------------------------------
 # WebSocket (v1)
 # ---------------------------------------------------------------------------
-def _trusted_peer(peer: str) -> bool:
-    """May this peer set X-Real-IP? Loopback (direct hits on the published
-    port, compose-internal is published to 127.0.0.1 only) or a configured
-    TRUSTED_PROXIES CIDR — the compose network pins the nginx container and
-    names it, so a random docker-network peer can't spoof client IPs."""
-    try:
-        ip = ipaddress.ip_address(peer)
-    except ValueError:
-        return False
-    if ip.is_loopback:
-        return True
-    return any(ip in net for net in config.TRUSTED_PROXIES)
-
-
-def _client_ip(conn) -> str:
-    """Client IP for per-IP buckets (WS cap, backchannel limiter).
-
-    X-Real-IP is trusted only from _trusted_peer() — nginx OVERWRITES it
-    with $remote_addr (no client-controlled append, unlike XFF which
-    $proxy_add_x_forwarded_for extends after the client-supplied prefix —
-    its first element is attacker-controlled and must not key the bucket).
-    """
-    peer = conn.client.host if conn.client else ""
-    if peer and _trusted_peer(peer):
-        rip = conn.headers.get("x-real-ip")
-        if rip:
-            return rip.strip()
-    return peer or "unknown"
-
-
+# _trusted_peer/_client_ip live in app.observability (v4 T8) — same code the
+# access-log middleware uses to compute the request's IP field.
 async def _close_at_exp(client, exp: float) -> None:
     """Close the socket at token exp + 30 s (ADR-12 WS section: the server
     ends a connection at exp + 30s unless the client re-auths; v1 has no
