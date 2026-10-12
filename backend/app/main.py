@@ -34,9 +34,10 @@ from .db.context import tenant_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .mqtt_client import MQTTBridge
+from .ratelimit import RateLimiter
 from .registry import Registry
 from .seed import DEMO_USERS, seed
-from .ws import WSManager, WSAuthError, read_auth_token
+from .ws import WSManager, WSAuthError, origin_allowed, read_auth_token
 
 START_TIME = time.monotonic()
 
@@ -147,7 +148,14 @@ class State:
             username=config.MQTT_USER, password=config.MQTT_PASSWORD,
         )
         self.registry = Registry(pools.system)
-        self.commands = CommandManager(pools, self.ws, self.mqtt, self.registry)
+        # v4 T4 rate budgets — in-process buckets (single replica; see
+        # ratelimit.py for the horizontal-scale note)
+        self.cmd_limiter = RateLimiter(config.RATE_COMMANDS_PER_TAG,
+                                       config.RATE_COMMANDS_WINDOW_S)
+        self.mutation_limiter = RateLimiter(config.RATE_MUTATIONS_PER_USER,
+                                            config.RATE_MUTATIONS_WINDOW_S)
+        self.commands = CommandManager(pools, self.ws, self.mqtt, self.registry,
+                                       cmd_limiter=self.cmd_limiter)
         self.alarms = AlarmEngine(pools, self.ws, self.registry)
         self.insights = InsightEngine(pools, self.ws, self.registry)
         self.history_buf: list[tuple] = []
@@ -495,13 +503,27 @@ async def tag_history(
     return [{"v": finite_or_none(r["v"]), "q": r["q"], "ts": iso_z(r["ts"])} for r in rows]
 
 
+async def _mutation_gate(request: Request, uid: UUID) -> None:
+    """Per-user write budget (v4 T4): mutations other than POST /api/commands,
+    which carries its own stricter per-tag bucket in CommandManager.issue."""
+    s = st(request)
+    if not await s.mutation_limiter.allow(str(uid)):
+        retry = await s.mutation_limiter.retry_after(str(uid))
+        raise HTTPException(status_code=429, detail="rate_limited",
+                            headers={"Retry-After": str(max(1, math.ceil(retry)))})
+
+
 @app.post("/api/commands", status_code=201)
 async def post_command(body: CommandIn, request: Request,
                        p: Principal = Depends(require_operator)):
     code, resp = await st(request).commands.issue(
         tag_name=body.tag, value=body.value, ttl_s=body.ttl_s,
         idempotency_key=body.idempotency_key, user_id=user_id_for(p))
-    return JSONResponse(status_code=code, content=resp)
+    out = JSONResponse(status_code=code, content=resp)
+    if code == 429:
+        # RFC 6585 — clients back off on the header, not the body
+        out.headers["Retry-After"] = str(resp.get("retry_after_s", 1))
+    return out
 
 
 @app.get("/api/commands")
@@ -562,6 +584,7 @@ async def list_insights(request: Request,
 async def ack_alarm(alarm_id: str, request: Request,
                     p: Principal = Depends(require_authenticated)):
     uid = user_id_for(p)
+    await _mutation_gate(request, uid)
     async with v1_tx(request, uid) as tc:
         alarm = await st(request).alarms.ack(tc, _uuid_or_404(alarm_id, "alarm"), uid,
                                              f"user:{uid}")
@@ -590,6 +613,16 @@ async def system_health(request: Request):
 # ---------------------------------------------------------------------------
 # WebSocket (v1)
 # ---------------------------------------------------------------------------
+def _client_ip(ws: WebSocket) -> str:
+    """Real client IP for the per-IP cap: X-Forwarded-For (first hop) when a
+    trusted proxy fronts us — nginx sets it on /ws (web/nginx.conf) — else
+    the socket peer (direct hits in dev/tests)."""
+    xff = ws.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return ws.client.host if ws.client else "unknown"
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     # First-frame auth (v4 T3): the token rides in the first client frame —
@@ -597,41 +630,63 @@ async def ws_endpoint(ws: WebSocket):
     # into access logs and proxy traces. An empty/absent token connects as
     # anonymous (read-only) until T5 flips to authenticated-only; a non-empty
     # token that doesn't resolve is an auth failure -> close 4401.
+    #
+    # v4 T4 gates run before the auth handshake: Origin allowlist/same-origin
+    # and a per-IP connection cap both close 4403. accept() happens first
+    # because a WS close code is only deliverable on an accepted socket.
     await ws.accept()
-    try:
-        token = await read_auth_token(ws)
-    except WSAuthError as e:
-        log.info("ws auth failed — closing 4401", extra={"reason": str(e)})
-        # client may already be gone mid-handshake — don't traceback on close
-        with contextlib.suppress(Exception):
-            await ws.close(code=4401)
-        return
-    p = resolve_token(token)
-    if token and not p.authenticated:
-        # reason only — NEVER the token value
-        log.info("ws auth failed — closing 4401", extra={"reason": "unresolvable token"})
-        with contextlib.suppress(Exception):
-            await ws.close(code=4401)
-        return
     manager: WSManager = ws.app.state.st.ws
-    client = await manager.connect(ws, p.role)
-    pump = asyncio.create_task(manager.pump(client))
-    with contextlib.suppress(asyncio.QueueFull):
-        client.queue.put_nowait(ws.app.state.st.health_event())
+    ip = _client_ip(ws)
+    if not origin_allowed(ws.headers.get("origin"), ws.headers.get("host"),
+                          config.ALLOWED_ORIGINS,
+                          dev=config.APP_ENV != "prod"):
+        log.info("ws origin rejected — closing 4403",
+                 extra={"origin": ws.headers.get("origin"), "ip": ip})
+        with contextlib.suppress(Exception):
+            await ws.close(code=4403)
+        return
+    if not await manager.acquire_ip(ip, config.RATE_WS_PER_IP):
+        log.info("ws per-ip connection cap — closing 4403", extra={"ip": ip})
+        with contextlib.suppress(Exception):
+            await ws.close(code=4403)
+        return
     try:
-        while True:
-            text = await ws.receive_text()
-            try:
-                msg = json.loads(text)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(msg, dict) and msg.get("type") == "ping":
-                with contextlib.suppress(asyncio.QueueFull):
-                    client.queue.put_nowait({"type": "pong", "ts": iso_z()})
-    except WebSocketDisconnect:
-        pass
+        try:
+            token = await read_auth_token(ws)
+        except WSAuthError as e:
+            log.info("ws auth failed — closing 4401", extra={"reason": str(e)})
+            # client may already be gone mid-handshake — don't traceback on close
+            with contextlib.suppress(Exception):
+                await ws.close(code=4401)
+            return
+        p = resolve_token(token)
+        if token and not p.authenticated:
+            # reason only — NEVER the token value
+            log.info("ws auth failed — closing 4401",
+                     extra={"reason": "unresolvable token"})
+            with contextlib.suppress(Exception):
+                await ws.close(code=4401)
+            return
+        client = await manager.connect(ws, p.role)
+        pump = asyncio.create_task(manager.pump(client))
+        with contextlib.suppress(asyncio.QueueFull):
+            client.queue.put_nowait(ws.app.state.st.health_event())
+        try:
+            while True:
+                text = await ws.receive_text()
+                try:
+                    msg = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(msg, dict) and msg.get("type") == "ping":
+                    with contextlib.suppress(asyncio.QueueFull):
+                        client.queue.put_nowait({"type": "pong", "ts": iso_z()})
+        except WebSocketDisconnect:
+            pass
+        finally:
+            pump.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pump
+            await manager.disconnect(client)
     finally:
-        pump.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await pump
-        await manager.disconnect(client)
+        await manager.release_ip(ip)

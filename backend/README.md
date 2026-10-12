@@ -35,6 +35,18 @@ docker run -p 8000:8000 -e MQTT_HOST=host.docker.internal idb-backend
 `EDGE_ID` (edge1), `DB_PATH` (`data/app.db`),
 `CORS_ORIGIN` (`http://localhost:5173`), `LOG_LEVEL` (INFO).
 
+Rate limiting + WS admission (v4 T4, doc 16 row 7 — in-process token buckets,
+single replica):
+`RATE_COMMANDS_PER_TAG` (5 per `RATE_COMMANDS_WINDOW_S`=10 s, per user+tag;
+over → 429 + `Retry-After`), `RATE_MUTATIONS_PER_USER` (60 per
+`RATE_MUTATIONS_WINDOW_S`=60 s, non-command mutations),
+`RATE_WS_PER_IP` (20 concurrent `/ws` sockets per client IP; over → close
+4403), `ALLOWED_ORIGINS` (comma-separated WS Origin allowlist; unset/empty =
+same-origin only — the request Origin's host:port must equal the Host header;
+a missing Origin is allowed for non-browser clients; outside `APP_ENV=prod`,
+loopback↔loopback port mismatches are also allowed so a vite dev proxy on a
+random port still works).
+
 ## Auth (dev-only — NOT production security)
 
 `Authorization: Bearer <token>`:

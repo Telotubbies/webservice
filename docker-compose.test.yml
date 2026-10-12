@@ -5,3 +5,10 @@ services:
   postgres:
     ports:
       - "127.0.0.1:5433:5432"
+  backend:
+    environment:
+      # v4 T4: rate-limit envs pass through so a test run can shrink the
+      # buckets (tests probe until the configured limit, so any value works).
+      RATE_COMMANDS_PER_TAG: "${RATE_COMMANDS_PER_TAG:-5}"
+      RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-60}"
+      RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"

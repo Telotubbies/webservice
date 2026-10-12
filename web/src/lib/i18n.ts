@@ -149,6 +149,7 @@ const en = {
   common: { retry: 'Try again', loading: 'Loading', error: 'Something went wrong', close: 'Close' },
   errors: {
     load: 'Could not load data from the backend.', loadBody: 'Check that the backend is running, then try again.',
+    rateLimited: 'Rate limit reached — wait a few seconds and try again.',
   },
 };
 
@@ -295,6 +296,7 @@ const th: Dict = {
   common: { retry: 'ลองอีกครั้ง', loading: 'กำลังโหลด', error: 'เกิดข้อผิดพลาด', close: 'ปิด' },
   errors: {
     load: 'โหลดข้อมูลจากแบ็กเอนด์ไม่ได้', loadBody: 'ตรวจสอบว่าแบ็กเอนด์ทำงานอยู่ แล้วลองอีกครั้ง',
+    rateLimited: 'ส่งคำขอถี่เกินไป — รอสักครู่แล้วลองอีกครั้ง',
   },
 };
 

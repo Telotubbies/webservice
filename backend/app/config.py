@@ -22,6 +22,25 @@ V1_ORG_ID = UUID(os.environ.get("V1_ORG_ID", "0199d000-0000-7000-8000-00000000a0
 V1_SITE_ID = UUID(os.environ.get("V1_SITE_ID", "0199d000-0000-7000-8000-00000000b001"))
 V1_EDGE_ID = UUID(os.environ.get("V1_EDGE_ID", "0199d000-0000-7000-8000-00000000c001"))
 
+# --- rate limiting (v4 T4; doc 16 row 7) -----------------------------------
+# In-process token buckets (app/ratelimit.py) — per-process, single replica.
+RATE_COMMANDS_PER_TAG = int(os.environ.get("RATE_COMMANDS_PER_TAG", "5"))   # per window, per user+tag
+RATE_COMMANDS_WINDOW_S = float(os.environ.get("RATE_COMMANDS_WINDOW_S", "10"))
+RATE_MUTATIONS_PER_USER = int(os.environ.get("RATE_MUTATIONS_PER_USER", "60"))  # per window, per user
+RATE_MUTATIONS_WINDOW_S = float(os.environ.get("RATE_MUTATIONS_WINDOW_S", "60"))
+RATE_WS_PER_IP = int(os.environ.get("RATE_WS_PER_IP", "20"))                # concurrent /ws sockets per client IP
+
+# WS Origin allowlist (comma-separated origins, e.g. "https://ops.example.com").
+# Unset/empty -> same-origin only: the request Origin's host[:port] must match
+# the Host header. A missing Origin header is allowed — browsers always send
+# Origin on WebSocket upgrades, so its absence means a non-browser client
+# (curl, python-websockets, edge tooling) that cross-origin browser attacks
+# can't ride anyway. Documented decision (v4 T4).
+_origins = os.environ.get("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS: list[str] | None = [
+    o.strip() for o in _origins.split(",") if o.strip()
+] or None
+
 EDGE_STALE_AFTER_S = 15.0
 ALARM_FRESH_S = 15.0        # alarm engine ignores samples older than this (doc 16 / CONTRACT.v2 §6)
 HISTORY_MAX_AGE_S = 8 * 3600

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import uuid
 from uuid import UUID
 
@@ -44,11 +45,12 @@ FROM commands c JOIN users u ON u.id = c.actor_user_id
 
 
 class CommandManager:
-    def __init__(self, pools, ws, mqtt_bridge, registry):
+    def __init__(self, pools, ws, mqtt_bridge, registry, cmd_limiter=None):
         self.pools = pools
         self.ws = ws
         self.mqtt = mqtt_bridge
         self.registry = registry
+        self.cmd_limiter = cmd_limiter  # RateLimiter | None (per user+tag)
         self._timers: dict[UUID, asyncio.Task] = {}
 
     # ---------------------------------------------------------------- issue
@@ -73,6 +75,16 @@ class CommandManager:
                 tag.id, list(INFLIGHT))
             if active is not None:
                 return 409, {"detail": "command_in_flight", "active_command_id": str(active)}
+            if self.cmd_limiter is not None:
+                # Doc 16 gate 7 — deliberately run AFTER gate 8's in-flight
+                # check: a 409 retry must not burn the caller's command
+                # budget, or one in-flight command plus a few retries would
+                # starve the tag into 429s until timeout (v4 T4). Only the
+                # create path spends a token — replays and 409s are free.
+                if not await self.cmd_limiter.allow(f"{user_id}:{tag.id}"):
+                    retry = await self.cmd_limiter.retry_after(f"{user_id}:{tag.id}")
+                    return 429, {"detail": "rate_limited",
+                                 "retry_after_s": max(1, math.ceil(retry))}
             cid = uuid.uuid4()
             now = utcnow()
             try:
@@ -87,6 +99,10 @@ class CommandManager:
                 active = await tc.fetchval(
                     "SELECT id FROM commands WHERE tag_id=$1 AND status = ANY($2::text[])",
                     tag.id, list(INFLIGHT))
+                # lost the race — the burn above didn't create a command,
+                # so hand the token back before returning 409/200-replay
+                if self.cmd_limiter is not None:
+                    await self.cmd_limiter.refund(f"{user_id}:{tag.id}")
                 if active is None and idempotency_key:  # lost an idempotency race
                     row = await tc.fetchrow(
                         "SELECT id, status FROM commands WHERE actor_user_id=$1"

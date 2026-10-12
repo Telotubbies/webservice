@@ -75,16 +75,28 @@ def test_concurrent_same_tag_post_one_409(api, operator_headers):
     """09 §6.6: two clients POST to the same tag concurrently → one 201, one
     409 with active_command_id. No double-write allowed."""
     body = {"tag": TAGS["speed_sp"], "value": 25.0, "ttl_s": 30}
-    barrier = threading.Barrier(2)
-    results = []
 
-    def post():
-        barrier.wait()
-        r = api.post("/api/commands", headers=operator_headers, json=body)
-        results.append(r)
+    def exchange():
+        barrier = threading.Barrier(2)
+        results = []
 
-    t1, t2 = threading.Thread(target=post), threading.Thread(target=post)
-    t1.start(); t2.start(); t1.join(); t2.join()
+        def post():
+            barrier.wait()
+            results.append(api.post("/api/commands",
+                                    headers=operator_headers, json=body))
+
+        t1, t2 = threading.Thread(target=post), threading.Thread(target=post)
+        t1.start(); t2.start(); t1.join(); t2.join()
+        return results
+
+    results = exchange()
+    # v4 T4: a 429 loser just means the per-tag bucket was still draining from
+    # a prior suite's commands — wait out the window and rerun the exchange
+    if any(r.status_code == 429 for r in results):
+        ra = max(int(r.headers.get("retry-after", "5"))
+                 for r in results if r.status_code == 429)
+        time.sleep(min(ra + 2, 15))
+        results = exchange()
 
     codes = sorted(r.status_code for r in results)
     assert codes == [201, 409], f"expected one 201 + one 409, got {codes}"

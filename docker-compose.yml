@@ -94,6 +94,12 @@ services:
       <<: *pg-dsns
       APP_ENV: "${APP_ENV:-dev}"
       CORS_ORIGIN: http://localhost:5173
+      # v4 T4 — rate limiting + WS origin check (backend/app/config.py).
+      # ALLOWED_ORIGINS empty = same-origin only (Origin host must match Host).
+      RATE_COMMANDS_PER_TAG: "${RATE_COMMANDS_PER_TAG:-5}"
+      RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-60}"
+      RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
       TAGS_CONFIG: /config/tags.yaml
       ALARM_RULES_CONFIG: /config/alarm_rules.yaml
     volumes:

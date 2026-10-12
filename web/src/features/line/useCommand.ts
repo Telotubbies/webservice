@@ -43,6 +43,8 @@ export function useCommand() {
         setError(t('control.inFlight'));
         const active = (e.body as ConflictBody)?.active_command_id;
         if (active) setTrackedId(active);
+      } else if (e instanceof ApiError && e.status === 429) {
+        setError(t('errors.rateLimited'));
       } else if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
         setError(t('control.authFailed', { status: e.status }));
       } else {

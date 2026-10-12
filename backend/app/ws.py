@@ -13,6 +13,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 from fastapi import WebSocket
 
@@ -21,6 +22,48 @@ log = logging.getLogger("backend.ws")
 QUEUE_MAX = 256
 _DROP_LOG_EVERY = 50
 AUTH_TIMEOUT_S = 5.0
+
+
+_LOOPBACK = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _hostname(netloc: str) -> str:
+    h, sep, port = netloc.rpartition(":")
+    if sep and port.isdigit():
+        return h.strip("[]")
+    return netloc.strip("[]")
+
+
+def origin_allowed(origin: str | None, host: str | None,
+                   allowlist: list[str] | None, dev: bool = False) -> bool:
+    """WS Origin gate (v4 T4).
+
+    - No Origin header -> allowed: browsers always send Origin on a WebSocket
+      upgrade, so absence means a non-browser client (curl, python-websockets,
+      edge tooling). Cross-site WS hijacking needs a browser — which always
+      sends Origin — so this carve-out doesn't weaken the check.
+    - `allowlist` (ALLOWED_ORIGINS env) entries match the Origin exactly.
+    - Same-origin is always allowed: Origin's host[:port] == Host header.
+    - `dev` (APP_ENV != prod): loopback-to-loopback is allowed too — vite's
+      dev proxy rewrites Host but not Origin, so a dev-server page would
+      otherwise 4403 forever on a random port.
+    - Everything else (cross-origin, "null", unparseable) -> reject 4403.
+    """
+    if not origin:
+        return True
+    o = origin.strip().rstrip("/")
+    if allowlist and o in {a.strip().rstrip("/") for a in allowlist}:
+        return True
+    if not host:
+        return False
+    netloc = urlparse(o).netloc.lower()
+    host_l = host.strip().lower()
+    if netloc and netloc == host_l:
+        return True
+    if dev and netloc:
+        return (_hostname(netloc) in _LOOPBACK
+                and _hostname(host_l) in _LOOPBACK)
+    return False
 
 
 class WSAuthError(Exception):
@@ -73,7 +116,27 @@ class WSManager:
     def __init__(self) -> None:
         self._clients: set[Client] = set()
         self._lock = asyncio.Lock()
+        self._by_ip: dict[str, int] = {}
         self.total_dropped = 0
+
+    async def acquire_ip(self, ip: str, limit: int) -> bool:
+        """Reserve a per-IP slot counted at accept time (v4 T4). Sockets are
+        counted from accept — including pre-auth ones that will churn out in
+        ≤ AUTH_TIMEOUT_S — so a connect flood can't sit under the auth gate
+        uncounted. Pair every acquire with release_ip."""
+        async with self._lock:
+            if self._by_ip.get(ip, 0) >= limit:
+                return False
+            self._by_ip[ip] = self._by_ip.get(ip, 0) + 1
+            return True
+
+    async def release_ip(self, ip: str) -> None:
+        async with self._lock:
+            n = self._by_ip.get(ip, 0)
+            if n <= 1:
+                self._by_ip.pop(ip, None)
+            else:
+                self._by_ip[ip] = n - 1
 
     async def connect(self, ws: WebSocket, role: str) -> Client:
         # the endpoint accepts before connect() — the socket must be open

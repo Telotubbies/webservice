@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { live } from '../../lib/live';
 import { useNow } from '../../lib/hooks';
 import { fmtDuration } from '../../lib/format';
@@ -52,7 +52,9 @@ export function AlarmRows({ alarms, compact = false }: { alarms: Alarm[]; compac
       const updated = await api.ackAlarm(a.id) as Alarm;
       live.upsertAlarm(updated?.id ? updated : { ...a, state: 'acked' });
     } catch (e) {
-      setErr(t('alarms.ackFailed', { reason: e instanceof Error ? e.message : '?' }));
+      setErr(e instanceof ApiError && e.status === 429
+        ? t('errors.rateLimited')
+        : t('alarms.ackFailed', { reason: e instanceof Error ? e.message : '?' }));
     } finally {
       setBusyId(null);
     }
