@@ -441,8 +441,7 @@ class Security:
                                 close = 4403
                             else:
                                 self._authz[sub] = rec
-                                client.role = rec.org_roles.get(
-                                    config.V1_ORG_ID, Principal.ROLE_NONE)
+                                client.role = role
                                 client.org_roles = dict(rec.org_roles)
             if close is not None:
                 log.info("ws evicted by wds_authz", extra={"code": close})
@@ -513,8 +512,7 @@ class Security:
                     if roles.get(scope, Principal.ROLE_NONE) == Principal.ROLE_NONE:
                         close = 4403  # membership in the served org is gone
                     else:
-                        client.role = roles.get(
-                            config.V1_ORG_ID, Principal.ROLE_NONE)
+                        client.role = roles[scope]
                         client.org_roles = dict(roles)
             if close is not None:
                 log.info("ws evicted by authz sweep", extra={"code": close})
