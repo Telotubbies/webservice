@@ -6,8 +6,10 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
+import { api } from '../../lib/api';
 import { live } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
+import { ErrorState, Skeleton } from '../../shared/ui/Feedback';
 import { InsightChip } from '../../shared/ui/InsightChip';
 import { normSeverity } from '../../shared/ui/Status';
 import { useFaceplate } from '../faceplate/FaceplateContext';
@@ -36,6 +38,12 @@ export function InsightRail() {
   const { t } = useTranslation();
   const { openFaceplate } = useFaceplate();
   const open = useOpenInsights();
+  // consume the insights seed flags (T12 review — the flag was dead):
+  // pre-seed = skeleton chips, failed seed = error + retry, never a lie
+  // that the plant has "no insights" while the seed is still in flight.
+  useStore(() => live.seedRev);
+  const seeded = live.insightsSeeded;
+  const seedError = live.seedError;
   const trackRef = useRef<HTMLDivElement>(null);
   const positions = useRef(new Map<string, number>());
 
@@ -65,7 +73,15 @@ export function InsightRail() {
 
   return (
     <section className="insight-rail" aria-label={t('insights.title')}>
-      {open.length === 0 ? (
+      {!seeded && seedError ? (
+        <ErrorState
+          onRetry={() => void api.insights({ state: 'open' }).then((a) => live.setInsights(a)).catch(() => live.setSeedError())}
+        />
+      ) : !seeded ? (
+        <div className="insight-rail-track" aria-hidden>
+          {[0, 1].map((i) => <Skeleton key={i} w={220} h={40} />)}
+        </div>
+      ) : open.length === 0 ? (
         <p className="insight-rail-empty">{t('insights.empty')}</p>
       ) : (
         <div className="insight-rail-track" ref={trackRef}>

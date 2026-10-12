@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { createBrowserRouter, RouterProvider, useLocation, useNavigate } from 'react-router';
+import { createBrowserRouter, Navigate, RouterProvider, useLocation, useNavigate } from 'react-router';
 import { api } from './lib/api';
 import { live } from './lib/live';
 import { startWS, stopWS } from './lib/ws';
@@ -43,9 +43,12 @@ function useLiveBoot(tags: TagInfo[] | undefined) {
   useEffect(() => {
     if (!tags) return;
     live.setTags(tags);
-    void api.latestAll().then((rows) => rows.forEach((r) => live.pushTag(r.name, r.v, r.q, r.ts))).catch(() => {});
-    void api.alarms().then((a) => live.setAlarms(a)).catch(() => {});
-    void api.insights({ state: 'open' }).then((a) => live.setInsights(a)).catch(() => {});
+    // a failed boot seed flips live.seedError — panels show an error state
+    // with retry instead of skeletons that never resolve (T12 review)
+    void api.latestAll().then((rows) => rows.forEach((r) => live.pushTag(r.name, r.v, r.q, r.ts)))
+      .catch(() => live.setSeedError());
+    void api.alarms().then((a) => live.setAlarms(a)).catch(() => live.setSeedError());
+    void api.insights({ state: 'open' }).then((a) => live.setInsights(a)).catch(() => live.setSeedError());
   }, [tags]);
 
   useEffect(() => {
@@ -95,6 +98,9 @@ function AuthedApp() {
   const q = useQuery({ queryKey: ['tags'], queryFn: api.tags, staleTime: 60_000 });
   useLiveBoot(q.data);
   useEffect(() => { void refreshSession(); }, []);
+  // a failed /api/tags leaves tagsSeeded false forever — surface it as an
+  // error on the seed-dependent panels, not endless skeletons (T12 review)
+  useEffect(() => { if (q.isError) live.setSeedError(); }, [q.isError]);
   return <Shell />;
 }
 
@@ -143,6 +149,10 @@ function Boot() {
 // RouteError on the root is the last-resort catch for boot/lazy failures.
 const B = (el: JSX.Element) => <RouteBoundary>{el}</RouteBoundary>;
 
+// The deliberate-crash route exists for UAT only: dev servers and the
+// test-overlay image (VITE_CRASH_TEST=1 build arg) get it; prod builds don't.
+const CRASH_TEST = import.meta.env.DEV || import.meta.env.VITE_CRASH_TEST === '1';
+
 const router = createBrowserRouter([
   {
     element: <Boot />,
@@ -163,8 +173,10 @@ const router = createBrowserRouter([
       { path: 'admin/users', element: B(<UsersPage />) },
       { path: 'admin/audit', element: B(<AuditPage />) },
       // v4 T12 UAT hook — a route that throws on render so the boundary's
-      // recovery UI can be asserted end-to-end
-      { path: 'crash-test', element: B(<CrashProbe />) },
+      // recovery UI can be asserted end-to-end. Dev builds and the test
+      // image (docker-compose.test.yml sets VITE_CRASH_TEST=1) expose it;
+      // production redirects instead of shipping a crash-on-demand route.
+      { path: 'crash-test', element: CRASH_TEST ? B(<CrashProbe />) : <Navigate to="/" replace /> },
       // OIDC redirect targets — Boot handles them before the children render
       { path: 'auth/callback', element: null },
       { path: 'auth/silent-callback', element: null },

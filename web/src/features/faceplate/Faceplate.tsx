@@ -54,11 +54,16 @@ export function FaceplatePanel() {
     return () => window.clearTimeout(t);
   }, [activeTag, rendered]);
 
-  // Esc closes — unless a modal dialog (e.g. ConfirmCommand) is open on top.
+  // Esc closes — unless a focus-tier layer is on top: a native <dialog>
+  // (ConfirmCommand) OR the ⌘K palette / ? overlay (both .palette-panel).
+  // Without the panel check one Esc would close palette AND faceplate
+  // (T12 review: single-Esc single-layer rule).
   useEffect(() => {
     if (!activeTag) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('dialog[open]')) closeFaceplate();
+      if (e.key === 'Escape' && !document.querySelector('dialog[open], .palette-panel')) {
+        closeFaceplate();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

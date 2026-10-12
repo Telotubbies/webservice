@@ -76,7 +76,9 @@ export function Shell() {
   const kiosk = new URLSearchParams(loc.search).get('kiosk') === '1';
   useEffect(() => {
     mainRef.current?.toggleAttribute('inert', kiosk);
-    if (kiosk) { palette.close(); setHelpOpen(false); }
+    // every overlay lives outside .main's inert scope — shut them all on
+    // entry so nothing interactive leaks onto the wallboard (T12 review)
+    if (kiosk) { palette.close(); setHelpOpen(false); setSignInOpen(false); }
   }, [kiosk]);
 
   // ⌘K / Ctrl+K palette + ? shortcuts overlay. The palette's open/close signal
@@ -88,7 +90,8 @@ export function Shell() {
       const el = document.activeElement as HTMLElement | null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
         || el.tagName === 'SELECT' || el.isContentEditable);
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k'
+          && !document.querySelector('dialog[open]')) {
         e.preventDefault();
         palette.toggle();
       } else if (e.key === '?' && !typing && !palette.isOpen()

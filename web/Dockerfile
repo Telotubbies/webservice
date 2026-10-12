@@ -8,6 +8,10 @@ WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile
 COPY . .
+# UAT-only /crash-test route (v4 T12): baked in when the test overlay passes
+# VITE_CRASH_TEST=1; plain `docker compose` builds ship without it.
+ARG VITE_CRASH_TEST=
+ENV VITE_CRASH_TEST=$VITE_CRASH_TEST
 RUN bun run build
 
 FROM nginx:1.27-alpine

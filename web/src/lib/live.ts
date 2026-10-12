@@ -29,10 +29,12 @@ class LiveStore {
 
   /** cold-start flags (v4 T12): false until the first REST seed lands —
    *  pages show shaped skeletons before this, never an "empty" state that
-   *  would lie about the plant being quiet. */
+   *  would lie about the plant being quiet. seedError flips when a boot
+   *  fetch fails so panels surface an error instead of skeletons forever. */
   tagsSeeded = false;
   alarmsSeeded = false;
   insightsSeeded = false;
+  seedError = false;
 
   /** bumped on every flush that touched tag data */
   version = 0;
@@ -42,6 +44,7 @@ class LiveStore {
   healthRev = 0;
   wsRev = 0;
   tagRev = 0;
+  seedRev = 0; // bumped when seedError flips
   authRev = 0; // bumped when the bearer token changes (re-render role gates)
 
   private listeners = new Set<Listener>();
@@ -70,14 +73,34 @@ class LiveStore {
     this.scheduleFlush();
   }
 
+  /** Boot-seed failure marker — set by the boot fetch .catch() arms, cleared
+   *  by the next successful seed of any domain (or an explicit retry). */
+  setSeedError() {
+    if (this.seedError) return;
+    this.seedError = true;
+    this.seedRev++;
+    this.poke();
+  }
+
+  private clearSeedError() {
+    if (!this.seedError) return;
+    this.seedError = false;
+    this.seedRev++;
+  }
+
   setTags(tags: TagInfo[]) {
     this.tags = tags;
     this.tagsSeeded = true;
     this.tagRev++;
+    this.clearSeedError();
     this.poke();
   }
 
   pushTag(name: string, v: number | boolean, q: Quality, ts: string) {
+    // a WS tag push is live data too — first push ends the cold-start
+    // skeleton even if the REST seed hasn't landed yet (T12 review)
+    if (!this.tagsSeeded) { this.tagsSeeded = true; this.tagRev++; }
+    this.clearSeedError();
     this.latest.set(name, { v, q, ts });
     const num = typeof v === 'boolean' ? (v ? 1 : 0) : v;
     let buf = this.buffers.get(name);
@@ -91,6 +114,8 @@ class LiveStore {
   }
 
   upsertAlarm(a: Alarm) {
+    if (!this.alarmsSeeded) this.alarmsSeeded = true; // WS push seeds too
+    this.clearSeedError();
     const i = this.alarms.findIndex((x) => x.id === a.id);
     if (i >= 0) this.alarms[i] = { ...this.alarms[i], ...a };
     else this.alarms.unshift(a);
@@ -104,10 +129,13 @@ class LiveStore {
     this.alarms = alarms;
     this.alarmsSeeded = true;
     this.alarmRev++;
+    this.clearSeedError();
     this.poke();
   }
 
   mergeInsight(i: Insight) {
+    if (!this.insightsSeeded) this.insightsSeeded = true; // WS push seeds too
+    this.clearSeedError();
     const idx = this.insights.findIndex((x) => x.id === i.id);
     if (idx >= 0) this.insights[idx] = { ...this.insights[idx], ...i };
     else this.insights.unshift(i);
@@ -121,6 +149,7 @@ class LiveStore {
     this.insights = insights;
     this.insightsSeeded = true;
     this.insightRev++;
+    this.clearSeedError();
     this.poke();
   }
 

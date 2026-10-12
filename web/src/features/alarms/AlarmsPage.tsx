@@ -1,7 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
+import { api } from '../../lib/api';
+import { useStore } from '../../lib/hooks';
 import { live } from '../../lib/live';
-import { EmptyState, Skeleton } from '../../shared/ui/Feedback';
+import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
 import { normSeverity } from '../../shared/ui/Status';
 import { AlarmRows } from './AlarmRows';
@@ -14,6 +16,7 @@ export function AlarmsPage() {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const { all } = useAlarms();
+  useStore(() => live.seedRev); // re-render when a boot seed fails/clears
   const state = (params.get('state') as StateFilter) || 'all';
   const sev = (params.get('sev') as SevFilter) || 'any';
   const set = (k: string, v: string, dflt: string) => {
@@ -53,10 +56,15 @@ export function AlarmsPage() {
           />
         </div>
         <div className="panel-body flush">
-          {/* cause-specific empties (v4 T12): pre-seed = skeleton rows;
+          {/* cause-specific states (v4 T12): pre-seed = skeleton rows;
+              failed seed = error + retry (never skeletons forever);
               truly zero alarms = cold-start copy; filters that exclude
               everything = filtered-empty copy that points at the filters. */}
-          {!live.alarmsSeeded ? (
+          {!live.alarmsSeeded && live.seedError ? (
+            <ErrorState
+              onRetry={() => void api.alarms().then((a) => live.setAlarms(a)).catch(() => live.setSeedError())}
+            />
+          ) : !live.alarmsSeeded ? (
             <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
               {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} h={28} />)}
             </div>

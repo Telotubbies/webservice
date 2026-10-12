@@ -31,6 +31,15 @@ services:
     secrets:
       - tester_pw
 
+  web:
+    # bake the UAT-only /crash-test route into the test image (v4 T12) —
+    # the boundary's recovery UI is asserted e2e through it; prod builds
+    # (no overlay) get the redirect instead.
+    build:
+      context: ./web
+      args:
+        VITE_CRASH_TEST: "1"
+
 secrets:
   tester_pw:
     file: ./infra/secrets/tester_pw

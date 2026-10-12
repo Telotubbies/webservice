@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 import { useNow, useStore } from '../../lib/hooks';
 import { live } from '../../lib/live';
 import { T } from '../../lib/plant';
-import { EmptyState, Skeleton } from '../../shared/ui/Feedback';
+import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
 import { AlarmRows } from '../alarms/AlarmRows';
 import { useAlarms } from '../alarms/alarms';
 import { LineSchematic } from '../line/LineSchematic';
@@ -55,10 +55,13 @@ export function OverviewPage() {
   const now = useNow(1000);
   const limits = useLimits();
   const { open } = useAlarms();
-  // cold-start: skeleton tiles/rows until the first REST seed lands
+  // cold-start: skeleton tiles/rows until the first REST seed lands —
+  // a failed seed surfaces an error + retry instead (T12 review)
   useStore(() => live.tagRev);
+  useStore(() => live.seedRev);
   const seeded = live.tagsSeeded;
   const alarmsSeeded = live.alarmsSeeded;
+  const seedError = live.seedError;
 
   return (
     <>
@@ -81,9 +84,15 @@ export function OverviewPage() {
         </section>
 
         <section className="kpi-grid" aria-label={t('overview.title')}>
-          {!seeded
-            ? KPIS.map((name) => <TileSkeleton key={name} />)
-            : KPIS.map((name) => <MetricTile key={name} name={name} band={limits.get(name)} now={now} />)}
+          {!seeded && seedError ? (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <ErrorState onRetry={() => void api.tags().then((rows) => live.setTags(rows)).catch(() => live.setSeedError())} />
+            </div>
+          ) : !seeded ? (
+            KPIS.map((name) => <TileSkeleton key={name} />)
+          ) : (
+            KPIS.map((name) => <MetricTile key={name} name={name} band={limits.get(name)} now={now} />)
+          )}
         </section>
 
         {/* Equipment list and the insights mini-feed were cut (T11): the rail
@@ -96,7 +105,9 @@ export function OverviewPage() {
             <div className="tools"><Link to="/alarms" className="btn btn-sm btn-ghost">{t('shell.viewAlarms')}</Link></div>
           </header>
           <div className="panel-body flush">
-            {!alarmsSeeded && open.length === 0 ? (
+            {!alarmsSeeded && seedError ? (
+              <ErrorState onRetry={() => void api.alarms().then((a) => live.setAlarms(a)).catch(() => live.setSeedError())} />
+            ) : !alarmsSeeded && open.length === 0 ? (
               <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
                 {[0, 1, 2].map((i) => <Skeleton key={i} h={28} />)}
               </div>

@@ -84,6 +84,8 @@ function useItems(): Item[] {
   }, [t, role, navigate, openFaceplate, live.tagRev]);
 }
 
+const GROUP_ORDER: Group[] = ['nav', 'equip', 'tag'];
+
 export function CommandPalette() {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
@@ -93,23 +95,33 @@ export function CommandPalette() {
   const listRef = useRef<HTMLUListElement>(null);
   const items = useItems();
 
-  const results = useMemo(() => {
+  // scored then PARTITIONED by group (fixed group order) — interleaved
+  // scores must never emit the same group header twice (T12 review)
+  const { flat, sections } = useMemo(() => {
     const needle = query.trim();
-    if (!needle) return items.filter((i) => i.group !== 'tag'); // tags flood an empty query
-    return items
-      .map((i) => {
-        const s = Math.max(fuzzy(needle, i.label) ?? -1, fuzzy(needle, i.hint ?? '') ?? -1);
-        return { i, s };
-      })
-      .filter((r) => r.s >= 0)
-      .sort((a, b) => b.s - a.s)
-      .slice(0, 12)
-      .map((r) => r.i);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const scored = !needle
+      ? items.filter((i) => i.group !== 'tag').map((i) => ({ i, s: 0 })) // tags flood an empty query
+      : items
+        .map((i) => ({
+          i,
+          s: Math.max(fuzzy(needle, i.label) ?? -1, fuzzy(needle, i.hint ?? '') ?? -1),
+        }))
+        .filter((r) => r.s >= 0)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 12);
+    const byGroup = new Map<Group, Item[]>();
+    for (const r of scored) {
+      const arr = byGroup.get(r.i.group) ?? [];
+      arr.push(r.i);
+      byGroup.set(r.i.group, arr);
+    }
+    const secs = GROUP_ORDER.filter((g) => byGroup.has(g))
+      .map((g) => ({ group: g, items: byGroup.get(g)! }));
+    return { flat: secs.flatMap((s) => s.items), sections: secs };
   }, [query, items]);
 
   // clamp the active row when the result set shrinks
-  useEffect(() => setActive((a) => Math.min(a, Math.max(0, results.length - 1))), [results.length]);
+  useEffect(() => setActive((a) => Math.min(a, Math.max(0, flat.length - 1))), [flat.length]);
 
   // focus capture on open, return on unmount — replaces the T11 placeholder
   // focus handling in the Shell (a11y: trap lives on keydown below)
@@ -119,10 +131,12 @@ export function CommandPalette() {
     return () => prev?.focus();
   }, []);
 
-  // keep the active option in view while arrowing
+  // keep the active option in view while arrowing (group headers offset the
+  // children index, so look the row up by its active class instead)
   useEffect(() => {
-    listRef.current?.children[active]?.scrollIntoView({ block: 'nearest' });
-  }, [active]);
+    listRef.current?.querySelector('.palette-option.is-active')
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [active, flat]);
 
   const pick = (i: Item) => {
     palette.close();
@@ -132,12 +146,18 @@ export function CommandPalette() {
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      if (results.length === 0) return;
-      setActive((a) => (a + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length);
+      if (flat.length === 0) return;
+      setActive((a) => (a + (e.key === 'ArrowDown' ? 1 : -1) + flat.length) % flat.length);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const sel = results[active];
+      const sel = flat[active];
       if (sel) pick(sel);
+    } else if (e.key === 'Escape') {
+      // the palette is the top layer — consume the key so the faceplate's
+      // own window Esc handler doesn't also fire (single-Esc single-layer)
+      e.preventDefault();
+      e.stopPropagation();
+      palette.close();
     } else if (e.key === 'Tab') {
       // focus trap: the only stops are the input and the option buttons —
       // wrap around in both directions
@@ -152,8 +172,7 @@ export function CommandPalette() {
   };
 
   const groupKey = (g: Group) => (g === 'nav' ? 'palette.pages' : g === 'equip' ? 'palette.equipment' : 'palette.signals');
-  // group headers rendered inline before the first item of each group
-  let lastGroup: Group | null = null;
+  let idx = -1; // running flat index across sections for active-state mapping
 
   return (
     <div className="palette-scrim" onClick={() => palette.close()}>
@@ -168,43 +187,44 @@ export function CommandPalette() {
           <input
             ref={inputRef} type="text" className="palette-input"
             role="combobox" aria-expanded="true" aria-controls="palette-list"
-            aria-activedescendant={results[active] ? `palette-opt-${results[active].id}` : undefined}
+            aria-autocomplete="list"
+            aria-activedescendant={flat[active] ? `palette-opt-${flat[active].id}` : undefined}
             placeholder={t('palette.placeholder')} aria-label={t('palette.open')}
             value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }}
           />
           <kbd className="kbd" aria-hidden>esc</kbd>
         </div>
         <ul id="palette-list" className="palette-list" role="listbox" ref={listRef}>
-          {results.length === 0 && (
+          {flat.length === 0 && (
             <li className="palette-empty" role="option" aria-selected="false">
               {t('palette.noMatch', { q: query })}
             </li>
           )}
-          {results.map((i, idx) => {
-            const header = i.group !== lastGroup
-              ? <li className="palette-group" aria-hidden>{t(groupKey(i.group))}</li>
-              : null;
-            lastGroup = i.group;
-            return (
-              <Fragment key={i.id}>
-                {header}
-                <li style={{ display: 'contents' }}>
-                  <button
-                    type="button" id={`palette-opt-${i.id}`} role="option"
-                    aria-selected={idx === active}
-                    className={`palette-option${idx === active ? ' is-active' : ''}`}
-                    data-item={i.id}
-                    onMouseEnter={() => setActive(idx)}
-                    onClick={() => pick(i)}
-                  >
-                    <Icon name={i.icon} size={18} />
-                    <span className="palette-label">{i.label}</span>
-                    {i.hint && <span className="palette-hint">{i.hint}</span>}
-                  </button>
-                </li>
-              </Fragment>
-            );
-          })}
+          {sections.map((sec) => (
+            <Fragment key={sec.group}>
+              <li className="palette-group" aria-hidden>{t(groupKey(sec.group))}</li>
+              {sec.items.map((i) => {
+                idx += 1;
+                const row = idx;
+                return (
+                  <li key={i.id} style={{ display: 'contents' }}>
+                    <button
+                      type="button" id={`palette-opt-${i.id}`} role="option"
+                      aria-selected={row === active}
+                      className={`palette-option${row === active ? ' is-active' : ''}`}
+                      data-item={i.id}
+                      onMouseEnter={() => setActive(row)}
+                      onClick={() => pick(i)}
+                    >
+                      <Icon name={i.icon} size={18} />
+                      <span className="palette-label">{i.label}</span>
+                      {i.hint && <span className="palette-hint">{i.hint}</span>}
+                    </button>
+                  </li>
+                );
+              })}
+            </Fragment>
+          ))}
         </ul>
         <div className="palette-foot">{t('palette.footer')}</div>
       </div>
@@ -223,6 +243,9 @@ export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
     panelRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+      // the overlay has no focusable children — keep Tab on the panel so
+      // focus can't escape behind the modal (aria-modal contract)
+      if (e.key === 'Tab') { e.preventDefault(); panelRef.current?.focus(); }
     };
     window.addEventListener('keydown', onKey);
     return () => { window.removeEventListener('keydown', onKey); prev?.focus(); };

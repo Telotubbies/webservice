@@ -155,6 +155,16 @@ try {
   ok('cmdk: equipment jump opens faceplate',
     await page.locator('.faceplate').count() === 1
     && !!new URL(page.url()).searchParams.get('fp'), page.url());
+  // single-Esc single-layer (T12 review): palette over faceplate — one Esc
+  // closes only the palette; the faceplate must still be mounted
+  await page.keyboard.press('Control+k');
+  await sleep(300);
+  ok('cmdk: palette over faceplate', await page.locator('.palette-panel').count() === 1);
+  await page.keyboard.press('Escape');
+  await sleep(400);
+  ok('cmdk: Esc closes palette only, faceplate survives',
+    await page.locator('.palette-panel').count() === 0
+    && await page.locator('.faceplate').count() === 1);
   await page.locator('.faceplate .icon-btn').first().click();
   await sleep(500);
   // '?' opens the shortcuts overlay listing the bindings; Esc closes it
@@ -466,7 +476,16 @@ try {
     p2.on('console', m => { if (m.type() === 'error' && !isProbeErr(m.text())) consoleErrs.push(m.text()); });
     p2.on('response', r => { if (r.status() >= 400) badResponses.push(`${r.status()} ${r.url()}`); });
     try {
-      await p2.route('**/api/tags', async (route) => { await sleep(1800); await route.continue(); });
+      // delay only the FIRST /api/tags request so the skeleton is observable;
+      // swallow continue() errors — a request can abort/navigate mid-delay
+      // ("Route is already handled" raced this suite before)
+      let tagsDelayed = false;
+      await p2.route('**/api/tags', async (route) => {
+        const delay = tagsDelayed ? 0 : 1800;
+        tagsDelayed = true;
+        await sleep(delay);
+        await route.continue().catch(() => {});
+      });
       await p2.goto(BASE, { waitUntil: 'domcontentloaded' });
       await p2.waitForSelector('.token-input', { timeout: 20000 });
       await p2.fill('.token-input', 'demo-operator');
