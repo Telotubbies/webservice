@@ -600,12 +600,18 @@ async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     try:
         token = await read_auth_token(ws)
-    except WSAuthError:
-        await ws.close(code=4401)
+    except WSAuthError as e:
+        log.info("ws auth failed — closing 4401", extra={"reason": str(e)})
+        # client may already be gone mid-handshake — don't traceback on close
+        with contextlib.suppress(Exception):
+            await ws.close(code=4401)
         return
     p = resolve_token(token)
     if token and not p.authenticated:
-        await ws.close(code=4401)
+        # reason only — NEVER the token value
+        log.info("ws auth failed — closing 4401", extra={"reason": "unresolvable token"})
+        with contextlib.suppress(Exception):
+            await ws.close(code=4401)
         return
     manager: WSManager = ws.app.state.st.ws
     client = await manager.connect(ws, p.role)

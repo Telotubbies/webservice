@@ -48,9 +48,14 @@ GET    /api/audit?action=&user=&from&to  — audit trail (auth: admin)
 ## 2. WebSocket `/ws`
 
 ```
-ws://api.example.com/ws?token=<jwt>        ← operator (full stream)
-ws://api.example.com/ws                    ← public (telemetry + alarms เท่านั้น)
+ws://api.example.com/ws                    ← connect (all clients)
+→ first frame {"type":"auth","token":"<jwt>"}  ← operator (full stream)
+→ first frame {"type":"auth"}                  ← public (telemetry + alarms เท่านั้น)
 ```
+
+The token rides in the first client frame, never `?token=` — query strings
+leak into access logs and proxy traces (v4 T3). The server closes **4401**
+on a non-auth first frame, an unresolvable token, or no frame within 5 s.
 
 ### Server → Client messages
 

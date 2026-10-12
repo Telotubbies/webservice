@@ -14,7 +14,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 log = logging.getLogger("backend.ws")
 
@@ -32,21 +32,32 @@ async def read_auth_token(ws: WebSocket) -> str:
 
     The token moved out of `?token=` (v4 T3) — query strings end up in
     access logs and proxy traces. Anything that isn't {"type":"auth"} on the
-    first frame — a data frame sent pre-auth, malformed JSON, or silence
-    past AUTH_TIMEOUT_S — raises WSAuthError; the endpoint closes 4401.
+    first frame — a data frame sent pre-auth, a BINARY frame (receive_text
+    raises KeyError on one; receive() is used so it's a clean WSAuthError),
+    malformed JSON, disconnect, or silence past AUTH_TIMEOUT_S — raises
+    WSAuthError; the endpoint closes 4401.
     """
     try:
-        raw = await asyncio.wait_for(ws.receive_text(), timeout=AUTH_TIMEOUT_S)
-    except (asyncio.TimeoutError, WebSocketDisconnect) as e:
+        message = await asyncio.wait_for(ws.receive(), timeout=AUTH_TIMEOUT_S)
+    except asyncio.TimeoutError as e:
         raise WSAuthError("no auth frame") from e
+    # websocket.disconnect, or a receive carrying bytes instead of text
+    if message.get("type") != "websocket.receive" or not isinstance(
+        message.get("text"), str
+    ):
+        raise WSAuthError("first frame not a text frame")
     try:
-        msg = json.loads(raw)
+        msg = json.loads(message["text"])
     except json.JSONDecodeError as e:
         raise WSAuthError("auth frame not JSON") from e
     if not isinstance(msg, dict) or msg.get("type") != "auth":
         raise WSAuthError("first frame not auth")
     token = msg.get("token", "")
-    return token if isinstance(token, str) else ""
+    # enforced now, not just at T5: a malformed token type must be an auth
+    # failure (4401), never silently coerced to anonymous
+    if not isinstance(token, str):
+        raise WSAuthError("token not a string")
+    return token
 
 
 @dataclass(eq=False)  # identity hash — instances live in a set

@@ -120,6 +120,37 @@ def test_ws_bad_token_closes_4401(ws_base):
     assert code == 4401, f"bad token should close 4401, got {code}"
 
 
+def test_ws_non_string_token_closes_4401(ws_base):
+    """A malformed token type (number/object/bool) is an auth failure —
+    never silently coerced to anonymous."""
+    async def run():
+        websockets = pytest.importorskip("websockets")
+        try:
+            async with websockets.connect(f"{ws_base}/ws", open_timeout=10) as ws:
+                await ws.send(json.dumps({"type": "auth", "token": 123}))
+                while True:
+                    await asyncio.wait_for(ws.recv(), timeout=15)
+        except Exception as e:
+            return _close_code(e)
+        return None
+    assert asyncio.run(run()) == 4401
+
+
+def test_ws_binary_first_frame_closes_4401(ws_base):
+    """A binary first frame is not an auth frame -> clean 4401, no traceback."""
+    async def run():
+        websockets = pytest.importorskip("websockets")
+        try:
+            async with websockets.connect(f"{ws_base}/ws", open_timeout=10) as ws:
+                await ws.send(b'{"type":"auth"}')  # bytes -> binary frame
+                while True:
+                    await asyncio.wait_for(ws.recv(), timeout=15)
+        except Exception as e:
+            return _close_code(e)
+        return None
+    assert asyncio.run(run()) == 4401
+
+
 def test_ws_auth_timeout_closes(ws_base):
     """No auth frame inside the 5 s window -> server closes 4401."""
     code = asyncio.run(_close_code_after(f"{ws_base}/ws", first_frame=None))
@@ -167,35 +198,49 @@ def test_ws_operator_receives_command_events(ws_base, operator_headers, api):
     assert statuses[-1] in ("done", "denied", "failed"), statuses
 
 
+async def _command_leak_probe(ws_url, auth_frame, operator_headers, api):
+    """Connect, send `auth_frame`, fire one command, report leaked events."""
+    websockets = pytest.importorskip("websockets")
+    leaked = []
+    async with websockets.connect(ws_url, open_timeout=10) as ws:
+        await ws.send(json.dumps(auth_frame))
+        api.post("/api/commands", headers=operator_headers,
+                 json={"tag": TAGS["speed_sp"], "value": 22.0,
+                       "idempotency_key": f"wsanon-{uuid.uuid4()}", "ttl_s": 20})
+        end = asyncio.get_event_loop().time() + 8
+        while asyncio.get_event_loop().time() < end:
+            try:
+                raw = await asyncio.wait_for(
+                    ws.recv(), timeout=max(0.05, end - asyncio.get_event_loop().time())
+                )
+            except asyncio.TimeoutError:
+                break
+            e = json.loads(raw)
+            if e.get("type") == "command":
+                leaked.append(e)
+    return leaked
+
+
 def test_ws_anonymous_no_command_events(ws_base, operator_headers, api):
     """09 §7 security test: WS '*' must not leak command events to anonymous.
 
     NOTE: 06 §2 restricts public streams to tag/tags/alarm/health. CONTRACT.md
     does not state this explicitly — flagged DIVERGENCE; failure here is a
     red-team finding, not necessarily a contract violation."""
-    async def run():
-        websockets = pytest.importorskip("websockets")
-        leaked = []
-        async with websockets.connect(f"{ws_base}/ws", open_timeout=10) as ws:
-            await ws.send(json.dumps({"type": "auth"}))
-            api.post("/api/commands", headers=operator_headers,
-                     json={"tag": TAGS["speed_sp"], "value": 22.0,
-                           "idempotency_key": f"wsanon-{uuid.uuid4()}", "ttl_s": 20})
-            end = asyncio.get_event_loop().time() + 8
-            while asyncio.get_event_loop().time() < end:
-                try:
-                    raw = await asyncio.wait_for(
-                        ws.recv(), timeout=max(0.05, end - asyncio.get_event_loop().time())
-                    )
-                except asyncio.TimeoutError:
-                    break
-                e = json.loads(raw)
-                if e.get("type") == "command":
-                    leaked.append(e)
-        return leaked
-
-    leaked = asyncio.run(run())
+    leaked = asyncio.run(
+        _command_leak_probe(f"{ws_base}/ws", {"type": "auth"},
+                            operator_headers, api))
     assert not leaked, f"anonymous WS leaked command events: {leaked}"
+
+
+def test_ws_url_token_is_inert(ws_base, operator_headers, api):
+    """v4 T3 regression: ?token= in the URL must NOT authenticate — the
+    first-frame auth is the only credential channel. A valid token in the
+    URL + an anonymous auth frame stays anonymous -> no command events."""
+    leaked = asyncio.run(
+        _command_leak_probe(f"{ws_base}/ws?token={OPERATOR_TOKEN}",
+                            {"type": "auth"}, operator_headers, api))
+    assert not leaked, f"?token= authenticated a URL — leaked: {leaked}"
 
 
 def test_ws_auth_expired_shape_documented(ws_base):
@@ -220,7 +265,11 @@ def test_nginx_access_log_drops_query_string():
     assert not re.search(r"\$request\b", conf), \
         "nginx.conf logs $request — query string would hit access logs"
     assert "$request_uri" not in conf
-    assert re.search(r"log_format\s+\w+", conf), \
-        "expected a custom log_format; default 'combined' logs $request"
-    assert re.search(r"access_log\s+\S+\s+\w+", conf), \
-        "expected access_log to name a format"
+    # the named access_log format must resolve to a log_format whose body
+    # logs $uri (path only) — `access_log ... combined;` must not pass
+    m = re.search(r"access_log\s+\S+\s+(\w+)", conf)
+    assert m, "expected access_log to name a format"
+    fm = re.search(rf"log_format\s+{m.group(1)}\b([^;]*);", conf, re.S)
+    assert fm, f"access_log references undefined log_format '{m.group(1)}'"
+    assert "$uri" in fm.group(1), \
+        f"log_format '{m.group(1)}' does not log $uri (path only)"
