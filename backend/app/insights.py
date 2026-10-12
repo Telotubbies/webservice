@@ -87,7 +87,11 @@ class TagStats:
     streak: int = 0                        # consecutive out-of-band samples
     streak_first: datetime | None = None
     streak_zmax: float = 0.0
-    pending_first: datetime | None = None  # streak hit OPEN_N mid-batch
+    # armed episode snapshot [first_ts, last_offense_ts, zmax] — set the
+    # moment a streak hits OPEN_N (which can happen mid-batch), consumed by
+    # the next evaluation pass
+    pending: list | None = None
+    open_anomaly: bool = False             # DB row currently open (per pass)
     inband: int = 0                        # consecutive non-offending samples
     ep_zmax: float = 0.0                   # max |z| of the open episode
     ep_last_offense: datetime | None = None
@@ -109,6 +113,50 @@ FROM insights
 """
 
 
+def drift_detect(points, sigma_b: float, deadband_min: float):
+    """OLS slope over the good-sample window (doc 19 §4.1 `drift` row).
+
+    `points` = [(ts, v)] oldest->newest inside the drift window.
+    Returns (triggered, score, slope_per_s, residual_sigma)."""
+    if len(points) < _DRIFT_MIN_N or sigma_b <= 0:
+        return False, 0.0, 0.0, 0.0
+    t0 = points[0][0]
+    xs = [(t - t0).total_seconds() for t, _ in points]
+    span = xs[-1]
+    if span < _DRIFT_MIN_SPAN_S:   # too little post-start data to call a trend
+        return False, 0.0, 0.0, 0.0
+    ys = [v for _, v in points]
+    n = len(xs)
+    sx, sy = sum(xs), sum(ys)
+    sxx = sum(x * x for x in xs)
+    sxy = sum(x * y for x, y in zip(xs, ys))
+    denom = n * sxx - sx * sx
+    if denom <= 0:
+        return False, 0.0, 0.0, 0.0
+    xbar, ybar = sx / n, sy / n
+    slope = (n * sxy - sx * sy) / denom
+    resid = math.sqrt(max(
+        sum((y - (ybar + slope * (x - xbar))) ** 2 for x, y in zip(xs, ys)) / n,
+        0.0))
+    thresh = max(deadband_min, 0.5 * sigma_b) / 600.0      # "per 10 min" rate
+    on = abs(slope) > thresh and resid < 0.5 * sigma_b
+    return on, abs(slope) * span / sigma_b, slope, resid
+
+
+def flatline_on(now: datetime, last_good_ts: datetime | None,
+                last_change_ts: datetime | None, flat_n: int,
+                peer_moved: bool) -> bool:
+    """Zero variance for INSIGHT_FLAT_S on a tag that still samples, while
+    >=1 peer moved — the sensor-stuck suspicion (doc 19 §4.1)."""
+    return (
+        last_good_ts is not None
+        and last_change_ts is not None
+        and (now - last_good_ts).total_seconds() <= config.ALARM_FRESH_S
+        and (now - last_change_ts).total_seconds() >= config.INSIGHT_FLAT_S
+        and flat_n >= 2
+        and peer_moved)
+
+
 class InsightEngine:
     def __init__(self, pools, ws, registry):
         self.pools = pools
@@ -116,6 +164,9 @@ class InsightEngine:
         self.registry = registry
         self.started_at = utcnow()
         self._tags: dict[UUID, TagStats] = {}
+        # evaluate_once is also called by tests to force a pass — serialize
+        # so a concurrent call can't double-process a batch of rows.
+        self._lock = asyncio.Lock()
 
     async def run_forever(self) -> None:
         while True:
@@ -129,6 +180,10 @@ class InsightEngine:
     async def evaluate_once(self) -> None:
         """One evaluation pass over every numeric tag of the v1 org. Exposed
         so tests can force a pass without waiting INSIGHT_PERIOD_S."""
+        async with self._lock:
+            await self._evaluate()
+
+    async def _evaluate(self) -> None:
         await self.registry.maybe_refresh()
         now = utcnow()
         tags = [t for t in self.registry.all() if t.type == "number"]
@@ -207,10 +262,14 @@ class InsightEngine:
                 st.ep_last_offense = ts
                 st.inband = 0
                 # An evaluation pass replays a whole batch of rows, so the
-                # streak can hit OPEN_N and reset inside one pass — capture
-                # the opening the moment it happens, not at pass end.
-                if st.streak >= config.INSIGHT_OPEN_N and st.pending_first is None:
-                    st.pending_first = st.streak_first
+                # streak can hit OPEN_N and reset inside one pass — arm an
+                # episode snapshot the moment it happens, not at pass end.
+                if st.streak >= config.INSIGHT_OPEN_N:
+                    if st.pending is None:
+                        st.pending = [st.streak_first, ts, st.streak_zmax]
+                    else:
+                        st.pending[1] = ts
+                        st.pending[2] = max(st.pending[2], st.streak_zmax)
                 # Winsorized mean shift: the outlier nudges mu by at most
                 # 3 sigma but is never allowed to grow var — otherwise the
                 # band inflates ~x1.4 per offense and absorbs its own signal
@@ -222,6 +281,13 @@ class InsightEngine:
                 st.mu += config.INSIGHT_EWMA_ALPHA * dev
                 st.n += 1
                 return
+        # in-band / unscored sample: the streak collapses here. Episode
+        # accumulators from a streak that never armed (sub-OPEN_N, no pending
+        # snapshot, no open row) must not leak into a later episode's score.
+        if (0 < st.streak < config.INSIGHT_OPEN_N and st.pending is None
+                and not st.open_anomaly):
+            st.ep_zmax = 0.0
+            st.ep_last_offense = None
         st.streak = 0
         st.inband += 1
         self._ewma_update(st, x)
@@ -241,19 +307,22 @@ class InsightEngine:
     async def _eval_anomaly(self, tc: TenantConn, tag, st: TagStats,
                             opens: dict) -> None:
         row = opens.get("anomaly")
+        st.open_anomaly = row is not None
         if row is None:
-            if st.pending_first is not None and self._fresh(st):
+            if st.pending is not None and self._fresh(st):
+                first_ts, last_ts, zmax = st.pending
                 await self._open(tc, tag, "anomaly",
-                                 "warning" if st.ep_zmax > 6 else "info",
-                                 st.ep_zmax, st.pending_first,
-                                 st.ep_last_offense,
+                                 "warning" if zmax > 6 else "info",
+                                 zmax, first_ts, last_ts,
                                  {"mu": st.mu, "sigma": math.sqrt(st.var),
-                                  "z": st.ep_zmax})
-            st.pending_first = None
+                                  "z": zmax})
+                st.ep_zmax = zmax
+                st.ep_last_offense = last_ts
+            st.pending = None
             # an insight opened this pass is never re-evaluated for close in
             # the same pass — one full period of open state is guaranteed.
             return
-        st.pending_first = None
+        st.pending = None
         if st.ep_last_offense and (row["ts_end"] is None
                                    or st.ep_last_offense > row["ts_end"]):
             await self._update(tc, row["id"], tag, st.ep_last_offense, st.ep_zmax,
@@ -270,31 +339,12 @@ class InsightEngine:
         cutoff = now - timedelta(seconds=_DRIFT_WIN_S)
         while st.win and st.win[0][0] < cutoff:
             st.win.popleft()
-        drift_on = False
-        slope = resid = span = 0.0
         sigma_b = math.sqrt(st.var)
-        if (len(st.win) >= _DRIFT_MIN_N and sigma_b > 0
-                and (st.win[-1][0] - st.win[0][0]).total_seconds() >= _DRIFT_MIN_SPAN_S):
-            t0 = st.win[0][0]
-            xs = [(t - t0).total_seconds() for t, _ in st.win]
-            ys = [v for _, v in st.win]
-            n = len(xs)
-            sx, sy = sum(xs), sum(ys)
-            sxx = sum(x * x for x in xs)
-            sxy = sum(x * y for x, y in zip(xs, ys))
-            denom = n * sxx - sx * sx
-            if denom > 0:
-                slope = (n * sxy - sx * sy) / denom
-                ybar = sy / n
-                resid = math.sqrt(max(
-                    sum((y - (ybar + slope * (x - sx / n))) ** 2
-                        for x, y in zip(xs, ys)) / n, 0.0))
-                thresh = max(deadband_min, 0.5 * sigma_b) / 600.0  # per 10 min
-                drift_on = abs(slope) > thresh and resid < 0.5 * sigma_b
-                span = xs[-1]
+        drift_on, score, slope, resid = drift_detect(list(st.win), sigma_b,
+                                                     deadband_min)
         row = opens.get("drift")
         if drift_on:
-            score = abs(slope) * span / sigma_b
+            span = (st.win[-1][0] - st.win[0][0]).total_seconds()
             detail = {"slope_per_s": slope, "window_s": span,
                       "sigma_baseline": sigma_b, "residual_sigma": resid,
                       "n": len(st.win)}
@@ -308,17 +358,14 @@ class InsightEngine:
             await self._close(tc, row["id"], tag, st.win[-1][0] if st.win else now)
 
         # ---- flatline: zero variance for INSIGHT_FLAT_S while a peer moved
-        flat_on = (
-            st.last_good_ts is not None
-            and st.last_change_ts is not None
-            and (now - st.last_good_ts).total_seconds() <= config.ALARM_FRESH_S
-            and (now - st.last_change_ts).total_seconds() >= config.INSIGHT_FLAT_S
-            and st.flat_n >= 2
-            and any(o.id != tag.id
-                    and (s := self._tags.get(o.id)) is not None
-                    and s.last_change_ts is not None
-                    and (now - s.last_change_ts).total_seconds() < config.INSIGHT_FLAT_S
-                    for o in all_tags))
+        peer_moved = any(
+            o.id != tag.id
+            and (s := self._tags.get(o.id)) is not None
+            and s.last_change_ts is not None
+            and (now - s.last_change_ts).total_seconds() < config.INSIGHT_FLAT_S
+            for o in all_tags)
+        flat_on = flatline_on(now, st.last_good_ts, st.last_change_ts,
+                              st.flat_n, peer_moved)
         row = opens.get("flatline")
         if flat_on:
             score = (now - st.last_change_ts).total_seconds() / 60.0

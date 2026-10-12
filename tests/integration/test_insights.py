@@ -72,6 +72,13 @@ def _baseline(api, tag):
     return mu, var ** 0.5
 
 
+def _outlier(mu, sigma):
+    """A value far out of band for ANY plausible engine sigma: >= 60 sigma
+    AND >= one whole |mu| — the engine's sigma floor is 0.02*|mu|, so a
+    near-zero-sigma tag needs a mu-scaled deviation, not a sigma-scaled one."""
+    return mu + max(60.0 * sigma, max(abs(mu), 1.0))
+
+
 INSIGHT_KEYS = ("id", "tag", "kind", "severity", "score",
                 "state", "ts_start", "ts_end", "detail")
 
@@ -84,7 +91,7 @@ def test_bad_quality_outliers_never_open(api, mqtt_client):
     mu, sigma = _baseline(api, ANOM_TAG)
     if mu is None:
         pytest.skip("not enough history yet — stack just booted")
-    v = mu + 50 * max(sigma, 0.02)
+    v = _outlier(mu, sigma)
     _burst(mqtt_client, ANOM_TAG, v, n=5, q="bad")
     # history flush (~1 s) + at least one full engine period (15 s)
     time.sleep(20)
@@ -96,7 +103,7 @@ def test_anomaly_open_dedupe_close(api, mqtt_client):
     mu, sigma = _baseline(api, ANOM_TAG)
     if mu is None:
         pytest.skip("not enough history yet — stack just booted")
-    v = mu + 50 * max(sigma, 0.02)
+    v = _outlier(mu, sigma)
 
     # 1) >= INSIGHT_OPEN_N consecutive out-of-band good samples -> open.
     # The burst must be dense (~0.12 s) so injected samples land consecutively
@@ -211,13 +218,58 @@ def test_flapping_opens_and_broadcasts(api, mqtt_client, ws_base):
         assert k in ev, f"WS insight missing {k}: {ev}"
 
 
+# ------------------------------------------------------- flatline / no-op
+
+@pytest.mark.timeout(420)
+def test_flatline_opens_and_closes(api, mqtt_client):
+    """A numeric tag publishing an unchanged value for INSIGHT_FLAT_S while
+    peers move opens a `flatline` warning; a changed sample closes it.
+
+    The sim's constant tags (speed_sp / level_pct idle) flatline naturally at
+    backend-uptime >= 300 s — this test usually finds a row quickly but is
+    allowed to wait out a fresh boot."""
+    row = wait_until(
+        lambda: _first(api, kind="flatline", state="open"),
+        340, desc="a constant numeric tag flatlines")
+    for k in INSIGHT_KEYS:
+        assert k in row, f"missing key {k} in {row}"
+    assert row["kind"] == "flatline"
+    assert row["severity"] == "warning"          # spec: flatline -> warning
+    assert row["score"] > 0                      # flat minutes
+
+    # a single changed good sample refreshes last_change_ts -> next pass closes
+    tag_name = row["tag"]
+    r = api.get(f"/api/tags/{tag_name}/latest")
+    cur = r.json()["v"] if r.status_code == 200 else 0.0
+    newv = (cur if isinstance(cur, (int, float)) else 0.0) + 0.37
+    _pub(mqtt_client, tag_name, newv)
+
+    def closed_same_row():
+        rows = _insights(api, tag=tag_name, kind="flatline", state="closed")
+        return rows[0] if rows and rows[0]["id"] == row["id"] else None
+
+    wait_until(closed_same_row, 45, desc="flatline closes after value changes")
+
+
+def test_unknown_and_bool_tags_produce_no_insights(api, mqtt_client):
+    """Unknown tag telemetry is dropped at ingest (zero history) and bool
+    tags are never evaluated — neither may produce rows nor break the pass."""
+    ghost = "plant1.sort.line1.ghost9.sig"
+    _burst(mqtt_client, ghost, 999.0, n=6)
+    _burst(mqtt_client, TAGS["running"], True, n=6)
+    time.sleep(20)                    # history flush + >=1 full engine pass
+    assert _insights(api, tag=ghost) == []
+    assert _insights(api, tag=TAGS["running"]) == []
+    assert api.get("/api/health").json()["db"] == "up"
+
+
 # -------------------------------------------------------------- API filters
 
 def test_insights_api_filters(api, mqtt_client):
     mu, sigma = _baseline(api, FILTER_TAG)
     if mu is None:
         pytest.skip("not enough history yet — stack just booted")
-    _burst(mqtt_client, FILTER_TAG, mu + 50 * max(sigma, 0.02))
+    _burst(mqtt_client, FILTER_TAG, _outlier(mu, sigma))
     wait_until(
         lambda: _first(api, tag=FILTER_TAG, kind="anomaly", state="open"),
         45, desc="seed anomaly for filter assertions")
