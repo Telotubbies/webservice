@@ -100,7 +100,7 @@ a { color: var(--accent-strong); }
 .live-pill.is-down { border-color: var(--sev-warning); color: var(--text-primary); }
 .live-pill.is-down .dot { background: var(--sev-warning); }
 
-.clock { font-family: var(--font-mono); font-size: var(--text-label); color: var(--text-secondary); padding: 0 var(--space-2); }
+.clock { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-label); color: var(--text-secondary); padding: 0 var(--space-2); }
 
 .icon-btn {
   position: relative; display: inline-grid; place-items: center;
@@ -182,7 +182,7 @@ a { color: var(--accent-strong); }
 }
 .btn:hover:not(:disabled) { background: var(--bg-hover); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--text-inverse); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
 .btn-danger { background: transparent; border-color: var(--sev-critical); color: var(--critical-text); }
 .btn-danger:hover:not(:disabled) { background: var(--sev-critical-soft); }
@@ -307,7 +307,7 @@ dialog.dialog::backdrop { background: rgba(8, 11, 15, 0.66); }
   padding: var(--space-3) var(--space-4); border-radius: var(--radius); background: var(--bg-sunken);
 }
 .change-row dt { color: var(--text-muted); font-size: var(--text-label); }
-.change-row dd { margin: 0; color: var(--text-primary); font-family: var(--font-mono); }
+.change-row dd { margin: 0; color: var(--text-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .consequence { color: var(--text-primary); }
 .consequence.is-danger { padding-left: var(--space-3); border-left: 3px solid var(--sev-critical); }
 
@@ -317,11 +317,12 @@ dialog.dialog::backdrop { background: rgba(8, 11, 15, 0.66); }
   text-align: left; font-weight: 500; font-size: var(--text-label); color: var(--text-muted);
   padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--line); white-space: nowrap;
 }
-.table td { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); vertical-align: middle; }
+/* density floor (v4): 4px vertical padding → ~30px data rows (28–32px range) */
+.table td { padding: var(--space-1) var(--space-4); border-bottom: 1px solid var(--line); vertical-align: middle; }
 .table tr:last-child td { border-bottom: 0; }
 .table tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .table .num { text-align: right; }
-.table td.value { font-family: var(--font-mono); font-size: var(--text-md); text-align: right; }
+.table td.value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-md); text-align: right; }
 
 /* ======================================================== insight chip */
 /* AI-layer marker: ✦ + violet accent — deliberately outside the alarm

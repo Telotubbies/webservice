@@ -40,5 +40,21 @@ for (const f of files) {
     }
   }
 }
+// v4 contrast floor: 3-level fg ramp must hold WCAG 4.5:1 on --bg-canvas.
+const tok = readFileSync(join(ROOT, TOKEN_FILE), 'utf8');
+const tokVal = (name) => tok.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`))?.[1];
+const relLum = (hx) => {
+  const c = [1, 3, 5].map((i) => { const x = parseInt(hx.slice(i, i + 2), 16) / 255;
+    return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+const canvas = tokVal('bg-canvas');
+for (const name of ['text-primary', 'text-secondary', 'text-muted']) {
+  const hx = tokVal(name);
+  if (!canvas || !hx) { violations++; console.log(`tokens.css: --${name}/--bg-canvas unparseable`); continue; }
+  const ratio = (Math.max(relLum(hx), relLum(canvas)) + 0.05) / (Math.min(relLum(hx), relLum(canvas)) + 0.05);
+  if (ratio < 4.5) { violations++; console.log(`tokens.css: --${name} on --bg-canvas = ${ratio.toFixed(2)}:1 < 4.5:1 floor`); }
+}
+
 console.log(violations ? `\n${violations} token violation(s)` : 'token check passed');
 process.exit(violations ? 1 : 0);

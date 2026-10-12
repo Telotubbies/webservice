@@ -18,8 +18,9 @@
 
 /* uPlot legend on tokens */
 .chart-wrap .u-legend { font-family: var(--font-ui); font-size: var(--text-label); color: var(--text-secondary); text-align: left; margin-top: var(--space-2); }
-.chart-wrap .u-legend .u-value { font-family: var(--font-mono); color: var(--text-primary); }
-.chart-wrap .u-select { background: var(--accent-soft); }
+.chart-wrap .u-legend .u-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-primary); }
+/* drag-select = selection → canonical phosphor cyan, not the brand accent */
+.chart-wrap .u-select { background: color-mix(in srgb, var(--state-selected) 16%, transparent); }
 
 /* insight windows legend — chips mirror the violet ribbons on the chart */
 .insight-legend {

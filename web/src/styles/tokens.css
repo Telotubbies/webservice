@@ -1,38 +1,51 @@
-/* Design tokens — ADR-14 + UI v3 "Plant Ops OS" (SDLC 19 §3.2). Values are
-   acceptance criteria (SDLC 07 floors), checked by web/scripts/check-tokens.mjs.
-   Informed by ISA-101 high-performance HMI principles: cool steel surfaces,
-   equipment drawn in neutral shade (state = shade, not hue), colour reserved
-   for abnormal state. Severity hues are RESERVED — nothing else may use them. */
+/* Design tokens — ADR-14 + UI v4 "Foundry" retune (SDLC 20 §3.1, lit: 22 §2).
+   Values authored in OKLCH (perceptually uniform ramp, hue held constant) and
+   emitted as hex; each block records its oklch() source.
+   web/scripts/check-tokens.mjs gates *component* CSS: raw hex, font-size
+   floors, reserved-hue discipline, and a fg-on-canvas contrast floor — it
+   does not lint this file's declarations. ISA-101 discipline unchanged:
+   equipment state = shade, colour reserved for abnormal state; severity hues
+   are RESERVED — nothing else may use them. */
 
 :root {
-  /* surfaces — cool steel ramp; canvas is the darkest tone */
-  --bg-canvas:   #101417;
-  --bg-app:      #101417;   /* = canvas (v2 name kept) */
-  --bg-sunken:   #101417;   /* = canvas */
-  --bg-panel:    #161b1f;
-  --bg-raised:   #1e2429;
-  --bg-overlay:  #262c32;
-  --bg-hover:    #262c32;   /* = overlay */
+  /* surfaces — Foundry ladder, hue 258 blue-steel, +~0.03 L per raise:
+     oklch(0.168 0.007 258) | oklch(0.200 0.009 258) |
+     oklch(0.235 0.011 258) | oklch(0.270 0.012 258) */
+  --bg-canvas:   #0d0f12;
+  --bg-app:      var(--bg-canvas);   /* = canvas (v2 name kept) */
+  --bg-sunken:   var(--bg-canvas);   /* = canvas */
+  --bg-panel:    #14161a;
+  --bg-raised:   #1b1e23;
+  --bg-overlay:  #23272c;
+  --bg-hover:    var(--bg-overlay);  /* = overlay */
 
-  /* hairlines — weak | medium | strong */
-  --line:          rgba(204, 214, 220, 0.10);
-  --border-medium: rgba(204, 214, 220, 0.20);
-  --line-strong:   rgba(204, 214, 220, 0.30);
+  /* hairlines — weak | medium | strong; the ONLY separators, no card shadows */
+  --line:          rgba(255, 255, 255, 0.06);
+  --border-medium: rgba(255, 255, 255, 0.14);
+  --line-strong:   rgba(255, 255, 255, 0.26);
 
-  /* text (on --bg-panel) */
-  --text-primary:   #dde1e6;
-  --text-secondary: #a2a9b0;
-  --text-muted:     #697077;
-  --text-disabled:  #4d5358;
-  --text-inverse:   #11151a;
+  /* text ramp — 3 levels (+ disabled/inverse); primary ≈87% white (halation
+     floor — never pure #fff body text). oklch sources:
+     oklch(0.872 0.006 256) | oklch(0.715 0.012 262) | oklch(0.615 0.014 258) |
+     oklch(0.450 0.013 258) | oklch(0.200 0.008 258)
+     Contrast on --bg-canvas: 13.0 / 7.6 / 5.2 / 2.5 — all ≥4.5:1 but disabled. */
+  --text-primary:   #d2d5d9;
+  --text-secondary: #9fa3ab;
+  --text-muted:     #80858d;
+  --text-disabled:  #51565d;
+  --text-inverse:   #14161a;
 
-  /* interaction — violet accent; never used for process state */
-  --accent:        #7c5cff;
-  --accent-strong: #9d85ff;
-  --accent-soft:   rgba(124, 92, 255, 0.16);
-  --focus-ring:    #b3a5ff;
+  /* brand accent — indigo; nav-active / CTA / focus-ring ONLY, never
+     data/series/alarm. oklch sources: oklch(0.567 0.159 275) |
+     oklch(0.710 0.145 276) | oklch(0.770 0.125 276) */
+  --accent:        #5e6ad2;
+  --accent-strong: #8a98fb;
+  --accent-soft:   rgba(94, 106, 210, 0.16);
+  --on-accent:     #ffffff;
+  --focus-ring:    #9fadff;
 
-  /* AI layer — violet; deliberately outside the alarm palette */
+  /* AI layer — violet; deliberately outside the alarm palette AND distinct
+     from the indigo brand accent */
   --ai-accent:  #b98df0;
   --ai-surface: rgba(185, 141, 240, 0.08);
   --ai-ribbon:  rgba(185, 141, 240, 0.15);
@@ -53,7 +66,10 @@
   --state-stopped:  #a2a9b0;
   --state-stale:    #e06cd8;    /* stale = quality axis → baddata */
   --state-unknown:  #697077;
-  --state-selected: #3fc6d8;    /* operator selection / actuated element */
+  /* phosphor cyan — canonical "live" colour: operator selection + live data
+     share ONE hue across 2D/3D (SDLC 20 §3.0). oklch(0.763 0.115 208) */
+  --state-selected: #3fc6d8;
+  --live-data:      var(--state-selected);   /* merged live/selection cyan (v3 name kept) */
 
   /* equipment drawing (mimic) — neutral steel greys */
   --equip-body:   #2a3138;
@@ -76,9 +92,6 @@
   /* pipes (mimic) — static; shade only */
   --pipe-inactive: #2b333b;
   --pipe-active:   #697077;
-
-  /* live data — desaturated cyan; PV numerals on the mimic only */
-  --live-data: #4fa8b8;
 
   /* ok / info — forms, toasts, diffs only; never process state */
   --ok:   #3dad72;
@@ -116,7 +129,8 @@
 
   --radius-sm: 2px;   /* mimic elements & alarm indicators */
   --radius:    4px;   /* chrome */
-  --radius-lg: 8px;
+  --radius-lg: 4px;   /* panels/dialogs — v4 caps corner radius at 4px
+                         (formal restraint); pill/capsule shapes unchanged */
 
   --touch:         44px;  /* WCAG minimum target */
   --touch-control: 48px;  /* anything that writes to equipment */
@@ -125,6 +139,21 @@
   --topbar-h:  56px;
 
   --shadow-pop: 0 12px 32px rgba(5, 8, 12, 0.45), 0 0 0 1px var(--line);
+
+  /* motion grammar (SDLC 20 §3.0) — one motion per surface per moment;
+     state crossfades never hue-flash; PVs never tween.
+     micro = hover/press feedback; ui = control transitions;
+     state = state crossfade; settle = confidence settle (insight chips);
+     ease-in = exit curve; spring = arrival overshoot (linear() syntax). */
+  --dur-micro:  120ms;
+  --dur-ui:     200ms;
+  --dur-state:  300ms;
+  --dur-settle: 600ms;
+  --ease-in:    cubic-bezier(.5, 0, .75, 0);
+  --spring:     linear(0, .6, 1.12, .96, 1.02, 1);
+
+  /* legacy motion pair — still consumed by v3 components; T12 motion pass
+     migrates these to the grammar tokens above */
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --dur:  160ms;
 }
