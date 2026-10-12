@@ -13,10 +13,11 @@ dist/
 web/package-lock.json
 
 # Env / secrets — demo passwords are documented in .env.example;
-# infra/passwd is generated (see infra/gen-passwd.sh).
+# broker material is generated (infra/gen-secrets.sh + infra/gen-certs.sh).
 .env
 .env.local
-infra/passwd
+infra/secrets/
+infra/certs/
 
 # Runtime data
 backend/data/

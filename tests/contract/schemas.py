@@ -1,8 +1,10 @@
-"""Pure-Python contract module — the executable reading of CONTRACT.md.
+"""Pure-Python contract module — the executable reading of the binding docs.
 
-CONTRACT.md is the *binding* source of truth for the demo. Where an SDLC doc
-(04/05/06/08/09) disagrees with CONTRACT.md, CONTRACT.md wins and the divergence
-is flagged inline with ``# DIVERGENCE`` so the red-team review can chase it.
+Doc 17 (MQTT security contract) is BINDING for the wire: topics live under
+`v2/{org_id}/{site_id}/{edge_id}/...` with UUID-only identity, and the
+command/response payloads carry `tag_path` and the v2 status vocabulary.
+Tag *names* still obey the CONTRACT.md UNS rules via the DB `tags.path`
+(column exists already; the dotted name is the site code + path).
 
 Everything here is stdlib-only so the unit/contract suite runs with zero
 services and zero third-party deps.
@@ -16,35 +18,47 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 # --------------------------------------------------------------------------
-# Constants from CONTRACT.md
+# Constants — CONTRACT.md names + doc 17 §1 UUIDs (dev-seed values)
 # --------------------------------------------------------------------------
 
-SITE = "plant1"
-EDGE_ID = "edge1"
+SITE = "plant1"                       # site CODE (tag naming), not a topic seg
+EDGE_ID = "edge1"                     # legacy v1 name — kept for tag lookups
+ORG_ID = "0199d000-0000-7000-8000-00000000a001"
+SITE_ID = "0199d000-0000-7000-8000-00000000b001"
+EDGE_UUID = "0199d000-0000-7000-8000-00000000c001"
+V2_PREFIX = f"v2/{ORG_ID}/{SITE_ID}/{EDGE_UUID}"
 
 #: TagValue.quality — CONTRACT.md "MQTT topics" table + 05 §2.
 QUALITIES = frozenset({"good", "bad", "stale", "uncertain"})
 
-#: Command lifecycle — CONTRACT.md "Command lifecycle".
+#: Backend command lifecycle — CONTRACT.v2 §6 / backend commands table.
 COMMAND_STATUSES = frozenset(
+    {"accepted", "dispatched", "acknowledged", "rejected", "failed", "timeout"}
+)
+TERMINAL_STATUSES = frozenset({"acknowledged", "rejected", "failed", "timeout"})
+#: Statuses that count as "in-flight" for the one-command-per-tag rule.
+IN_FLIGHT_STATUSES = frozenset({"accepted", "dispatched"})
+
+#: The v1 WS/REST shim still surfaces the CONTRACT.md vocabulary — the
+#: backend maps v2 -> v1 wire names for the compatibility surface.
+V1_COMMAND_STATUSES = frozenset(
     {"issued", "sent", "acked", "done", "denied", "failed", "timeout"}
 )
-TERMINAL_STATUSES = frozenset({"done", "denied", "failed", "timeout"})
-#: Statuses that count as "in-flight" for the one-command-per-tag rule
-#: (05 §3 partial unique index WHERE status IN ('issued','sent')).
-IN_FLIGHT_STATUSES = frozenset({"issued", "sent"})
 
-#: What the *edge* may publish on cmd-resp — 05 §2/§3. "timeout" is NOT an
+#: What the *edge* may publish on cmd-resp (doc 17 §6). "timeout" is NOT an
 #: edge status; it is assigned by the backend when no resp arrives in ttl_s.
-EDGE_RESP_STATUSES = frozenset({"done", "denied", "error"})
-EDGE_STATUS_MAP = {"done": "done", "denied": "denied", "error": "failed"}
+EDGE_RESP_STATUSES = frozenset({"acknowledged", "rejected", "failed"})
+EDGE_STATUS_MAP = {
+    "acknowledged": "acknowledged", "rejected": "rejected", "failed": "failed",
+}
 
-#: detail vocabulary for status=denied. Fixed set in 05 §3 is
-#: {not_writable, interlock, ttl_expired, clock_untrusted} — CONTRACT.md adds
-#: `out_of_range` for speed_sp writes outside 0-60 Hz.
-#: DIVERGENCE: `out_of_range` is not in the 05 §3 fixed set; CONTRACT.md wins.
-DENIED_DETAILS = frozenset(
-    {"not_writable", "interlock", "ttl_expired", "clock_untrusted", "out_of_range"}
+#: `reason` vocabulary for status=rejected. Doc 17 §6 names the field
+#: `reason`; the value set follows the contract denied-details plus the
+#: transport-level rejections the edge itself reports.
+REJECTED_REASONS = frozenset(
+    {"not_writable", "interlock", "ttl_expired", "clock_untrusted",
+     "out_of_range", "retained_command", "future_issued_at",
+     "invalid_command", "invalid_value"}
 )
 
 ALARM_SEVERITIES = frozenset({"info", "warning", "critical"})
@@ -105,16 +119,27 @@ RESERVED_AREA_SEGMENTS = frozenset({"cmd", "cmd-resp", "sys", "edge"})
 DERIVED_DEVICE_PREFIX = "_derived"
 
 
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def is_uuid(value: str) -> bool:
+    """Doc 17 §1: org/site/edge topic segments are immutable UUIDs only —
+    human names like 'plant1' or 'edge1' must NOT pass."""
+    return isinstance(value, str) and bool(_UUID_RE.match(value))
+
+
 @dataclass
 class TopicInfo:
-    """Result of classifying an MQTT topic."""
+    """Result of classifying an MQTT topic (doc 17 §1 v2 namespace)."""
 
-    kind: str  # telemetry|heartbeat|command|command_response|sys|invalid
+    kind: str  # telemetry|heartbeat|command|command_response|invalid
     segments: list[str] = field(default_factory=list)
-    site: str | None = None
+    org_id: str | None = None
+    site_id: str | None = None
     edge_id: str | None = None
-    req_id: str | None = None
-    tag: str | None = None  # set only for telemetry
+    command_id: str | None = None
+    tag_path: str | None = None  # set only for telemetry (slashes form)
     errors: list[str] = field(default_factory=list)
 
 
@@ -198,56 +223,51 @@ def _topic_shape_errors(topic: object) -> list[str]:
     return errors
 
 
-def classify_topic(topic: object, *, site: str = SITE) -> TopicInfo:
-    """Classify a concrete MQTT topic per CONTRACT.md "MQTT topics".
+def classify_topic(topic: object) -> TopicInfo:
+    """Classify a concrete MQTT topic per doc 17 §1 — the BINDING namespace.
 
-    Layouts (site-prefixed, per CONTRACT.md):
-      {site}/{area}/{line}/{device}/{signal}   → telemetry
-      {site}/edge/{edge_id}/heartbeat          → heartbeat
-      {site}/cmd/{edge_id}/{req_id}            → command
-      {site}/cmd-resp/{edge_id}/{req_id}       → command_response
-
-    DIVERGENCE: 05 §1 draws cmd/cmd-resp without the site prefix
-    (`cmd/{edge_id}/{req_id}`); CONTRACT.md uses `plant1/cmd/edge1/{req_id}`
-    — site-prefixed wins.
+    Layouts (all segments literal `v2`, then UUIDs only):
+      v2/{org_id}/{site_id}/{edge_id}/tele/{area}/{line}/{device}/{signal}
+      v2/{org_id}/{site_id}/{edge_id}/hb
+      v2/{org_id}/{site_id}/{edge_id}/cmd/{command_id}
+      v2/{org_id}/{site_id}/{edge_id}/cmd-resp/{command_id}
     """
     errors = _topic_shape_errors(topic)
     if errors:
         return TopicInfo(kind="invalid", errors=errors)
     segs = topic.split("/")
     info = TopicInfo(kind="invalid", segments=segs, errors=[])
-    if segs[0] != site:
-        info.errors.append(f"site prefix must be {site!r}, got {segs[0]!r}")
+    if segs[0] != "v2":
+        info.errors.append(f"namespace must be 'v2', got {segs[0]!r}")
         return info
-    info.site = segs[0]
-
-    if len(segs) == 4 and segs[1] == "edge" and segs[3] == "heartbeat":
-        info.kind = "heartbeat"
-        info.edge_id = segs[2]
+    if len(segs) < 5:
+        info.errors.append("v2 topic needs at least v2/{org}/{site}/{edge}/{kind}")
         return info
-    if len(segs) == 4 and segs[1] == "cmd":
-        info.kind = "command"
-        info.edge_id = segs[2]
-        info.req_id = segs[3]
-        return info
-    if len(segs) == 4 and segs[1] == "cmd-resp":
-        info.kind = "command_response"
-        info.edge_id = segs[2]
-        info.req_id = segs[3]
-        return info
-    if len(segs) >= 3 and segs[1] == "sys":
-        info.kind = "sys"
-        return info
-    if len(segs) == 5 and segs[1] not in RESERVED_AREA_SEGMENTS:
-        tag = topic_to_tag(topic)
-        tag_errors = validate_tag_name(tag, site=site)
-        if tag_errors:
-            info.errors.extend(tag_errors)
+    for i, label in ((1, "org_id"), (2, "site_id"), (3, "edge_id")):
+        if not is_uuid(segs[i]):
+            info.errors.append(f"{label} must be a UUID, got {segs[i]!r}")
             return info
-        info.kind = "telemetry"
-        info.tag = tag
+    info.org_id, info.site_id, info.edge_id = segs[1], segs[2], segs[3]
+
+    kind = segs[4]
+    if kind == "hb" and len(segs) == 5:
+        info.kind = "heartbeat"
         return info
-    info.errors.append(f"topic does not match any contract layout: {topic!r}")
+    if kind in ("cmd", "cmd-resp") and len(segs) == 6:
+        info.kind = "command" if kind == "cmd" else "command_response"
+        info.command_id = segs[5]
+        return info
+    if kind == "tele" and len(segs) >= 6:
+        path = "/".join(segs[5:])
+        for seg in segs[5:]:
+            if not _TAG_SEG_RE.match(seg):
+                info.errors.append(
+                    f"telemetry path segment {seg!r} must match {_TAG_SEG_RE.pattern}")
+                return info
+        info.kind = "telemetry"
+        info.tag_path = path
+        return info
+    info.errors.append(f"topic does not match any doc-17 layout: {topic!r}")
     return info
 
 
@@ -307,20 +327,44 @@ def validate_tag_value(payload: object) -> list[str]:
 
 
 def validate_heartbeat(payload: object) -> list[str]:
-    """Heartbeat payload on `{site}/edge/{edge_id}/heartbeat`."""
+    """Heartbeat payload on `v2/{o}/{s}/{e}/hb` (doc 17 §6)."""
     if not isinstance(payload, dict):
         return ["payload must be a JSON object"]
     errors: list[str] = []
-    if payload.get("status") != "up":
-        errors.append("status must be 'up' (contract heartbeat shape)")
-    if not isinstance(payload.get("clock_ok"), bool):
-        errors.append("clock_ok must be a boolean")
-    if not isinstance(payload.get("adapter"), str) or not payload.get("adapter"):
-        errors.append("adapter must be a non-empty string")
-    try:
-        parse_ts(payload.get("ts"))
-    except ValueError as e:
-        errors.append(str(e))
+    # 'up' steady-state, 'degraded' alive-but-impaired, 'down' via LWT.
+    status = payload.get("status")
+    if status not in ("up", "degraded", "down"):
+        errors.append("status must be 'up'|'degraded'|'down'")
+    if payload.get("clock_ok") is not None and not isinstance(payload.get("clock_ok"), bool):
+        errors.append("clock_ok must be a boolean or null")
+    # The LWT 'down' message is terse (broker publishes it for a dead edge —
+    # it can't know adapter/ts); live heartbeats carry the full schema.
+    if status != "down":
+        if not isinstance(payload.get("adapter"), str) or not payload.get("adapter"):
+            errors.append("adapter must be a non-empty string")
+        try:
+            parse_ts(payload.get("ts"))
+        except ValueError as e:
+            errors.append(str(e))
+    return errors
+
+
+def validate_tag_path(path: object) -> list[str]:
+    """A site-relative tag path `area/line/device/signal` (doc 17 §1 tele
+    topic tail + cmd payload `tag_path`)."""
+    if not isinstance(path, str):
+        return ["tag_path must be a string"]
+    if not path:
+        return ["tag_path must be non-empty"]
+    errors: list[str] = []
+    segs = path.split("/")
+    if len(segs) != 4:
+        errors.append(
+            f"tag_path must have exactly 4 segments "
+            f"(area/line/device/signal), got {len(segs)}")
+    for i, seg in enumerate(segs):
+        if not _TAG_SEG_RE.match(seg):
+            errors.append(f"tag_path segment {i} ({seg!r}) must match {_TAG_SEG_RE.pattern}")
     return errors
 
 
@@ -353,14 +397,14 @@ def validate_rest_command_request(payload: object) -> list[str]:
 
 
 def validate_mqtt_command(payload: object) -> list[str]:
-    """Command payload on `{site}/cmd/{edge_id}/{req_id}`:
+    """Command payload on `v2/{o}/{s}/{e}/cmd/{command_id}` (doc 17 §6):
 
-    {command_id, tag, value, issued_at, ttl_s, idempotency_key, user}.
+    {command_id, tag_path, value, issued_at, ttl_s, idempotency_key, user}.
     """
     if not isinstance(payload, dict):
         return ["payload must be a JSON object"]
     errors: list[str] = []
-    for key in ("command_id", "tag", "value", "issued_at", "ttl_s",
+    for key in ("command_id", "tag_path", "value", "issued_at", "ttl_s",
                 "idempotency_key", "user"):
         if key not in payload:
             errors.append(f"missing required field {key!r}")
@@ -368,8 +412,8 @@ def validate_mqtt_command(payload: object) -> list[str]:
         not isinstance(payload["command_id"], str) or not payload["command_id"]
     ):
         errors.append("command_id must be a non-empty string")
-    if "tag" in payload:
-        errors.extend(validate_tag_name(payload["tag"]))
+    if "tag_path" in payload:
+        errors.extend(validate_tag_path(payload["tag_path"]))
     if "value" in payload:
         v = payload["value"]
         if not (isinstance(v, bool) or _is_finite_number(v)):
@@ -397,9 +441,10 @@ def validate_mqtt_command(payload: object) -> list[str]:
 
 
 def validate_command_response(payload: object) -> list[str]:
-    """cmd-resp payload: {command_id, status: done|denied|error, detail}.
+    """cmd-resp payload (doc 17 §6): {command_id, status, reason, ts}.
 
-    'timeout' is NOT a legal edge status (05 §3) — the backend assigns it.
+    status ∈ acknowledged|rejected|failed — 'timeout' is NOT a legal edge
+    status; the backend assigns it. `reason` carries the detail.
     """
     if not isinstance(payload, dict):
         return ["payload must be a JSON object"]
@@ -412,14 +457,8 @@ def validate_command_response(payload: object) -> list[str]:
             f"status must be one of {sorted(EDGE_RESP_STATUSES)} "
             f"(edge never sends 'timeout'), got {status!r}"
         )
-    if status == "denied":
-        detail = payload.get("detail")
-        if detail not in DENIED_DETAILS:
-            errors.append(
-                f"denied requires detail in {sorted(DENIED_DETAILS)}, got {detail!r}"
-            )
-    elif "detail" in payload and not isinstance(payload["detail"], str):
-        errors.append("detail must be a string when present")
+    if "reason" in payload and not isinstance(payload["reason"], str):
+        errors.append("reason must be a string when present")
     return errors
 
 
@@ -446,7 +485,7 @@ def validate_alarm(payload: object) -> list[str]:
 
 
 def map_edge_status(edge_status: str) -> str:
-    """cmd-resp status → backend command status (done|denied|error→done|denied|failed)."""
+    """cmd-resp status → backend command status (doc 17 §6 — 1:1 vocabulary)."""
     if edge_status not in EDGE_STATUS_MAP:
         raise ValueError(f"illegal edge status {edge_status!r}")
     return EDGE_STATUS_MAP[edge_status]
@@ -456,23 +495,18 @@ def map_edge_status(edge_status: str) -> str:
 # Command lifecycle state machine — CONTRACT.md "Command lifecycle"
 # --------------------------------------------------------------------------
 
-# Legal (from → to) transitions.
-#   issued → sent      : MQTT publish ok
-#   issued → failed    : publish itself failed (impl detail, allowed defensively)
-#   issued → timeout   : no resp within ttl_s even if publish tracking lost
-#   sent   → acked     : edge resp observed
-#   sent   → done/denied/failed : resp mapped directly (acked is observational;
-#                        an impl may collapse ack+terminal into one write)
-#   sent   → timeout   : no resp within ttl_s
-#   acked  → done/denied/failed : mapped from edge resp
-#   acked  → timeout   : ttl_s bounds the whole exchange
-# Terminals (done|denied|failed|timeout) have no outgoing edges.
+# Legal (from → to) transitions — CONTRACT.v2 §6 vocabulary.
+#   accepted   → dispatched : MQTT publish ok
+#   accepted   → failed     : publish itself failed
+#   accepted   → timeout    : no resp within ttl_s even if publish tracking lost
+#   dispatched → acknowledged|rejected|failed : edge cmd-resp observed
+#   dispatched → timeout    : no resp within ttl_s
+# Terminals (acknowledged|rejected|failed|timeout) have no outgoing edges.
 LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
-    "issued": frozenset({"sent", "failed", "timeout"}),
-    "sent": frozenset({"acked", "done", "denied", "failed", "timeout"}),
-    "acked": frozenset({"done", "denied", "failed", "timeout"}),
-    "done": frozenset(),
-    "denied": frozenset(),
+    "accepted": frozenset({"dispatched", "failed", "timeout"}),
+    "dispatched": frozenset({"acknowledged", "rejected", "failed", "timeout"}),
+    "acknowledged": frozenset(),
+    "rejected": frozenset(),
     "failed": frozenset(),
     "timeout": frozenset(),
 }
@@ -526,8 +560,8 @@ def resolve_command_post(
 
 @dataclass
 class EdgeResult:
-    status: str  # done | denied | error
-    detail: str | None = None
+    status: str  # acknowledged | rejected | failed  (doc 17 §6)
+    reason: str | None = None
 
 
 def edge_evaluate_command(
@@ -536,52 +570,55 @@ def edge_evaluate_command(
     now: datetime,
     clock_ok: bool = True,
     registry: dict[str, dict] | None = None,
+    site: str = SITE,
 ) -> EdgeResult:
-    """Sim of the edge decision pipeline (04 §5):
+    """Sim of the edge decision pipeline (04 §5, doc 17 §6 wire vocabulary):
 
-    step 0: clock trustworthy? → denied/clock_untrusted
-            then TTL check     → denied/ttl_expired
-    step 1: tag writable?       → denied/not_writable
-    step 2: adapter write       → denied/out_of_range (sim range rule),
-                                 error/bad_value_type (type mismatch),
-                                 denied/interlock (device refuses)
-    step 3: done
+    step 0: clock trustworthy? → rejected/clock_untrusted
+            then TTL check     → rejected/ttl_expired
+    step 1: tag writable?       → rejected/not_writable
+    step 2: adapter write       → rejected/out_of_range (sim range rule),
+                                 failed/bad_value_type (type mismatch),
+                                 rejected/interlock (device refuses)
+    step 3: acknowledged
 
-    AMBIGUITY noted: the order of clock vs TTL inside step 0 is not pinned by
-    the docs; we check clock first because an untrusted clock makes the TTL
-    comparison meaningless. Type-mismatch detail ('bad_value_type') is not in
-    the contract's denied set → reported as status='error', flagged for review.
+    `cmd["tag_path"]` is the site-relative path (doc 17 §6); it resolves to
+    the registry's dotted `{site}.{path}` name.
     """
     if registry is None:
         registry = SIM_TAGS
 
     # step 0a — clock must be trusted before trusting issued_at comparisons
     if not clock_ok:
-        return EdgeResult(status="denied", detail="clock_untrusted")
+        return EdgeResult(status="rejected", reason="clock_untrusted")
 
     # step 0b — TTL: edge_now > issued_at + ttl_s → drop, deny
     issued_at = parse_ts(cmd["issued_at"])
     ttl_s = cmd["ttl_s"]
     if now > issued_at + timedelta(seconds=ttl_s):
-        return EdgeResult(status="denied", detail="ttl_expired")
+        return EdgeResult(status="rejected", reason="ttl_expired")
 
     # step 1 — writable allowlist (unknown tag == not writable, CONTRACT.md)
-    meta = registry.get(cmd["tag"])
+    tag_path = cmd.get("tag_path") or cmd.get("tag", "")
+    dotted = tag_path.replace("/", ".")
+    if not dotted.startswith(f"{site}."):
+        dotted = f"{site}.{dotted}"
+    meta = registry.get(dotted)
     if meta is None or not meta.get("writable"):
-        return EdgeResult(status="denied", detail="not_writable")
+        return EdgeResult(status="rejected", reason="not_writable")
 
     # step 2 — adapter write checks
     value = cmd["value"]
     expected = meta["type"]
     if expected == "bool" and not isinstance(value, bool):
-        return EdgeResult(status="error", detail="bad_value_type")
+        return EdgeResult(status="failed", reason="bad_value_type")
     if expected == "num" and not _is_finite_number(value):
-        return EdgeResult(status="error", detail="bad_value_type")
+        return EdgeResult(status="failed", reason="bad_value_type")
     rng = meta.get("range")
     if rng is not None and not (rng[0] <= value <= rng[1]):
-        return EdgeResult(status="denied", detail="out_of_range")
+        return EdgeResult(status="rejected", reason="out_of_range")
 
-    return EdgeResult(status="done")
+    return EdgeResult(status="acknowledged")
 
 
 # --------------------------------------------------------------------------
@@ -686,7 +723,8 @@ def validate_ws_event(event: object) -> list[str]:
         if "name" in event:
             errors.extend(validate_tag_name(event["name"]))
     if etype == "command":
-        if event.get("status") not in COMMAND_STATUSES:
+        # the /ws shim carries the v1 vocabulary (backend maps v2 -> v1)
+        if event.get("status") not in V1_COMMAND_STATUSES:
             errors.append(f"command.status must be a lifecycle status")
         if "tag" in event:
             errors.extend(validate_tag_name(event["tag"]))

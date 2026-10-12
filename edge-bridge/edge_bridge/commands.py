@@ -1,14 +1,16 @@
-"""Command handler — `plant1/cmd/edge1/{req_id}` -> `cmd-resp/edge1/{req_id}`.
+"""Command handler — `v2/{org}/{site}/{edge}/cmd/{command_id}` ->
+`v2/{org}/{site}/{edge}/cmd-resp/{command_id}` (doc 17 §1/§6).
 
 Pipeline (contract §Command lifecycle + SDLC 04 §5):
 
     parse JSON -> clock trusted? -> TTL live? -> idempotent replay? ->
     adapter.write() -> always publish cmd-resp
 
-Denial details come straight from the contract: `clock_untrusted`,
-`ttl_expired`, `not_writable`, `out_of_range`. Malformed payloads and
-adapter crashes map to status `error`. Every command gets exactly one
-response — nothing is silently dropped.
+Wire vocabulary (doc 17 §6): status ∈ acknowledged | rejected | failed,
+reason carries the detail (clock_untrusted, ttl_expired, not_writable,
+out_of_range, …). The command payload names the tag as `tag_path` — the
+site-relative path (area/line/device/signal), which maps back to the
+adapter's dotted name via site_code.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from datetime import datetime, timezone
 
 from .adapters.base import TagAdapter
 from .clock import EdgeClock
+from .config import Config
 from .mqtt_bridge import MqttBridge
 
 log = logging.getLogger("edge_bridge.cmd")
@@ -31,21 +34,20 @@ _IDEMPOTENCY_MAX = 1000      # SDLC 04 §5: remember last N command keys
 
 
 class CommandHandler:
-    def __init__(self, site: str, edge_id: str, adapter: TagAdapter,
+    def __init__(self, cfg: Config, adapter: TagAdapter,
                  clock: EdgeClock, bridge: MqttBridge):
-        self._site = site
-        self._edge_id = edge_id
+        self._cfg = cfg
         self._adapter = adapter
         self._clock = clock
         self._bridge = bridge
-        # idempotency_key -> (status, detail); FIFO eviction
+        # idempotency_key -> (status, reason); FIFO eviction
         self._seen: OrderedDict[str, tuple[str, str]] = OrderedDict()
         self.handled = 0
         self.denied = 0
 
     @property
     def cmd_topic(self) -> str:
-        return f"{self._site}/cmd/{self._edge_id}/+"
+        return self._cfg.cmd_topic
 
     # -- entry point (paho network thread) -----------------------------------
 
@@ -54,34 +56,34 @@ class CommandHandler:
         # Retained commands must never execute: a retained publish replays on
         # every reconnect — that's replay-by-design, not a fresh operator intent.
         if getattr(msg, "retain", False):
-            self._respond(req_id, "denied", "retained_command", req_id)
+            self._respond(req_id, "rejected", "retained_command", req_id)
             log.warning("dropped retained command req_id=%s", req_id)
             return
         try:
-            status, detail, command_id = self._execute(req_id, msg.payload)
+            status, reason, command_id = self._execute(req_id, msg.payload)
         except Exception as exc:  # belt-and-braces: never drop a response
             log.exception("command handler crashed req_id=%s", req_id)
-            status, detail, command_id = "error", f"internal:{exc}", req_id
-        self._respond(req_id, status, detail, command_id)
+            status, reason, command_id = "failed", f"internal:{exc}", req_id
+        self._respond(req_id, status, reason, command_id)
 
-    def _respond(self, req_id: str, status: str, detail: str,
+    def _respond(self, req_id: str, status: str, reason: str,
                  command_id: object) -> None:
-        resp_topic = f"{self._site}/cmd-resp/{self._edge_id}/{req_id}"
+        resp_topic = self._cfg.cmd_resp_topic(req_id)
         resp = {
             "command_id": command_id,
             "status": status,
-            "detail": detail,
+            "reason": reason,
             "ts": self._clock.now().isoformat().replace("+00:00", "Z"),
         }
         self._bridge.publish_json(resp_topic, resp)
         self.handled += 1
-        if status == "denied":
+        if status == "rejected":
             self.denied += 1
-        log.info("command req_id=%s command_id=%s status=%s detail=%s",
-                 req_id, command_id, status, detail,
+        log.info("command req_id=%s command_id=%s status=%s reason=%s",
+                 req_id, command_id, status, reason,
                  extra={"fields": {"event": "cmd_resp", "req_id": req_id,
                                    "command_id": command_id, "status": status,
-                                   "detail": detail}})
+                                   "reason": reason}})
 
     # -- validation + execution ----------------------------------------------
 
@@ -91,58 +93,70 @@ class CommandHandler:
             if not isinstance(payload, dict):
                 raise ValueError("payload is not an object")
         except (ValueError, UnicodeDecodeError):
-            return "error", "invalid_json", req_id
+            return "failed", "invalid_json", req_id
 
         command_id = payload.get("command_id", req_id)
-        tag = payload.get("tag")
+        # doc 17 §6 + CONTRACT.v2 §6: `tag_path` (site-relative); the legacy
+        # `tag` key is tolerated so in-flight v1 commands don't die mid-deploy
+        tag_path = payload.get("tag_path") or payload.get("tag")
         value = payload.get("value")
         issued_at_raw = payload.get("issued_at")
 
-        if not isinstance(tag, str) or issued_at_raw is None:
-            return "error", "invalid_command", command_id
+        if not isinstance(tag_path, str) or issued_at_raw is None:
+            return "failed", "invalid_command", command_id
+        tag = self._adapter_name(tag_path)
         try:
             issued_at = _parse_ts(str(issued_at_raw))
             ttl_s = float(payload.get("ttl_s", _DEFAULT_TTL_S))
         except (ValueError, TypeError):
-            return "error", "invalid_command", command_id
+            return "failed", "invalid_command", command_id
 
         # TTL must be finite and bounded — a huge TTL keeps a stale command
         # executable forever (contract: ttl_s 1..3600).
         if not (0 < ttl_s <= _MAX_TTL_S) or ttl_s != ttl_s:
-            return "error", "invalid_command", command_id
+            return "failed", "invalid_command", command_id
 
         # Clock check BEFORE ttl math: a TTL computed on an untrusted clock
         # proves nothing (SDLC 04 §6.6).
         if not self._clock.clock_ok:
-            return "denied", "clock_untrusted", command_id
+            return "rejected", "clock_untrusted", command_id
         now = self._clock.now()
         # Commands "issued" in the future are either clock lies or a crafted
         # payload trying to make TTL math useless — never honour them.
         if issued_at.timestamp() > now.timestamp() + _MAX_FUTURE_S:
-            return "denied", "future_issued_at", command_id
+            return "rejected", "future_issued_at", command_id
         if now > datetime.fromtimestamp(
                 issued_at.timestamp() + ttl_s, tz=timezone.utc):
-            return "denied", "ttl_expired", command_id
+            return "rejected", "ttl_expired", command_id
 
         idem = payload.get("idempotency_key")
         if idem is not None and idem in self._seen:
-            status, detail = self._seen[idem]
+            status, reason = self._seen[idem]
             log.info("idempotent replay req_id=%s key=%s -> %s/%s",
-                     req_id, idem, status, detail)
-            return status, detail, command_id
+                     req_id, idem, status, reason)
+            return status, reason, command_id
 
         try:
             result = self._adapter.write(tag, value)
-            status = "done" if result.ok else "denied"
-            detail = result.detail
+            status = "acknowledged" if result.ok else "rejected"
+            reason = result.detail
         except Exception as exc:
-            status, detail = "error", f"write_failed:{exc}"
+            status, reason = "failed", f"write_failed:{exc}"
 
         if idem is not None:
-            self._seen[idem] = (status, detail)
+            self._seen[idem] = (status, reason)
             while len(self._seen) > _IDEMPOTENCY_MAX:
                 self._seen.popitem(last=False)
-        return status, detail, command_id
+        return status, reason, command_id
+
+    def _adapter_name(self, tag_path: str) -> str:
+        """'sort/line1/motor1/speed_sp' or 'plant1.sort.line1.motor1.speed_sp'
+        -> the adapter's dotted name."""
+        name = tag_path.replace("/", ".")
+        prefix = f"{self._cfg.site_code}."
+        if not name.startswith(prefix):
+            name = prefix + name
+        return name
 
 
 def _parse_ts(raw: str) -> datetime:

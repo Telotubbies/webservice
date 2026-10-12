@@ -386,7 +386,8 @@ GRANT SELECT ON revoked_sessions TO wds_system;
 GRANT SELECT (id, deleted_at) ON organizations TO wds_system;
 GRANT SELECT ON sites, lines, devices, tags, alarm_rules TO wds_system;
 GRANT SELECT (id, org_id, site_id, status, mqtt_username, credential_version,
-              credential_fingerprint, last_hb_at, clock_ok)
+              credential_fingerprint, last_hb_at, clock_ok, adapter,
+              buffer_depth, buffer_dropped)
   ON edges TO wds_system;
 GRANT UPDATE (status, mqtt_username, credential_version, credential_fingerprint,
               last_hb_at, clock_ok, adapter, buffer_depth, buffer_dropped)

@@ -9,9 +9,40 @@ from uuid import UUID
 APP_ENV = os.environ.get("APP_ENV", "dev")  # dev | test | prod
 
 MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
 MQTT_USER = os.environ.get("MQTT_USER") or None
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD") or None
+# Password file wins over the env var — compose secrets land here so broker
+# credentials never appear in `docker inspect` env (v4 T6, doc 17).
+MQTT_PASSWORD_FILE = os.environ.get("MQTT_PASSWORD_FILE") or None
+# CA bundle for the TLS listener (self-signed dev CA from `make certs`).
+MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE") or None
+
+
+def _read_secret(path: str | None) -> str | None:
+    if not path:
+        return None
+    try:
+        v = open(path).read().strip()  # noqa: SIM115 — one-shot read at import
+        return v or None
+    except OSError:
+        return None
+
+
+MQTT_PASSWORD = _read_secret(MQTT_PASSWORD_FILE) or MQTT_PASSWORD
+
+# --- dynamic-security admin channel (doc 17 §2/§6) -------------------------
+DYNSEC_ADMIN_USER = os.environ.get("DYNSEC_ADMIN_USER", "svc-dynsec-admin")
+DYNSEC_ADMIN_PASSWORD = _read_secret(
+    os.environ.get("DYNSEC_ADMIN_PASSWORD_FILE")) \
+    or os.environ.get("DYNSEC_ADMIN_PASSWORD") or None
+SVC_BACKEND_PW_FILE = os.environ.get("SVC_BACKEND_PW_FILE") or None
+TESTER_PW_FILE = os.environ.get("TESTER_PW_FILE") or None
+EDGE_BOOTSTRAP_PW_FILE = os.environ.get("EDGE_BOOTSTRAP_PW_FILE") or None
+DYNSEC_RECONCILE_S = float(os.environ.get("DYNSEC_RECONCILE_S", "60"))
+# Rotation grace: how long the superseded credential stays enabled (doc 17 §5).
+EDGE_CRED_GRACE_S = float(os.environ.get("EDGE_CRED_GRACE_S", "86400"))
+
 CORS_ORIGIN = os.environ.get("CORS_ORIGIN", "http://localhost:5173")
 
 # --- v1 compatibility shim (removed in phase 4, CONTRACT.v2) ---------------

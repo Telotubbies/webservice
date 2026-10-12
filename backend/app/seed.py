@@ -20,6 +20,7 @@ import yaml
 from . import config
 from .db.context import global_tx, tenant_tx
 from .db.pool import Pools, create_pools
+from .dynsec import edge_client_name
 
 log = logging.getLogger("backend.seed")
 
@@ -29,12 +30,24 @@ BASE = Path(__file__).resolve().parent.parent
 DEMO_USERS = {
     "demo-operator": (uuid.UUID("0199d000-0000-7000-8000-00000000d001"), "operator"),
     "demo-viewer": (uuid.UUID("0199d000-0000-7000-8000-00000000d002"), "viewer"),
+    # admin exists for the edge provisioning API (doc 17 §5 needs config:write)
+    "demo-admin": (uuid.UUID("0199d000-0000-7000-8000-00000000d003"), "admin"),
 }
 
 
 def _tag_id(path: str) -> uuid.UUID:
     # deterministic so re-seeding upserts the same row
     return uuid.uuid5(config.V1_SITE_ID, path)
+
+
+def _bootstrap_fingerprint() -> str:
+    """sha256 of the mounted edge bootstrap secret, or '' if unmounted."""
+    try:
+        from .dynsec import _read_secret_file, fingerprint  # local import
+        pw = _read_secret_file(config.EDGE_BOOTSTRAP_PW_FILE)
+        return fingerprint(pw) if pw else ""
+    except Exception:  # noqa: BLE001 — seed must not depend on secret mounts
+        return ""
 
 
 def load_tag_specs(path: str | None = None) -> list[dict]:
@@ -90,9 +103,22 @@ async def seed(pools: Pools) -> None:
         await tc.execute("INSERT INTO sites(id, org_id, name, code) VALUES ($1,$2,'Plant 1',$3)"
                          " ON CONFLICT (id) DO NOTHING", site, org, config.V1_SITE_CODE)
         await tc.execute(
-            "INSERT INTO edges(id, org_id, site_id, name, status, mqtt_username)"
-            " VALUES ($1,$2,$3,$4,'active',$4) ON CONFLICT (id) DO NOTHING",
-            edge, org, site, config.V1_EDGE_NAME)
+            "INSERT INTO edges(id, org_id, site_id, name, status, mqtt_username,"
+            " credential_version)"
+            " VALUES ($1,$2,$3,'Edge 1','active',$4,1) ON CONFLICT (id) DO NOTHING",
+            edge, org, site, edge_client_name(edge, 1))
+        # identity row for the reconciler. The DB stores ONLY the sha256
+        # fingerprint of the bootstrap secret (the secret itself lives in
+        # infra/secrets/edge_bootstrap_pw, mounted file-only — doc 17 §5).
+        # Fingerprint may be '' when no secret file is mounted (bare local
+        # dev): the reconciler then adopts whatever it mints.
+        fp = _bootstrap_fingerprint()
+        await tc.execute(
+            "INSERT INTO edge_identities(org_id, edge_id, version, username,"
+            " fingerprint, status, secret_issued)"
+            " VALUES ($1,$2,1,$3,$4,'active',false)"
+            " ON CONFLICT (org_id, edge_id, version) DO NOTHING",
+            org, edge, edge_client_name(edge, 1), fp)
         for token, (uid, role) in DEMO_USERS.items():
             await tc.execute("INSERT INTO memberships(org_id, user_id, role) VALUES ($1,$2,$3)"
                              " ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role",

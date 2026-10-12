@@ -20,7 +20,7 @@ import pytest
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-from conftest import TAGS, OPERATOR_TOKEN, wait_until  # noqa: E402
+from conftest import TAGS, OPERATOR_TOKEN, v2_tele, wait_until  # noqa: E402
 
 ANOM_TAG = TAGS["gravel_ratio"]    # calm random-walk, no alarm rules
 FLAP_TAG = TAGS["speed_mps"]       # steady follower of speed_sp + noise
@@ -36,7 +36,11 @@ def _ts() -> str:
 
 
 def _pub(mqtt_client, tag_v1, v, q="good"):
-    mqtt_client.publish(tag_v1.replace(".", "/"),
+    # v1 dotted tag name -> doc 17 tele topic tail (site-relative path)
+    path = tag_v1.replace(".", "/")
+    if path.startswith("plant1/"):
+        path = path[len("plant1/"):]
+    mqtt_client.publish(v2_tele(path),
                         json.dumps({"v": v, "q": q, "ts": _ts()}), qos=1)
 
 

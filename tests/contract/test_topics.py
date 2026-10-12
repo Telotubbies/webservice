@@ -1,15 +1,19 @@
-"""Topic/tag-name contract tests — CONTRACT.md "MQTT topics" + 05 §1 governance."""
+"""Topic contract tests — doc 17 §1 v2 namespace (BINDING) + tag governance."""
 
 import pytest
 
 from contract.schemas import (
-    SITE,
-    EDGE_ID,
+    EDGE_UUID,
+    ORG_ID,
+    SITE_ID,
     classify_topic,
+    is_uuid,
     tag_to_topic,
     topic_to_tag,
     validate_tag_name,
 )
+
+P = f"v2/{ORG_ID}/{SITE_ID}/{EDGE_UUID}"
 
 
 # ---------------------------------------------------------------- tag names
@@ -46,7 +50,6 @@ def test_valid_tag_names(tag):
         ("plant1.edge.line1.dev.sig", "reserved"),               # heartbeat subtree reserved
         ("plant1.sort.line1.conv1.temp_c#", "forbidden"),        # wildcard char
         ("plant1.sort.line1.conv1.temp+c", "forbidden"),
-        # ATTACK_PLAN: SQL-ish tag name must be rejected before it reaches any SQL
         ("a.b'; DROP TABLE--", "forbidden"),
         ("plant1.sort.line1.conv1.x' OR '1'='1", "forbidden"),
         ("plant1.sort.line1.conv1.temp_c;", "forbidden"),
@@ -66,55 +69,83 @@ def test_tag_topic_round_trip():
     assert tag_to_topic(tag) == "plant1/sort/line1/conv1/temp_c"
 
 
-# ------------------------------------------------------------- topic parsing
+# ------------------------------------------------------------- v2 topic parsing
+
+def test_is_uuid_accepts_canonical_form():
+    assert is_uuid(ORG_ID) and is_uuid(SITE_ID) and is_uuid(EDGE_UUID)
+
+
+@pytest.mark.parametrize("value", ["plant1", "edge1", "", "svc-backend",
+                                   "0199d000-0000-7000-8000",  # truncated
+                                   "0199d000-0000-7000-8000-00000000C001",  # uppercase
+                                   "x199d000-0000-7000-8000-00000000c001",
+                                   "0199d000_0000_7000_8000_00000000c001"])
+def test_is_uuid_rejects_human_names_and_garbage(value):
+    assert not is_uuid(value)
+
 
 def test_classify_telemetry_topic():
-    info = classify_topic("plant1/sort/line1/conv1/temp_c")
+    info = classify_topic(f"{P}/tele/sort/line1/conv1/temp_c")
     assert info.kind == "telemetry"
-    assert info.tag == "plant1.sort.line1.conv1.temp_c"
+    assert info.tag_path == "sort/line1/conv1/temp_c"
+    assert info.org_id == ORG_ID and info.site_id == SITE_ID and info.edge_id == EDGE_UUID
     assert info.errors == []
 
 
 def test_classify_heartbeat_topic():
-    info = classify_topic(f"{SITE}/edge/{EDGE_ID}/heartbeat")
+    info = classify_topic(f"{P}/hb")
     assert info.kind == "heartbeat"
-    assert info.edge_id == EDGE_ID
+    assert info.edge_id == EDGE_UUID
     assert info.errors == []
 
 
 def test_classify_command_topic():
-    info = classify_topic(f"{SITE}/cmd/{EDGE_ID}/req-123-abc")
+    info = classify_topic(f"{P}/cmd/req-123-abc")
     assert info.kind == "command"
-    assert info.edge_id == EDGE_ID
-    assert info.req_id == "req-123-abc"
+    assert info.command_id == "req-123-abc"
 
 
 def test_classify_command_response_topic():
-    info = classify_topic(f"{SITE}/cmd-resp/{EDGE_ID}/req-123-abc")
+    info = classify_topic(f"{P}/cmd-resp/req-123-abc")
     assert info.kind == "command_response"
-    assert info.req_id == "req-123-abc"
+    assert info.command_id == "req-123-abc"
+
+
+def test_classify_cross_org_topic_is_structurally_valid():
+    # Different org UUID is a LEGAL topic — the broker ACL is what denies it.
+    other = "0199d000-0000-7000-8000-ffffffffffaa"
+    info = classify_topic(f"v2/{other}/{SITE_ID}/{EDGE_UUID}/hb")
+    assert info.kind == "heartbeat"
+    assert info.org_id == other
 
 
 @pytest.mark.parametrize(
     "topic",
     [
-        "plant2/sort/line1/conv1/temp_c",        # wrong site
-        "plant1/sort/line1/conv1",               # 4 segments, not a reserved subtree
-        "plant1/sort/line1/conv1/temp_c/extra",  # 6 segments
-        "plant1//line1/conv1/temp_c",            # empty segment
-        "/plant1/sort/line1/conv1/temp_c",       # leading slash
-        "plant1/sort/line1/conv1/temp_c/",       # trailing slash
-        "plant1/sort/line1/conv1/temp c",        # space in segment
-        "plant1/sort/line1/conv1/temp_c#",       # wildcard char
-        "plant1/+/line1/conv1/temp_c",           # '+' segment
-        "plant1/#",                              # '#' segment
-        "plant1/sort/line1/conv1/temp\x00c",     # NUL
-        "plant1/SORT/line1/conv1/temp_c",        # uppercase fails tag rules
-        "plant1/cmd/edge1",                      # truncated command topic
-        "plant1/cmd-resp/edge1/",                # trailing slash → empty segment
-        "plant1/edge/edge1/heartbeat/extra",     # heartbeat must be exactly 4 segs
+        # v1 topics — doc 17: human-name namespace is gone entirely
+        "plant1/sort/line1/conv1/temp_c",
+        "plant1/edge/edge1/heartbeat",
+        "plant1/cmd/edge1/req-1",
+        "plant1/cmd-resp/edge1/req-1",
+        # v2 shape violations
+        "v2/plant1/0199d000-0000-7000-8000-00000000b001/0199d000-0000-7000-8000-00000000c001/hb",
+        f"{P}",                                   # prefix only, no kind
+        f"{P}/tele",                              # empty path
+        f"{P}/tele/sort/line1/conv1/temp-c",      # dash illegal in tag path
+        f"{P}/tele/sort/line1/conv1/temp c",      # space
+        f"{P}/hb/extra",
+        f"{P}/cmd",                               # missing command_id
+        f"{P}/cmd/a/b",                           # too deep
+        f"{P}/cmd-resp",                          # missing command_id
+        f"{P}/sys/x",
+        f"v2/{ORG_ID}/{SITE_ID}/{EDGE_UUID}/tele/sort//conv1/x",
+        f"{P}/tele/sort/line1/conv1/temp_c#",
+        f"{P}/tele/+/x",
+        "v2",
+        "v2/",
         "",
         "x",
+        f"{P}/hb ".strip() + " ",                 # trailing space — shape error
     ],
 )
 def test_classify_invalid_topics(topic):
@@ -123,23 +154,9 @@ def test_classify_invalid_topics(topic):
     assert info.errors
 
 
-def test_classify_sys_topic_is_recognized_but_not_telemetry():
-    info = classify_topic("plant1/sys/edge1/health")
-    assert info.kind == "sys"
-    assert info.tag is None
-
-
-def test_cmd_resp_area_position_is_not_telemetry():
-    # A 5-segment topic under cmd/ is NOT a valid telemetry tag — the subtree
-    # is reserved, so governance rule "cmd outside UNS namespace" holds.
-    info = classify_topic("plant1/cmd/edge1/x/y")
-    assert info.kind == "invalid"
-
-
 def test_oversized_topic_rejected():
-    topic = "plant1/" + "a" * 70000
-    assert classify_topic(topic).kind == "invalid"
+    assert classify_topic(f"{P}/tele/" + "a" * 70000).kind == "invalid"
 
 
-def test_heartbeat_wrong_site_rejected():
-    assert classify_topic("plant9/edge/edge1/heartbeat").kind == "invalid"
+def test_nul_rejected():
+    assert classify_topic(f"{P}/tele/sort/line1/conv1/temp\x00c").kind == "invalid"

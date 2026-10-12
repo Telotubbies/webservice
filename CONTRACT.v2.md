@@ -106,7 +106,7 @@ POST `/commands` body: `{ "tag_id", "value", "ttl_s"?: 1..60 (default 10), "idem
 
 ## 5. WebSocket `/ws/v1`
 
-1. Connect with **no query parameters**. The server checks `Origin` against `ALLOWED_ORIGINS`; on mismatch it closes with **4400**.
+1. Connect with **no query parameters**. The server checks `Origin` against `ALLOWED_ORIGINS`; on mismatch it closes with **4403** (a policy refusal, like the permission-lost case below — 4400 is not used).
 2. Within 5 s the client sends `{"type":"auth","token":"<access JWT>","site_id":"…"}`. If it doesn't, the server closes with **4401**. The site must belong to an org where the user has `site:read`; otherwise **4403**.
 3. The server replies `{"type":"snapshot","as_of","tags":[TagValue],"alarms":[Alarm active|acked],"commands":[Command in-flight]}`. Commands are included only with `command:read`.
 4. The server then streams events. Each frame carries `seq`, a per-connection counter that starts at 1:

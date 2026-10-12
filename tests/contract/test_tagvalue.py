@@ -121,10 +121,26 @@ def test_valid_heartbeat():
     ) == []
 
 
+def test_lwt_down_heartbeat_is_valid_shape():
+    # doc 17 §6: the broker-published LWT is terse — {status: down,
+    # clock_ok: null} — no adapter/ts. A live edge claiming 'down' WITH a
+    # full payload is also legal shape (status axis is separate).
+    assert validate_heartbeat({"status": "down", "clock_ok": None}) == []
+    assert validate_heartbeat(
+        {"status": "down", "clock_ok": True, "adapter": "sim", "ts": GOOD_TS}
+    ) == []
+
+
+def test_degraded_heartbeat_is_valid_shape():
+    assert validate_heartbeat(
+        {"status": "degraded", "clock_ok": False, "adapter": "sim",
+         "ts": GOOD_TS}) == []
+
+
 @pytest.mark.parametrize(
     "payload",
     [
-        {"status": "down", "clock_ok": True, "adapter": "sim", "ts": GOOD_TS},
+        {"status": "gone", "clock_ok": True, "adapter": "sim", "ts": GOOD_TS},
         {"status": "up", "clock_ok": "yes", "adapter": "sim", "ts": GOOD_TS},
         {"status": "up", "clock_ok": True, "adapter": "", "ts": GOOD_TS},
         {"status": "up", "clock_ok": True, "adapter": "sim"},

@@ -29,6 +29,7 @@ import json
 import logging
 import time
 import urllib.request
+import dataclasses
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -207,6 +208,19 @@ class Security:
                 # garbage token is still 401, not anonymous.
                 p = dev_principal(token)
                 if p is not None:
+                    if p.user_id is not None and self.pools is not None:
+                        try:
+                            async with user_tx(self.pools.app, p.user_id) as conn:
+                                rows = await conn.fetch(
+                                    "SELECT org_id, role FROM memberships")
+                        except Exception:  # noqa: BLE001 — fail closed
+                            log.exception("dev membership lookup failed — failing closed")
+                            raise AuthError("authorization store unavailable") from None
+                        org_roles = {r["org_id"]: r["role"] for r in rows}
+                        return dataclasses.replace(
+                            p,
+                            role=org_roles.get(config.V1_ORG_ID, p.role),
+                            org_roles=tuple(org_roles.items()))
                     return p
             claims = await self.verifier.verify(token)
             return await self._authorize(claims)

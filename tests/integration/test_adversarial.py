@@ -13,7 +13,9 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from conftest import EDGE_ID, SITE, TAGS, wait_until  # noqa: E402
+from conftest import (  # noqa: E402
+    TAGS, V2_PREFIX, v2_cmd, v2_hb, v2_tele, wait_until,
+)
 
 
 def _iso(dt: datetime) -> str:
@@ -21,9 +23,13 @@ def _iso(dt: datetime) -> str:
 
 
 def _cmd_payload(req_id, tag, value, ttl_s=30, issued_at=None, idem=None):
+    """`tag` may be a dotted v1 name or a path — the wire field is tag_path."""
+    path = tag.replace(".", "/")
+    if path.startswith("plant1/"):
+        path = path[len("plant1/"):]
     return {
         "command_id": f"cmd-{req_id}",
-        "tag": tag,
+        "tag_path": path,
         "value": value,
         "issued_at": _iso(issued_at or datetime.now(timezone.utc)),
         "ttl_s": ttl_s,
@@ -49,7 +55,7 @@ class RespCollector:
             self.responses.put(body)
 
         self.client.on_message = on_message
-        self.client.subscribe(f"{SITE}/cmd-resp/{EDGE_ID}/#", qos=1)
+        self.client.subscribe(f"{V2_PREFIX}/cmd-resp/#", qos=1)
         return self
 
     def __exit__(self, *exc):
@@ -180,11 +186,11 @@ def test_edge_ttl_expired_command_denied(mqtt_client):
                            issued_at=datetime.now(timezone.utc) - timedelta(seconds=60))
     with RespCollector(mqtt_client) as resp:
         time.sleep(0.5)  # let subscription land
-        mqtt_client.publish(f"{SITE}/cmd/{EDGE_ID}/{req_id}",
+        mqtt_client.publish(v2_cmd(req_id),
                             json.dumps(payload), qos=1)
         body = resp.wait_for(req_id, timeout=10)
-    assert body["status"] == "denied"
-    assert "ttl_expired" in str(body.get("detail", ""))
+    assert body["status"] == "rejected"
+    assert "ttl_expired" in str(body.get("reason", ""))
 
 
 def test_edge_nonwritable_tag_denied(mqtt_client):
@@ -192,11 +198,11 @@ def test_edge_nonwritable_tag_denied(mqtt_client):
     payload = _cmd_payload(req_id, TAGS["temp_c"], 99.0)
     with RespCollector(mqtt_client) as resp:
         time.sleep(0.5)
-        mqtt_client.publish(f"{SITE}/cmd/{EDGE_ID}/{req_id}",
+        mqtt_client.publish(v2_cmd(req_id),
                             json.dumps(payload), qos=1)
         body = resp.wait_for(req_id, timeout=10)
-    assert body["status"] == "denied"
-    assert "not_writable" in str(body.get("detail", ""))
+    assert body["status"] == "rejected"
+    assert "not_writable" in str(body.get("reason", ""))
 
 
 def test_edge_out_of_range_denied(mqtt_client):
@@ -204,11 +210,11 @@ def test_edge_out_of_range_denied(mqtt_client):
     payload = _cmd_payload(req_id, TAGS["speed_sp"], 9999.0)
     with RespCollector(mqtt_client) as resp:
         time.sleep(0.5)
-        mqtt_client.publish(f"{SITE}/cmd/{EDGE_ID}/{req_id}",
+        mqtt_client.publish(v2_cmd(req_id),
                             json.dumps(payload), qos=1)
         body = resp.wait_for(req_id, timeout=10)
-    assert body["status"] == "denied"
-    assert "out_of_range" in str(body.get("detail", ""))
+    assert body["status"] == "rejected"
+    assert "out_of_range" in str(body.get("reason", ""))
 
 
 def test_edge_duplicate_req_id_no_double_apply(mqtt_client):
@@ -216,14 +222,14 @@ def test_edge_duplicate_req_id_no_double_apply(mqtt_client):
     last N keys (04 §5) and must return the same result, not re-write."""
     req_id = f"dup-{uuid.uuid4()}"
     payload = json.dumps(_cmd_payload(req_id, TAGS["speed_sp"], 42.0))
-    topic = f"{SITE}/cmd/{EDGE_ID}/{req_id}"
+    topic = v2_cmd(req_id)
     with RespCollector(mqtt_client) as resp:
         time.sleep(0.5)
         mqtt_client.publish(topic, payload, qos=1)
         mqtt_client.publish(topic, payload, qos=1)
         r1 = resp.wait_for(req_id, timeout=10)
         r2 = resp.wait_for(req_id, timeout=10)
-    assert r1["status"] == r2["status"] == "done"
+    assert r1["status"] == r2["status"] == "acknowledged"
     assert r1.get("command_id") == r2.get("command_id")
 
 
@@ -231,22 +237,22 @@ def test_edge_malformed_cmd_payload_ignored(mqtt_client, api):
     """ATTACK_PLAN: garbage on cmd topic must not crash the edge."""
     req_id = f"bad-{uuid.uuid4()}"
     for junk in (b"not json at all", b'{"tag": 5, "value":', b"{}"):
-        mqtt_client.publish(f"{SITE}/cmd/{EDGE_ID}/{req_id}", junk, qos=1)
+        mqtt_client.publish(v2_cmd(req_id), junk, qos=1)
     time.sleep(1)
     # edge still alive: it should still answer a well-formed command
     good_id = f"ok-{uuid.uuid4()}"
     with RespCollector(mqtt_client) as resp:
         time.sleep(0.5)
-        mqtt_client.publish(f"{SITE}/cmd/{EDGE_ID}/{good_id}",
+        mqtt_client.publish(v2_cmd(good_id),
                             json.dumps(_cmd_payload(good_id, TAGS["running"], True)),
                             qos=1)
-        assert resp.wait_for(good_id, timeout=10)["status"] == "done"
+        assert resp.wait_for(good_id, timeout=10)["status"] == "acknowledged"
 
 
 def test_backend_unknown_telemetry_tag_dropped(mqtt_client, api):
     """05 §1 governance + 09 §6.5: telemetry on an unregistered tag must be
     dropped (metric telemetry_unknown_tag), never stored."""
-    ghost = f"{SITE}/sort/line1/ghost{uuid.uuid4().hex[:6]}/sig"
+    ghost = v2_tele(f"sort/line1/ghost{uuid.uuid4().hex[:6]}/sig")
     mqtt_client.publish(ghost, json.dumps(
         {"v": 1.0, "q": "good",
          "ts": _iso(datetime.now(timezone.utc))}), qos=1)
@@ -258,7 +264,7 @@ def test_backend_unknown_telemetry_tag_dropped(mqtt_client, api):
 
 def test_backend_malformed_telemetry_ignored(mqtt_client, api):
     """Garbage payloads on valid telemetry topics must not wedge ingest."""
-    topic = f"{SITE}/sort/line1/conv1/temp_c"
+    topic = v2_tele("sort/line1/conv1/temp_c")
     for junk in (b'\x00\xff garbage', b'{"v":', b"[1,2,3]",
                  json.dumps({"v": "hot", "q": "good",
                              "ts": _iso(datetime.now(timezone.utc))})):
@@ -271,7 +277,7 @@ def test_backend_malformed_telemetry_ignored(mqtt_client, api):
 def test_telemetry_qos1_duplicate_tolerated(mqtt_client, api):
     """QoS1 duplicates are legal on the wire — dedupe key (tag, ts)."""
     ts = _iso(datetime.now(timezone.utc))
-    topic = f"{SITE}/sort/line1/motor1/speed_sp"
+    topic = v2_tele("sort/line1/motor1/speed_sp")
     payload = json.dumps({"v": 7.7, "q": "good", "ts": ts})
     mqtt_client.publish(topic, payload, qos=1)
     mqtt_client.publish(topic, payload, qos=1)
@@ -287,7 +293,7 @@ def test_heartbeat_present_and_shaped(mqtt_client):
         got.put(msg.payload)
 
     mqtt_client.on_message = on_message
-    mqtt_client.subscribe(f"{SITE}/edge/{EDGE_ID}/heartbeat", qos=1)
+    mqtt_client.subscribe(v2_hb(), qos=1)
     try:
         payload = got.get(timeout=15)
     except queue.Empty:
@@ -304,7 +310,7 @@ def test_clock_skew_commands_denied(mqtt_client):
     stack started with a skewed EDGE_CLOCK_SKEW_MS — auto-skips otherwise."""
     got = queue.Queue()
     mqtt_client.on_message = lambda c, u, m: got.put(json.loads(m.payload))
-    mqtt_client.subscribe(f"{SITE}/edge/{EDGE_ID}/heartbeat", qos=1)
+    mqtt_client.subscribe(v2_hb(), qos=1)
     try:
         hb = got.get(timeout=15)
     except queue.Empty:
@@ -315,12 +321,12 @@ def test_clock_skew_commands_denied(mqtt_client):
     req_id = f"skew-{uuid.uuid4()}"
     with RespCollector(mqtt_client) as resp:
         time.sleep(0.5)
-        mqtt_client.publish(f"{SITE}/cmd/{EDGE_ID}/{req_id}",
+        mqtt_client.publish(v2_cmd(req_id),
                             json.dumps(_cmd_payload(req_id, TAGS["running"], True)),
                             qos=1)
         body = resp.wait_for(req_id, timeout=10)
-    assert body["status"] == "denied"
-    assert "clock_untrusted" in str(body.get("detail", ""))
+    assert body["status"] == "rejected"
+    assert "clock_untrusted" in str(body.get("reason", ""))
 
 
 # -------------------------------------------------- disruptive (opt-in)
@@ -372,7 +378,7 @@ def test_retained_command_denied_on_edge_restart(
         # Broker stores this under the topic and replays it (retain flag set)
         # to the next subscriber — i.e. the edge when it comes back.
         mqtt_client.publish(
-            f"{SITE}/cmd/{EDGE_ID}/{req_id}",
+            v2_cmd(req_id),
             json.dumps(_cmd_payload(req_id, TAGS["running"], True)),
             qos=1, retain=True)
         time.sleep(1)
@@ -380,8 +386,8 @@ def test_retained_command_denied_on_edge_restart(
         with RespCollector(mqtt_client) as resp:
             compose("start", "edge-bridge")
             body = resp.wait_for(req_id, timeout=45)
-        assert body["status"] == "denied"
-        assert "retained_command" in str(body.get("detail", ""))
+        assert body["status"] == "rejected"
+        assert "retained_command" in str(body.get("reason", ""))
 
         # Prove no write reached the sim: once fresh telemetry resumes the
         # tag must not carry the commanded value.
@@ -396,7 +402,7 @@ def test_retained_command_denied_on_edge_restart(
             "retained command was executed after restart"
     finally:
         # Clear the retained slot so future edge restarts don't replay it.
-        mqtt_client.publish(f"{SITE}/cmd/{EDGE_ID}/{req_id}",
+        mqtt_client.publish(v2_cmd(req_id),
                             "", qos=1, retain=True)
         compose("start", "edge-bridge")
 
@@ -415,7 +421,7 @@ def test_alarm_survives_bad_quality_telemetry(
         subprocess.run(["docker", "compose", "-f", compose_file, *args],
                        check=True, capture_output=True)
 
-    topic = TAGS["temp_c"].replace(".", "/")
+    topic = v2_tele(TAGS["temp_c"].replace(".", "/")[7:])
 
     def pub(v, q):
         mqtt_client.publish(topic, json.dumps(

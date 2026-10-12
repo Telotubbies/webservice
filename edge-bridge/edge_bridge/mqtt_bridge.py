@@ -4,6 +4,14 @@ The client is created with `reconnect_on_failure=False`, so paho's
 `loop_forever()` returns as soon as the connection drops and the
 supervisor thread owns the retry policy: exponential backoff 1 s -> 60 s
 with +/-50 % jitter, one clean log line per connect attempt.
+
+Credential lifecycle (doc 17 §5): `cred_provider` is consulted before
+EVERY connect attempt, so a rotated `edge-{e}-v{n+1}` secret that lands in
+the credentials file takes effect on the next reconnect — the old one
+stays valid during its grace window, then is disabled broker-side. A
+refused CONNACK (e.g. the edge was disabled) retries with the same
+backoff: the process can't distinguish "disabled" from "wrong password"
+and shouldn't exit on either.
 """
 
 from __future__ import annotations
@@ -39,17 +47,23 @@ class MqttBridge:
     on_message: Callable[[mqtt.MQTTMessage], None] | None = None
 
     def __init__(self, host: str, port: int, client_id: str,
-                 username: str | None = None, password: str | None = None,
+                 cred_provider: Callable[[], tuple[str | None, str | None]] | None = None,
+                 ca_file: str | None = None,
                  will_topic: str | None = None, will_payload: str | None = None):
         self._host = host
         self._port = port
+        self._cred_provider = cred_provider
         self._client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=client_id,
             reconnect_on_failure=False,  # supervisor owns reconnect policy
         )
-        if username:
-            self._client.username_pw_set(username, password)
+        if cred_provider is not None:
+            user, pw = cred_provider()
+            if user:
+                self._client.username_pw_set(user, pw)
+        if ca_file:
+            self._client.tls_set(ca_certs=ca_file)
         if will_topic and will_payload:
             # LWT: broker publishes a down-heartbeat if we drop ungracefully.
             self._client.will_set(will_topic, payload=will_payload,
@@ -64,6 +78,7 @@ class MqttBridge:
             target=self._run, name="mqtt-supervisor", daemon=True)
         self._attempts = 0
         self._ever_connected = False
+        self._session = False   # CONNACK-accepted during the current attempt
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -78,6 +93,14 @@ class MqttBridge:
             pass
         self._thread.join(timeout=5.0)
 
+    def queued(self) -> int:
+        """Buffered QoS1 messages awaiting the connection — surfaced in the
+        heartbeat as buffer_depth (doc 17 §6 heartbeat schema)."""
+        try:
+            return len(self._client._out_messages)  # paho internal, read-only
+        except Exception:  # noqa: BLE001
+            return 0
+
     # -- supervisor ----------------------------------------------------------
 
     def _run(self) -> None:
@@ -85,6 +108,7 @@ class MqttBridge:
         while not self._stop.is_set():
             try:
                 self._attempts += 1
+                self._refresh_credentials()
                 if self._ever_connected:
                     self._client.reconnect()
                 else:
@@ -93,7 +117,11 @@ class MqttBridge:
             except OSError as exc:
                 backoff = self._wait(backoff, f"connect failed: {exc}")
                 continue
+            except Exception as exc:  # TLS setup, bad creds file, …
+                backoff = self._wait(backoff, f"connect failed: {exc}")
+                continue
 
+            self._session = False
             try:
                 # Blocks while connected; returns on drop because
                 # reconnect_on_failure=False.
@@ -103,9 +131,24 @@ class MqttBridge:
 
             if self._stop.is_set():
                 break
+            if self._session:
+                # a drop AFTER a real connection is a fresh incident — the
+                # next retry is fast; only pre-CONNACK failures grow backoff
+                backoff = _BACKOFF_MIN_S
             backoff = self._wait(backoff, f"connection dropped (rc={rc})")
 
         log.info("mqtt supervisor stopped")
+
+    def _refresh_credentials(self) -> None:
+        """Re-read provisioned credentials so rotation rides a reconnect."""
+        if self._cred_provider is None:
+            return
+        try:
+            user, pw = self._cred_provider()
+            if user:
+                self._client.username_pw_set(user, pw)
+        except Exception:  # noqa: BLE001 — keep the last-known creds
+            log.exception("credential reload failed — keeping last-known")
 
     def _wait(self, backoff: float, why: str) -> float:
         delay = backoff * random.uniform(1 - _JITTER, 1 + _JITTER)
@@ -118,9 +161,12 @@ class MqttBridge:
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         if reason_code.is_failure:
+            # Bad/old credential, disabled client, ACL-less identity — the
+            # supervisor retries with backoff; rotation/rollback resolves it.
             log.error("mqtt CONNACK refused rc=%s", reason_code)
             return
         self._ever_connected = True
+        self._session = True
         self.connected.set()
         log.info("mqtt connected host=%s port=%d attempt=%d",
                  self._host, self._port, self._attempts)

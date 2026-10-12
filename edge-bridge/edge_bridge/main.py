@@ -5,6 +5,11 @@ Run:  MQTT_HOST=localhost python -m edge_bridge.main
 Threads: paho supervisor (connect/loop/reconnect), poll loop (every POLL_MS),
 heartbeat loop (every 5 s). Command handling happens on paho's network
 thread via on_message -> CommandHandler. SIGTERM/SIGINT stops everything.
+
+Topics are doc-17 v2: the edge publishes only on its own prefix
+`v2/{org_id}/{site_id}/{edge_id}/{tele/*,hb,cmd-resp/*}` and subscribes to
+`cmd/+` — the broker ACL denies everything else, so even a compromised
+bridge process can't speak for another edge.
 """
 
 from __future__ import annotations
@@ -39,7 +44,8 @@ def _poll_loop(stop: threading.Event, cfg: Config, adapter,
                           adapter.name)
             values = []
         for tv in values:
-            bridge.publish_json(tv.topic, tv.payload())
+            bridge.publish_json(cfg.tele_topic(cfg.tag_path(tv.name)),
+                                tv.payload())
 
         next_tick += period
         delay = next_tick - time.monotonic()
@@ -52,7 +58,6 @@ def _poll_loop(stop: threading.Event, cfg: Config, adapter,
 def _heartbeat_loop(stop: threading.Event, cfg: Config, adapter,
                     bridge: MqttBridge, clock: EdgeClock,
                     health: dict) -> None:
-    topic = f"{cfg.site}/edge/{cfg.edge_id}/heartbeat"
     while not stop.is_set():
         read_failures = health.get("read_failures", 0)
         degraded = read_failures > 0 or not clock.clock_ok
@@ -63,45 +68,52 @@ def _heartbeat_loop(stop: threading.Event, cfg: Config, adapter,
             "clock_ok": clock.clock_ok,
             "clock_offset_ms": clock.skew_ms,
             "read_failures": read_failures,
+            "buffer_depth": bridge.queued(),
+            "buffer_dropped": 0,
             "adapter": adapter.name,
             "ts": clock.now().isoformat().replace("+00:00", "Z"),
         }
-        bridge.publish_json(topic, payload)
+        bridge.publish_json(cfg.hb_topic, payload)
         stop.wait(cfg.heartbeat_s)
 
 
 def main() -> int:
     setup_logging()
     cfg = Config.from_env()
+    if not cfg.org_id or not cfg.site_id or not cfg.edge_id:
+        log.error("ORG_ID/SITE_ID/EDGE_ID (uuids) are required — the v2 "
+                  "topic namespace has no human names")
+        return 2
     clock = EdgeClock(cfg.clock_skew_ms, cfg.clock_ok_threshold_ms)
 
     tags_cfg = load_tags_config(cfg.tags_config)
-    adapter = make_adapter(cfg.adapter, cfg.site, tags_cfg, now=clock.now)
+    adapter = make_adapter(cfg.adapter, cfg.site_code, tags_cfg, now=clock.now)
 
     health: dict = {"read_failures": 0}
-    hb_topic = f"{cfg.site}/edge/{cfg.edge_id}/heartbeat"
     bridge = MqttBridge(
         cfg.mqtt_host, cfg.mqtt_port,
-        client_id=f"edge-bridge-{cfg.edge_id}",
-        username=cfg.mqtt_user, password=cfg.mqtt_password,
+        client_id=f"edge-{cfg.edge_id}",
+        cred_provider=cfg.credentials,
+        ca_file=cfg.mqtt_ca_file,
         # If we vanish ungracefully, the broker tells the world we're down —
         # without this, silence is indistinguishable from "all good".
-        will_topic=hb_topic,
+        will_topic=cfg.hb_topic,
         will_payload=json.dumps({"status": "down", "clock_ok": None}),
     )
-    handler = CommandHandler(cfg.site, cfg.edge_id, adapter, clock, bridge)
+    handler = CommandHandler(cfg, adapter, clock, bridge)
     # Re-subscribes on every reconnect (on_connect fires per CONNACK).
     bridge.on_connect = lambda b: b.subscribe(handler.cmd_topic, qos=1)
     bridge.on_message = handler.handle_message
 
     log.info(
-        "edge-bridge starting site=%s edge_id=%s adapter=%s poll_ms=%d "
-        "mqtt=%s:%d clock_skew_ms=%s clock_ok=%s tags=%d",
-        cfg.site, cfg.edge_id, adapter.name, cfg.poll_ms,
-        cfg.mqtt_host, cfg.mqtt_port, cfg.clock_skew_ms, clock.clock_ok,
+        "edge-bridge starting org=%s site=%s edge=%s adapter=%s poll_ms=%d "
+        "mqtt=%s:%d tls=%s clock_skew_ms=%s clock_ok=%s tags=%d",
+        cfg.org_id, cfg.site_id, cfg.edge_id, adapter.name, cfg.poll_ms,
+        cfg.mqtt_host, cfg.mqtt_port, bool(cfg.mqtt_ca_file),
+        cfg.clock_skew_ms, clock.clock_ok,
         len(adapter.tag_map()),
         extra={"fields": {"event": "startup", "adapter": adapter.name,
-                          "poll_ms": cfg.poll_ms, "site": cfg.site,
+                          "poll_ms": cfg.poll_ms, "site": cfg.site_id,
                           "edge_id": cfg.edge_id}},
     )
 

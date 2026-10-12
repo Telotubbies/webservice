@@ -5,6 +5,15 @@ services:
   postgres:
     ports:
       - "127.0.0.1:5433:5432"
+
+  mosquitto:
+    ports:
+      # plaintext 1883 for host-side debugging — TEST PROFILE ONLY
+      # (infra/mosquitto-extras-test/test.conf adds the listener; doc 20 §3.4).
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - ./infra/mosquitto-extras-test:/mosquitto/config-extras:ro
+
   backend:
     environment:
       # v4 T4: rate-limit envs pass through so a test run can shrink the
@@ -12,3 +21,16 @@ services:
       RATE_COMMANDS_PER_TAG: "${RATE_COMMANDS_PER_TAG:-5}"
       RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-60}"
       RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"
+      # Fault-injection identity (doc 17 §2): the reconciler only creates the
+      # `tester` dynsec client when this secret is mounted — i.e. ONLY under
+      # this overlay. TLS on 8883 stays the transport for tests too.
+      TESTER_PW_FILE: /run/secrets/tester_pw
+      # Broker-side changes can't NOTIFY — the 60 s prod cadence would outrun
+      # test timeouts; 5 s keeps orphan/missing-client sweeps observable.
+      DYNSEC_RECONCILE_S: "${DYNSEC_RECONCILE_S:-5}"
+    secrets:
+      - tester_pw
+
+secrets:
+  tester_pw:
+    file: ./infra/secrets/tester_pw

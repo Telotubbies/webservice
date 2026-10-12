@@ -1,19 +1,48 @@
-"""Environment-driven configuration (contract §Env vars)."""
+"""Environment-driven configuration (contract §Env vars + doc 17 §1/§5).
+
+Two different "site/edge" spellings exist on purpose:
+
+* ``site_code`` (``SITE``, e.g. ``plant1``) — human tag naming; adapters key
+  tags as ``{site_code}.{area}.{line}.{device}.{signal}``.
+* ``org_id``/``site_id``/``edge_id`` — UUIDs that form the doc-17 MQTT
+  namespace ``v2/{org}/{site}/{edge}/...``. Topic identity is UUIDs only.
+
+Credentials are provisioned, never shared: the edge reads its broker
+username/password from files (``MQTT_USERNAME_FILE`` / ``MQTT_PASSWORD_FILE``,
+falling back to env for local dev) and re-reads them on every connect
+attempt so a rotated credential takes effect at the next reconnect.
+"""
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+
+def _file_or_none(path: str | None) -> str | None:
+    if not path:
+        return None
+    try:
+        v = Path(path).read_text().strip()
+        return v or None
+    except OSError:
+        return None
 
 
 @dataclass(frozen=True)
 class Config:
     mqtt_host: str = "localhost"
-    mqtt_port: int = 1883
-    mqtt_user: str | None = None
+    mqtt_port: int = 8883                      # TLS listener (doc 17 §2)
+    mqtt_user: str | None = None               # edge-{edge_id}-v{n}
     mqtt_password: str | None = None
-    edge_id: str = "edge1"
-    site: str = "plant1"
+    mqtt_user_file: str | None = None
+    mqtt_password_file: str | None = None
+    mqtt_ca_file: str | None = None            # dev CA from infra/gen-certs.sh
+    org_id: str = ""
+    site_id: str = ""
+    edge_id: str = ""                          # UUID — the doc-17 identity
+    site_code: str = "plant1"                  # tag naming prefix only
     adapter: str = "sim"
     poll_ms: int = 1000
     clock_skew_ms: float = 0.0
@@ -25,13 +54,53 @@ class Config:
     def from_env(cls) -> "Config":
         return cls(
             mqtt_host=os.getenv("MQTT_HOST", "localhost"),
-            mqtt_port=int(os.getenv("MQTT_PORT", "1883")),
+            mqtt_port=int(os.getenv("MQTT_PORT", "8883")),
             mqtt_user=os.getenv("MQTT_USER") or None,
             mqtt_password=os.getenv("MQTT_PASSWORD") or None,
-            edge_id=os.getenv("EDGE_ID", "edge1"),
-            site=os.getenv("SITE", "plant1"),
+            mqtt_user_file=os.getenv("MQTT_USERNAME_FILE") or None,
+            mqtt_password_file=os.getenv("MQTT_PASSWORD_FILE") or None,
+            mqtt_ca_file=os.getenv("MQTT_CA_FILE") or None,
+            org_id=os.getenv("ORG_ID", ""),
+            site_id=os.getenv("SITE_ID", ""),
+            edge_id=os.getenv("EDGE_ID", ""),
+            site_code=os.getenv("SITE", "plant1"),
             adapter=os.getenv("ADAPTER", "sim"),
             poll_ms=int(os.getenv("POLL_MS", "1000")),
             clock_skew_ms=float(os.getenv("EDGE_CLOCK_SKEW_MS", "0")),
             tags_config=os.getenv("TAGS_CONFIG", "tags.yaml"),
         )
+
+    # -- doc 17 topic helpers -------------------------------------------------
+    @property
+    def prefix(self) -> str:
+        return f"v2/{self.org_id}/{self.site_id}/{self.edge_id}"
+
+    @property
+    def hb_topic(self) -> str:
+        return f"{self.prefix}/hb"
+
+    @property
+    def cmd_topic(self) -> str:
+        return f"{self.prefix}/cmd/+"
+
+    def tele_topic(self, tag_path: str) -> str:
+        """tag_path is the site-relative path (area/line/device/signal)."""
+        return f"{self.prefix}/tele/{tag_path}"
+
+    def cmd_resp_topic(self, command_id: str) -> str:
+        return f"{self.prefix}/cmd-resp/{command_id}"
+
+    def tag_path(self, full_name: str) -> str:
+        """'{site_code}.a.b.c' -> 'a/b/c' — the v2 tele topic tail."""
+        name = full_name
+        prefix = f"{self.site_code}."
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+        return name.replace(".", "/")
+
+    def credentials(self) -> tuple[str | None, str | None]:
+        """Current (username, password); files re-read so a rotated secret
+        is picked up on the next connect attempt (doc 17 §5)."""
+        user = _file_or_none(self.mqtt_user_file) or self.mqtt_user
+        pw = _file_or_none(self.mqtt_password_file) or self.mqtt_password
+        return user, pw

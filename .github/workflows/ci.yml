@@ -25,12 +25,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r backend/requirements.txt pytest pytest-timeout httpx websockets
-      - name: Generate broker credentials
-        run: ./infra/gen-passwd.sh
-      - name: Bring up stack
-        run: docker compose up -d --build --wait
-      - name: Integration tests against live stack
-        run: cd tests && BASE_URL=http://localhost:8000 MQTT_HOST=localhost python -m pytest -m integration
+      - name: Generate broker material (dynsec secrets + dev TLS certs)
+        run: ./infra/gen-secrets.sh && ./infra/gen-certs.sh
+      - name: Bring up stack (test overlay: 1883 + tester identity)
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build --wait
+      - name: Integration tests against live stack (TLS :8883, v2 topics)
+        run: cd tests && BASE_URL=http://localhost:8000 MQTT_HOST=localhost MQTT_PORT=8883 MQTT_CA_FILE=../infra/certs/ca.crt python -m pytest -m integration
       - name: Service logs on failure
         if: failure()
         run: docker compose logs --tail=200

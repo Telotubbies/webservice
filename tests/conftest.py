@@ -3,13 +3,18 @@
 Default `pytest` run: contract/unit tests only — integration tests are
 collected but SKIP unless the env vars they need are present:
 
-    BASE_URL   e.g. http://localhost:8000      → REST / WS tests
-    MQTT_HOST  e.g. localhost (+ MQTT_PORT)    → broker-level tests
-    DISRUPTIVE=1                               → tests that stop/start services
+    BASE_URL    e.g. http://localhost:8000         → REST / WS tests
+    MQTT_HOST   e.g. localhost (+ MQTT_PORT=8883)  → broker-level tests
+    DISRUPTIVE=1                                   → tests that stop/start services
+
+Broker access is TLS + dynsec (doc 17): tests connect as the `tester`
+identity whose secret lives in infra/secrets/tester_pw (created only under
+the test compose overlay) and verify against infra/certs/ca.crt.
 
 Usage:
     pytest                        # unit/contract only (no services needed)
-    BASE_URL=http://localhost:8000 MQTT_HOST=localhost pytest -m integration
+    BASE_URL=http://localhost:8000 MQTT_HOST=localhost MQTT_PORT=8883 \
+        pytest -m integration
 """
 
 from __future__ import annotations
@@ -18,6 +23,8 @@ import json
 import os
 import sys
 import time
+import uuid
+from pathlib import Path
 
 import pytest
 
@@ -26,13 +33,61 @@ sys.path.insert(0, os.path.dirname(__file__))  # `contract` package import
 # modules are import-safe: config reads env once, nothing connects at import.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
+REPO = Path(__file__).resolve().parent.parent
+
 BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
 MQTT_HOST = os.environ.get("MQTT_HOST", "")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
-MQTT_USER = os.environ.get("MQTT_USER", "tester")
-MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "tester-demo-pass")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
+MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE") or str(REPO / "infra/certs/ca.crt")
 OPERATOR_TOKEN = os.environ.get("OPERATOR_TOKEN", "demo-operator")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "demo-admin")
 VIEWER_TOKEN = os.environ.get("VIEWER_TOKEN", "demo-viewer")
+
+
+def _secret(name: str) -> str:
+    try:
+        return (REPO / "infra" / "secrets" / name).read_text().strip()
+    except OSError:
+        return ""
+
+
+MQTT_USER = os.environ.get("MQTT_USER", "tester")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD") or _secret("tester_pw")
+
+# doc 17 §1 — v2 topic identity of the dev-seeded edge (UUIDs only).
+ORG_ID = os.environ.get("V1_ORG_ID", "0199d000-0000-7000-8000-00000000a001")
+SITE_ID = os.environ.get("V1_SITE_ID", "0199d000-0000-7000-8000-00000000b001")
+EDGE_UUID = os.environ.get("V1_EDGE_ID", "0199d000-0000-7000-8000-00000000c001")
+V2_PREFIX = f"v2/{ORG_ID}/{SITE_ID}/{EDGE_UUID}"
+
+
+def v2_tele(path: str) -> str:
+    return f"{V2_PREFIX}/tele/{path}"
+
+
+def v2_hb() -> str:
+    return f"{V2_PREFIX}/hb"
+
+
+def v2_cmd(command_id: str) -> str:
+    return f"{V2_PREFIX}/cmd/{command_id}"
+
+
+def v2_cmd_resp(command_id: str) -> str:
+    return f"{V2_PREFIX}/cmd-resp/{command_id}"
+
+
+def mqtt_connect(client=None, username=MQTT_USER, password=MQTT_PASSWORD):
+    """Connect a paho client over TLS as a dynsec identity."""
+    import paho.mqtt.client as mqtt
+    c = client or mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
+                              client_id=f"pytest-{uuid.uuid4().hex[:8]}")
+    if username:
+        c.username_pw_set(username, password)
+    c.tls_set(ca_certs=MQTT_CA_FILE)
+    c.connect(MQTT_HOST, MQTT_PORT, keepalive=30)
+    c.loop_start()
+    return c
 
 # v4 T5 — OIDC via Keycloak (ADR-12). The compose stack publishes KC on
 # 127.0.0.1:8080; the public iss is the web origin (KC_HOSTNAME), so a token
@@ -126,6 +181,11 @@ def viewer_headers() -> dict:
 
 
 @pytest.fixture(scope="session")
+def admin_headers() -> dict:
+    return {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+
+
+@pytest.fixture(scope="session")
 def oidc_headers() -> dict:
     """A REAL Keycloak access token (operator@demo) — requires `make seed-dev`
     to have set the demo password. Skips cleanly when the realm isn't up."""
@@ -146,14 +206,14 @@ def operator_api(api, operator_headers):
 
 @pytest.fixture()
 def mqtt_client():
-    """Connected paho client; skipped unless MQTT_HOST is set."""
+    """Connected paho client as `tester` (TLS, test profile only); skipped
+    unless MQTT_HOST is set."""
     if not MQTT_HOST:
         pytest.skip("MQTT_HOST not set — skipping MQTT integration test")
-    mqtt = pytest.importorskip("paho.mqtt.client")
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
-    client.connect(MQTT_HOST, MQTT_PORT, keepalive=30)
-    client.loop_start()
+    if not MQTT_PASSWORD:
+        pytest.skip("tester secret missing — run under the test overlay "
+                    "(`make up-test`, infra/secrets/tester_pw)")
+    client = mqtt_connect()
     yield client
     client.loop_stop()
     client.disconnect()

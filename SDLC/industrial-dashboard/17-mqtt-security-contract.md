@@ -87,3 +87,61 @@ Retained messages: the backend publishes commands with `retain=false`. The edge 
 | `test_acl.py::test_rotation` | v2 connects, v1 is disabled after cut-over |
 | `test_trust.py::test_topic_identity_mismatch_dropped` | (tester identity) message on a valid-shaped prefix with a mismatched site → dropped + security counter |
 | `test_reconcile.py` | delete a dynsec client by hand → recreated with a new version; add an orphan → disabled |
+
+## 8. Implementation status (v4 T6, branch `ui-v4`)
+
+Implemented per this contract:
+
+- **Broker**: `eclipse-mosquitto:2` + `mosquitto_dynamic_security.so`
+  (`infra/mosquitto.conf`). TLS listener `8883` only; plaintext `1883`
+  exists solely under the test overlay
+  (`infra/mosquitto-extras-test/test.conf`, mounted by
+  `docker-compose.test.yml`). `infra/gen-certs.sh` (`make certs`) issues a
+  dev CA + broker cert with SAN `localhost`/`mosquitto`.
+- **Identities**: `svc-backend`, `svc-dynsec-admin`, per-edge
+  `edge-{edge_id}-v{n}`, and `tester` (test overlay only — the reconciler
+  creates it iff `TESTER_PW_FILE` is mounted and disables it when absent).
+  Secrets live in `infra/secrets/` (`make secrets`), mounted as compose
+  secrets; nothing secret-bearing appears in env or `docker inspect`.
+- **Dynsec channel**: `svc-dynsec-admin` is the only `$CONTROL` identity;
+  `backend/app/dynsec.py::DynsecAdmin` is an MQTTv5 request/response
+  client over `$CONTROL/dynamic-security/v1`. Correlation data is sent but
+  mosquitto does NOT echo it on responses — calls are single-flight under
+  a lock, so the lone outstanding request claims each response.
+- **Reconciler**: `backend/app/dynsec.py::Reconciler`, in-process with the
+  backend (listens on `NOTIFY wds_edges` + 60 s cadence). One-way
+  Postgres→broker; never re-enables DB-disabled clients; orphan `edge-*`
+  clients are disabled + counted (`mqtt.orphan_client`); a broker-missing
+  active credential is recreated as `v{n+1}` with `needs_rotation` unless
+  the mounted bootstrap secret's fingerprint matches (seed-edge fast path).
+- **DB**: `edge_identities` table (`0004_edge_identities`, RLS mirroring
+  `edges`); stores sha256 fingerprint only — never the secret.
+- **API**: `POST /api/v1/orgs/{o}/sites/{s}/edges` (201 + one-time
+  secret), `…/rotate`, `…/disable` — admin/owner only (`config:write`),
+  audited (`edge.provisioned|rotated|disabled`), `wds_edges` NOTIFY.
+  Provision is broker-first: a broker-side create that the DB write never
+  confirms is an orphan the reconciler disables.
+- **Ingest trust**: `backend/app/main.py::_handle_message` parses
+  org/site/edge from the topic only; UUID check, active-edge + org/site
+  match → `mqtt_topic_identity_mismatch` counter; tag path must be bound
+  to that edge; `cmd-resp` honoured only for commands of that edge.
+- **Edge bridge**: file-based provisioned credentials re-read on every
+  reconnect (rotation rides cut-over), TLS, v2 topics + contract
+  heartbeat/LWT, `cmd-resp` vocabulary `acknowledged|rejected|failed` with
+  `reason`.
+- **UAT/injection**: `tests/e2e/uat.mjs` and the integration suite publish
+  as `tester` over TLS `:8883` on v2 topics.
+
+Deviations / notes:
+
+- §5 "Provision" says `status=pending → status=active`: the API writes the
+  edge row only after the broker client exists, so the committed row is
+  born `active`; a broker failure is a 503 with NO row (the would-be
+  pending state is carried by nothing — retry is idempotent by client
+  name). This is stricter than the letter of the table (no half-live
+  credential can ever exist in the DB).
+- Reconcile cadence default is `DYNSEC_RECONCILE_S=60` per §6; `NOTIFY
+  wds_edges` makes lifecycle ops near-instant in practice.
+- `getClient`-based cut-over check observes the *new* credential's live
+  connection, then disables the grace-window predecessor (§5 "or until the
+  edge connects with v{n+1}").

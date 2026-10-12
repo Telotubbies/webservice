@@ -28,6 +28,7 @@ log = logging.getLogger("backend.auth")
 TOKENS = {
     os.environ.get("API_TOKEN_OPERATOR", "demo-operator"): "operator",
     os.environ.get("API_TOKEN_VIEWER", "demo-viewer"): "viewer",
+    os.environ.get("API_TOKEN_ADMIN", "demo-admin"): "admin",
 }
 
 ROLE_ANONYMOUS = "anonymous"

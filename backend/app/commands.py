@@ -26,13 +26,15 @@ from . import config
 from .db import audit
 from .db.context import TenantConn, tenant_tx
 from .db.util import iso_z, utcnow
+from .mqtt_client import command_topic
 
 log = logging.getLogger("backend.commands")
 
 INFLIGHT = ("accepted", "dispatched")
 TERMINAL = ("acknowledged", "rejected", "failed", "timeout")
-# edge v1 response vocabulary -> v2 status
-RESP_MAP = {"done": "acknowledged", "denied": "rejected", "error": "failed"}
+# doc 17 wire vocabulary is already the v2 one (edge emits these verbatim)
+RESP_MAP = {"acknowledged": "acknowledged", "rejected": "rejected",
+            "failed": "failed"}
 # v2 -> v1 wire names (CONTRACT.md) for the v1 API / WS shim
 V1_STATUS = {"accepted": "issued", "dispatched": "sent", "acknowledged": "done",
              "rejected": "denied", "failed": "failed", "timeout": "timeout"}
@@ -114,10 +116,15 @@ class CommandManager:
             await self._record(tc, cid, None, "accepted", f"user:{user_id}", None)
         await self._broadcast(cid)
 
-        payload = {"command_id": str(cid), "tag": tag.v1_name, "value": value,
+        # doc 17 §1: commands ride v2/{org}/{site}/{edge}/cmd/{command_id};
+        # CONTRACT.v2 §6 payload carries tag_path (path within the site).
+        edge = self.registry.edge(tag.edge_id)
+        payload = {"command_id": str(cid), "tag_path": tag.path, "value": value,
                    "issued_at": iso_z(now), "ttl_s": ttl_s,
                    "idempotency_key": idempotency_key, "user": str(user_id)}
-        if self.mqtt.publish_command(str(cid), payload):
+        if edge is not None and self.mqtt.publish_command(
+                command_topic(edge.org_id, edge.site_id, edge.id, str(cid)),
+                payload):
             await self.transition(cid, "dispatched", None, "relay")
         else:
             await self.transition(cid, "failed", "dispatch_error", "relay")
@@ -126,16 +133,29 @@ class CommandManager:
         return 201, {"command_id": str(cid), "status": V1_STATUS[status]}
 
     # ----------------------------------------------------- responses / ttl
-    async def handle_response(self, command_id: str, status: str, detail: str | None) -> None:
+    async def handle_response(self, command_id: str, status: str,
+                              detail: str | None, org_id: UUID,
+                              edge_id: UUID) -> None:
+        """doc 17 §4 rule 4: cmd-resp is honoured only when the command row
+        belongs to the org AND edge parsed from the topic — a valid-shaped
+        response on the wrong edge's prefix is dropped."""
         new = RESP_MAP.get(status)
         if new is None:
-            return  # interim v1 "acked" or unknown — not a lifecycle transition
+            return  # unknown status — not a lifecycle transition
         try:
             cid = UUID(command_id)
         except ValueError:
             log.warning("cmd-resp with non-uuid id", extra={"command_id": command_id})
             return
-        await self.transition(cid, new, detail, f"edge:{config.V1_EDGE_ID}")
+        async with tenant_tx(self.pools.system, org_id) as tc:
+            row = await tc.fetchrow(
+                "SELECT edge_id FROM commands WHERE id=$1", cid)
+        if row is None or row["edge_id"] != edge_id:
+            log.warning("cmd-resp edge/org mismatch — dropped",
+                        extra={"command_id": command_id,
+                               "topic_edge": str(edge_id)})
+            return
+        await self.transition(cid, new, detail, f"edge:{edge_id}")
 
     async def _watch(self, cid: UUID, ttl_s: int) -> None:
         try:

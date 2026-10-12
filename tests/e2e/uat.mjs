@@ -10,21 +10,31 @@ const { chromium } = await import(process.env.PLAYWRIGHT_PATH || 'playwright')
     );
   });
 
+const REPO = new URL('../../', import.meta.url).pathname;
 const BASE = 'http://localhost:5173';
 const API = 'http://localhost:8000';
 const results = [];
 const ok = (name, cond, extra = '') => { results.push([name, !!cond, extra]); console.log(`${cond ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// --- MQTT helper: publish telemetry sample via paho (python) ---
+// doc 17 topic identity of the dev-seeded edge (UUIDs only)
+const ORG = '0199d000-0000-7000-8000-00000000a001';
+const SITE_ID = '0199d000-0000-7000-8000-00000000b001';
+const EDGE = '0199d000-0000-7000-8000-00000000c001';
+const V2 = `v2/${ORG}/${SITE_ID}/${EDGE}`;
+
+// --- MQTT helper: publish telemetry via paho as the `tester` dynsec
+// identity (TLS :8883, test profile only — secret lives in infra/secrets) ---
 function pub(tag, v, q = 'good') {
   const ts = new Date().toISOString();
-  const py = `import paho.mqtt.client as m,json,time
+  const py = `import paho.mqtt.client as m,json,time,pathlib
+pw=pathlib.Path('${REPO}/infra/secrets/tester_pw').read_text().strip()
 c=m.Client(m.CallbackAPIVersion.VERSION2)
-c.username_pw_set('tester','tester-demo-pass')
-c.connect('localhost',1883,10)
+c.username_pw_set('tester',pw)
+c.tls_set(ca_certs='${REPO}/infra/certs/ca.crt')
+c.connect('localhost',8883,10)
 c.loop_start()
-c.publish('plant1/sort/line1/conv1/${tag}',json.dumps({'v':${JSON.stringify(v)},'q':'${q}','ts':'${ts}'}),qos=1)
+c.publish('${V2}/tele/sort/line1/conv1/${tag}',json.dumps({'v':${JSON.stringify(v)},'q':'${q}','ts':'${ts}'}),qos=1)
 time.sleep(0.6)
 c.loop_stop();c.disconnect()`;
   execSync(`python3 -c "${py.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`, { cwd: '/tmp' });

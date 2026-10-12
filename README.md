@@ -24,7 +24,7 @@ edge-bridge ──MQTT──> mosquitto ──> backend ──REST/WS──> web
 
 ```bash
 cp .env.example .env       # optional — defaults work out of the box
-make secrets               # first run only: generate infra/passwd (gitignored)
+make secrets certs         # first run only: infra/secrets + dev TLS certs (gitignored)
 make up                    # docker compose up -d --build --wait
 open http://localhost:5173
 ```

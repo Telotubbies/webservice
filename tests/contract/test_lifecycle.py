@@ -1,4 +1,9 @@
-"""Command lifecycle contract tests — state machine, dedup ordering, edge pipeline."""
+"""Command lifecycle contract tests — state machine, dedup ordering, edge pipeline.
+
+Lifecycle vocabulary is CONTRACT.v2 §6 / doc 17 §6:
+backend statuses {accepted, dispatched, acknowledged, rejected, failed,
+timeout}; edge cmd-resp statuses {acknowledged, rejected, failed}.
+"""
 
 from datetime import datetime, timedelta, timezone
 
@@ -15,16 +20,16 @@ from contract.schemas import (
 )
 
 NOW = datetime(2025, 1, 15, 8, 30, 0, tzinfo=timezone.utc)
-WRITABLE_BOOL = "plant1.sort.line1.motor1.running"
-WRITABLE_NUM = "plant1.sort.line1.motor1.speed_sp"
-READONLY = "plant1.sort.line1.conv1.temp_c"
-UNKNOWN = "plant1.sort.line1.ghost1.sig"
+WRITABLE_BOOL = "sort/line1/motor1/running"      # tag_path form (doc 17 §6)
+WRITABLE_NUM = "sort/line1/motor1/speed_sp"
+READONLY = "sort/line1/conv1/temp_c"
+UNKNOWN = "sort/line1/ghost1/sig"
 
 
-def _cmd(tag=WRITABLE_BOOL, value=True, ttl_s=5, issued_at=None):
+def _cmd(tag_path=WRITABLE_BOOL, value=True, ttl_s=5, issued_at=None):
     return {
         "command_id": "c1",
-        "tag": tag,
+        "tag_path": tag_path,
         "value": value,
         "issued_at": (issued_at or NOW).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "ttl_s": ttl_s,
@@ -37,20 +42,20 @@ def _cmd(tag=WRITABLE_BOOL, value=True, ttl_s=5, issued_at=None):
 
 def test_status_vocabulary_is_contract_exact():
     assert COMMAND_STATUSES == {
-        "issued", "sent", "acked", "done", "denied", "failed", "timeout",
+        "accepted", "dispatched", "acknowledged", "rejected", "failed",
+        "timeout",
     }
 
 
 def test_terminal_statuses():
-    assert TERMINAL_STATUSES == {"done", "denied", "failed", "timeout"}
+    assert TERMINAL_STATUSES == {"acknowledged", "rejected", "failed", "timeout"}
     for s in TERMINAL_STATUSES:
         assert is_terminal(s)
-    assert not is_terminal("issued")
+    assert not is_terminal("accepted")
 
 
 def test_inflight_statuses_match_one_command_per_tag_rule():
-    # 05 §3: partial unique index WHERE status IN ('issued','sent')
-    assert IN_FLIGHT_STATUSES == {"issued", "sent"}
+    assert IN_FLIGHT_STATUSES == {"accepted", "dispatched"}
     for s in IN_FLIGHT_STATUSES:
         assert not is_terminal(s)
 
@@ -60,18 +65,13 @@ def test_inflight_statuses_match_one_command_per_tag_rule():
 @pytest.mark.parametrize(
     "frm,to",
     [
-        ("issued", "sent"),
-        ("issued", "failed"),     # publish itself failed
-        ("issued", "timeout"),
-        ("sent", "acked"),
-        ("sent", "done"),         # resp mapped directly (acked observational)
-        ("sent", "denied"),
-        ("sent", "failed"),
-        ("sent", "timeout"),      # no resp within ttl_s
-        ("acked", "done"),
-        ("acked", "denied"),
-        ("acked", "failed"),      # edge 'error' → failed
-        ("acked", "timeout"),
+        ("accepted", "dispatched"),   # MQTT publish ok
+        ("accepted", "failed"),       # publish itself failed
+        ("accepted", "timeout"),
+        ("dispatched", "acknowledged"),
+        ("dispatched", "rejected"),
+        ("dispatched", "failed"),
+        ("dispatched", "timeout"),    # no resp within ttl_s
     ],
 )
 def test_legal_transitions(frm, to):
@@ -81,20 +81,17 @@ def test_legal_transitions(frm, to):
 @pytest.mark.parametrize(
     "frm,to",
     [
-        ("issued", "acked"),      # must pass through sent first
-        ("issued", "done"),       # cannot skip publish/resp
-        ("issued", "denied"),
-        ("issued", "issued"),
-        ("sent", "issued"),       # no backwards
-        ("sent", "sent"),
-        ("acked", "issued"),
-        ("acked", "sent"),
-        ("acked", "acked"),
+        ("accepted", "acknowledged"),  # must pass through dispatched first
+        ("accepted", "rejected"),
+        ("accepted", "accepted"),
+        ("dispatched", "accepted"),    # no backwards
+        ("dispatched", "dispatched"),
         # terminals are absorbing — nothing leaves them
-        ("done", "issued"), ("done", "sent"), ("done", "failed"), ("done", "done"),
-        ("denied", "done"), ("denied", "sent"), ("denied", "issued"),
-        ("failed", "done"), ("failed", "issued"),
-        ("timeout", "done"), ("timeout", "sent"), ("timeout", "issued"),
+        ("acknowledged", "accepted"), ("acknowledged", "failed"),
+        ("acknowledged", "acknowledged"),
+        ("rejected", "acknowledged"), ("rejected", "accepted"),
+        ("failed", "acknowledged"), ("failed", "accepted"),
+        ("timeout", "acknowledged"), ("timeout", "accepted"),
     ],
 )
 def test_illegal_transitions(frm, to):
@@ -113,12 +110,15 @@ def test_terminals_are_absorbing():
 
 
 def test_unknown_statuses_rejected():
-    assert not is_legal_transition("bogus", "done")
-    assert not is_legal_transition("issued", "bogus")
+    assert not is_legal_transition("bogus", "acknowledged")
+    assert not is_legal_transition("accepted", "bogus")
+    # v1 vocabulary must not come back
+    assert not is_legal_transition("issued", "sent")
+    assert not is_legal_transition("done", "done")
 
 
-def test_happy_path_chain_issued_sent_acked_done():
-    chain = ["issued", "sent", "acked", "done"]
+def test_happy_path_chain():
+    chain = ["accepted", "dispatched", "acknowledged"]
     for a, b in zip(chain, chain[1:]):
         assert is_legal_transition(a, b), f"contract chain broken at {a}→{b}"
 
@@ -154,64 +154,64 @@ def test_dedup_checked_before_conflict():
 
 # ------------------------------------------------------- edge decision order
 
-def test_edge_done_on_writable_bool():
-    res = edge_evaluate_command(_cmd(tag=WRITABLE_BOOL, value=True), now=NOW)
-    assert res.status == "done"
-    assert res.detail is None
+def test_edge_acknowledged_on_writable_bool():
+    res = edge_evaluate_command(_cmd(tag_path=WRITABLE_BOOL, value=True), now=NOW)
+    assert res.status == "acknowledged"
 
 
-def test_edge_done_on_in_range_setpoint():
-    res = edge_evaluate_command(_cmd(tag=WRITABLE_NUM, value=45.0), now=NOW)
-    assert res.status == "done"
+def test_edge_acknowledged_on_in_range_setpoint():
+    res = edge_evaluate_command(_cmd(tag_path=WRITABLE_NUM, value=45.0), now=NOW)
+    assert res.status == "acknowledged"
 
 
-def test_edge_denied_out_of_range_setpoint():
+def test_edge_rejected_out_of_range_setpoint():
     for v in (-1.0, 60.1, 1e6):
-        res = edge_evaluate_command(_cmd(tag=WRITABLE_NUM, value=v), now=NOW)
-        assert res.status == "denied"
-        assert res.detail == "out_of_range"
+        res = edge_evaluate_command(_cmd(tag_path=WRITABLE_NUM, value=v), now=NOW)
+        assert res.status == "rejected"
+        assert res.reason == "out_of_range"
 
 
 def test_edge_range_boundary_is_inclusive():
     for v in (0.0, 60.0):
-        assert edge_evaluate_command(_cmd(tag=WRITABLE_NUM, value=v), now=NOW).status == "done"
+        assert edge_evaluate_command(
+            _cmd(tag_path=WRITABLE_NUM, value=v), now=NOW).status == "acknowledged"
 
 
-def test_edge_denied_not_writable_readonly_tag():
-    res = edge_evaluate_command(_cmd(tag=READONLY, value=12.0), now=NOW)
-    assert (res.status, res.detail) == ("denied", "not_writable")
+def test_edge_rejected_not_writable_readonly_tag():
+    res = edge_evaluate_command(_cmd(tag_path=READONLY, value=12.0), now=NOW)
+    assert (res.status, res.reason) == ("rejected", "not_writable")
 
 
-def test_edge_denied_not_writable_unknown_tag():
-    res = edge_evaluate_command(_cmd(tag=UNKNOWN, value=1.0), now=NOW)
-    assert (res.status, res.detail) == ("denied", "not_writable")
+def test_edge_rejected_not_writable_unknown_tag():
+    res = edge_evaluate_command(_cmd(tag_path=UNKNOWN, value=1.0), now=NOW)
+    assert (res.status, res.reason) == ("rejected", "not_writable")
 
 
-def test_edge_denied_ttl_expired():
+def test_edge_rejected_ttl_expired():
     res = edge_evaluate_command(
         _cmd(ttl_s=5), now=NOW + timedelta(seconds=6)
     )
-    assert (res.status, res.detail) == ("denied", "ttl_expired")
+    assert (res.status, res.reason) == ("rejected", "ttl_expired")
 
 
 def test_edge_ttl_boundary_not_expired():
     # now == issued_at + ttl → not strictly greater → still executable
     res = edge_evaluate_command(_cmd(ttl_s=5), now=NOW + timedelta(seconds=5))
-    assert res.status == "done"
+    assert res.status == "acknowledged"
 
 
-def test_edge_denied_clock_untrusted():
+def test_edge_rejected_clock_untrusted():
     res = edge_evaluate_command(_cmd(), now=NOW, clock_ok=False)
-    assert (res.status, res.detail) == ("denied", "clock_untrusted")
+    assert (res.status, res.reason) == ("rejected", "clock_untrusted")
 
 
 def test_edge_ttl_checked_before_writable():
     # Expired command on a non-writable tag → ttl_expired wins (TTL is step 0,
     # writable check is step 1 in 04 §5 — stale commands must not execute at all).
     res = edge_evaluate_command(
-        _cmd(tag=READONLY, value=1.0, ttl_s=1), now=NOW + timedelta(seconds=10)
+        _cmd(tag_path=READONLY, value=1.0, ttl_s=1), now=NOW + timedelta(seconds=10)
     )
-    assert (res.status, res.detail) == ("denied", "ttl_expired")
+    assert (res.status, res.reason) == ("rejected", "ttl_expired")
 
 
 def test_edge_clock_checked_before_ttl():
@@ -220,22 +220,21 @@ def test_edge_clock_checked_before_ttl():
     res = edge_evaluate_command(
         _cmd(ttl_s=1), now=NOW + timedelta(seconds=10), clock_ok=False
     )
-    assert (res.status, res.detail) == ("denied", "clock_untrusted")
+    assert (res.status, res.reason) == ("rejected", "clock_untrusted")
 
 
 def test_edge_value_type_mismatch_bool_tag():
-    # bool tag written with a number → not a 'denied' detail in the contract
-    # set → status 'error' (maps to backend 'failed'). Flagged AMBIGUITY.
-    res = edge_evaluate_command(_cmd(tag=WRITABLE_BOOL, value=1), now=NOW)
-    assert res.status == "error"
+    # bool tag written with a number → type bug → status 'failed'
+    res = edge_evaluate_command(_cmd(tag_path=WRITABLE_BOOL, value=1), now=NOW)
+    assert res.status == "failed"
 
 
 def test_edge_value_type_mismatch_num_tag():
-    res = edge_evaluate_command(_cmd(tag=WRITABLE_NUM, value="fast"), now=NOW)
-    assert res.status == "error"
+    res = edge_evaluate_command(_cmd(tag_path=WRITABLE_NUM, value="fast"), now=NOW)
+    assert res.status == "failed"
 
 
 def test_edge_bool_is_not_accepted_as_num():
     # Python bool subclasses int — writing `true` to speed_sp is a type bug
-    res = edge_evaluate_command(_cmd(tag=WRITABLE_NUM, value=True), now=NOW)
-    assert res.status == "error"
+    res = edge_evaluate_command(_cmd(tag_path=WRITABLE_NUM, value=True), now=NOW)
+    assert res.status == "failed"

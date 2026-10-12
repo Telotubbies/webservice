@@ -21,10 +21,14 @@ def _req(**kw):
     return base
 
 
+WRITABLE_BOOL_PATH = "sort/line1/motor1/running"   # doc 17 §6 tag_path
+WRITABLE_NUM_PATH = "sort/line1/motor1/speed_sp"
+
+
 def _mqtt_cmd(**kw):
     base = {
         "command_id": "cmd-1",
-        "tag": WRITABLE_BOOL,
+        "tag_path": WRITABLE_BOOL_PATH,
         "value": True,
         "issued_at": GOOD_TS,
         "ttl_s": 5,
@@ -107,7 +111,8 @@ def test_mqtt_command_valid():
 
 @pytest.mark.parametrize(
     "field",
-    ["command_id", "tag", "value", "issued_at", "ttl_s", "idempotency_key", "user"],
+    ["command_id", "tag_path", "value", "issued_at", "ttl_s",
+     "idempotency_key", "user"],
 )
 def test_mqtt_command_missing_fields(field):
     cmd = _mqtt_cmd()
@@ -121,7 +126,8 @@ def test_mqtt_command_missing_fields(field):
     [
         (_mqtt_cmd(command_id=""), "command_id"),
         (_mqtt_cmd(command_id=None), "command_id"),
-        (_mqtt_cmd(tag="bogus"), "exactly 5"),
+        (_mqtt_cmd(tag_path="bogus"), "exactly 4"),
+        (_mqtt_cmd(tag_path="plant1.sort.line1.motor1.running"), "exactly 4"),
         (_mqtt_cmd(issued_at="now"), "ISO8601"),
         (_mqtt_cmd(issued_at=None), "ts must be a string"),
         (_mqtt_cmd(ttl_s=0), "ttl_s must be > 0"),
@@ -147,14 +153,15 @@ def test_mqtt_command_invalid(payload, fragment):
 @pytest.mark.parametrize(
     "payload",
     [
-        {"command_id": "c1", "status": "done"},
-        {"command_id": "c1", "status": "done", "detail": "write confirmed"},
-        {"command_id": "c1", "status": "denied", "detail": "not_writable"},
-        {"command_id": "c1", "status": "denied", "detail": "interlock"},
-        {"command_id": "c1", "status": "denied", "detail": "ttl_expired"},
-        {"command_id": "c1", "status": "denied", "detail": "clock_untrusted"},
-        {"command_id": "c1", "status": "denied", "detail": "out_of_range"},
-        {"command_id": "c1", "status": "error", "detail": "adapter exploded"},
+        {"command_id": "c1", "status": "acknowledged"},
+        {"command_id": "c1", "status": "acknowledged", "reason": "done"},
+        {"command_id": "c1", "status": "rejected", "reason": "not_writable"},
+        {"command_id": "c1", "status": "rejected", "reason": "ttl_expired"},
+        {"command_id": "c1", "status": "rejected", "reason": "clock_untrusted"},
+        {"command_id": "c1", "status": "rejected", "reason": "out_of_range"},
+        {"command_id": "c1", "status": "failed", "reason": "adapter exploded"},
+        {"command_id": "c1", "status": "failed",
+         "ts": GOOD_TS},
     ],
 )
 def test_command_response_valid(payload):
@@ -164,19 +171,19 @@ def test_command_response_valid(payload):
 @pytest.mark.parametrize(
     "payload,fragment",
     [
-        # 'timeout' is assigned by the BACKEND, never sent by the edge (05 §3)
+        # 'timeout' is assigned by the BACKEND, never sent by the edge
         ({"command_id": "c1", "status": "timeout"}, "never sends 'timeout'"),
-        ({"command_id": "c1", "status": "issued"}, "status must be"),
+        # v1 wire vocabulary must not creep back (doc 17 §6)
+        ({"command_id": "c1", "status": "done"}, "status must be"),
+        ({"command_id": "c1", "status": "denied"}, "status must be"),
+        ({"command_id": "c1", "status": "error"}, "status must be"),
         ({"command_id": "c1", "status": "acked"}, "status must be"),
         ({"command_id": "c1", "status": "ok"}, "status must be"),
-        # denied requires a detail from the fixed set
-        ({"command_id": "c1", "status": "denied"}, "requires detail"),
-        ({"command_id": "c1", "status": "denied", "detail": "no"}, "requires detail"),
-        ({"command_id": "c1", "status": "denied", "detail": "TIMEOUT"}, "requires detail"),
-        ({"status": "done"}, "command_id"),
-        ({"command_id": "", "status": "done"}, "command_id"),
-        ({"command_id": "c1", "status": "done", "detail": 5}, "detail must be"),
-        ("done", "JSON object"),
+        ({"status": "acknowledged"}, "command_id"),
+        ({"command_id": "", "status": "acknowledged"}, "command_id"),
+        ({"command_id": "c1", "status": "acknowledged",
+          "reason": 5}, "reason must be"),
+        ("acknowledged", "JSON object"),
     ],
 )
 def test_command_response_invalid(payload, fragment):
@@ -186,11 +193,13 @@ def test_command_response_invalid(payload, fragment):
 
 
 def test_edge_status_mapping():
-    assert map_edge_status("done") == "done"
-    assert map_edge_status("denied") == "denied"
-    assert map_edge_status("error") == "failed"
+    assert map_edge_status("acknowledged") == "acknowledged"
+    assert map_edge_status("rejected") == "rejected"
+    assert map_edge_status("failed") == "failed"
     with pytest.raises(ValueError):
         map_edge_status("timeout")
+    with pytest.raises(ValueError):
+        map_edge_status("done")   # v1 vocabulary is gone
     with pytest.raises(ValueError):
         map_edge_status("bogus")
 

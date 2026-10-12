@@ -15,6 +15,7 @@ import logging
 import math
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import UUID
@@ -30,7 +31,12 @@ from . import config
 from .alarms import AlarmEngine
 from .auth import Principal
 from .commands import CommandManager
+from .dynsec import (
+    DynsecAdmin, DynsecError, Reconciler,
+    edge_acls, edge_client_name, edge_role_name, fingerprint, new_secret,
+)
 from .insights import INSIGHT_KINDS, InsightEngine
+from .db import audit
 from .db.context import tenant_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
@@ -176,8 +182,21 @@ class State:
         self.pools = pools
         self.ws = WSManager()
         self.mqtt = MQTTBridge(
-            config.MQTT_HOST, config.MQTT_PORT, config.V1_SITE_CODE, config.V1_EDGE_NAME,
+            config.MQTT_HOST, config.MQTT_PORT,
             username=config.MQTT_USER, password=config.MQTT_PASSWORD,
+            ca_file=config.MQTT_CA_FILE,
+        )
+        # svc-dynsec-admin channel (doc 17 §2): provisioning API + reconciler
+        self.dynsec = DynsecAdmin(
+            config.MQTT_HOST, config.MQTT_PORT,
+            config.DYNSEC_ADMIN_USER, config.DYNSEC_ADMIN_PASSWORD or "",
+            ca_file=config.MQTT_CA_FILE,
+        )
+        self.reconciler = Reconciler(
+            pools, self.dynsec, reconcile_s=config.DYNSEC_RECONCILE_S,
+            svc_backend_pw_file=config.SVC_BACKEND_PW_FILE,
+            tester_pw_file=config.TESTER_PW_FILE,
+            edge_bootstrap_pw_file=config.EDGE_BOOTSTRAP_PW_FILE,
         )
         self.registry = Registry(pools.system)
         # v4 T4 rate budgets — in-process buckets (single replica; see
@@ -199,7 +218,10 @@ class State:
         self.edge = {"last_rx": None, "last_heartbeat_ts": None, "clock_ok": None,
                      "adapter": None}
         self.counters = {"telemetry_unknown_tag": 0, "telemetry_bad_payload": 0,
-                         "telemetry_future_ts": 0, "telemetry_too_old": 0}
+                         "telemetry_future_ts": 0, "telemetry_too_old": 0,
+                         # doc 17 §4 — security events, counted + logged
+                         "mqtt_topic_identity_mismatch": 0,
+                         "mqtt_bad_topic": 0}
         self.db_ok = True
 
     def edge_status(self) -> str:
@@ -232,17 +254,41 @@ async def ingest_worker(st: State) -> None:
 
 
 async def _handle_message(st: State, msg) -> None:
+    """doc 17 §4 trust rules: org/site/edge come FROM THE TOPIC, never the
+    payload. The topic edge must exist, be active, and match both topic ids —
+    the broker ACL is the primary fence, this is defense in depth."""
     parts = msg.topic.split("/")
-    if len(parts) >= 2 and parts[1] == "edge" and parts[-1] == "heartbeat":
-        return await _handle_heartbeat(st, msg)
-    if len(parts) >= 2 and parts[1] == "cmd-resp":
-        return _handle_cmd_resp(st, msg)
-    if len(parts) >= 2 and parts[1] in ("cmd", "sys", "edge"):
-        return
+    if len(parts) < 5 or parts[0] != "v2":
+        return _count(st, "mqtt_bad_topic", "non-v2 topic reached ingest — dropped",
+                      topic=msg.topic)
+    try:
+        org_id, site_id, edge_id = UUID(parts[1]), UUID(parts[2]), UUID(parts[3])
+    except ValueError:
+        return _count(st, "mqtt_bad_topic", "v2 topic with non-uuid ids — dropped",
+                      topic=msg.topic)
     await st.registry.maybe_refresh()
-    path = "/".join(parts[1:])
+    edge = st.registry.edge(edge_id)
+    if (edge is None or edge.status != "active"
+            or edge.org_id != org_id or edge.site_id != site_id):
+        return _count(st, "mqtt_topic_identity_mismatch",
+                      "mqtt.topic_identity_mismatch — dropped",
+                      topic=msg.topic)
+
+    kind = parts[4]
+    if kind == "hb" and len(parts) == 5:
+        return await _handle_heartbeat(st, msg, edge)
+    if kind == "cmd-resp" and len(parts) == 6:
+        return _handle_cmd_resp(st, msg, org_id, edge_id)
+    if kind == "tele" and len(parts) >= 6:
+        return await _handle_telemetry(st, msg, edge, "/".join(parts[5:]))
+    return _count(st, "mqtt_bad_topic", "unrecognized v2 subtree — dropped",
+                  topic=msg.topic)
+
+
+async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
+    # rule 3: the tag path must resolve to a tag of that site bound to THIS edge
     tag = st.registry.by_path(path)
-    if tag is None:
+    if tag is None or tag.edge_id != edge.id:
         return _count(st, "telemetry_unknown_tag", "telemetry_unknown_tag — dropping",
                       topic=msg.topic)
     try:
@@ -259,7 +305,7 @@ async def _handle_message(st: State, msg) -> None:
                       topic=msg.topic)
 
     v, q = payload.v, payload.q
-    async with tenant_tx(st.pools.system, config.V1_ORG_ID) as tc:
+    async with tenant_tx(st.pools.system, edge.org_id) as tc:
         # tag_latest is monotonic: a late/replayed sample never overwrites newer data
         res = await tc.execute(
             "INSERT INTO tag_latest(tag_id, org_id, v, q, ts) VALUES ($1,$2,$3,$4,$5)"
@@ -267,17 +313,14 @@ async def _handle_message(st: State, msg) -> None:
             " WHERE tag_latest.ts < excluded.ts",
             tag.id, tc.org_id, v, q, ts)
         await st.alarms.evaluate(tc, tag.id, v, q, ts)
-    st.history_buf.append((tag.id, ts, config.V1_ORG_ID, v, q))
+    st.history_buf.append((tag.id, ts, edge.org_id, v, q))
     if len(st.history_buf) >= config.HISTORY_FLUSH_ROWS:
         await _flush_history(st)
     if res.endswith(" 1"):
         st.ws.broadcast({"type": "tag", "name": tag.v1_name, "v": v, "q": q, "ts": payload.ts})
 
 
-async def _handle_heartbeat(st: State, msg) -> None:
-    if msg.topic.split("/")[2] != config.V1_EDGE_NAME:
-        log.warning("heartbeat from unexpected edge_id — dropped", extra={"topic": msg.topic})
-        return
+async def _handle_heartbeat(st: State, msg, edge) -> None:
     was = st.edge_status()
     try:
         payload = json.loads(msg.payload)
@@ -285,18 +328,25 @@ async def _handle_heartbeat(st: State, msg) -> None:
             payload = {}
     except (json.JSONDecodeError, UnicodeDecodeError):
         payload = {}
-    st.edge.update(last_rx=time.monotonic(), last_heartbeat_ts=payload.get("ts"),
-                   clock_ok=payload.get("clock_ok"), adapter=payload.get("adapter"))
+    is_v1_edge = edge.id == config.V1_EDGE_ID
+    if is_v1_edge:
+        st.edge.update(last_rx=time.monotonic(), last_heartbeat_ts=payload.get("ts"),
+                       clock_ok=payload.get("clock_ok"), adapter=payload.get("adapter"))
     clock_ok = payload.get("clock_ok") if isinstance(payload.get("clock_ok"), bool) else None
     adapter = payload.get("adapter") if isinstance(payload.get("adapter"), str) else None
-    async with tenant_tx(st.pools.system, config.V1_ORG_ID) as tc:
-        await tc.execute("UPDATE edges SET last_hb_at=now(), clock_ok=$2, adapter=$3 WHERE id=$1",
-                         config.V1_EDGE_ID, clock_ok, adapter)
-    if st.edge_status() != was:
+    buf_d = payload.get("buffer_depth") if isinstance(payload.get("buffer_depth"), int) else None
+    buf_dr = payload.get("buffer_dropped") if isinstance(payload.get("buffer_dropped"), int) else None
+    async with tenant_tx(st.pools.system, edge.org_id) as tc:
+        await tc.execute(
+            "UPDATE edges SET last_hb_at=now(), clock_ok=$2, adapter=$3,"
+            " buffer_depth=COALESCE($4, buffer_depth),"
+            " buffer_dropped=COALESCE($5, buffer_dropped) WHERE id=$1",
+            edge.id, clock_ok, adapter, buf_d, buf_dr)
+    if is_v1_edge and st.edge_status() != was:
         st.ws.broadcast(st.health_event())
 
 
-def _handle_cmd_resp(st: State, msg) -> None:
+def _handle_cmd_resp(st: State, msg, org_id: UUID, edge_id: UUID) -> None:
     try:
         payload = json.loads(msg.payload)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -311,17 +361,26 @@ def _handle_cmd_resp(st: State, msg) -> None:
     if cid != msg.topic.rsplit("/", 1)[-1]:
         log.warning("cmd-resp id mismatch — dropped", extra={"topic": msg.topic})
         return
-    asyncio.ensure_future(st.commands.handle_response(cid, status, payload.get("detail")))
+    # CONTRACT.v2 §6 names the field `reason`; `detail` tolerated for compat
+    asyncio.ensure_future(st.commands.handle_response(
+        cid, status, payload.get("reason") or payload.get("detail"),
+        org_id, edge_id))
 
 
 async def _flush_history(st: State) -> None:
     if not st.history_buf:
         return
     rows, st.history_buf = st.history_buf, []
-    async with tenant_tx(st.pools.system, config.V1_ORG_ID) as tc:
-        await tc.executemany(
-            "INSERT INTO tag_history(tag_id, ts, org_id, v, q) VALUES ($1,$2,$3,$4,$5)"
-            " ON CONFLICT (tag_id, ts) DO NOTHING", rows)  # QoS1 replay dedup (I10)
+    # rows carry their own org (routed by topic, doc 17 §4) — group so each
+    # tenant_tx only ever writes its own tenant's rows
+    by_org: dict[UUID, list] = {}
+    for r in rows:
+        by_org.setdefault(r[2], []).append(r)
+    for org_id, batch in by_org.items():
+        async with tenant_tx(st.pools.system, org_id) as tc:
+            await tc.executemany(
+                "INSERT INTO tag_history(tag_id, ts, org_id, v, q) VALUES ($1,$2,$3,$4,$5)"
+                " ON CONFLICT (tag_id, ts) DO NOTHING", batch)  # QoS1 replay dedup (I10)
 
 
 async def _every(seconds: float, fn, name: str) -> None:
@@ -366,11 +425,24 @@ async def lifespan(app: FastAPI):
     app.state.st = st
     await st.registry.refresh()
     await st.alarms.load_rules()
+    # svc-dynsec-admin comes up first so the reconciler's initial pass can
+    # mint svc-backend + edge clients BEFORE ingest connects (doc 17 §6:
+    # reconcile runs at startup, then every 60 s / on NOTIFY wds_edges).
+    st.dynsec.start(asyncio.get_running_loop())
+    for _ in range(200):
+        if st.dynsec.connected:
+            break
+        await asyncio.sleep(0.1)
+    try:
+        await asyncio.wait_for(st.reconciler.reconcile(), timeout=15.0)
+    except Exception:  # noqa: BLE001 — reconcile retries on its own cadence
+        log.exception("initial dynsec reconcile failed — continuing")
     st.mqtt.on_state_change = lambda connected: st.ws.broadcast(st.health_event())
     st.mqtt.start(asyncio.get_running_loop())
     await st.commands.sweep_interrupted()  # I9 before accepting traffic
     tasks = [
         asyncio.create_task(ingest_worker(st)),
+        asyncio.create_task(st.reconciler.run_forever()),
         asyncio.create_task(_every(config.HISTORY_FLUSH_S, lambda: _flush_history(st),
                                    "history flush")),
         asyncio.create_task(_every(config.STALE_RULE_CHECK_S, st.alarms.sweep_stale,
@@ -395,6 +467,7 @@ async def lifespan(app: FastAPI):
         with contextlib.suppress(Exception):
             await _flush_history(st)
         st.mqtt.stop()
+        st.dynsec.stop()
         await pools.close()
 
 
@@ -740,6 +813,194 @@ async def system_health(request: Request,
             **s.counters,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Edge provisioning (doc 17 §5 + CONTRACT.v2 §3 site-scoped routes)
+# ---------------------------------------------------------------------------
+CONFIG_ROLES = frozenset({"admin", "owner"})  # CONTRACT.v2 §1 config:write
+
+
+class EdgeIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+def _v2_scope(org: str, site: str, p: Principal, need_config: bool = False) -> tuple[UUID, UUID]:
+    """Resolve + authorize an /api/v1/orgs/{org}/sites/{site} path.
+    Non-member of the path org -> 404; member w/o permission -> 403
+    (CONTRACT.v2 §1)."""
+    org_id = _uuid_or_404(org, "organization")
+    site_id = _uuid_or_404(site, "site")
+    role = dict(p.org_roles).get(org_id)
+    if role is None:
+        raise HTTPException(404, "not found")
+    if need_config and role not in CONFIG_ROLES:
+        raise ForbiddenError("config:write requires admin or owner")
+    return org_id, site_id
+
+
+def _edge_json(r, latest_ident=None) -> dict:
+    return {
+        "id": str(r["id"]), "org_id": str(r["org_id"]), "site_id": str(r["site_id"]),
+        "name": r["name"], "status": r["status"],
+        "mqtt_username": r["mqtt_username"],
+        "credential_version": r["credential_version"],
+        "last_hb_at": iso_z(r["last_hb_at"]) if r["last_hb_at"] else None,
+        "clock_ok": r["clock_ok"], "adapter": r["adapter"],
+        # the reconciler recreated a lost credential: broker is live, nobody
+        # holds the secret — rotate to regain access (doc 17 §6)
+        "needs_rotation": bool(latest_ident and not latest_ident["secret_issued"]),
+    }
+
+
+async def _site_or_404(pools: Pools, org_id: UUID, site_id: UUID) -> None:
+    async with tenant_tx(pools.app, org_id) as tc:
+        exists = await tc.fetchval("SELECT 1 FROM sites WHERE id=$1", site_id)
+    if not exists:
+        raise HTTPException(404, "site not found")
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/edges")
+async def list_edges(org: str, site: str, request: Request,
+                     p: Principal = Depends(require_principal)):
+    org_id, site_id = _v2_scope(org, site, p)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    async with tenant_tx(st(request).pools.app, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT id, org_id, site_id, name, status, mqtt_username,"
+            " credential_version, last_hb_at, clock_ok, adapter FROM edges"
+            " WHERE site_id=$1 ORDER BY name", site_id)
+        latest = await tc.fetch(
+            "SELECT DISTINCT ON (edge_id) edge_id, secret_issued"
+            " FROM edge_identities ORDER BY edge_id, version DESC")
+    latest_by_edge = {r["edge_id"]: r for r in latest}
+    return {"items": [_edge_json(r, latest_by_edge.get(r["id"])) for r in rows]}
+
+
+@app.post("/api/v1/orgs/{org}/sites/{site}/edges", status_code=201)
+async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
+                         p: Principal = Depends(require_principal)):
+    """Provision an edge + its first MQTT credential (doc 17 §5).
+
+    Order matters: the broker client is created BEFORE the rows commit —
+    if the DB write fails, the stray client is an orphan the reconciler
+    disables, never a half-live credential. The secret is returned ONCE;
+    the DB stores only its sha256 fingerprint."""
+    org_id, site_id = _v2_scope(org, site, p, need_config=True)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    eid = uuid.uuid4()
+    version = 1
+    username = edge_client_name(eid, version)
+    secret = new_secret()
+    fp = fingerprint(secret)
+    try:
+        await st(request).dynsec.ensure_role(
+            edge_role_name(eid), edge_acls(org_id, site_id, eid))
+        await st(request).dynsec.create_client(username, secret, edge_role_name(eid))
+    except DynsecError as exc:
+        log.warning("edge provisioning failed at broker", extra={"error": str(exc)})
+        return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
+    async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        await tc.execute(
+            "INSERT INTO edges(id, org_id, site_id, name, status, mqtt_username,"
+            " credential_version, credential_fingerprint)"
+            " VALUES ($1,$2,$3,$4,'active',$5,1,$6)",
+            eid, org_id, site_id, body.name, username, fp)
+        await tc.execute(
+            "INSERT INTO edge_identities(org_id, edge_id, version, username,"
+            " fingerprint, status, secret_issued) VALUES ($1,$2,$3,$4,$5,'active',true)",
+            org_id, eid, version, username, fp)
+        await audit.append(tc, f"user:{p.user_id}", "edge.provisioned",
+                           {"edge_id": str(eid), "username": username},
+                           {"name": body.name})
+        await tc.execute("SELECT pg_notify('wds_edges', $1)", str(eid))
+    await st(request).registry.refresh()
+    edge = {"id": str(eid), "org_id": str(org_id), "site_id": str(site_id),
+            "name": body.name, "status": "active", "mqtt_username": username,
+            "credential_version": version, "needs_rotation": False}
+    return {"edge": edge, "secret": secret}
+
+
+@app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/rotate")
+async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
+                      p: Principal = Depends(require_principal)):
+    """Rotate the edge credential (doc 17 §5): new client edge-{e}-v{n+1} on
+    the same role; the old one keeps a grace window or is disabled at
+    cut-over — the reconciler owns the retirement."""
+    org_id, site_id = _v2_scope(org, site, p, need_config=True)
+    eid = _uuid_or_404(edge_id, "edge")
+    async with tenant_tx(st(request).pools.app, org_id) as tc:
+        edge = await tc.fetchrow(
+            "SELECT id, status FROM edges WHERE id=$1 AND site_id=$2", eid, site_id)
+        if edge is None:
+            raise HTTPException(404, "edge not found")
+        if edge["status"] != "active":
+            raise HTTPException(409, "edge_not_active")
+        maxv = await tc.fetchval(
+            "SELECT max(version) FROM edge_identities WHERE edge_id=$1", eid) or 0
+    version = int(maxv) + 1
+    username = edge_client_name(eid, version)
+    secret = new_secret()
+    fp = fingerprint(secret)
+    try:
+        await st(request).dynsec.ensure_role(
+            edge_role_name(eid), edge_acls(org_id, site_id, eid))
+        await st(request).dynsec.create_client(username, secret, edge_role_name(eid))
+    except DynsecError as exc:
+        log.warning("edge rotation failed at broker", extra={"error": str(exc)})
+        return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
+    async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        # current credential -> grace: stays enabled until cut-over or the
+        # grace deadline, whichever the reconciler sees first (doc 17 §5)
+        await tc.execute(
+            "UPDATE edge_identities SET status='grace', rotated_at=now(),"
+            " grace_until=now() + $2::int * interval '1 second'"
+            " WHERE edge_id=$1 AND status='active'",
+            eid, int(config.EDGE_CRED_GRACE_S))
+        await tc.execute(
+            "INSERT INTO edge_identities(org_id, edge_id, version, username,"
+            " fingerprint, status, secret_issued) VALUES ($1,$2,$3,$4,$5,'active',true)",
+            org_id, eid, version, username, fp)
+        await tc.execute(
+            "UPDATE edges SET credential_version=$2, mqtt_username=$3,"
+            " credential_fingerprint=$4 WHERE id=$1",
+            eid, version, username, fp)
+        await audit.append(tc, f"user:{p.user_id}", "edge.rotated",
+                           {"edge_id": str(eid), "username": username},
+                           {"credential_version": version})
+        await tc.execute("SELECT pg_notify('wds_edges', $1)", str(eid))
+    await st(request).registry.refresh()
+    return {"edge_id": str(eid), "credential_version": version,
+            "mqtt_username": username, "secret": secret,
+            "grace_s": int(config.EDGE_CRED_GRACE_S)}
+
+
+@app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/disable")
+async def disable_edge(org: str, site: str, edge_id: str, request: Request,
+                       p: Principal = Depends(require_principal)):
+    """Disable the edge: every credential version is disabled at the broker
+    (dynsec kicks the live connection immediately — doc 17 §5)."""
+    org_id, site_id = _v2_scope(org, site, p, need_config=True)
+    eid = _uuid_or_404(edge_id, "edge")
+    async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        edge = await tc.fetchrow(
+            "SELECT id, status FROM edges WHERE id=$1 AND site_id=$2", eid, site_id)
+        if edge is None:
+            raise HTTPException(404, "edge not found")
+        usernames = [r["username"] for r in await tc.fetch(
+            "UPDATE edge_identities SET status='disabled'"
+            " WHERE edge_id=$1 AND status<>'disabled' RETURNING username", eid)]
+        await tc.execute("UPDATE edges SET status='disabled' WHERE id=$1", eid)
+        await audit.append(tc, f"user:{p.user_id}", "edge.disabled",
+                           {"edge_id": str(eid)}, None)
+        await tc.execute("SELECT pg_notify('wds_edges', $1)", str(eid))
+    # kick now — the reconcile tick would eventually agree, but an incident-
+    # response disable must not wait (doc 17 §5: kicked immediately)
+    for username in usernames:
+        with contextlib.suppress(DynsecError):
+            await st(request).dynsec.disable_client(username)
+    await st(request).registry.refresh()
+    return {"edge_id": str(eid), "status": "disabled"}
 
 
 # ---------------------------------------------------------------------------

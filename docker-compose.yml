@@ -47,15 +47,40 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     ports:
-      # localhost-only: MQTT is the control plane — never LAN-expose it
-      # without TLS + real identities (SDLC 08; prod = AWS IoT Core).
-      - "127.0.0.1:1883:1883"
+      # localhost-only TLS listener (v4 T6, doc 17 §2). The plaintext 1883
+      # listener exists ONLY under the test profile (docker-compose.test.yml
+      # mounts infra/mosquitto-extras-test over config-extras).
+      - "127.0.0.1:8883:8883"
     volumes:
       - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./infra/mosquitto.acl:/mosquitto/config/mosquitto.acl:ro
-      - ./infra/passwd:/mosquitto/config/passwd:ro
+      - ./infra/certs:/mosquitto/certs:ro
+      - ./infra/mosquitto-extras:/mosquitto/config-extras:ro
+      - mosquitto-data:/mosquitto/data
+    secrets:
+      - svc_dynsec_admin_pw
+    entrypoint: ["/docker-entrypoint.sh"]
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        # First boot only: seed the dynsec store with svc-dynsec-admin —
+        # the ONLY $CONTROL identity (doc 17 §2). The named volume persists
+        # the file; the DB is the source of truth for everything else.
+        if [ ! -s /mosquitto/data/dynamic-security.json ]; then
+          mosquitto_ctrl dynsec init /mosquitto/data/dynamic-security.json \
+            svc-dynsec-admin "$$(cat /run/secrets/svc_dynsec_admin_pw)"
+          # init runs as root (before mosquitto drops to user mosquitto) —
+          # the plugin must be able to read the file it just wrote.
+          chown mosquitto:mosquitto /mosquitto/data/dynamic-security.json
+          chmod 640 /mosquitto/data/dynamic-security.json
+        fi
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
     healthcheck:
-      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-u", "tester", "-P", "tester-demo-pass", "-t", "$$SYS/broker/uptime", "-C", "1", "-i", "hc", "-W", "3"]
+      # dynsec admin round-trip proves listener + plugin are live. The
+      # password is read from a mounted secret — `docker inspect` shows the
+      # command text only, never the secret (v4 T6).
+      test: ["CMD-SHELL", "mosquitto_ctrl -h localhost -p 8883 --cafile /mosquitto/certs/ca.crt -u svc-dynsec-admin -P \"$$(cat /run/secrets/svc_dynsec_admin_pw)\" dynsec getDefaultACLAccess >/dev/null 2>&1"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -98,14 +123,26 @@ services:
     build: ./edge-bridge
     environment:
       MQTT_HOST: mosquitto
-      MQTT_PORT: "1883"
-      MQTT_USER: edge1
-      MQTT_PASSWORD: "${MQTT_PW_EDGE:-edge-demo-pass}"
-      EDGE_ID: edge1
-      SITE: plant1
+      MQTT_PORT: "8883"
+      MQTT_CA_FILE: /mosquitto-certs/ca.crt
+      # Provisioned identity (doc 17 §2): edge-{edge_uuid}-v{n} + a secret
+      # that exists ONLY in the mounted file — no shared creds, nothing in
+      # docker inspect. The bridge re-reads the file each reconnect so a
+      # rotated credential takes over at cut-over (doc 17 §5).
+      MQTT_USERNAME_FILE: /run/secrets/edge_bootstrap_user
+      MQTT_PASSWORD_FILE: /run/secrets/edge_bootstrap_pw
+      ORG_ID: "${V1_ORG_ID:-0199d000-0000-7000-8000-00000000a001}"
+      SITE_ID: "${V1_SITE_ID:-0199d000-0000-7000-8000-00000000b001}"
+      EDGE_ID: "${V1_EDGE_ID:-0199d000-0000-7000-8000-00000000c001}"
+      SITE: plant1              # tag-naming site code, not a topic identity
       ADAPTER: sim
       POLL_MS: "1000"
       EDGE_CLOCK_SKEW_MS: "${EDGE_CLOCK_SKEW_MS:-0}"
+    volumes:
+      - ./infra/certs:/mosquitto-certs:ro
+    secrets:
+      - edge_bootstrap_user
+      - edge_bootstrap_pw
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -118,11 +155,17 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       MQTT_HOST: mosquitto
-      MQTT_PORT: "1883"
-      MQTT_USER: backend
-      MQTT_PASSWORD: "${MQTT_PW_BACKEND:-backend-demo-pass}"
+      MQTT_PORT: "8883"
+      MQTT_CA_FILE: /mosquitto-certs/ca.crt
+      # doc 17 §2 — svc-backend is a dynsec client minted by the reconciler;
+      # its secret lives only in the mounted file (docker inspect clean).
+      MQTT_USER: svc-backend
+      MQTT_PASSWORD_FILE: /run/secrets/svc_backend_pw
+      # svc-dynsec-admin reconciler channel + provisioning secrets
+      DYNSEC_ADMIN_PASSWORD_FILE: /run/secrets/svc_dynsec_admin_pw
+      SVC_BACKEND_PW_FILE: /run/secrets/svc_backend_pw
+      EDGE_BOOTSTRAP_PW_FILE: /run/secrets/edge_bootstrap_pw
       SITE: plant1
-      EDGE_ID: edge1
       <<: *pg-dsns
       APP_ENV: "${APP_ENV:-dev}"
       CORS_ORIGIN: http://localhost:5173
@@ -156,6 +199,12 @@ services:
       # image content — single source for backend + edge-bridge.
       - ./edge-bridge/tags.yaml:/config/tags.yaml:ro
       - ./backend/alarm_rules.yaml:/config/alarm_rules.yaml:ro
+      # Dev CA for the TLS listener (infra/gen-certs.sh — `make certs`).
+      - ./infra/certs:/mosquitto-certs:ro
+    secrets:
+      - svc_backend_pw
+      - svc_dynsec_admin_pw
+      - edge_bootstrap_pw
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -192,9 +241,24 @@ services:
 
 volumes:
   pgdata:
+  # Dynsec plugin state — a CACHE of Postgres, not a source of truth
+  # (doc 17 §6). `docker compose down -v` + restart rebuilds it.
+  mosquitto-data:
   # Legacy v1 SQLite volume — kept read-only-in-spirit as the migration source
   # and rollback path (doc 18 §3). Nothing mounts it read-write any more.
   backend-data:
+
+# MQTT identity secrets (infra/gen-secrets.sh — `make secrets`). Mounted at
+# /run/secrets/<name>; never in environment, never in `docker inspect`.
+secrets:
+  svc_dynsec_admin_pw:
+    file: ./infra/secrets/svc_dynsec_admin_pw
+  svc_backend_pw:
+    file: ./infra/secrets/svc_backend_pw
+  edge_bootstrap_user:
+    file: ./infra/secrets/edge_bootstrap_user
+  edge_bootstrap_pw:
+    file: ./infra/secrets/edge_bootstrap_pw
 
 # Pinned subnet (unused-by-default range) so `web`'s fixed address above is
 # deterministic — backend TRUSTED_PROXIES names it for X-Real-IP trust
