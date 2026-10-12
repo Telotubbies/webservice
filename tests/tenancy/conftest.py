@@ -46,7 +46,7 @@ async def make_pools(max_size: int = 4):
 
 
 async def make_org(pool, name: str = "org") -> dict:
-    """Create org + site + edge + one writable tag through the real app role."""
+    """Create org + site + edge + tag + one open insight via the real app role."""
     from app.db.context import tenant_tx
     org = uuid.uuid4()
     async with tenant_tx(pool, org) as tc:
@@ -60,7 +60,11 @@ async def make_org(pool, name: str = "org") -> dict:
             "INSERT INTO tags(org_id, site_id, edge_id, path, name, type, writable)"
             " VALUES ($1,$2,$3,'sort/line1/motor1/running','running','bool',true) RETURNING id",
             org, site, edge)
-    return {"org": org, "site": site, "edge": edge, "tag": tag}
+        insight = await tc.fetchval(
+            "INSERT INTO insights(org_id, tag_id, kind, severity, score, ts_start)"
+            " VALUES ($1,$2,'anomaly','warning',0.87,now()) RETURNING id",
+            org, tag)
+    return {"org": org, "site": site, "edge": edge, "tag": tag, "insight": insight}
 
 
 @pytest.fixture()

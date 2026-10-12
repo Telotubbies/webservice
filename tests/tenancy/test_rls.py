@@ -22,7 +22,8 @@ def test_no_context_no_rows(two_orgs):
     async def go():
         conn = await asyncpg.connect(APP_DSN)
         try:
-            for t in ("organizations", "sites", "edges", "tags", "commands", "audit_log"):
+            for t in ("organizations", "sites", "edges", "tags", "commands",
+                      "insights", "audit_log"):
                 assert await conn.fetchval(f"SELECT count(*) FROM {t}") == 0, t
             with pytest.raises(asyncpg.InsufficientPrivilegeError):  # RLS WITH CHECK
                 await conn.execute("INSERT INTO organizations(id, name) VALUES ($1,'x')",
@@ -55,6 +56,8 @@ def test_context_sees_only_own_org(two_orgs):
                 sites = {r["id"] for r in await tc.fetch("SELECT id FROM sites")}
                 assert a["site"] in sites and b["site"] not in sites
                 assert await tc.fetchrow("SELECT 1 FROM tags WHERE id=$1", b["tag"]) is None
+                assert await tc.fetchrow(
+                    "SELECT 1 FROM insights WHERE id=$1", b["insight"]) is None
                 # update of a foreign row is a silent no-op, not a write
                 assert await tc.execute(
                     "UPDATE tags SET name='pwn' WHERE id=$1", b["tag"]) == "UPDATE 0"
@@ -136,7 +139,8 @@ def test_force_rls_on_every_tenant_table():
                 WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
                   AND a.attname = 'org_id' AND NOT a.attisdropped""")
             names = {r["relname"] for r in rows}
-            assert {"sites", "tags", "commands", "audit_log", "memberships"} <= names
+            assert {"sites", "tags", "commands", "insights", "audit_log",
+                    "memberships"} <= names
             bad = [r["relname"] for r in rows
                    if not (r["relrowsecurity"] and r["relforcerowsecurity"])]
             assert bad == []
@@ -233,6 +237,96 @@ def test_alarm_rule_must_match_alarm_tag(two_orgs):
                         " VALUES ($1,$2,$3,'critical','active',now())", a["org"], a["tag"], rule)
         finally:
             await pools.close()
+    run(go())
+
+
+# ------------------------------------------------------------- insights
+
+def test_insights_fail_closed_then_own_org_only(two_orgs):
+    a, b = two_orgs
+    from app.db.context import tenant_tx
+
+    async def go():
+        conn = await asyncpg.connect(APP_DSN)
+        try:
+            assert await conn.fetchval("SELECT count(*) FROM insights") == 0
+        finally:
+            await conn.close()
+        pools = await make_pools()
+        try:
+            async with tenant_tx(pools.app, a["org"]) as tc:
+                ids = {r["id"] for r in await tc.fetch("SELECT id FROM insights")}
+                assert a["insight"] in ids and b["insight"] not in ids
+                # cross-org update is a silent no-op under RLS
+                assert await tc.execute(
+                    "UPDATE insights SET severity='critical' WHERE id=$1",
+                    b["insight"]) == "UPDATE 0"
+        finally:
+            await pools.close()
+    run(go())
+
+
+def test_insights_cross_tenant_write_rejected(two_orgs):
+    a, b = two_orgs
+    from app.db.context import tenant_tx
+
+    async def go():
+        pools = await make_pools()
+        try:
+            with pytest.raises(asyncpg.ForeignKeyViolationError):
+                async with tenant_tx(pools.app, b["org"]) as tc:  # B's org, A's tag
+                    await tc.execute(
+                        "INSERT INTO insights(org_id, tag_id, kind, severity, ts_start)"
+                        " VALUES ($1,$2,'drift','info',now())", b["org"], a["tag"])
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):  # RLS WITH CHECK
+                async with tenant_tx(pools.app, b["org"]) as tc:  # A's org in B's ctx
+                    await tc.execute(
+                        "INSERT INTO insights(org_id, tag_id, kind, severity, ts_start)"
+                        " VALUES ($1,$2,'drift','info',now())", a["org"], a["tag"])
+        finally:
+            await pools.close()
+    run(go())
+
+
+def test_insights_one_open_per_tag_kind(two_orgs):
+    """insights_open_uq: a second OPEN (org, tag, kind) is rejected; closed is fine."""
+    a, _ = two_orgs
+    from app.db.context import tenant_tx
+
+    async def go():
+        pools = await make_pools()
+        try:
+            async with tenant_tx(pools.app, a["org"]) as tc:  # fixture's anomaly is open
+                await tc.execute(
+                    "INSERT INTO insights(org_id, tag_id, kind, severity, state, ts_start)"
+                    " VALUES ($1,$2,'anomaly','info','closed',now())", a["org"], a["tag"])
+            with pytest.raises(asyncpg.UniqueViolationError):
+                async with tenant_tx(pools.app, a["org"]) as tc:
+                    await tc.execute(
+                        "INSERT INTO insights(org_id, tag_id, kind, severity, ts_start)"
+                        " VALUES ($1,$2,'anomaly','info',now())", a["org"], a["tag"])
+        finally:
+            await pools.close()
+    run(go())
+
+
+def test_system_role_has_full_insights_access(two_orgs):
+    """The engine role reads/writes insights across orgs via system_insights."""
+    a, b = two_orgs
+
+    async def go():
+        conn = await asyncpg.connect(SYSTEM_DSN)
+        try:
+            ids = {r["id"] for r in await conn.fetch("SELECT id FROM insights")}
+            assert {a["insight"], b["insight"]} <= ids
+            await conn.execute(
+                "INSERT INTO insights(org_id, tag_id, kind, severity, ts_start)"
+                " VALUES ($1,$2,'flatline','info',now())", a["org"], a["tag"])
+            assert await conn.execute(
+                "UPDATE insights SET state='closed', ts_end=now() WHERE id=$1",
+                a["insight"]) == "UPDATE 1"
+        finally:
+            await conn.close()
     run(go())
 
 
