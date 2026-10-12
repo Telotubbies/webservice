@@ -9,10 +9,12 @@ import 'uplot/dist/uPlot.min.css';
 import { api } from '../../lib/api';
 import { live } from '../../lib/live';
 import { SIGNALS, T, displayNumber, shortName } from '../../lib/plant';
-import type { TagInfo } from '../../types';
+import type { Insight, TagInfo } from '../../types';
 import { ErrorState, Notice, Skeleton } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
 import { Segmented } from '../../shared/ui/Segmented';
+import { InsightChip } from '../../shared/ui/InsightChip';
+import { useFaceplate } from '../faceplate/FaceplateContext';
 import './trends.css';
 
 const SERIES = ['--series-1', '--series-2', '--series-3', '--series-4', '--series-5', '--series-6'];
@@ -22,6 +24,8 @@ const DEFAULT = [T.beltSpeed, T.beltTemp, T.binLevel];
 const WINDOWS = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000 } as const;
 type Win = keyof typeof WINDOWS;
 type Rows = { x: number[]; ys: (number | null)[][] };
+/** Anomaly ribbon window in ms epochs — x values are ms (ms: 1 option). */
+type Band = { t0: number; t1: number };
 
 const css = (v: string) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
@@ -40,6 +44,9 @@ export function TrendsPage({ tags }: { tags: TagInfo[] }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<uPlot | null>(null);
   const rowsRef = useRef<Rows>({ x: [], ys: [] });
+  const bandsRef = useRef<Band[]>([]);
+  const [ins, setIns] = useState<Insight[]>([]);
+  const { openFaceplate } = useFaceplate();
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [zoomed, setZoomed] = useState(false);
@@ -68,19 +75,37 @@ export function TrendsPage({ tags }: { tags: TagInfo[] }) {
     setLoading(true);
     setFailed(false);
     setZoomed(false);
+    setIns([]);
+    bandsRef.current = [];
 
     void (async () => {
       let perTag: { v: number | boolean; ts: string }[][];
+      const from = new Date(Date.now() - winRef.current).toISOString();
       try {
         // Seed only the selected window — otherwise a large history makes the
         // chart open on days of data instead of the chosen view.
-        const from = new Date(Date.now() - winRef.current).toISOString();
         perTag = await Promise.all(selected.map((n) => api.history(n, { from, limit: CAP })));
       } catch {
         if (!cancelled) { setFailed(true); setLoading(false); }
         return;
       }
+      // Anomaly ribbons: insight windows overlapping the visible range (open +
+      // closed; the backend's from/to already selects overlaps). Fetched once
+      // per chart build — live appends don't re-query. Non-fatal: a failed
+      // insights request just means no bands on this build.
+      const to = new Date().toISOString();
+      const found = await Promise.all(
+        selected.map((n) => api.insights({ tag: n, from, to }).catch(() => [] as Insight[])),
+      ).then((lists) => [...new Map(lists.flat().map((i) => [i.id, i])).values()]);
       if (cancelled) return;
+      found.sort((a, b) => Date.parse(b.ts_start) - Date.parse(a.ts_start));
+      setIns(found);
+      // An open insight (or a missing ts_end) is still ongoing — extend its
+      // band past the right edge so it clips to the moving window.
+      bandsRef.current = found.map((i) => ({
+        t0: Date.parse(i.ts_start),
+        t1: i.ts_end ? Date.parse(i.ts_end) : Number.MAX_SAFE_INTEGER,
+      }));
       const maps = perTag.map((rows, i) => {
         const m = new Map<number, number | null>();
         for (const r of rows) {
@@ -99,6 +124,41 @@ export function TrendsPage({ tags }: { tags: TagInfo[] }) {
         grid: { stroke: css('--line'), width: 1 },
         ticks: { stroke: css('--line-strong') },
       };
+      // Insight windows as violet bands behind the series (§3.3-E). Painted in
+      // drawClear — right after the canvas clears, before grid/axes/series —
+      // so bands sit under everything. Re-fires on every redraw (live appends,
+      // zoom, resize) and clips to the current x scale.
+      const ribbonFill = css('--ai-ribbon');
+      const ribbonEdge = css('--ai-accent');
+      const paintRibbons = (uu: uPlot) => {
+        const bands = bandsRef.current;
+        if (bands.length === 0) return;
+        const { left, top, width, height } = uu.bbox;
+        const xMin = uu.scales.x.min ?? -Infinity;
+        const xMax = uu.scales.x.max ?? Infinity;
+        const ctx = uu.ctx;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, width, height);
+        ctx.clip();
+        ctx.fillStyle = ribbonFill;
+        ctx.strokeStyle = ribbonEdge;
+        ctx.lineWidth = 1;
+        for (const b of bands) {
+          if (!Number.isFinite(b.t0) || !Number.isFinite(b.t1) || b.t1 < xMin || b.t0 > xMax) continue;
+          const x0 = Math.max(left, uu.valToPos(b.t0, 'x', true));
+          const x1 = Math.min(left + width, uu.valToPos(b.t1, 'x', true));
+          if (x1 <= x0) continue;
+          ctx.fillRect(x0, top, x1 - x0, height);
+          ctx.beginPath();
+          ctx.moveTo(x0, top);
+          ctx.lineTo(x0, top + height);
+          ctx.moveTo(x1, top);
+          ctx.lineTo(x1, top + height);
+          ctx.stroke();
+        }
+        ctx.restore();
+      };
       u = new uPlot({
         ms: 1, // x values are millisecond epochs (Date.parse / Date.now)
         width: el.clientWidth || 800,
@@ -108,7 +168,7 @@ export function TrendsPage({ tags }: { tags: TagInfo[] }) {
         cursor: { drag: { x: true, y: false } },
         legend: { show: true, live: true },
         axes: [axis, { ...axis, size: 64 }],
-        hooks: { setSelect: [() => setZoomed(true)] },
+        hooks: { setSelect: [() => setZoomed(true)], drawClear: [paintRibbons] },
         series: [
           { label: t('trends.time') },
           ...selected.map((n, i) => ({
@@ -212,6 +272,13 @@ export function TrendsPage({ tags }: { tags: TagInfo[] }) {
             <div className="chart-skeleton" aria-label={t('trends.loading')}><Skeleton h={420} /></div>
           )}
           <div ref={wrapRef} className="chart-wrap" hidden={failed || selected.length === 0} />
+          {ins.length > 0 && !failed && selected.length > 0 && (
+            <div className="insight-legend" aria-label={t('insights.title')}>
+              {ins.slice(0, 8).map((i) => (
+                <InsightChip key={i.id} insight={i} onClick={() => openFaceplate(i.tag)} />
+              ))}
+            </div>
+          )}
         </div>
       </section>
     </div>
