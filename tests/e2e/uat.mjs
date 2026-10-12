@@ -68,6 +68,12 @@ try {
   ok('sparkline in tile', await page.locator('.tile svg').count() > 0);
   ok('cam1 STUB badge', await page.locator('.tile-stub-badge').count() > 0);
 
+  // Insight rail (v3): ALWAYS rendered on Overview — severity-sorted chips when
+  // open insights exist, otherwise a single calm empty line (never absent).
+  ok('insight rail renders on overview',
+    await page.locator('.insight-rail').count() === 1
+    && await page.locator('.insight-rail .insight-chip, .insight-rail .insight-rail-empty').count() > 0);
+
   // Controls hidden for anonymous
   const tabTexts = await page.locator('a.tab, button.tab').allTextContents();
   ok('anon: no Controls tab', !tabTexts.some(t => /control/i.test(t)));
@@ -87,6 +93,8 @@ try {
   const activeRow = page.locator('.alarm-row.alarm-active, .alarm-row').filter({ hasText: 'temp' }).first();
   ok('alarm row appears', await activeRow.count() > 0);
   ok('sev pill on row', await page.locator('.alarm-row [class*=sev], .alarm-row .pill').count() > 0);
+  // ISA-101 severity axis: glyph shape keyed on data-severity, never colour alone
+  ok('severity glyph data-severity', await page.locator('.sev[data-severity]').count() > 0);
   ok('alarm-count badge in sidebar', await page.locator('.alarm-count').count() > 0);
 
   // q=bad must NOT clear (P0 fix regression)
@@ -105,6 +113,61 @@ try {
   await pub('temp_c', 30, 'good');
   await sleep(2500);
   ok('cleared label renders', await page.locator('.alarm-cleared-label').count() > 0);
+
+  // ============ FACEPLATE from a non-equipment context (v3) ============
+  // The faceplate is tag-keyed and global (?fp=<tag>): an alarm-row tag-link
+  // opens it from /alarms, and the close button removes the param again.
+  await page.locator('.alarm-row button.tag-link').first().click();
+  await sleep(800);
+  ok('faceplate opens from tag-link (non-equipment ctx)',
+    await page.locator('.faceplate').count() > 0
+    && new URL(page.url()).searchParams.has('fp'), page.url());
+  await page.locator('.faceplate .icon-btn').first().click();
+  await sleep(500);
+  ok('faceplate close clears ?fp',
+    await page.locator('.faceplate').count() === 0
+    && !new URL(page.url()).searchParams.has('fp'), page.url());
+
+  // ============ INSIGHT end-to-end: real MQTT anomaly -> engine -> UI ============
+  // Drive temp_c far out of band (sim ambient ~28C) while the edge is stopped —
+  // an in-band sim sample would collapse the OPEN_N streak. Publish through the
+  // whole poll window: detectors only OPEN on fresh tags (ALARM_FRESH_S=15s)
+  // and the engine evaluates every INSIGHT_PERIOD_S=15s, so a fixed sleep is
+  // not enough. Poll the API until the open row appears (<=60s).
+  let openInsight = null;
+  const injDeadline = Date.now() + 60000;
+  while (Date.now() < injDeadline && !openInsight) {
+    await pub('temp_c', 120, 'good');
+    await sleep(1200);
+    try {
+      const r = await page.request.get(`${API}/api/insights?state=open`);
+      const rows = r.ok() ? await r.json() : [];
+      openInsight = rows.find((i) => (i.tag || '').includes('temp_c')) || null;
+    } catch { /* engine pass not due yet — keep injecting */ }
+  }
+  ok('insight opens via injected MQTT anomaly', !!openInsight,
+    openInsight ? `${openInsight.kind} score=${Number(openInsight.score).toFixed(1)}` : 'no open row within 60s');
+
+  // The open insight must surface in the UI — rail chip on Overview (WS-pushed
+  // at open, or seeded by the boot fetch). Fall back to the /insights feed row.
+  await page.click('a.tab[href="/"]');
+  await page.waitForSelector('.insight-chip', { timeout: 10000 }).catch(() => {});
+  // ISA-101 quality axis: with the edge stopped, untouched tags go stale >15s —
+  // their tiles must flag it (.qmark[data-q], shape + text, not colour alone).
+  ok('quality glyph renders data-q', await page.locator('.qmark[data-q]').count() > 0);
+  let insightUi = await page.locator('.insight-rail .insight-chip').count();
+  if (insightUi === 0) {
+    await page.goto(`${BASE}/insights`);
+    await page.waitForSelector('.insight-row', { timeout: 8000 }).catch(() => {});
+    insightUi = await page.locator('.insight-row').count();
+  }
+  ok('insight surfaces in UI (chip or row)', insightUi > 0, `${insightUi}`);
+
+  // Cool down: publish in-band samples near the engine's own baseline mean so
+  // the episode can close (CLOSE_N in-band streak) and the hi alarm our
+  // injection raised can clear — don't leave the plant screaming.
+  const coolV = Math.round((openInsight?.detail?.mu ?? 28) * 10) / 10;
+  for (let i = 0; i < 7; i++) { await pub('temp_c', coolV + (i % 2 ? 0.2 : -0.2), 'good'); await sleep(700); }
 
   // ============ TRENDS: history seed + NEW time-window seg ============
   const histReqs = [];
@@ -151,6 +214,13 @@ try {
   await page.setViewportSize({ width: 700, height: 900 });
   await sleep(800);
   ok('<768px: controls hidden', await page.locator('.btn-control').count() === 0);
+  // xs layout: sidebar collapses to the 5-item mobile bottom bar; the overview
+  // (tiles + insight rail) must not force horizontal scroll.
+  ok('<768px: mobile nav has 5 items', await page.locator('.side-nav a.tab').count() === 5);
+  await page.goto(BASE);
+  await sleep(1200);
+  const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  ok('<768px: no horizontal overflow', sw <= iw + 20, `scrollWidth=${sw} innerWidth=${iw}`);
   await page.setViewportSize({ width: 400, height: 800 });
   await sleep(800);
   ok('<480px: tiny placeholder', (await page.locator('body').innerText()).toLowerCase().includes('too small') || (await page.locator('.tile').count()) === 0);
