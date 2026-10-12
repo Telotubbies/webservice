@@ -92,3 +92,16 @@ async def global_tx(pool: asyncpg.Pool) -> AsyncIterator[asyncpg.Connection]:
     async with pool.acquire() as conn:
         async with conn.transaction():
             yield conn
+
+
+async def active_org_ids(system_pool: asyncpg.Pool) -> list[UUID]:
+    """Every live (non-deleted) org id — the wds_system pre-context
+    enumeration (``system_org_list`` policy + ``SELECT (id, deleted_at)``
+    column grant, ADR-13 §3.3). Used by system sweeps that must visit each
+    tenant: registry refresh, alarm/insight engines, command restart sweep.
+    Must be called on the SYSTEM pool — on ``wds_app`` this returns [] (fail
+    closed), never a leak."""
+    async with global_tx(system_pool) as conn:
+        rows = await conn.fetch(
+            "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id")
+    return [r["id"] for r in rows]

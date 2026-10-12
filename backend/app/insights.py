@@ -186,43 +186,48 @@ class InsightEngine:
 
     # ---------------------------------------------------------- evaluation
     async def evaluate_once(self) -> None:
-        """One evaluation pass over every numeric tag of the v1 org. Exposed
-        so tests can force a pass without waiting INSIGHT_PERIOD_S."""
+        """One evaluation pass over every numeric tag of every org (v4 T9 —
+        multi-tenant). Exposed so tests can force a pass without waiting
+        INSIGHT_PERIOD_S."""
         async with self._lock:
             await self._evaluate()
 
     async def _evaluate(self) -> None:
         await self.registry.maybe_refresh()
         now = utcnow()
-        tags = [t for t in self.registry.all() if t.type == "number"]
-        if not tags:
-            return
         # Serialized insight rows broadcast AFTER the pass commits — an event
         # emitted mid-transaction would still reach clients if a later tag's
         # work rolled the writes back.
-        events: list[dict] = []
-        async with tenant_tx(self.pools.system, config.V1_ORG_ID) as tc:
-            deadband_min = {
-                r["tag_id"]: r["dmin"] for r in await tc.fetch(
-                    "SELECT tag_id, min(deadband) AS dmin FROM alarm_rules"
-                    " WHERE enabled GROUP BY tag_id")}
-            for tag in tags:
-                tag_events: list[dict] = []
-                try:
-                    # per-tag savepoint: one bad tag rolls back only its own
-                    # writes, never the whole pass
-                    async with tc.conn.transaction():
-                        await self._eval_tag(tc, tag, now,
-                                             deadband_min.get(tag.id, 0.0),
-                                             tags, tag_events)
-                    events.extend(tag_events)   # only committed tag work
-                except Exception:  # noqa: BLE001 — isolate, keep evaluating
-                    self.counters["insight_eval_errors"] += 1
-                    log.exception("insight evaluation failed for tag %s",
-                                  getattr(tag, "v1_name", tag.id))
+        events: list[tuple[UUID, dict]] = []
+        for org_id in self.registry.org_ids():
+            tags = [t for t in self.registry.for_org(org_id)
+                    if t.type == "number"]
+            if not tags:
+                continue
+            async with tenant_tx(self.pools.system, org_id) as tc:
+                deadband_min = {
+                    r["tag_id"]: r["dmin"] for r in await tc.fetch(
+                        "SELECT tag_id, min(deadband) AS dmin FROM alarm_rules"
+                        " WHERE enabled GROUP BY tag_id")}
+                for tag in tags:
+                    tag_events: list[dict] = []
+                    try:
+                        # per-tag savepoint: one bad tag rolls back only its
+                        # own writes, never the whole pass
+                        async with tc.conn.transaction():
+                            await self._eval_tag(tc, tag, now,
+                                                 deadband_min.get(tag.id, 0.0),
+                                                 tags, tag_events)
+                        # only committed tag work
+                        events.extend((org_id, e) for e in tag_events)
+                    except Exception:  # noqa: BLE001 — isolate, keep evaluating
+                        self.counters["insight_eval_errors"] += 1
+                        log.exception("insight evaluation failed for tag %s",
+                                      getattr(tag, "v1_name", tag.id))
         self.counters["insight_eval_passes"] += 1
-        for insight in events:
-            self.ws.broadcast({"type": "insight", "insight": insight})
+        for org_id, insight in events:
+            self.ws.broadcast({"type": "insight", "insight": insight},
+                              org_id=org_id)
 
     async def _eval_tag(self, tc: TenantConn, tag, now: datetime,
                         deadband_min: float, all_tags,
@@ -513,7 +518,8 @@ class InsightEngine:
     async def list_insights(self, tc: TenantConn, state: str | None,
                             kind: str | None, tag_id: UUID | None,
                             t_from: datetime | None, t_to: datetime | None,
-                            limit: int = 200) -> list[dict]:
+                            limit: int = 200,
+                            site_id: UUID | None = None) -> list[dict]:
         # from/to select windows OVERLAPPING the range (trends-page ribbons):
         # starts before the range ends AND (open or ends after range start).
         rows = await tc.fetch(
@@ -523,8 +529,10 @@ class InsightEngine:
             " AND ($3::uuid IS NULL OR tag_id=$3)"
             " AND ($4::timestamptz IS NULL OR ts_start <= $4)"
             " AND ($5::timestamptz IS NULL OR ts_end IS NULL OR ts_end >= $5)"
+            " AND ($7::uuid IS NULL OR tag_id IN"
+            "      (SELECT id FROM tags WHERE site_id=$7))"
             " ORDER BY ts_start DESC LIMIT $6",
-            state, kind, tag_id, t_to, t_from, limit)
+            state, kind, tag_id, t_to, t_from, limit, site_id)
         return [self._v1(r) for r in rows]
 
     async def _serialize(self, tc: TenantConn, insight_id: UUID) -> dict:
@@ -534,7 +542,10 @@ class InsightEngine:
         tag = self.registry.by_id(r["tag_id"])
         return {
             "id": str(r["id"]),
-            "tag": tag.v1_name if tag else str(r["tag_id"]),
+            "tag_id": str(r["tag_id"]),
+            # real site code — multi-org members see other orgs' insights on
+            # the same socket (v4 T9)
+            "tag": self.registry.display_name(tag) if tag else str(r["tag_id"]),
             "kind": r["kind"],
             "severity": r["severity"],
             "score": r["score"],

@@ -126,11 +126,11 @@ Inputs/failure modes the spec implies that could ship broken:
 
 **Files:** `backend/app/main.py`, `db/context.py`, `config.py`, ingest path, `ws.py`, `insights.py`, `commands.py`, `alarms.py` — every `v1_tx` call becomes org-from-principal; routes gain `/api/v1/orgs/{org}/` per CONTRACT.v2 §REST; keep `/api/...` v1 paths as alias → seeded org (v1 shim documented as compat); tenancy tests extended to cross-org DATA (org A can't read org B's tags/alarms/insights through real endpoints).
 
-- [ ] `v1_tx(pool, fn)` → `tenant_tx(pool, org_id)` where `org_id` resolved from path `org` param (v2) or seeded shim (v1) + membership check.
-- [ ] Ingest: telemetry routed by `v2/{org}/…` topic → org_id; v1 devices map to seeded org.
-- [ ] WS: subscriptions per-org (auth frame carries org context or server derives from memberships).
-- [ ] Tests: two orgs, real endpoint reads/writes, cross-org 403/empty; RLS probes already exist — add data-level ones.
-- [ ] Gates + commit `feat(backend): real multi-tenant org routing (unpin v1 shim)`.
+- [x] `v1_tx(pool, fn)` → `tenant_tx(pool, org_id)` where `org_id` resolved from path `org` param (v2) or seeded shim (v1) + membership check. (`_v2_scope`/`_v2_org` in main.py; `v1_tx` remains as the documented shim pin.)
+- [x] Ingest: telemetry routed by `v2/{org}/…` topic → org_id; v1 devices map to seeded org. (v1 MQTT topics are rejected at the broker since T6 — dynsec only grants v2 ACLs — so "map to seeded org" is realized as *v1 topics cannot reach ingest*; only the seeded edge's v2 topic is valid.)
+- [x] WS: subscriptions per-org (auth frame carries org context or server derives from memberships). (`/ws/v1` requires `site_id` in the auth frame → site's org must be a membership; broadcasts filtered per-org; `/ws` stays the seeded-site compat socket.)
+- [x] Tests: two orgs, real endpoint reads/writes, cross-org 403/empty; RLS probes already exist — add data-level ones. (`tests/integration/test_tenancy.py`: org A/B over real HTTP + WS + MQTT e2e.)
+- [x] Gates + commit `feat(backend): real multi-tenant org routing (v4 T9)`.
 
 ### Task 10: Admin UI + audit export
 

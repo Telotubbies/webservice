@@ -14,6 +14,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
+from uuid import UUID
 
 from fastapi import WebSocket
 
@@ -72,8 +73,12 @@ class WSAuthError(Exception):
     """First frame wasn't a well-formed {"type":"auth"} message in time."""
 
 
-async def read_auth_token(ws: WebSocket) -> str:
-    """Read the first-frame auth message; returns the raw token ('' = anonymous).
+async def read_auth_frame(ws: WebSocket) -> dict:
+    """Read the first-frame auth message; returns the decoded frame dict.
+
+    Shape (CONTRACT.v2 §5): {"type":"auth","token":"<access JWT>",
+    "site_id"?: "<site uuid>"} — `site_id` selects the connection's site
+    (required on /ws/v1; /ws v1 compat defaults to the seeded shim site).
 
     The token moved out of `?token=` (v4 T3) — query strings end up in
     access logs and proxy traces. Anything that isn't {"type":"auth"} on the
@@ -102,15 +107,22 @@ async def read_auth_token(ws: WebSocket) -> str:
     # failure (4401), never silently coerced to anonymous
     if not isinstance(token, str):
         raise WSAuthError("token not a string")
-    return token
+    site_id = msg.get("site_id")
+    if site_id is not None and not isinstance(site_id, str):
+        raise WSAuthError("site_id not a string")
+    return {"token": token, "site_id": site_id}
 
 
 @dataclass(eq=False)  # identity hash — instances live in a set
 class Client:
     ws: WebSocket
-    role: str
+    role: str                   # role in the v1 shim org (compat display)
+    org_id: UUID | None = None  # org of the site this connection serves
     sub: str = ""               # IdP subject — for wds_authz eviction (v4 T5)
     sid: str = ""               # OIDC session id — revoked_sessions eviction
+    # org_id -> role, from the principal's memberships (v4 T9): broadcast
+    # scoping — a client only receives events for orgs it belongs to.
+    org_roles: dict = field(default_factory=dict)
     queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(QUEUE_MAX))
     dropped: int = 0
     connected_at: float = field(default_factory=time.monotonic)
@@ -147,10 +159,13 @@ class WSManager:
         return list(self._clients)
 
     async def connect(self, ws: WebSocket, role: str,
-                      sub: str = "", sid: str = "") -> Client:
+                      sub: str = "", sid: str = "",
+                      org_id: UUID | None = None,
+                      org_roles: dict | None = None) -> Client:
         # the endpoint accepts before connect() — the socket must be open
         # to read the first-frame auth handshake
-        client = Client(ws=ws, role=role, sub=sub, sid=sid)
+        client = Client(ws=ws, role=role, sub=sub, sid=sid,
+                        org_id=org_id, org_roles=dict(org_roles or {}))
         async with self._lock:
             self._clients.add(client)
         log.info(
@@ -175,17 +190,28 @@ class WSManager:
         except Exception:  # socket died mid-send; endpoint cleanup handles it
             log.debug("ws pump ended (send failed)", exc_info=True)
 
-    def broadcast(self, event: dict) -> None:
-        """Offer event to every client; drop-oldest when a queue is full.
+    def broadcast(self, event: dict, org_id: UUID | None = None) -> None:
+        """Offer event to eligible clients; drop-oldest when a queue is full.
 
-        Command lifecycle events go to operators only — the public stream
-        (anonymous + viewer) carries tag/alarm/health only (least privilege:
-        a read-only viewer must not learn which tags are being driven, when,
-        or by whom — that's operational intel for an attacker).
+        Org scoping (v4 T9, CONTRACT.v2 §5): when `org_id` is set, only
+        clients whose principal is a member of that org receive the event —
+        tenant data never crosses to a socket serving another tenant.
+        `org_id=None` events (none today — every producer scopes) would go
+        to every client.
+
+        Command lifecycle events go to operators only — and per-org: the
+        client's role *in the event's org* must be operator+. A read-only
+        viewer must not learn which tags are being driven, when, or by whom.
         """
         restricted = event.get("type") == "command"
         for client in list(self._clients):
-            if restricted and client.role not in OPERATOR_ROLES:
+            if org_id is not None:
+                role = client.org_roles.get(org_id)
+                if role is None:                      # not a member — no event
+                    continue
+                if restricted and role not in OPERATOR_ROLES:
+                    continue
+            elif restricted and client.role not in OPERATOR_ROLES:
                 continue
             try:
                 client.queue.put_nowait(event)

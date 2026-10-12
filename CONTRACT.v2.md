@@ -1,6 +1,6 @@
 # Contract v2 — multi-tenant SaaS
 
-Status: **Target contract**. `CONTRACT.md` (v1) describes the current running code until phase 4 replaces it. Normative detail lives in:
+Status: **Target contract — partially landed**. `CONTRACT.md` (v1) describes the v1 compatibility surface. Normative detail lives in:
 - ADR-12 (auth)
 - ADR-13 (isolation)
 - doc 16 (commands)
@@ -8,6 +8,19 @@ Status: **Target contract**. `CONTRACT.md` (v1) describes the current running co
 - doc 18 (release)
 
 If this file and those disagree, those win; fix this file.
+
+### Implementation status (v4 T9 — real multi-tenant org routing)
+
+Landed on `ui-v4`:
+- **Org routing**: `/api/v1/orgs/{org}/sites/{site}/…` resolves `org_id` from the path against the caller's memberships — never a global pin. Non-member or non-existent org → 404 (identical response, no oracle); member without the permission → 403.
+- Implemented v2 routes: `GET /api/v1/me`, `GET /orgs/{org}`, `GET /orgs/{org}/sites`, site-scoped `health`, `tags` (+`/latest`, `/{tag_id}/latest`, `/{tag_id}/history`), `alarm-rules`, `alarms` (+`/alarms/{id}/ack`), `insights`, `commands` (POST/GET/`/{id}`), `edges` (+rotate/disable). List responses use `{items, next_cursor}`.
+- **Engines are multi-org**: the registry cache, alarm rules, insight evaluation, and command lifecycle (issue/transition/watch/sweep/broadcast) all iterate or scope by real org ids; `wds_system` sweeps enumerate live orgs via `active_org_ids()`.
+- **WS**: `/ws/v1` requires the `site_id` auth frame (4401 without it); the site's org must be a membership else 4403. All broadcasts (`tag`, `alarm*`, `command`, `insight`, `health`) are org-scoped. `/ws` remains as the v1 compat socket pinned to the seeded site; v1 events keep their v1 field names plus `org_id`/`site_id`/`tag_id` extras.
+- **Dev tokens** (APP_ENV=dev only): memberships hydrate from the `memberships` table, so a dev user is a member of every org it has a row in — including non-shim orgs created via admin/test paths. The nominal token role applies only as the shim-org fallback when no memberships hydrated at all.
+
+Still v1-shim-only (not yet landed): `PATCH /api/v1/me`, org create/invites/members/audit admin APIs, line/device/tag/alarm-rule mutation routes, `history.csv`, WS snapshot frame + `seq`/`reauth` (the current stream is the v1 event shape on `/ws` and `/ws/v1`).
+
+**v1 compatibility shim**: every `/api/*` v1 path is an alias pinned to the seeded dev org (`config.V1_*`) requiring shim-org membership; the single pin is `v1_tx()` in `backend/app/main.py`.
 
 ## 1. Tenancy & permissions
 

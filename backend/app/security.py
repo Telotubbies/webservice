@@ -401,7 +401,9 @@ class Security:
                     close = 4401
                 elif etype == "membership_changed":
                     # re-resolve: lost membership -> 4403; disabled -> 4401;
-                    # role change is applied in place
+                    # role change is applied in place. The check is against
+                    # the org the socket SERVES (client.org_id — the auth
+                    # frame's site), not just the v1 shim org (v4 T9).
                     try:
                         rec = await self._load_authz(sub, claims=None)
                     except AuthError:
@@ -410,13 +412,16 @@ class Security:
                         if rec.disabled:
                             close = 4401
                         else:
-                            role = rec.org_roles.get(config.V1_ORG_ID,
+                            scope = client.org_id or config.V1_ORG_ID
+                            role = rec.org_roles.get(scope,
                                                      Principal.ROLE_NONE)
                             if role == Principal.ROLE_NONE:
                                 close = 4403
                             else:
                                 self._authz[sub] = rec
-                                client.role = role
+                                client.role = rec.org_roles.get(
+                                    config.V1_ORG_ID, Principal.ROLE_NONE)
+                                client.org_roles = dict(rec.org_roles)
             if close is not None:
                 log.info("ws evicted by wds_authz", extra={"code": close})
                 with contextlib.suppress(Exception):

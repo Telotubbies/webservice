@@ -1,8 +1,13 @@
 """FastAPI backend — industrial dashboard.
 
-Phase 2: Postgres (ADR-13) under the v1 API/WS/MQTT contract (CONTRACT.md),
-pinned to the single dev org via the v1 shim in config.py. The v2 multi-tenant
-surface (CONTRACT.v2.md) replaces the shim in phases 3–4.
+v4 T9: real multi-tenant routing (CONTRACT.v2 §3/§5). The v2 surface
+(`/api/v1/orgs/{org}/sites/{site}/…`, `/ws/v1` with a `site_id` auth frame)
+resolves the org from the PATH, checked against the caller's memberships —
+non-member or unknown org is a flat 404 (no existence oracle; ADR-13 §1).
+
+The v1 `/api/*` + `/ws` surface remains as a documented compatibility shim:
+it is pinned to the seeded dev org (config.V1_ORG_ID) and v1 wire shapes.
+`v1_tx()` is the only place that pin lives on the read/write path.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import config
 from .alarms import AlarmEngine
-from .auth import Principal
+from .auth import OPERATOR_ROLES, Principal
 from .commands import CommandManager
 from .dynsec import (
     DynsecAdmin, DynsecError, Reconciler,
@@ -36,7 +41,7 @@ from .dynsec import (
 )
 from .insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
-from .db.context import tenant_tx
+from .db.context import tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .mqtt_client import MQTTBridge
@@ -48,7 +53,7 @@ from .ratelimit import RateLimiter
 from .registry import Registry
 from .security import AuthError, ForbiddenError, Security, authz_listener
 from .seed import seed
-from .ws import WSManager, WSAuthError, origin_allowed, read_auth_token
+from .ws import WSManager, WSAuthError, origin_allowed, read_auth_frame
 
 START_TIME = time.monotonic()
 
@@ -116,6 +121,16 @@ class CommandIn(BaseModel):
         if any(c in v for c in "/ \\?#"):
             raise ValueError("invalid tag name")
         return v
+
+
+class CommandInV2(BaseModel):
+    """CONTRACT.v2 §3 commands body — the tag is selected by tag_id (an id in
+    the path site); org/site come ONLY from the path, never the body."""
+    tag_id: str
+    value: float | bool
+    ttl_s: int = Field(default=10, ge=1, le=60)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=64)
+    note: str | None = Field(default=None, max_length=200)
 
     _v_finite = field_validator("value")(_finite)
 
@@ -293,8 +308,9 @@ async def _handle_message(st: State, msg) -> None:
 
 
 async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
-    # rule 3: the tag path must resolve to a tag of that site bound to THIS edge
-    tag = st.registry.by_path(path)
+    # rule 3: the tag path must resolve to a tag of THAT site bound to THIS
+    # edge — (site, path) keyed since T9; two orgs may share a path string.
+    tag = st.registry.by_path(edge.site_id, path)
     if tag is None or tag.edge_id != edge.id:
         return _count(st, "telemetry_unknown_tag", "telemetry_unknown_tag — dropping",
                       topic=msg.topic)
@@ -324,7 +340,15 @@ async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
     if len(st.history_buf) >= config.HISTORY_FLUSH_ROWS:
         await _flush_history(st)
     if res.endswith(" 1"):
-        st.ws.broadcast({"type": "tag", "name": tag.v1_name, "v": v, "q": q, "ts": payload.ts})
+        # Org-scoped fan-out (v4 T9): only members of edge.org_id see this.
+        # `name` is the real site code + path (== v1_name for the shim site);
+        # org/site/tag ids ride along for the CONTRACT.v2 §5 wire.
+        st.ws.broadcast(
+            {"type": "tag", "name": st.registry.display_name(tag),
+             "v": v, "q": q, "ts": payload.ts,
+             "org_id": str(edge.org_id), "site_id": str(edge.site_id),
+             "tag_id": str(tag.id), "path": tag.path},
+            org_id=edge.org_id)
 
 
 async def _handle_heartbeat(st: State, msg, edge) -> None:
@@ -350,7 +374,8 @@ async def _handle_heartbeat(st: State, msg, edge) -> None:
             " buffer_dropped=COALESCE($5, buffer_dropped) WHERE id=$1",
             edge.id, clock_ok, adapter, buf_d, buf_dr)
     if is_v1_edge and st.edge_status() != was:
-        st.ws.broadcast(st.health_event())
+        # the tracked edge is the shim org's — scope the event to it
+        st.ws.broadcast(st.health_event(), org_id=config.V1_ORG_ID)
 
 
 def _handle_cmd_resp(st: State, msg, org_id: UUID, edge_id: UUID) -> None:
@@ -407,7 +432,8 @@ async def health_watchdog(st: State) -> None:
         cur = (ev["mqtt"], ev["edge"])
         if cur != last:
             last = cur
-            st.ws.broadcast(ev)
+            # shim-org event (v1 edge + broker reachability)
+            st.ws.broadcast(ev, org_id=config.V1_ORG_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +465,8 @@ async def lifespan(app: FastAPI):
         await asyncio.wait_for(st.reconciler.reconcile(), timeout=15.0)
     except Exception:  # noqa: BLE001 — reconcile retries on its own cadence
         log.exception("initial dynsec reconcile failed — continuing")
-    st.mqtt.on_state_change = lambda connected: st.ws.broadcast(st.health_event())
+    st.mqtt.on_state_change = lambda connected: st.ws.broadcast(
+        st.health_event(), org_id=config.V1_ORG_ID)
     st.mqtt.start(asyncio.get_running_loop())
     await st.commands.sweep_interrupted()  # I9 before accepting traffic
     tasks = [
@@ -523,7 +550,60 @@ def st(request: Request) -> State:
 
 
 def v1_tx(request: Request, user_id: UUID | None = None):
+    """v1 COMPAT SHIM (v4 T9): the /api/* endpoints predate org routing, so
+    they are pinned to the seeded dev org. Every v2 call site resolves the
+    org from the path instead — this is the only org pin left on the
+    request path."""
     return tenant_tx(st(request).pools.app, config.V1_ORG_ID, user_id)
+
+
+def org_tx(request: Request, org_id: UUID, user_id: UUID | None = None):
+    """Tenant transaction for the org the v2 ROUTE resolved (membership
+    already checked by the _v2_* scope helpers)."""
+    return tenant_tx(st(request).pools.app, org_id, user_id)
+
+
+def _effective_org_roles(p: Principal) -> dict[UUID, str]:
+    """org_id -> role from the principal's hydrated memberships.
+
+    Dev tokens hydrate org_roles from the `memberships` table at
+    authenticate() time (v4 T6), so a dev user IS a member of every org the
+    table says — including non-shim orgs created by tests/admin paths.
+    Fallback: a principal whose memberships couldn't hydrate (pools
+    unavailable) keeps only its nominal shim-org role."""
+    roles = dict(p.org_roles)
+    if not roles and p.member:
+        roles = {config.V1_ORG_ID: p.role}
+    return roles
+
+
+# CONTRACT.v2 §1 permission levels used by the v2 scope helpers.
+_READ = "read"        # any member
+_OPERATE = "operate"  # alarm:ack / command:issue / command:read
+_CONFIG = "config"    # config:write
+
+
+def _v2_org(org: str, p: Principal, need: str = _READ) -> UUID:
+    """Resolve + authorize the /api/v1/orgs/{org} segment (v4 T9).
+
+    Non-member OR non-existent org -> 404 — the same response either way,
+    so the route is never an existence oracle (CONTRACT.v2 §1, ADR-13 §1).
+    A member without the permission level -> 403."""
+    org_id = _uuid_or_404(org, "organization")
+    role = _effective_org_roles(p).get(org_id)
+    if role is None:
+        raise HTTPException(404, "not found")
+    if need == _OPERATE and role not in OPERATOR_ROLES:
+        raise ForbiddenError("operator role required in this org")
+    if need == _CONFIG and role not in CONFIG_ROLES:
+        raise ForbiddenError("config:write requires admin or owner")
+    return org_id
+
+
+def _v2_scope(org: str, site: str, p: Principal,
+              need: str = _READ) -> tuple[UUID, UUID]:
+    """Resolve + authorize an /api/v1/orgs/{org}/sites/{site} path."""
+    return _v2_org(org, p, need), _uuid_or_404(site, "site")
 
 
 def _uuid_or_404(s: str, what: str) -> UUID:
@@ -609,16 +689,41 @@ async def auth_config():
     }
 
 
+# CONTRACT.v2 §1 permission table, by org role.
+ROLE_PERMISSIONS = {
+    "viewer": ["site:read"],
+    "operator": ["site:read", "alarm:ack", "command:issue", "command:read"],
+    "admin": ["site:read", "alarm:ack", "command:issue", "command:read",
+              "config:write", "member:manage", "audit:read"],
+    "owner": ["site:read", "alarm:ack", "command:issue", "command:read",
+              "config:write", "member:manage", "audit:read",
+              "org:delete", "org:transfer"],
+}
+
+
 @app.get("/api/me")
+@app.get("/api/v1/me")
 async def me(request: Request, p: Principal = Depends(require_user)):
-    """Who the bearer token resolves to (CONTRACT.v2 `/api/v1/me`, v1 alias).
-    `role`/`orgs` reflect the memberships table — orgs is the full list so a
-    no-membership user gets role 'none' rather than a 403 on this endpoint."""
+    """Who the bearer token resolves to (CONTRACT.v2 `/api/v1/me` — the v1
+    `/api/me` path is the compat alias). `role` is the v1 shim-org role;
+    `memberships` is the full org list (CONTRACT.v2 §3 identity shape) so a
+    no-membership user gets role 'none' rather than a 403."""
+    roles = _effective_org_roles(p)
+    names: dict[UUID, str] = {}
+    if p.user_id is not None:
+        # member orgs only (org_member_read policy) — never reveals others
+        async with user_tx(st(request).pools.app, p.user_id) as conn:
+            rows = await conn.fetch("SELECT id, name FROM organizations")
+        names = {r["id"]: r["name"] for r in rows}
+    memberships = [{"org_id": str(o), "org_name": names.get(o), "role": r,
+                    "permissions": ROLE_PERMISSIONS.get(r, [])}
+                   for o, r in roles.items()]
     return {
         "user": {"sub": p.sub, "display_name": p.user},
         "role": p.role,                       # role in the v1 shim org
         "kind": p.kind,
         "orgs": [{"org_id": str(o), "role": r} for o, r in p.org_roles],
+        "memberships": memberships,
     }
 
 
@@ -664,10 +769,14 @@ async def backchannel_logout(request: Request):
 # ---------------------------------------------------------------------------
 @app.get("/api/tags")
 async def list_tags(request: Request, p: Principal = Depends(require_principal)):
+    """v1 shim: the seeded site's tags only — the registry is now multi-org
+    (v4 T9), so the compat surface must filter or other orgs' tags would
+    leak under plant1-prefixed names."""
     s = st(request)
     await s.registry.maybe_refresh()
     return [{"name": t.v1_name, "writable": t.writable, **({"unit": t.unit} if t.unit else {})}
-            for t in sorted(s.registry.all(), key=lambda t: t.v1_name)]
+            for t in sorted(s.registry.for_site(config.V1_SITE_ID),
+                            key=lambda t: t.v1_name)]
 
 
 @app.get("/api/tags/latest")
@@ -757,8 +866,11 @@ async def _mutation_gate(request: Request, uid: UUID) -> None:
 @app.post("/api/commands", status_code=201)
 async def post_command(body: CommandIn, request: Request,
                        p: Principal = Depends(require_operator)):
-    code, resp = await st(request).commands.issue(
-        tag_name=body.tag, value=body.value, ttl_s=body.ttl_s,
+    s = st(request)
+    code, resp = await s.commands.issue(
+        tag=s.registry.by_v1_name(body.tag),   # shim-site resolution only
+        org_id=config.V1_ORG_ID, site_id=config.V1_SITE_ID,
+        value=body.value, ttl_s=body.ttl_s,
         idempotency_key=body.idempotency_key, user_id=p.user_id)
     out = JSONResponse(status_code=code, content=resp)
     if code == 429:
@@ -865,26 +977,17 @@ async def system_health(request: Request,
 
 # ---------------------------------------------------------------------------
 # Edge provisioning (doc 17 §5 + CONTRACT.v2 §3 site-scoped routes)
+#
+# v4 T9: these take `require_user` (any authenticated principal), NOT
+# require_principal — the org check is the PATH org's membership via
+# _v2_scope. A principal who belongs only to a non-shim org can manage its
+# own edges; a member of org A hitting org B's routes sees 404.
 # ---------------------------------------------------------------------------
 CONFIG_ROLES = frozenset({"admin", "owner"})  # CONTRACT.v2 §1 config:write
 
 
 class EdgeIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-
-
-def _v2_scope(org: str, site: str, p: Principal, need_config: bool = False) -> tuple[UUID, UUID]:
-    """Resolve + authorize an /api/v1/orgs/{org}/sites/{site} path.
-    Non-member of the path org -> 404; member w/o permission -> 403
-    (CONTRACT.v2 §1)."""
-    org_id = _uuid_or_404(org, "organization")
-    site_id = _uuid_or_404(site, "site")
-    role = dict(p.org_roles).get(org_id)
-    if role is None:
-        raise HTTPException(404, "not found")
-    if need_config and role not in CONFIG_ROLES:
-        raise ForbiddenError("config:write requires admin or owner")
-    return org_id, site_id
 
 
 def _edge_json(r, latest_ident=None) -> dict:
@@ -903,14 +1006,315 @@ def _edge_json(r, latest_ident=None) -> dict:
 
 async def _site_or_404(pools: Pools, org_id: UUID, site_id: UUID) -> None:
     async with tenant_tx(pools.app, org_id) as tc:
+        # RLS does the hiding: a site of ANOTHER org is simply not found —
+        # identical response to a site that doesn't exist at all (no oracle).
         exists = await tc.fetchval("SELECT 1 FROM sites WHERE id=$1", site_id)
     if not exists:
         raise HTTPException(404, "site not found")
 
 
+def _v2_tag(t, registry) -> dict:
+    """CONTRACT.v2 §4 Tag — path is site-relative; ids only, no v1 names."""
+    out = {
+        "id": str(t.id),
+        "site_id": str(t.site_id),
+        "edge_id": str(t.edge_id) if t.edge_id else None,
+        "path": t.path,
+        "name": t.name,
+        "type": t.type,
+        "writable": t.writable,
+    }
+    if t.unit:
+        out["unit"] = t.unit
+    if t.min_value is not None:
+        out["min"] = t.min_value
+    if t.max_value is not None:
+        out["max"] = t.max_value
+    return out
+
+
+async def _v2_tag_or_404(request: Request, org_id: UUID, site_id: UUID,
+                         tag_s: str):
+    """Resolve a path tag_id against the registry AND the route's org+site —
+    a valid tag id of another tenant is a 404, never a leak."""
+    s = st(request)
+    tid = _uuid_or_404(tag_s, "tag")
+    await s.registry.maybe_refresh()
+    t = s.registry.by_id(tid)
+    if t is None or t.org_id != org_id or t.site_id != site_id:
+        await s.registry.refresh()          # cold-cache retry once
+        t = s.registry.by_id(tid)
+    if t is None or t.org_id != org_id or t.site_id != site_id:
+        raise HTTPException(404, "tag not found")
+    return t
+
+
+# ---------------------------------------------------------------------------
+# v2 REST — CONTRACT.v2 §3/§4 org+site-scoped resources (v4 T9)
+#
+# Every handler resolves (org_id, site_id) via _v2_scope: org_id from the
+# PATH authorized against the principal's memberships — non-member == 404 —
+# then the site must live inside that org (RLS hides foreign sites → 404).
+# No handler ever reads an org from body/query/MQTT payloads (ADR-13 §1).
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/orgs/{org}")
+async def v2_get_org(org: str, request: Request,
+                     p: Principal = Depends(require_user)):
+    """Org detail for a member; non-member gets the same 404 as a
+    non-existent org (CONTRACT.v2 §1 existence rule)."""
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id) as tc:
+        row = await tc.fetchrow(
+            "SELECT name, created_at FROM organizations WHERE id=$1", org_id)
+    return {"id": str(org_id), "name": row["name"],
+            "role": _effective_org_roles(p)[org_id],
+            "created_at": iso_z(row["created_at"])}
+
+
+@app.get("/api/v1/orgs/{org}/sites")
+async def v2_list_sites(org: str, request: Request,
+                        p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT id, name, code, timezone FROM sites ORDER BY name")
+    return {"items": [{"id": str(r["id"]), "name": r["name"],
+                       "code": r["code"], "timezone": r["timezone"]}
+                      for r in rows],
+            "next_cursor": None}
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/tags")
+async def v2_list_tags(org: str, site: str, request: Request,
+                       search: str | None = Query(None),
+                       writable: bool | None = Query(None),
+                       p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    s = st(request)
+    await s.registry.maybe_refresh()
+    items = []
+    for t in sorted(s.registry.for_site(site_id), key=lambda t: t.path):
+        if search and search.lower() not in t.path.lower() \
+                and search.lower() not in t.name.lower():
+            continue
+        if writable is not None and t.writable != writable:
+            continue
+        items.append(_v2_tag(t, s.registry))
+    return {"items": items, "next_cursor": None}
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/tags/latest")
+async def v2_tags_latest(org: str, site: str, request: Request,
+                         p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT tag_id, v, q, ts FROM tag_latest WHERE tag_id IN"
+            " (SELECT id FROM tags WHERE site_id=$1)", site_id)
+    return {"items": [{"tag_id": str(r["tag_id"]), "v": finite_or_none(r["v"]),
+                       "q": r["q"], "ts": iso_z(r["ts"])} for r in rows],
+            "next_cursor": None}
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/tags/{tag_id}/latest")
+async def v2_tag_latest(org: str, site: str, tag_id: str, request: Request,
+                        p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p)
+    tag = await _v2_tag_or_404(request, org_id, site_id, tag_id)
+    async with org_tx(request, org_id) as tc:
+        row = await tc.fetchrow(
+            "SELECT v, q, ts FROM tag_latest WHERE tag_id=$1", tag.id)
+    if row is None:
+        raise HTTPException(404, "tag not found or no data yet")
+    return {"tag_id": str(tag.id), "v": finite_or_none(row["v"]),
+            "q": row["q"], "ts": iso_z(row["ts"])}
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/tags/{tag_id}/history")
+async def v2_tag_history(org: str, site: str, tag_id: str, request: Request,
+                         from_: str | None = Query(None, alias="from"),
+                         to: str | None = Query(None),
+                         limit: int = Query(500, ge=1, le=5000),
+                         p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p)
+    tag = await _v2_tag_or_404(request, org_id, site_id, tag_id)
+    try:
+        t_from = parse_ts(from_) if from_ else None
+        t_to = parse_ts(to) if to else None
+    except ValueError:
+        raise HTTPException(400, "invalid_request") from None
+    async with org_tx(request, org_id) as tc:
+        # newest `limit` rows in range, returned oldest→newest
+        rows = await tc.fetch(
+            "SELECT v, q, ts FROM (SELECT v, q, ts FROM tag_history"
+            " WHERE tag_id=$1 AND ($2::timestamptz IS NULL OR ts >= $2)"
+            " AND ($3::timestamptz IS NULL OR ts <= $3)"
+            " ORDER BY ts DESC LIMIT $4) x ORDER BY ts ASC",
+            tag.id, t_from, t_to, limit)
+    return {"items": [{"v": finite_or_none(r["v"]), "q": r["q"],
+                       "ts": iso_z(r["ts"])} for r in rows],
+            "next_cursor": None}
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/alarm-rules")
+async def v2_list_alarm_rules(org: str, site: str, request: Request,
+                              p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT id, tag_id, name, kind, threshold, stale_s, deadband,"
+            " severity, enabled FROM alarm_rules WHERE tag_id IN"
+            " (SELECT id FROM tags WHERE site_id=$1) ORDER BY name", site_id)
+    return {"items": [{"id": str(r["id"]), "tag_id": str(r["tag_id"]),
+                       "name": r["name"], "kind": r["kind"],
+                       "threshold": r["threshold"], "stale_s": r["stale_s"],
+                       "deadband": r["deadband"], "severity": r["severity"],
+                       "enabled": r["enabled"]} for r in rows],
+            "next_cursor": None}
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/alarms")
+async def v2_list_alarms(org: str, site: str, request: Request,
+                         state: str | None = Query(None),
+                         severity: str | None = Query(None),
+                         limit: int = Query(100, ge=1, le=500),
+                         p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    async with org_tx(request, org_id) as tc:
+        items = await st(request).alarms.list_alarms_v2(
+            tc, site_id, state, severity, limit)
+    return {"items": items, "next_cursor": None}
+
+
+@app.post("/api/v1/orgs/{org}/sites/{site}/alarms/{alarm_id}/ack")
+async def v2_ack_alarm(org: str, site: str, alarm_id: str, request: Request,
+                       p: Principal = Depends(require_user)):
+    """alarm:ack — operator role IN THE PATH ORG (a shim-org operator has no
+    standing here; the _v2_scope check is per-org, not global)."""
+    org_id, site_id = _v2_scope(org, site, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        alarm = await st(request).alarms.ack(
+            tc, _uuid_or_404(alarm_id, "alarm"), p.user_id,
+            f"user:{p.user_id}", site_id=site_id)
+        if alarm is None:
+            raise HTTPException(404, "alarm not found")
+        out = await st(request).alarms._serialize_v2(tc, UUID(alarm["id"]))
+    return out
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/insights")
+async def v2_list_insights(org: str, site: str, request: Request,
+                           state: str | None = Query(None),
+                           kind: str | None = Query(None),
+                           tag: str | None = Query(None),
+                           from_: str | None = Query(None, alias="from"),
+                           to: str | None = Query(None),
+                           p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    if state is not None and state not in ("open", "closed"):
+        raise HTTPException(400, "invalid_request")
+    if kind is not None and kind not in INSIGHT_KINDS:
+        raise HTTPException(400, "invalid_request")
+    tag_id = None
+    if tag is not None:
+        tag_id = (await _v2_tag_or_404(request, org_id, site_id, tag)).id
+    try:
+        t_from = parse_ts(from_) if from_ else None
+        t_to = parse_ts(to) if to else None
+    except ValueError:
+        raise HTTPException(400, "invalid_request") from None
+    async with org_tx(request, org_id) as tc:
+        items = await st(request).insights.list_insights(
+            tc, state, kind, tag_id, t_from, t_to, site_id=site_id)
+    return {"items": items, "next_cursor": None}
+
+
+@app.post("/api/v1/orgs/{org}/sites/{site}/commands", status_code=201)
+async def v2_post_command(org: str, site: str, body: CommandInV2,
+                          request: Request,
+                          p: Principal = Depends(require_user)):
+    """command:issue — operator+ in the PATH org (CONTRACT.v2 §1)."""
+    org_id, site_id = _v2_scope(org, site, p, need=_OPERATE)
+    tag = await _v2_tag_or_404(request, org_id, site_id, body.tag_id)
+    s = st(request)
+    code, resp = await s.commands.issue(
+        tag=tag, org_id=org_id, site_id=site_id, value=body.value,
+        ttl_s=body.ttl_s, idempotency_key=body.idempotency_key,
+        user_id=p.user_id, note=body.note)
+    if code in (200, 201):
+        async with org_tx(request, org_id) as tc:
+            cmd = await s.commands.get_v2(
+                tc, UUID(resp["command_id"]), site_id)
+        out = JSONResponse(status_code=code, content={"command": cmd})
+    else:
+        out = JSONResponse(status_code=code, content=resp)
+    if code == 429:
+        out.headers["Retry-After"] = str(resp.get("retry_after_s", 1))
+    return out
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/commands")
+async def v2_list_commands(org: str, site: str, request: Request,
+                           limit: int = Query(50, ge=1, le=500),
+                           cursor: str | None = Query(None),
+                           p: Principal = Depends(require_user)):
+    """command:read — operator+ in the path org (CONTRACT.v2 §1)."""
+    org_id, site_id = _v2_scope(org, site, p, need=_OPERATE)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    async with org_tx(request, org_id) as tc:
+        items, next_cursor = await st(request).commands.list_v2(
+            tc, site_id, limit, cursor)
+    return {"items": items, "next_cursor": next_cursor}
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/commands/{command_id}")
+async def v2_get_command(org: str, site: str, command_id: str,
+                         request: Request,
+                         p: Principal = Depends(require_user)):
+    org_id, site_id = _v2_scope(org, site, p, need=_OPERATE)
+    async with org_tx(request, org_id) as tc:
+        cmd = await st(request).commands.get_v2(
+            tc, _uuid_or_404(command_id, "command"), site_id)
+    if cmd is None:
+        raise HTTPException(404, "command not found")
+    return {"command": cmd}
+
+
+@app.get("/api/v1/orgs/{org}/sites/{site}/health")
+async def v2_site_health(org: str, site: str, request: Request,
+                         p: Principal = Depends(require_user)):
+    """Site liveness rollup: edges of THIS site only + shared substrate
+    status (broker/db). The tracked edge heartbeat stays a v1-shim signal
+    on /api/system/health — per-site health is the edge rows themselves."""
+    org_id, site_id = _v2_scope(org, site, p)
+    await _site_or_404(st(request).pools, org_id, site_id)
+    s = st(request)
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT id, name, status, last_hb_at, clock_ok, buffer_depth"
+            " FROM edges WHERE site_id=$1 ORDER BY name", site_id)
+        db_ok = await tc.fetchval("SELECT 1") == 1
+    return {"edges": [{"id": str(r["id"]), "name": r["name"],
+                       "status": r["status"],
+                       "last_hb": iso_z(r["last_hb_at"])
+                                 if r["last_hb_at"] else None,
+                       "clock_ok": r["clock_ok"],
+                       "buffer_depth": r["buffer_depth"]} for r in rows],
+            "mqtt": "up" if s.mqtt.connected else "down",
+            "db": "up" if db_ok else "down"}
+
+
 @app.get("/api/v1/orgs/{org}/sites/{site}/edges")
 async def list_edges(org: str, site: str, request: Request,
-                     p: Principal = Depends(require_principal)):
+                     p: Principal = Depends(require_user)):
     org_id, site_id = _v2_scope(org, site, p)
     await _site_or_404(st(request).pools, org_id, site_id)
     async with tenant_tx(st(request).pools.app, org_id) as tc:
@@ -927,14 +1331,14 @@ async def list_edges(org: str, site: str, request: Request,
 
 @app.post("/api/v1/orgs/{org}/sites/{site}/edges", status_code=201)
 async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
-                         p: Principal = Depends(require_principal)):
+                         p: Principal = Depends(require_user)):
     """Provision an edge + its first MQTT credential (doc 17 §5).
 
     Order matters: the broker client is created BEFORE the rows commit —
     if the DB write fails, the stray client is an orphan the reconciler
     disables, never a half-live credential. The secret is returned ONCE;
     the DB stores only its sha256 fingerprint."""
-    org_id, site_id = _v2_scope(org, site, p, need_config=True)
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
     await _site_or_404(st(request).pools, org_id, site_id)
     await _mutation_gate(request, p.user_id)
     async with tenant_tx(st(request).pools.app, org_id) as tc:
@@ -984,11 +1388,11 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
 
 @app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/rotate")
 async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
-                      p: Principal = Depends(require_principal)):
+                      p: Principal = Depends(require_user)):
     """Rotate the edge credential (doc 17 §5): new client edge-{e}-v{n+1} on
     the same role; the old one keeps a grace window or is disabled at
     cut-over — the reconciler owns the retirement."""
-    org_id, site_id = _v2_scope(org, site, p, need_config=True)
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
     await _mutation_gate(request, p.user_id)
     eid = _uuid_or_404(edge_id, "edge")
     async with tenant_tx(st(request).pools.app, org_id) as tc:
@@ -1039,10 +1443,10 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
 
 @app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/disable")
 async def disable_edge(org: str, site: str, edge_id: str, request: Request,
-                       p: Principal = Depends(require_principal)):
+                       p: Principal = Depends(require_user)):
     """Disable the edge: every credential version is disabled at the broker
     (dynsec kicks the live connection immediately — doc 17 §5)."""
-    org_id, site_id = _v2_scope(org, site, p, need_config=True)
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
     await _mutation_gate(request, p.user_id)
     eid = _uuid_or_404(edge_id, "edge")
     async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
@@ -1086,16 +1490,22 @@ async def _close_at_exp(client, exp: float) -> None:
         raise
 
 
-@app.websocket("/ws")
+@app.websocket("/ws")      # v1 compat shim — pins the seeded org's site
+@app.websocket("/ws/v1")   # CONTRACT.v2 §5 — auth frame MUST carry site_id
 async def ws_endpoint(ws: WebSocket):
     # First-frame auth (v4 T3): the token rides in the first client frame —
-    # {"type":"auth","token":"…"} — never ?token= in the URL, which leaked
-    # into access logs and proxy traces.
+    # {"type":"auth","token":"…","site_id":"…"} — never ?token= in the URL,
+    # which leaked into access logs and proxy traces.
     #
-    # v4 T5: anonymous connections are gone. The auth frame must carry a
-    # valid OIDC JWT (or an APP_ENV=dev dev token) — absent/unresolvable ->
-    # 4401; authenticated but not a member of the shim org -> 4403
-    # (CONTRACT.v2 §5 step 2).
+    # v4 T9 (CONTRACT.v2 §5): site_id selects the site's org; the org must be
+    # one of the principal's memberships or the socket closes 4403 — the same
+    # indistinguishable response for "site doesn't exist" and "site belongs
+    # to an org you aren't in". The v1 `/ws` alias defaults site_id to the
+    # seeded site, so a member of a non-shim org alone gets 4403 there —
+    # same as require_principal on /api/* (shim = shim only).
+    #
+    # v4 T5: anonymous connections are gone. Absent/unresolvable token ->
+    # 4401; authenticated but not a member anywhere -> 4403.
     #
     # v4 T4 gates run before the auth handshake: Origin allowlist/same-origin
     # and a per-IP connection cap both close 4403. accept() happens first
@@ -1120,8 +1530,8 @@ async def ws_endpoint(ws: WebSocket):
         return
     try:
         try:
-            token = await read_auth_token(ws)
-            p = await ws.app.state.st.auth.authenticate(token or None)
+            frame = await read_auth_frame(ws)
+            p = await ws.app.state.st.auth.authenticate(frame["token"] or None)
         except WSAuthError as e:
             log.info("ws auth failed — closing 4401", extra={"reason": str(e)})
             # client may already be gone mid-handshake — don't traceback on close
@@ -1140,15 +1550,53 @@ async def ws_endpoint(ws: WebSocket):
             with contextlib.suppress(Exception):
                 await ws.close(code=4403)
             return
-        client = await manager.connect(ws, p.role, sub=p.sub, sid=p.sid)
+        # --- site selection (v4 T9, CONTRACT.v2 §5) -------------------------
+        v2 = ws.url.path == "/ws/v1"
+        site_s = frame["site_id"]
+        if site_s is None:
+            if v2:
+                # v2 auth frames must select a site — a missing site_id is a
+                # malformed auth frame, not an authorization failure.
+                log.info("ws /ws/v1 auth frame without site_id — closing 4401")
+                with contextlib.suppress(Exception):
+                    await ws.close(code=4401)
+                return
+            site_id = config.V1_SITE_ID  # v1 shim: seeded site implicitly
+        else:
+            try:
+                site_id = UUID(site_s)
+            except ValueError:
+                with contextlib.suppress(Exception):
+                    await ws.close(code=4403)
+                return
+        st_ = ws.app.state.st
+        await st_.registry.maybe_refresh()
+        org_id = st_.registry.site_org(site_id)
+        if org_id is None:                      # cold cache — retry once
+            await st_.registry.refresh()
+            org_id = st_.registry.site_org(site_id)
+        roles = _effective_org_roles(p)
+        # site:read — org of the selected site must be one of the caller's.
+        # Unknown site and wrong-org site close identically (no oracle).
+        if org_id is None or org_id not in roles:
+            log.info("ws site not visible to principal — closing 4403",
+                     extra={"site": str(site_id)})
+            with contextlib.suppress(Exception):
+                await ws.close(code=4403)
+            return
+        client = await manager.connect(ws, roles[org_id], sub=p.sub, sid=p.sid,
+                                       org_id=org_id, org_roles=roles)
         pump: asyncio.Task | None = None
         exp_task: asyncio.Task | None = None
         if p.exp:
             exp_task = asyncio.create_task(_close_at_exp(client, p.exp))
         try:
             pump = asyncio.create_task(manager.pump(client))
-            with contextlib.suppress(asyncio.QueueFull):
-                client.queue.put_nowait(ws.app.state.st.health_event())
+            if org_id == config.V1_ORG_ID:
+                # the tracked health edge belongs to the shim org — don't
+                # leak its state onto another tenant's socket
+                with contextlib.suppress(asyncio.QueueFull):
+                    client.queue.put_nowait(st_.health_event())
             while True:
                 text = await ws.receive_text()
                 try:

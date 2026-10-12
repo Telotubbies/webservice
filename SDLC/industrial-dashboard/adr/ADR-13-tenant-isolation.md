@@ -103,3 +103,28 @@ A row that links a tag of org B to a site of org A violates the FK, regardless o
 | `test_rls.py::test_roles_not_bypass` | `wds_app`, `wds_system` have `rolbypassrls=false`, `rolsuper=false`, own no tables |
 | `test_schema.py::test_composite_fk_rejects_cross_tenant` | inserting a tag with site of A and org B → FK violation |
 | `test_isolation.py` (HTTP) | user of A on every `/orgs/{B}/…` route and every B resource id → 404; list endpoints never include B rows; WS auth for B's site → 4403 |
+
+## 8. Implementation note (v4 T9, 2026-10-13)
+
+The path-org routing described in §1 is now live on `ui-v4`:
+`_v2_org()`/`_v2_scope()` in `backend/app/main.py` resolve `/api/v1/orgs/{org}`
+to a UUID, then check the principal's memberships (`_effective_org_roles`) —
+non-member **and** non-existent org both return 404. The v1 `/api/*` surface
+remains as a compat shim pinned to the seeded org through `v1_tx()` — the
+only place an org id is still global.
+
+Two deliberate deviations from this ADR's phase-2 wording:
+
+- **`wds_system` org enumeration**: §3.3 mentions only the `edges` pre-context
+  lookup. T9 adds `system_org_list` (`active_org_ids()` in `db/context.py`) —
+  a SELECT on `organizations(id, deleted_at)` only — so sweeps (registry
+  refresh, alarm rules, insight passes, command restart sweep) can visit
+  every tenant without a hard-coded list. Column-limited like the edge view.
+- **v1 MQTT topics**: the plan's "v1 devices map to seeded org" is realized
+  as *rejected at the broker* — dynsec provisions only v2 ACLs since T6, so
+  no v1 topic can reach ingest; ingest itself drops non-v2 topics as
+  `mqtt_bad_topic` defense-in-depth.
+
+HTTP-level evidence: `tests/integration/test_tenancy.py` (two orgs, real
+routes, cross-org 404s, per-role 403s, `/ws/v1` site scoping, and a second
+org's provisioned edge publishing telemetry that lands only in that org).

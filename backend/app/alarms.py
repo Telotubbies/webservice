@@ -21,7 +21,7 @@ import asyncpg
 
 from . import config
 from .db import audit
-from .db.context import TenantConn, tenant_tx
+from .db.context import TenantConn, active_org_ids, tenant_tx
 from .db.util import iso_z, utcnow
 
 log = logging.getLogger("backend.alarms")
@@ -32,6 +32,7 @@ OPEN_STATES = ("active", "acked")
 @dataclass(frozen=True)
 class Rule:
     id: UUID
+    org_id: UUID
     tag_id: UUID
     name: str
     kind: str
@@ -81,13 +82,17 @@ class AlarmEngine:
                          "alarms_acked": 0}
 
     async def load_rules(self) -> None:
-        async with tenant_tx(self.pools.system, config.V1_ORG_ID) as tc:
-            rows = await tc.fetch(
-                "SELECT id, tag_id, name, kind, threshold, stale_s, deadband, severity"
-                " FROM alarm_rules WHERE enabled")
+        """Every org's enabled rules (v4 T9): the system role enumerates live
+        orgs, then reads each tenant inside its own tenant_tx."""
         by_tag: dict[UUID, list[Rule]] = {}
-        for r in rows:
-            by_tag.setdefault(r["tag_id"], []).append(Rule(**dict(r)))
+        for org_id in await active_org_ids(self.pools.system):
+            async with tenant_tx(self.pools.system, org_id) as tc:
+                rows = await tc.fetch(
+                    "SELECT id, tag_id, name, kind, threshold, stale_s,"
+                    " deadband, severity FROM alarm_rules WHERE enabled")
+            for r in rows:
+                by_tag.setdefault(r["tag_id"], []).append(
+                    Rule(org_id=org_id, **dict(r)))
         self._rules = by_tag
 
     # ------------------------------------------------------------ evaluation
@@ -114,11 +119,17 @@ class AlarmEngine:
                 await self._clear(tc, open_row["id"], rule)
 
     async def sweep_stale(self) -> None:
-        """Raise `stale` rules whose tag has no fresh good sample within stale_s."""
+        """Raise `stale` rules whose tag has no fresh good sample within
+        stale_s — per-org: each tenant's rules run inside that org's
+        tenant_tx (v4 T9)."""
         now = utcnow()
-        async with tenant_tx(self.pools.system, config.V1_ORG_ID) as tc:
-            for rules in self._rules.values():
-                for rule in (r for r in rules if r.kind == "stale"):
+        by_org: dict[UUID, list[Rule]] = {}
+        for rules in self._rules.values():
+            for rule in (r for r in rules if r.kind == "stale"):
+                by_org.setdefault(rule.org_id, []).append(rule)
+        for org_id, stale_rules in by_org.items():
+            async with tenant_tx(self.pools.system, org_id) as tc:
+                for rule in stale_rules:
                     last = await tc.fetchval(
                         "SELECT max(ts) FROM tag_history WHERE tag_id=$1 AND q='good'"
                         " AND ts > $2", rule.tag_id, now - timedelta(seconds=rule.stale_s))
@@ -144,7 +155,11 @@ class AlarmEngine:
         alarm = await self._serialize(tc, aid)
         self.counters["alarms_raised"] += 1
         log.warning("alarm raised", extra={"alarm_id": str(aid), "rule": rule.name})
-        self.ws.broadcast({"type": "alarm", **alarm})
+        # ids ride along for the v2 wire; `tag` keeps the v1 display name
+        self.ws.broadcast({"type": "alarm", **alarm,
+                           "org_id": str(tc.org_id),
+                           "tag_id": str(rule.tag_id)},
+                          org_id=tc.org_id)
 
     async def _clear(self, tc: TenantConn, alarm_id: UUID, rule: Rule) -> None:
         n = await tc.execute(
@@ -156,19 +171,33 @@ class AlarmEngine:
                            {"alarm_id": str(alarm_id), "tag_id": str(rule.tag_id)},
                            {"rule": rule.name})
         self.counters["alarms_cleared"] += 1
-        self.ws.broadcast({"type": "alarm_update", **await self._serialize(tc, alarm_id)})
+        alarm = await self._serialize(tc, alarm_id)
+        self.ws.broadcast({"type": "alarm_update", **alarm,
+                           "org_id": str(tc.org_id),
+                           "tag_id": str(rule.tag_id)},
+                          org_id=tc.org_id)
 
     # ------------------------------------------------------------ API side
     async def list_alarms(self, tc: TenantConn, state: str | None, severity: str | None,
-                          limit: int) -> list[dict]:
+                          limit: int, site_id: UUID | None = None) -> list[dict]:
         rows = await tc.fetch(
             ALARM_SQL + " WHERE ($1::text IS NULL OR a.state=$1)"
-            " AND ($2::text IS NULL OR a.severity=$2) ORDER BY a.raised_at DESC LIMIT $3",
-            state, severity, limit)
+            " AND ($2::text IS NULL OR a.severity=$2)"
+            " AND ($4::uuid IS NULL OR a.tag_id IN"
+            "      (SELECT id FROM tags WHERE site_id=$4))"
+            " ORDER BY a.raised_at DESC LIMIT $3",
+            state, severity, limit, site_id)
         return [self._v1(r) for r in rows]
 
-    async def ack(self, tc: TenantConn, alarm_id: UUID, user_id: UUID, actor: str) -> dict | None:
-        row = await tc.fetchrow("SELECT id, tag_id, state FROM alarms WHERE id=$1", alarm_id)
+    async def ack(self, tc: TenantConn, alarm_id: UUID, user_id: UUID,
+                  actor: str, site_id: UUID | None = None) -> dict | None:
+        # site_id scopes the v2 route (CONTRACT.v2): an alarm id outside the
+        # path site is 404-invisible — the same oracle-free rule as RLS.
+        row = await tc.fetchrow(
+            "SELECT id, tag_id, state FROM alarms WHERE id=$1"
+            " AND ($2::uuid IS NULL OR tag_id IN"
+            "      (SELECT id FROM tags WHERE site_id=$2))",
+            alarm_id, site_id)
         if row is None:
             return None
         if row["state"] == "active":
@@ -179,18 +208,55 @@ class AlarmEngine:
                                {"alarm_id": str(alarm_id), "tag_id": str(row["tag_id"])})
             self.counters["alarms_acked"] += 1
             alarm = await self._serialize(tc, alarm_id)
-            self.ws.broadcast({"type": "alarm_update", **alarm})
+            self.ws.broadcast({"type": "alarm_update", **alarm,
+                               "org_id": str(tc.org_id),
+                               "tag_id": str(row["tag_id"])},
+                              org_id=tc.org_id)
             return alarm
         return await self._serialize(tc, alarm_id)
 
+    async def list_alarms_v2(self, tc: TenantConn, site_id: UUID,
+                             state: str | None, severity: str | None,
+                             limit: int) -> list[dict]:
+        """CONTRACT.v2 §4 Alarm shape, scoped to one site."""
+        rows = await tc.fetch(
+            ALARM_SQL + " WHERE ($1::text IS NULL OR a.state=$1)"
+            " AND ($2::text IS NULL OR a.severity=$2)"
+            " AND a.tag_id IN (SELECT id FROM tags WHERE site_id=$4)"
+            " ORDER BY a.raised_at DESC LIMIT $3",
+            state, severity, limit, site_id)
+        return [self._v2(r) for r in rows]
+
     async def _serialize(self, tc: TenantConn, alarm_id: UUID) -> dict:
         return self._v1(await tc.fetchrow(ALARM_SQL + " WHERE a.id=$1", alarm_id))
+
+    async def _serialize_v2(self, tc: TenantConn, alarm_id: UUID) -> dict | None:
+        r = await tc.fetchrow(ALARM_SQL + " WHERE a.id=$1", alarm_id)
+        return self._v2(r) if r else None
+
+    def _v2(self, r) -> dict:
+        """CONTRACT.v2 §4 Alarm — ids, not display names."""
+        return {
+            "id": str(r["id"]),
+            "tag_id": str(r["tag_id"]),
+            "rule_id": str(r["rule_id"]),
+            "rule": r["rule"],                  # display convenience
+            "severity": r["severity"],
+            "state": r["state"],
+            "raised_at": iso_z(r["raised_at"]),
+            "acked_at": iso_z(r["acked_at"]) if r["acked_at"] else None,
+            "acked_by": r["acked_by"],
+            "cleared_at": iso_z(r["cleared_at"]) if r["cleared_at"] else None,
+            "version": r["version"],
+        }
 
     def _v1(self, r) -> dict:
         tag = self.registry.by_id(r["tag_id"])
         return {
             "id": str(r["id"]),
-            "tag": tag.v1_name if tag else str(r["tag_id"]),
+            # real site code, not the shim prefix — the same WS stream may
+            # carry another org's alarms to a multi-org member (v4 T9)
+            "tag": self.registry.display_name(tag) if tag else str(r["tag_id"]),
             "rule": r["rule"],
             "severity": r["severity"],
             "state": r["state"],
