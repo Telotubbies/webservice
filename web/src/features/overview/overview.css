@@ -53,16 +53,30 @@
 .kpi-unit { font-size: var(--text-md); color: var(--text-muted); }
 
 /* analog panel meter: 240° SVG scale. Zone bands ride the scale radius —
-   normal zone in raised-neutral steel between the configured lo/hi edges,
-   alarm zones as reserved-red arc segments outside them. Ticks sit outside
-   the track; the needle and the SP diamond SNAP to their values — PV-driven
-   positions NEVER tween (motion grammar, SDLC 20 §3.0). Token colors only. */
+   normal zone in raised-neutral steel between the configured lo/hi edges;
+   the alarm REGIONS outside them are neutral hairlines + an inward-pointing
+   triangular limit flag per edge (ISA-101: alarm colour is spent on
+   violation only — .is-tripped flips region+flag to --sev-critical, the
+   needle already reddens under .is-alarm). Ticks sit outside the track,
+   range numerals under the two stops. The needle and the SP diamond SNAP
+   to their values — PV-driven positions NEVER tween (motion grammar,
+   SDLC 20 §3.0). Token colors only. */
 .kpi-gauge { margin-top: var(--space-1); }
 .kpi-gauge .gauge { display: block; width: 100%; max-width: 180px; height: auto; margin: 0 auto; }
 .gauge-track { fill: none; stroke: var(--line-strong); stroke-width: 1.2; }
 .gauge-zone { fill: none; stroke-width: 5.5; }
 .gauge-zone-normal { stroke: var(--equip-detail); }
-.gauge-zone-alarm { stroke: var(--sev-critical); }
+.gauge-zone-alarm { stroke: var(--text-disabled); stroke-width: 2; opacity: 0.55; }
+.kpi.is-alarm .gauge-zone-alarm.is-tripped { stroke: var(--sev-critical); stroke-width: 3.5; opacity: 1; }
+.gauge-limit { fill: var(--text-muted); }
+.kpi.is-alarm .gauge-limit.is-tripped { fill: var(--sev-critical); }
+/* scale numerals: font-size is a viewBox-unit SVG attribute on the <text>
+   (graphic dial numerals scale with the gauge — the 12px floor governs
+   CSS text, not dial artwork); fill + family stay tokens */
+.gauge-scale-val {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  fill: var(--text-muted);
+}
 .gauge-tick { stroke: var(--text-muted); stroke-width: 1; }
 .gauge-tick-major { stroke: var(--text-secondary); stroke-width: 1.6; }
 .gauge-needle { fill: var(--text-primary); }

@@ -1,15 +1,20 @@
 // MetricTile — analog panel-meter tile (spec §3.3-A, industrial gauge):
 // a 240° SVG arc with major+minor ticks auto-derived from the tag's display
 // range, a raised-neutral normal zone between configured lo/hi alarm edges,
-// red arc segments out of them, a crisp needle that SNAPS to the PV (PVs
-// never tween — motion grammar, SDLC 20 §3.0), a hub cap, an SP diamond on
-// writable signals, the digital PV + unit under the dial, and a sparkline.
-// Stale data parks the needle below scale and shows "—".
+// NEUTRAL hairline alarm regions + triangular limit flags out of them
+// (ISA-101: alarm colour is spent on violation only — a tripped side's
+// region+flag go --sev-critical; position alone never colours), range
+// numerals at the two scale stops, a crisp needle that SNAPS to the PV
+// (PVs never tween — motion grammar, SDLC 20 §3.0), a hub cap, an SP
+// diamond on writable signals, the digital PV + unit under the dial, and a
+// sparkline. Stale data parks the needle below scale and shows "—".
 // Keeps the .tile contract the UAT asserts on: article.kpi.tile, .kpi-head,
 // .kpi-value.tile-val .num + .kpi-unit, .kpi-spark, .kpi-foot,
 // .tile-stub-badge, data-signal.
 
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { api } from '../../lib/api';
 import { live, STALE_MS } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
 import { fmtAge } from '../../lib/format';
@@ -50,6 +55,20 @@ function arcPath(r: number, a: number, b: number) {
 }
 
 const ang = (f: number) => A0 + f * SWEEP;
+
+/** Triangular limit flag at `deg`, apex pointing inward — the painted
+ *  limit markers real panel gauges carry at each configured alarm edge. */
+function triPath(deg: number) {
+  const tip = polar(ZONE_R - 7, deg);
+  const b1 = polar(ZONE_R + 3, deg - 3.5);
+  const b2 = polar(ZONE_R + 3, deg + 3.5);
+  return `M${tip[0]} ${tip[1]} L${b1[0]} ${b1[1]} L${b2[0]} ${b2[1]} Z`;
+}
+
+/** Scale-end numeral anchors: just outside the tick ring (R+14) under the
+ *  150° and 390° stops — real gauges label their range. */
+const SCALE_MIN_XY = polar(R + 14, A0);
+const SCALE_MAX_XY = polar(R + 14, A0 + SWEEP);
 
 /** "Nice" major-tick step: ~4–6 majors across the span (1/2/5 × 10^n). */
 function majorStep(span: number): number {
@@ -119,9 +138,33 @@ export function MetricTile({ name, band, now }: { name: string; band?: TileBand;
   }
   const inAlarm = alarmSev !== null;
   const anomaly = live.insights.some((i) => i.tag === name && i.state === 'open');
+  // which band edge is actually violated: join the tag's open alarms to
+  // their rules' kinds (same cached query as OverviewPage's useLimits).
+  // Region colour follows alarm STATE, never needle position — a PV inside
+  // an alarm region with no tripped rule stays neutral (ISA-101).
+  const rulesQ = useQuery({ queryKey: ['alarm-rules'], queryFn: api.alarmRules, staleTime: 60_000 });
+  let loTripped = false, hiTripped = false;
+  for (const a of live.alarms) {
+    if (a.tag !== name || a.state === 'cleared') continue;
+    const k = rulesQ.data?.find((r) => r.name === a.rule)?.kind;
+    if (k === 'lo' || k === 'lolo') loTripped = true;
+    else if (k === 'hi' || k === 'hihi') hiTripped = true;
+  }
+  // rule kind unresolved (rules still loading, non-sided rule): fall back
+  // to which edge the PV has actually crossed — an alarm exists, so the
+  // crossed side is the violated one
+  if (inAlarm && !loTripped && !hiTripped && pvF !== undefined) {
+    if (pvF < loF) loTripped = true;
+    else if (pvF > hiF) hiTripped = true;
+  }
   const scale = name === T.gravel ? 100 : 1;
   const hiDisp = band?.hi !== undefined ? displayNumber(name, band.hi) : undefined;
   const pvText = stale ? '—' : formatSignal(name, v?.v, i18n.language);
+  // scale-end numerals: meta.range is already display units (≤4 chars —
+  // same precision rules as formatSignal)
+  const fmtScale = (val: number) => val.toLocaleString(i18n.language === 'th' ? 'th-TH' : 'en-GB', {
+    minimumFractionDigits: 0, maximumFractionDigits: meta.decimals,
+  });
 
   return (
     <article
@@ -140,13 +183,17 @@ export function MetricTile({ name, band, now }: { name: string; band?: TileBand;
       <div className="kpi-gauge">
         <svg className="gauge" viewBox="0 0 140 92" role="img">
           <title>{`${t(meta.labelKey)}: ${pvText}${meta.unit ? ` ${meta.unit}` : ''}`}</title>
-          {/* zone bands under the scale: alarm arcs out of the edges,
-              the normal zone between them in raised-neutral steel */}
+          {/* zone bands under the scale: the normal zone in raised-neutral
+              steel between the configured lo/hi edges; the alarm REGIONS
+              outside them stay neutral hairlines — ISA-101 spends alarm
+              colour on violation only (.is-tripped) */}
           {band?.lo !== undefined && loF > 0 && (
-            <path className="gauge-zone gauge-zone-alarm" d={arcPath(ZONE_R, ang(0), ang(loF))} />
+            <path className={`gauge-zone gauge-zone-alarm${loTripped ? ' is-tripped' : ''}`}
+                  d={arcPath(ZONE_R, ang(0), ang(loF))} />
           )}
           {band?.hi !== undefined && hiF < 1 && (
-            <path className="gauge-zone gauge-zone-alarm" d={arcPath(ZONE_R, ang(hiF), ang(1))} />
+            <path className={`gauge-zone gauge-zone-alarm${hiTripped ? ' is-tripped' : ''}`}
+                  d={arcPath(ZONE_R, ang(hiF), ang(1))} />
           )}
           <path className="gauge-zone gauge-zone-normal" d={arcPath(ZONE_R, ang(loF), ang(hiF))} />
           <path className="gauge-track" d={arcPath(R, A0, A0 + SWEEP)} />
@@ -158,6 +205,21 @@ export function MetricTile({ name, band, now }: { name: string; band?: TileBand;
                     x1={x1} y1={y1} x2={x2} y2={y2} />
             );
           })}
+          {/* painted limit flags: small inward-pointing triangles exactly at
+              each configured lo/hi edge — "where the danger is" without
+              spending the alarm colour budget */}
+          {band?.lo !== undefined && loF > 0 && (
+            <path className={`gauge-limit${loTripped ? ' is-tripped' : ''}`} d={triPath(ang(loF))} />
+          )}
+          {band?.hi !== undefined && hiF < 1 && (
+            <path className={`gauge-limit${hiTripped ? ' is-tripped' : ''}`} d={triPath(ang(hiF))} />
+          )}
+          {/* range numerals under the two scale stops — font-size is in
+              viewBox units (dial artwork scales with the SVG) */}
+          <text className="gauge-scale-val" fontSize={7} x={SCALE_MIN_XY[0]} y={SCALE_MIN_XY[1]}
+                textAnchor="middle" dominantBaseline="middle">{fmtScale(rMin)}</text>
+          <text className="gauge-scale-val" fontSize={7} x={SCALE_MAX_XY[0]} y={SCALE_MAX_XY[1]}
+                textAnchor="middle" dominantBaseline="middle">{fmtScale(rMax)}</text>
           {writable && pvF !== undefined && !stale && (
             <path className="gauge-sp" d={diamondPath(ang(pvF))} />
           )}
