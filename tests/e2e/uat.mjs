@@ -70,6 +70,12 @@ try {
   // No anonymous reads: the unauthenticated load must produce a formal
   // sign-in wall — no shell, no tiles, no API traffic beyond public probes.
   await page.goto(BASE, { waitUntil: 'networkidle' });
+  // the public landing owns '/' for anonymous visitors; the wall lives at
+  // /signin — reach it through the landing's own CTA so that path is covered
+  await page.waitForSelector('.landing', { timeout: 20000 }).catch(() => {});
+  ok('landing: anonymous gets the public landing at /',
+    await page.locator('.landing').count() === 1);
+  await page.locator('a.landing-signin').first().click();
   // the silent-renew probe runs before the wall — give it room to settle
   await page.waitForSelector('.signin-card', { timeout: 20000 }).catch(() => {});
   ok('wall: sign-in card renders', await page.locator('.signin-card').count() === 1);
@@ -341,7 +347,9 @@ try {
   // xs layout: sidebar collapses to the 5-item mobile bottom bar; the overview
   // (tiles + insight rail) must not force horizontal scroll.
   ok('<768px: mobile nav has 5 items', await page.locator('.side-nav a.tab').count() === 5);
-  await page.goto(BASE);
+  // the reload drops the in-memory token — '/' is the landing now, so go
+  // straight to the wall route for the anonymous + re-sign-in checks
+  await page.goto(`${BASE}/signin`);
   await sleep(1200);
   const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   ok('<768px: no horizontal overflow', sw <= iw + 20, `scrollWidth=${sw} innerWidth=${iw}`);
@@ -444,7 +452,7 @@ try {
   ok('admin: rules table renders', await page.locator('.admin-page .admin-table').count() > 0);
 
   // viewer session: the admin nav group is hidden entirely (spec: operators+)
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/signin`, { waitUntil: 'networkidle' });
   await page.waitForSelector('.token-input', { timeout: 20000 }).catch(() => {});
   await page.fill('.token-input', 'demo-viewer');
   await page.keyboard.press('Enter');
@@ -453,7 +461,7 @@ try {
     await page.locator('a.tab[href="/admin"]').count() === 0);
 
   // admin session: member + audit pages render their tables
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/signin`, { waitUntil: 'networkidle' });
   await page.waitForSelector('.token-input', { timeout: 20000 }).catch(() => {});
   await page.fill('.token-input', 'demo-admin');
   await page.keyboard.press('Enter');
@@ -486,7 +494,7 @@ try {
         await sleep(delay);
         await route.continue().catch(() => {});
       });
-      await p2.goto(BASE, { waitUntil: 'domcontentloaded' });
+      await p2.goto(`${BASE}/signin`, { waitUntil: 'domcontentloaded' });
       await p2.waitForSelector('.token-input', { timeout: 20000 });
       await p2.fill('.token-input', 'demo-operator');
       await p2.keyboard.press('Enter');
@@ -553,7 +561,7 @@ try {
     const kcCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const kcPage = await kcCtx.newPage();
     try {
-      await kcPage.goto(BASE, { waitUntil: 'networkidle' });
+      await kcPage.goto(`${BASE}/signin`, { waitUntil: 'networkidle' });
       // wall appears after the silent-renew probe settles
       await kcPage.waitForSelector('.oidc-signin', { timeout: 20000 }).catch(() => {});
       const ssoBtn = kcPage.locator('.oidc-signin');

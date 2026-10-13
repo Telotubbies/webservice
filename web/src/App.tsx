@@ -13,6 +13,7 @@ import {
   completeRedirectCallback, initAuth, isCallbackPath, restoreSession,
 } from './features/auth/oidc';
 import { SignInWall } from './features/auth/SignInWall';
+import { Landing } from './features/landing/Landing';
 import { OverviewPage } from './features/overview/OverviewPage';
 import { LinePage } from './features/line/LinePage';
 import { AlarmsPage } from './features/alarms/AlarmsPage';
@@ -140,7 +141,17 @@ function Boot() {
   if (!ready || loc.pathname === '/auth/callback') {
     return <div className="auth-splash" />;
   }
-  if (!hasToken() || denied) return <SignInWall denied={denied} />;
+  // Public landing (v4): anonymous visitors get the marketing front door at
+  // '/' only — deep links still land on the sign-in wall so a shared URL asks
+  // for credentials first, and the wall itself lives at /signin (reached via
+  // the landing CTA). A signed-in-but-denied session always gets the wall's
+  // denied copy, never the landing.
+  if (!hasToken() || denied) {
+    if (!denied && loc.pathname === '/') return <Landing />;
+    return <SignInWall denied={denied} />;
+  }
+  // a valid session never sits on the sign-in route — bounce into the app
+  if (loc.pathname === '/signin') return <Navigate to="/" replace />;
   return <AuthedApp />;
 }
 
@@ -177,6 +188,9 @@ const router = createBrowserRouter([
       // image (docker-compose.test.yml sets VITE_CRASH_TEST=1) expose it;
       // production redirects instead of shipping a crash-on-demand route.
       { path: 'crash-test', element: CRASH_TEST ? B(<CrashProbe />) : <Navigate to="/" replace /> },
+      // sign-in wall route — rendered by Boot while unauthenticated; an
+      // authenticated visit redirects to '/' before the children mount
+      { path: 'signin', element: null },
       // OIDC redirect targets — Boot handles them before the children render
       { path: 'auth/callback', element: null },
       { path: 'auth/silent-callback', element: null },
