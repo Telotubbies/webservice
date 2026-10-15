@@ -1,0 +1,124 @@
+# Production overlay — use with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Dokploy: put that line (minus the leading `docker`) in Advanced → Command,
+# point SECRETS_DIR / CERTS_DIR at ../files/... (File Mounts survive the
+# git clone each deploy does) and attach the domain to service `web`, port 80.
+# Required env: PUBLIC_URL (https://console.example.com). See DEPLOY.md.
+
+services:
+  postgres:
+    environment:
+      KC_DB_PASSWORD_FILE: /run/secrets/kc_db_pw   # read by init/02-keycloak.sh
+    secrets:
+      - pg_super_pw
+      - wds_owner_pw
+      - wds_app_pw
+      - wds_system_pw
+      - kc_db_pw
+
+  keycloak:
+    # `start` (production mode) on Postgres — start-dev keeps users in an
+    # in-container H2 file that is lost whenever the container is recreated.
+    command:
+      - |
+        export KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/secrets/kc_admin_pw)"
+        export KC_DB_PASSWORD="$$(cat /run/secrets/kc_db_pw)"
+        exec /opt/keycloak/bin/kc.sh start --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_HOSTNAME: "${PUBLIC_URL:?set PUBLIC_URL, e.g. https://console.example.com}"
+      KC_HOSTNAME_STRICT: "true"
+      # TLS ends at the proxy (Traefik → nginx → keycloak on the private network)
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: "xforwarded"
+    secrets:
+      - kc_admin_pw
+      - kc_db_pw
+    ports: !reset []
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mosquitto:
+    # Public TLS listener for customer edge devices (per-device dynsec
+    # credentials + broker cert with MQTT_PUBLIC_HOST in its SAN).
+    ports: !override
+      - "8883:8883"
+
+  backend:
+    ports: !reset []
+    environment:
+      APP_ENV: prod
+      CORS_ORIGIN: "${PUBLIC_URL}"
+      ALLOWED_ORIGINS: "${PUBLIC_URL}"
+      OIDC_ISSUER: "${PUBLIC_URL}/realms/wds"
+      PUBLIC_URL: "${PUBLIC_URL}"
+
+  web:
+    ports: !reset []
+    expose:
+      - "80"
+    depends_on:
+      # sign-in only works once wds-web accepts PUBLIC_URL (and `up --wait`
+      # needs a dependent to treat the one-shot's exit 0 as success)
+      kc-sync:
+        condition: service_completed_successfully
+
+  # One-shot on every deploy: point the wds-web client at PUBLIC_URL and sync
+  # the Google IdP with GOOGLE_* (app.provision_idp, idempotent).
+  kc-sync:
+    build: ./backend
+    command: ["python", "-m", "app.provision_idp"]
+    environment:
+      # admin tool only — skips the API server's prod env gate, which needs
+      # DB/MQTT secrets this job never uses
+      APP_ENV: dev
+      PUBLIC_URL: "${PUBLIC_URL}"
+      KC_INTERNAL_URL: "http://keycloak:8080"
+      KC_ADMIN: "${KC_ADMIN:-admin}"
+      KC_ADMIN_PASSWORD_FILE: /run/secrets/kc_admin_pw
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+    secrets:
+      - kc_admin_pw
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    restart: "no"
+
+  # The demo line simulator is not part of a customer deployment; start it
+  # with `--profile demo` for a sales demo box.
+  edge-bridge:
+    profiles: ["demo"]
+
+  backup:
+    build: ./infra/backup
+    environment:
+      S3_ENDPOINT: "${BACKUP_S3_ENDPOINT:?set BACKUP_S3_ENDPOINT (Garage S3 API URL)}"
+      S3_BUCKET: "${BACKUP_S3_BUCKET:-wds-backups}"
+      S3_REGION: "${BACKUP_S3_REGION:-garage}"
+      S3_ACCESS_KEY_FILE: /run/secrets/backup_s3_key_id
+      S3_SECRET_KEY_FILE: /run/secrets/backup_s3_secret
+      BACKUP_INTERVAL_S: "${BACKUP_INTERVAL_S:-86400}"
+      BACKUP_KEEP_DAYS: "${BACKUP_KEEP_DAYS:-30}"
+    secrets:
+      - pg_super_pw
+      - backup_s3_key_id
+      - backup_s3_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+secrets:
+  kc_db_pw:
+    file: ${SECRETS_DIR:-./infra/secrets}/kc_db_pw
+  backup_s3_key_id:
+    file: ${SECRETS_DIR:-./infra/secrets}/backup_s3_key_id
+  backup_s3_secret:
+    file: ${SECRETS_DIR:-./infra/secrets}/backup_s3_secret

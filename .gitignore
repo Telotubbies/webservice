@@ -32,3 +32,10 @@ backend/data/
 
 # DB dumps (doc 18)
 backups/
+
+# Garage node config holds rpc_secret/admin_token
+deploy/garage/garage.toml
+
+# Datadog captures: design reference only, do not ship (ref/datadog/SOURCES.md)
+ref/
+*.tmp

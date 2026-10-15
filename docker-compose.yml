@@ -68,7 +68,7 @@ services:
       - "127.0.0.1:8883:8883"
     volumes:
       - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./infra/certs:/mosquitto/certs:ro
+      - ${CERTS_DIR:-./infra/certs}:/mosquitto/certs:ro
       - ./infra/mosquitto-extras:/mosquitto/config-extras:ro
       - mosquitto-data:/mosquitto/data
     secrets:
@@ -80,7 +80,7 @@ services:
       - |
         set -e
         # First boot only: seed the dynsec store with svc-dynsec-admin —
-        # the ONLY $CONTROL identity (doc 17 §2). The named volume persists
+        # the ONLY $$CONTROL identity (doc 17 §2). The named volume persists
         # the file; the DB is the source of truth for everything else.
         if [ ! -s /mosquitto/data/dynamic-security.json ]; then
           mosquitto_ctrl dynsec init /mosquitto/data/dynamic-security.json \
@@ -161,7 +161,7 @@ services:
       POLL_MS: "1000"
       EDGE_CLOCK_SKEW_MS: "${EDGE_CLOCK_SKEW_MS:-0}"
     volumes:
-      - ./infra/certs:/mosquitto-certs:ro
+      - ${CERTS_DIR:-./infra/certs}:/mosquitto-certs:ro
     secrets:
       - edge_bootstrap_user
       - edge_bootstrap_pw
@@ -174,7 +174,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: "8883"
@@ -220,13 +220,16 @@ services:
       KC_ADMIN: "${KC_ADMIN:-admin}"
       KC_ADMIN_PASSWORD_FILE: /run/secrets/kc_admin_pw
       KC_DEMO_PASSWORD_FILE: /run/secrets/kc_demo_pw
+      # Google sign-in via Keycloak brokering — off while empty (app.provision_idp).
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
     volumes:
       # Tag registry + alarm thresholds are operator-editable config, not
       # image content — single source for backend + edge-bridge.
       - ./edge-bridge/tags.yaml:/config/tags.yaml:ro
       - ./backend/alarm_rules.yaml:/config/alarm_rules.yaml:ro
       # Dev CA for the TLS listener (infra/gen-certs.sh — `make certs`).
-      - ./infra/certs:/mosquitto-certs:ro
+      - ${CERTS_DIR:-./infra/certs}:/mosquitto-certs:ro
     secrets:
       - svc_backend_pw
       - svc_dynsec_admin_pw
@@ -247,7 +250,10 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      # A fresh broker volume makes the dynsec reconciler repair its own role,
+      # which kicks it a few times (~3 min) before svc-backend exists; failed
+      # checks inside start_period don't count, so first deploys don't abort.
+      start_period: 180s
     restart: unless-stopped
     logging: *default-logging
 
@@ -259,7 +265,7 @@ services:
       default:
         # pinned so backend TRUSTED_PROXIES can name exactly this container
         # (T5 review F10)
-        ipv4_address: 172.30.10.10
+        ipv4_address: ${WEB_IP:-172.30.10.10}
     depends_on:
       backend:
         condition: service_healthy
@@ -284,27 +290,27 @@ volumes:
 # /run/secrets/<name>; never in environment, never in `docker inspect`.
 secrets:
   svc_dynsec_admin_pw:
-    file: ./infra/secrets/svc_dynsec_admin_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/svc_dynsec_admin_pw
   svc_backend_pw:
-    file: ./infra/secrets/svc_backend_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/svc_backend_pw
   edge_bootstrap_user:
-    file: ./infra/secrets/edge_bootstrap_user
+    file: ${SECRETS_DIR:-./infra/secrets}/edge_bootstrap_user
   edge_bootstrap_pw:
-    file: ./infra/secrets/edge_bootstrap_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/edge_bootstrap_pw
   # Postgres / Keycloak secrets (v4 T7) — env-derived files, dev defaults
   # documented in .env.example; prod overwrites via env before `make secrets`.
   pg_super_pw:
-    file: ./infra/secrets/pg_super_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/pg_super_pw
   wds_owner_pw:
-    file: ./infra/secrets/wds_owner_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/wds_owner_pw
   wds_app_pw:
-    file: ./infra/secrets/wds_app_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/wds_app_pw
   wds_system_pw:
-    file: ./infra/secrets/wds_system_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/wds_system_pw
   kc_admin_pw:
-    file: ./infra/secrets/kc_admin_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/kc_admin_pw
   kc_demo_pw:
-    file: ./infra/secrets/kc_demo_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/kc_demo_pw
 
 # Pinned subnet (unused-by-default range) so `web`'s fixed address above is
 # deterministic — backend TRUSTED_PROXIES names it for X-Real-IP trust
@@ -313,4 +319,4 @@ networks:
   default:
     ipam:
       config:
-        - subnet: 172.30.10.0/24
+        - subnet: ${COMPOSE_SUBNET:-172.30.10.0/24}

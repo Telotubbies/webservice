@@ -137,6 +137,7 @@ def test_auth_config_is_public(anon_api):
     assert body["dev_tokens"] is True
     assert body["oidc"]["client_id"] == "wds-web"
     assert body["oidc"]["realm"] == "wds"
+    assert isinstance(body["idps"], list)
 
 
 def test_me_returns_member_role(api):

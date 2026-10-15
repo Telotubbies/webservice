@@ -715,6 +715,7 @@ async def auth_config():
         "env": config.APP_ENV,
         "dev_tokens": config.APP_ENV == "dev",
         "oidc": {"realm": config.OIDC_REALM, "client_id": config.OIDC_CLIENT_ID},
+        "idps": config.IDPS,
     }
 
 

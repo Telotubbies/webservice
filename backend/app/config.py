@@ -98,6 +98,13 @@ OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "wds-web")
 OIDC_JWKS_URI = os.environ.get("OIDC_JWKS_URI") or (
     f"{OIDC_ISSUER.rstrip('/')}/protocol/openid-connect/certs")
 OIDC_REALM = OIDC_ISSUER.rstrip("/").rsplit("/", 1)[-1]
+# Google sign-in is brokered by Keycloak (alias `google`); OFF unless BOTH
+# values are set. Pushed into the realm by `python -m app.provision_idp`.
+# Public origin of the console (prod) — provision_idp adds it to wds-web.
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+IDPS: list[str] = ["google"] if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET else []
 JWKS_TTL_S = float(os.environ.get("JWKS_TTL_S", "600"))        # ADR-12 §5
 JWKS_REFETCH_MIN_S = float(os.environ.get("JWKS_REFETCH_MIN_S", "30"))
 AUTHZ_TTL_S = float(os.environ.get("AUTHZ_TTL_S", "5"))        # ≤5s revocation SLA

@@ -7,7 +7,7 @@ DB_TEST_ENV := WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-de
   WDS_TEST_SYSTEM_DSN=postgresql://wds_system:$${WDS_SYSTEM_PASSWORD:-system-dev-pass}@127.0.0.1:5433/wds \
   WDS_TEST_SUPER_DSN=postgresql://postgres:$${POSTGRES_SUPERUSER_PASSWORD:-postgres-dev-pass}@127.0.0.1:5433/wds
 
-.PHONY: help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev backup restore migrate-sqlite
+.PHONY: help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev idp backup restore migrate-sqlite
 
 help: ## show this
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -40,6 +40,7 @@ certs: ## generate the dev CA + broker TLS cert (infra/certs — gitignored)
 up: secrets certs ## build + start the full stack, wait for health (+ Keycloak seed in dev)
 	@if [ "$${APP_ENV:-dev}" = "prod" ]; then $(MAKE) secrets-check; fi
 	$(COMPOSE) up -d --build --wait
+	$(MAKE) idp
 	@if [ "$${APP_ENV:-dev}" = "dev" ]; then $(MAKE) seed-dev; fi
 
 down: ## stop the stack (data volume survives)
@@ -122,6 +123,9 @@ restore: ## restore make backup output: `RESTORE_CONFIRM=1 make restore DUMP=bac
 migrate-sqlite: ## one-time v1 SQLite→Postgres import (doc 18 §3): make migrate-sqlite [SQLITE=backend/data/app.db] [DRY=1] [DSN=…]
 	$(PY) scripts/migrate_sqlite_to_pg.py --sqlite "$(SQLITE)" \
 	  $(if $(DRY),--dry-run) $(if $(DSN),--dsn "$(DSN)") $(if $(ORG),--org-id "$(ORG)")
+
+idp: ## sync the Keycloak `google` IdP with GOOGLE_CLIENT_ID/SECRET (removed when unset)
+	$(COMPOSE) exec -T backend python -m app.provision_idp
 
 seed-dev: ## provision Keycloak test users + org memberships (APP_ENV=dev only)
 	$(COMPOSE) exec -T backend python -m app.seed_oidc

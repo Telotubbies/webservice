@@ -6,9 +6,11 @@
 # clients) and localhost/127.0.0.1 (host-side tests/UAT via the published
 # port). Dev-only material — prod uses a real CA (10-aws-deployment).
 set -euo pipefail
+# Git Bash on Windows rewrites "/CN=..." into a file path; no effect elsewhere.
+export MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/.."
 
-DIR=infra/certs
+DIR="${CERTS_DIR:-infra/certs}"
 mkdir -p "$DIR"
 
 if [ -f "$DIR/ca.crt" ] && [ -f "$DIR/server.crt" ] && [ -f "$DIR/server.key" ] \
@@ -29,13 +31,16 @@ openssl req -newkey rsa:2048 -nodes \
   -keyout "$DIR/server.key" -out "$DIR/server.csr" \
   -subj "/CN=mosquitto" 2>/dev/null
 
-# Sign with the dev CA. SAN: compose hostname + loopback.
+# Sign with the CA. SAN: compose hostname + loopback (+ MQTT_PUBLIC_HOST so
+# customer edge devices can verify the broker from outside).
+# extfile is a real file, not <(...) — process substitution fails on Git Bash.
+printf 'subjectAltName=DNS:localhost,DNS:mosquitto,IP:127.0.0.1%s\n' \
+  "${MQTT_PUBLIC_HOST:+,DNS:$MQTT_PUBLIC_HOST}" > "$DIR/san.ext"
 openssl x509 -req -in "$DIR/server.csr" \
   -CA "$DIR/ca.crt" -CAkey "$DIR/ca.key" -CAcreateserial \
-  -out "$DIR/server.crt" -days "$DAYS" \
-  -extfile <(printf 'subjectAltName=DNS:localhost,DNS:mosquitto,IP:127.0.0.1') 2>/dev/null
+  -out "$DIR/server.crt" -days "$DAYS" -extfile "$DIR/san.ext" 2>/dev/null
 
-rm -f "$DIR/server.csr" "$DIR/ca.srl"
+rm -f "$DIR/server.csr" "$DIR/ca.srl" "$DIR/san.ext"
 
 # The mosquitto container runs as uid 1883 — bind-mounted files must be
 # world-readable for it to load them (dev self-signed material only).
