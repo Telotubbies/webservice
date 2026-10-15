@@ -10,8 +10,10 @@ import os
 import stat
 import sys
 import threading
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,7 +24,12 @@ sys.path.insert(0, str(ROOT / "edge-bridge"))
 from app import enroll_codes  # noqa: E402
 from edge_bridge import cfg as edge_cfg  # noqa: E402
 from edge_bridge.config import Config  # noqa: E402
-from edge_bridge.enroll import EnrollError, enroll_if_needed, load_identity  # noqa: E402
+from edge_bridge.adapters import IdleAdapter, make_adapter  # noqa: E402
+from edge_bridge.cfg import AdapterHolder, CfgClient  # noqa: E402
+from edge_bridge.credpush import CredClient  # noqa: E402
+from edge_bridge.enroll import (  # noqa: E402
+    EnrollError, credential_version, enroll_if_needed, load_identity,
+)
 
 IDENT = {"org_id": "o1", "site_id": "s1", "edge_id": "e1", "mqtt_host": "broker.example",
          "mqtt_port": 8883, "ca_pem": "-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n",
@@ -100,7 +107,7 @@ def backend():
 
 def test_enroll_writes_identity_0600(tmp_path, backend):
     b = backend()
-    ident = enroll_if_needed(str(tmp_path), {"WDS_URL": b.url + "/", "ENROLL_CODE": "ABCD-2345"})
+    ident = enroll_if_needed(str(tmp_path), {"WDS_URL": b.url + "/", "ENROLL_CODE": "ABCD-2345", "WDS_INSECURE_TLS": "1"})
     assert b.seen == [("/api/v1/edge/enroll", {"code": "ABCD-2345"})]
     assert ident["edge_id"] == "e1"
     p = tmp_path / "identity.json"
@@ -113,7 +120,7 @@ def test_enroll_writes_identity_0600(tmp_path, backend):
 
 def test_existing_identity_never_enrolls_again(tmp_path, backend):
     b = backend()
-    env = {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345"}
+    env = {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345", "WDS_INSECURE_TLS": "1"}
     enroll_if_needed(str(tmp_path), env)
     again = enroll_if_needed(str(tmp_path), env)
     assert b.hits == 1 and again["edge_id"] == "e1"
@@ -129,20 +136,20 @@ def test_no_env_means_no_enroll(tmp_path):
 def test_enroll_failure_raises_and_writes_nothing(tmp_path, backend, status):
     b = backend(status=status, body={"detail": "x"})
     with pytest.raises(EnrollError):
-        enroll_if_needed(str(tmp_path), {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345"})
+        enroll_if_needed(str(tmp_path), {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345", "WDS_INSECURE_TLS": "1"})
     assert not (tmp_path / "identity.json").exists()
 
 
 def test_incomplete_response_rejected(tmp_path, backend):
     b = backend(body={"edge_id": "e1"})
     with pytest.raises(EnrollError):
-        enroll_if_needed(str(tmp_path), {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345"})
+        enroll_if_needed(str(tmp_path), {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345", "WDS_INSECURE_TLS": "1"})
     assert not (tmp_path / "identity.json").exists()
 
 
 def test_unreachable_backend_raises(tmp_path):
     with pytest.raises(EnrollError):
-        enroll_if_needed(str(tmp_path), {"WDS_URL": "http://127.0.0.1:1", "ENROLL_CODE": "ABCD-2345"},
+        enroll_if_needed(str(tmp_path), {"WDS_URL": "http://127.0.0.1:1", "ENROLL_CODE": "ABCD-2345", "WDS_INSECURE_TLS": "1"},
                          timeout=1.0)
 
 
@@ -181,3 +188,118 @@ def test_sealed_cache_without_key_or_wrong_key_fails():
     other = base64.urlsafe_b64encode(bytes(32)).decode()
     with pytest.raises(Exception):  # noqa: B017 - cryptography InvalidTag
         edge_cfg._unseal(blob, other)
+
+
+# -- plain-http WDS_URL is refused unless explicitly overridden ----------------------
+
+def test_plain_http_refused_without_override(tmp_path, backend):
+    b = backend()
+    with pytest.raises(EnrollError, match="https"):
+        enroll_if_needed(str(tmp_path), {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345"})
+    assert b.hits == 0  # the code never left the box
+    assert not (tmp_path / "identity.json").exists()
+
+
+def test_plain_http_override_warns_loudly(tmp_path, backend, caplog):
+    b = backend()
+    with caplog.at_level("WARNING", logger="edge_bridge.enroll"):
+        enroll_if_needed(str(tmp_path), {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345",
+                                         "WDS_INSECURE_TLS": "1"})
+    assert any("CLEARTEXT" in r.message for r in caplog.records)
+    assert b.hits == 1
+
+
+# -- in-band credential rotation (cred topic) ---------------------------------------
+
+def _enrolled(tmp_path, backend):
+    b = backend(body={**IDENT, "mqtt_username": "edge-e1-v1"})
+    ident = enroll_if_needed(str(tmp_path), {"WDS_URL": b.url, "ENROLL_CODE": "ABCD-2345",
+                                             "WDS_INSECURE_TLS": "1"})
+    return replace(Config.from_env(ident), state_dir=str(tmp_path),
+                   identity_file=str(tmp_path / "identity.json"))
+
+
+def cred_msg(version=2, user="edge-e1-v2", pw="new-pw", retain=False, raw=None):
+    payload = raw if raw is not None else json.dumps(
+        {"version": version, "username": user, "password": pw}).encode()
+    return SimpleNamespace(topic="v2/o1/s1/e1/cred", retain=retain, payload=payload)
+
+
+def test_cred_topic_and_version_parse(tmp_path, backend):
+    cfg = _enrolled(tmp_path, backend)
+    assert cfg.cred_topic == "v2/o1/s1/e1/cred"
+    assert credential_version(load_identity(str(tmp_path))) == 1
+
+
+def test_newer_cred_rewrites_identity_and_reconnects(tmp_path, backend):
+    cfg = _enrolled(tmp_path, backend)
+    calls = []
+    cl = CredClient(cfg, lambda: calls.append(1))
+    assert cl.handle(cred_msg()) is True
+    assert calls == [1]
+    ident = load_identity(str(tmp_path))
+    assert (ident["mqtt_username"], ident["mqtt_password"], ident["cred_version"]) == ("edge-e1-v2", "new-pw", 2)
+    assert ident["state_key"] == IDENT["state_key"]  # rest of identity preserved
+    assert cfg.credentials() == ("edge-e1-v2", "new-pw")  # next connect uses it
+    if os.name != "nt":
+        assert stat.S_IMODE((tmp_path / "identity.json").stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("m", [
+    cred_msg(version=1), cred_msg(version=0), cred_msg(retain=True),
+    cred_msg(raw=b"not json"), cred_msg(raw=b'{"version":"3","username":"u","password":"p"}'),
+    cred_msg(raw=b'{"version":3,"username":"","password":"p"}'),
+    cred_msg(raw=b'{"version":true,"username":"u","password":"p"}'),
+    cred_msg(raw=b"[]"),
+])
+def test_stale_retained_malformed_cred_ignored(tmp_path, backend, m):
+    cfg = _enrolled(tmp_path, backend)
+    calls = []
+    assert CredClient(cfg, lambda: calls.append(1)).handle(m) is False
+    assert calls == []
+    assert load_identity(str(tmp_path))["mqtt_password"] == "pw"
+
+
+def test_equal_version_cred_not_applied_twice(tmp_path, backend):
+    cfg = _enrolled(tmp_path, backend)
+    cl = CredClient(cfg, lambda: None)
+    assert cl.handle(cred_msg()) is True
+    assert cl.handle(cred_msg()) is False
+
+
+# -- enrolled gateways are idle, not simulated ----------------------------------------
+
+def _holder_cfg(tmp_path, enrolled):
+    cfg = Config(org_id="o", site_id="s", edge_id="e", state_dir=str(tmp_path),
+                 identity_file=str(tmp_path / "identity.json") if enrolled else None)
+    holder = AdapterHolder(IdleAdapter() if enrolled else make_adapter("sim", "plant1", {}), 1000)
+    sent = []
+    bridge = SimpleNamespace(publish_json=lambda t, p, qos=1: sent.append((t, p)) or True,
+                             subscribe=lambda *a, **k: None)
+    return cfg, holder, sent, CfgClient(cfg, holder, bridge, "plant1")
+
+
+def _v(n):
+    return SimpleNamespace(topic="t", retain=False,
+                           payload=json.dumps({"version": n, "sources": []}).encode())
+
+
+def test_idle_adapter_publishes_nothing():
+    a = IdleAdapter()
+    assert a.name == "idle" and a.read_all() == [] and a.tag_map() == {}
+
+
+def test_enrolled_edge_accepts_version_zero(tmp_path):
+    cfg, holder, sent, cl = _holder_cfg(tmp_path, enrolled=True)
+    assert cfg.enrolled and holder.get().name == "idle"
+    cl.handle(_v(0))
+    assert cl.version == 0
+    assert sent and sent[-1][1]["version"] == 0 and sent[-1][1]["ok"] is True
+    assert holder.get().name == "multi"
+
+
+def test_env_bootstrap_edge_still_ignores_version_zero(tmp_path):
+    cfg, holder, sent, cl = _holder_cfg(tmp_path, enrolled=False)
+    before = holder.get()
+    cl.handle(_v(0))
+    assert holder.get() is before and sent == []

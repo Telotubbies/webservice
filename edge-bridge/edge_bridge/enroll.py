@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import ssl
 import tempfile
 import urllib.error
@@ -98,9 +99,17 @@ def enroll_if_needed(state_dir: str, env=None, timeout: float = 15.0) -> dict | 
     code, url = (env.get("ENROLL_CODE") or "").strip(), (env.get("WDS_URL") or "").strip()
     if not code or not url:
         return None
+    insecure = env.get("WDS_INSECURE_TLS") == "1"
+    if not url.lower().startswith("https://"):
+        # the response carries the MQTT password and state_key
+        if not insecure:
+            raise EnrollError("WDS_URL must be https:// (the enroll response carries "
+                              "credentials); set WDS_INSECURE_TLS=1 for dev only")
+        log.warning("WDS_INSECURE_TLS=1 with a non-https WDS_URL — credentials "
+                    "travel in CLEARTEXT (dev only)")
     endpoint = url.rstrip("/") + "/api/v1/edge/enroll"
     log.info("enrolling with %s", url)
-    doc = _post(endpoint, code, env.get("WDS_INSECURE_TLS") == "1", timeout)
+    doc = _post(endpoint, code, insecure, timeout)
     missing = [k for k in _FIELDS if doc.get(k) in (None, "")]
     if missing:
         raise EnrollError(f"enroll response missing {missing}")
@@ -116,3 +125,25 @@ def enroll_if_needed(state_dir: str, env=None, timeout: float = 15.0) -> dict | 
     _write_private(d / IDENTITY_NAME, json.dumps(ident).encode())
     log.info("enrolled as edge %s", ident["edge_id"])
     return ident
+
+
+_USER_VERSION = re.compile(r"-v(\d+)$")
+
+
+def credential_version(ident: dict) -> int:
+    """Version of the credential in force: explicit, else parsed from the
+    `edge-{id}-v{n}` username, else 0."""
+    v = ident.get("cred_version")
+    if isinstance(v, int) and not isinstance(v, bool):
+        return v
+    m = _USER_VERSION.search(str(ident.get("mqtt_username") or ""))
+    return int(m.group(1)) if m else 0
+
+
+def update_credentials(state_dir: str, version: int, username: str, password: str) -> None:
+    """Atomically swap the credential in identity.json (0600)."""
+    ident = load_identity(state_dir)
+    if ident is None:
+        raise EnrollError("not enrolled")
+    ident.update(mqtt_username=username, mqtt_password=password, cred_version=version)
+    _write_private(Path(state_dir) / IDENTITY_NAME, json.dumps(ident).encode())

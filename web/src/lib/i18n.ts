@@ -545,11 +545,11 @@ const en = {
     nameHelp: 'Use something your team will recognise in alarms — up to 80 characters.',
     errName: 'Enter a device name.', errNameLong: 'Keep the name under 80 characters.',
     errPlan: 'Your plan has reached its device limit. Disable an unused device or upgrade the plan.',
-    site: 'Site', broker: 'Broker host', pollMs: 'Send interval', create: 'Create device', creating: 'Creating…',
-    installTitle: 'Install the edge bridge', installBody: 'Save these settings on the gateway next to the PLC, then start the container.',
+    site: 'Site', create: 'Create device', creating: 'Creating…',
+    installTitle: 'Install the edge bridge', 
     envFile: 'edge.env', runCmd: 'Start command', copyEnv: 'Copy edge.env', copyRun: 'Copy command',
-    certNote: 'Copy ca.crt from the server (infra/certs) into a certs folder next to edge.env — the bridge uses it to verify the broker.',
-    modbusNote: 'Edit tags.yaml on the gateway to map PLC registers to tag names before starting.',
+    
+    
     installedNext: 'I have started it',
     waiting: 'Waiting for the first heartbeat…', waitingBody: 'This page checks every 3 seconds. Most devices connect within a minute.',
     showInstall: 'Show install steps', finishLater: 'Finish later',
@@ -558,16 +558,16 @@ const en = {
     // technician workflow pass (wizard / list / detail)
     copyFail: 'Copy blocked — select the text and press Ctrl+C', secretOnceTitle: 'Shown only once.',
     stepOf: 'Step {{n}} of {{total}}', stepDone: 'done', cancel: 'Cancel', change: 'Change', typeChosen: 'Connection: {{type}}.',
-    brokerHelp: 'The address the gateway uses to reach this server — usually the same as in your browser bar.',
-    brokerLocal: '“localhost” only works if the bridge runs on this same computer. For a gateway on the plant network, enter the server name or IP.',
-    errHost: 'Enter only the server name or IP, e.g. mqtt.example.com — no http:// and no port.',
-    pollHelp: 'How often the bridge reads the PLC and sends data. 1000 ms suits most lines.',
+    
+    
+    
+    
     createNote: 'Creating the device gives you a one-time enrollment code on the next screen. It is valid for 30 minutes and can be re-issued.',
     errBroker: 'The message broker did not accept the change. Wait a minute and try again; if it keeps failing, open System health.',
     errNetwork: 'Cannot reach the server. Check the network connection and try again.',
     errNotActive: 'This device is already disabled.',
     createdOk: '{{name}} was created. Now do these steps on the gateway computer next to the PLC.',
-    inst: { key: 'Save the key', cert: 'Copy the broker certificate', env: 'Save edge.env', tags: 'Map the PLC registers', run: 'Start the edge bridge', code: 'Enter the one-time code', sources: 'Then add the PLC connection' },
+    inst: { run: 'Start the edge bridge', code: 'Enter the one-time code', sources: 'Then add the PLC connection' },
     enrollCode: 'Enrollment code', copyCode: 'Copy code', codeLeft: 'expires in {{left}}',
     codeExpired: 'Code expired', newCode: 'New code',
     codeNote: 'One-time code, valid 30 minutes. The gateway swaps it for its own key on first start — nothing secret is in the command.',
@@ -578,18 +578,18 @@ const en = {
       opcua: 'Once the gateway shows as connected, open Data sources and add the OPC UA endpoint and tags.',
       s7: 'Once the gateway shows as connected, open Data sources and add the Siemens S7 connection and tags.',
     },
-    envMasked: 'The key is hidden on screen. Copy and Download include it.', download: 'Download',
-    ackSaved: 'I have saved the key and edge.env in a safe place',
-    noBack: 'The device already exists, so this step cannot be undone. Lost the key? Rotate it from the device list.',
+    download: 'Download',
+    
+    
     pollStatus: 'Waiting {{elapsed}} · last check {{ago}}',
     pollError: 'Cannot reach the server to check. Still retrying…',
     slowTitle: 'Not connected yet? Check on the gateway:',
     slow: {
       running: 'The container is running. Its log shows the reason:',
       port: 'The plant firewall allows outgoing TCP port 8883 to {{host}}.',
-      cert: 'certs/ca.crt is in the same folder as edge.env.',
+      cert: 'The gateway can open this server over HTTPS (needed once, to enroll).',
       clock: 'The gateway clock is correct — the secure connection fails if it is minutes off.',
-      key: 'MQTT_PASSWORD in edge.env matches the key exactly, with no extra spaces.',
+      key: 'The log does not say the code is used or expired. If it does, make a new code and restart.',
     },
     toDevice: 'View this device', finishLaterNote: 'The device shows as “Never connected” until it reports, then turns Online by itself.',
     searchHint: 'Search name or ID — or filter: status:offline adapter:modbus',
@@ -1329,11 +1329,11 @@ const th: Dict = {
     nameHelp: 'ใช้ชื่อที่ทีมจำได้ในสัญญาณเตือน ไม่เกิน 80 ตัวอักษร',
     errName: 'กรอกชื่ออุปกรณ์', errNameLong: 'ชื่อต้องไม่เกิน 80 ตัวอักษร',
     errPlan: 'แผนของคุณใช้จำนวนอุปกรณ์ครบแล้ว ปิดใช้งานอุปกรณ์ที่ไม่ใช้หรืออัปเกรดแผน',
-    site: 'ไซต์', broker: 'โฮสต์ broker', pollMs: 'ความถี่ส่งข้อมูล', create: 'สร้างอุปกรณ์', creating: 'กำลังสร้าง…',
-    installTitle: 'ติดตั้ง edge bridge', installBody: 'บันทึกค่าตั้งเหล่านี้บนเกตเวย์ข้าง PLC แล้วเริ่ม container',
+    site: 'ไซต์', create: 'สร้างอุปกรณ์', creating: 'กำลังสร้าง…',
+    installTitle: 'ติดตั้ง edge bridge', 
     envFile: 'edge.env', runCmd: 'คำสั่งเริ่มทำงาน', copyEnv: 'คัดลอก edge.env', copyRun: 'คัดลอกคำสั่ง',
-    certNote: 'คัดลอก ca.crt จากเซิร์ฟเวอร์ (infra/certs) ไปไว้ในโฟลเดอร์ certs ข้าง edge.env — bridge ใช้ตรวจสอบ broker',
-    modbusNote: 'แก้ tags.yaml บนเกตเวย์เพื่อจับคู่ register ของ PLC กับชื่อแท็กก่อนเริ่มทำงาน',
+    
+    
     installedNext: 'เริ่มทำงานแล้ว',
     waiting: 'กำลังรอสัญญาณแรก…', waitingBody: 'หน้านี้ตรวจทุก 3 วินาที อุปกรณ์ส่วนใหญ่เชื่อมต่อภายในหนึ่งนาที',
     showInstall: 'แสดงขั้นตอนติดตั้ง', finishLater: 'ทำต่อภายหลัง',
@@ -1342,16 +1342,16 @@ const th: Dict = {
     // technician workflow pass (wizard / list / detail)
     copyFail: 'คัดลอกไม่ได้ — ให้เลือกข้อความแล้วกด Ctrl+C', secretOnceTitle: 'แสดงเพียงครั้งเดียว',
     stepOf: 'ขั้นที่ {{n}} จาก {{total}}', stepDone: 'เสร็จแล้ว', cancel: 'ยกเลิก', change: 'เปลี่ยน', typeChosen: 'การเชื่อมต่อ: {{type}}',
-    brokerHelp: 'ที่อยู่ที่เกตเวย์ใช้ติดต่อเซิร์ฟเวอร์นี้ — ปกติเหมือนกับที่อยู่ในแถบเบราว์เซอร์',
-    brokerLocal: '“localhost” ใช้ได้เฉพาะเมื่อ bridge ทำงานบนเครื่องนี้ ถ้าเกตเวย์อยู่ในเครือข่ายโรงงาน ให้ใส่ชื่อหรือ IP ของเซิร์ฟเวอร์',
-    errHost: 'ใส่เฉพาะชื่อหรือ IP ของเซิร์ฟเวอร์ เช่น mqtt.example.com — ไม่ต้องมี http:// และไม่ต้องใส่พอร์ต',
-    pollHelp: 'ความถี่ที่ bridge อ่านค่าจาก PLC แล้วส่งข้อมูล ส่วนใหญ่ใช้ 1000 ms',
+    
+    
+    
+    
     createNote: 'เมื่อสร้างอุปกรณ์ คุณจะได้รหัสลงทะเบียนแบบใช้ครั้งเดียวในหน้าถัดไป อายุ 30 นาที และขอรหัสใหม่ได้',
     errBroker: 'โบรกเกอร์ข้อความไม่รับการเปลี่ยนแปลง รอสักครู่แล้วลองใหม่ ถ้ายังไม่ได้ให้เปิดหน้าสถานะระบบ',
     errNetwork: 'ติดต่อเซิร์ฟเวอร์ไม่ได้ ตรวจการเชื่อมต่อเครือข่ายแล้วลองใหม่',
     errNotActive: 'อุปกรณ์นี้ถูกปิดใช้งานไปแล้ว',
     createdOk: 'สร้าง {{name}} แล้ว ต่อไปให้ทำขั้นตอนเหล่านี้ที่คอมพิวเตอร์เกตเวย์ข้าง PLC',
-    inst: { key: 'เก็บกุญแจ', cert: 'คัดลอกใบรับรองของ broker', env: 'บันทึกไฟล์ edge.env', tags: 'จับคู่ register ของ PLC', run: 'เริ่ม edge bridge', code: 'ใส่รหัสใช้ครั้งเดียว', sources: 'จากนั้นเพิ่มการเชื่อมต่อ PLC' },
+    inst: { run: 'เริ่ม edge bridge', code: 'ใส่รหัสใช้ครั้งเดียว', sources: 'จากนั้นเพิ่มการเชื่อมต่อ PLC' },
     enrollCode: 'รหัสลงทะเบียน', copyCode: 'คัดลอกรหัส', codeLeft: 'หมดอายุใน {{left}}',
     codeExpired: 'รหัสหมดอายุแล้ว', newCode: 'ขอรหัสใหม่',
     codeNote: 'รหัสใช้ครั้งเดียว อายุ 30 นาที เกตเวย์จะแลกเป็นกุญแจของตัวเองเมื่อเริ่มทำงานครั้งแรก ในคำสั่งไม่มีความลับ',
@@ -1362,18 +1362,18 @@ const th: Dict = {
       opcua: 'เมื่อเกตเวย์ขึ้นสถานะเชื่อมต่อแล้ว ไปที่ Data sources เพื่อเพิ่ม endpoint OPC UA และแท็ก',
       s7: 'เมื่อเกตเวย์ขึ้นสถานะเชื่อมต่อแล้ว ไปที่ Data sources เพื่อเพิ่มการเชื่อมต่อ Siemens S7 และแท็ก',
     },
-    envMasked: 'กุญแจถูกซ่อนบนหน้าจอ แต่ปุ่มคัดลอกและดาวน์โหลดจะรวมกุญแจไว้ให้', download: 'ดาวน์โหลด',
-    ackSaved: 'ฉันเก็บกุญแจและไฟล์ edge.env ไว้ในที่ปลอดภัยแล้ว',
-    noBack: 'อุปกรณ์ถูกสร้างแล้ว จึงย้อนขั้นนี้ไม่ได้ ถ้ากุญแจหาย ให้เปลี่ยนกุญแจจากรายการอุปกรณ์',
+    download: 'ดาวน์โหลด',
+    
+    
     pollStatus: 'รอมาแล้ว {{elapsed}} · ตรวจล่าสุด {{ago}}',
     pollError: 'ติดต่อเซิร์ฟเวอร์เพื่อตรวจสอบไม่ได้ กำลังลองใหม่…',
     slowTitle: 'ยังไม่เชื่อมต่อ? ให้ตรวจที่เกตเวย์:',
     slow: {
       running: 'container กำลังทำงานอยู่ ดูสาเหตุได้จาก log:',
       port: 'ไฟร์วอลล์ของโรงงานอนุญาตให้ออกไปที่ TCP พอร์ต 8883 ของ {{host}}',
-      cert: 'มีไฟล์ certs/ca.crt อยู่ในโฟลเดอร์เดียวกับ edge.env',
+      cert: 'เกตเวย์เปิดเซิร์ฟเวอร์นี้ผ่าน HTTPS ได้ (ใช้ครั้งเดียวตอนลงทะเบียน)',
       clock: 'นาฬิกาของเกตเวย์ตรง — ถ้าคลาดหลายนาที การเชื่อมต่อแบบเข้ารหัสจะล้มเหลว',
-      key: 'MQTT_PASSWORD ใน edge.env ตรงกับกุญแจทุกตัวอักษร ไม่มีช่องว่างเกิน',
+      key: 'ล็อกต้องไม่บอกว่ารหัสถูกใช้แล้วหรือหมดอายุ ถ้าบอก ให้ขอรหัสใหม่แล้วเริ่มคอนเทนเนอร์ใหม่',
     },
     toDevice: 'ดูอุปกรณ์นี้', finishLaterNote: 'อุปกรณ์จะแสดงเป็น “ยังไม่เคยเชื่อมต่อ” จนกว่าจะส่งสัญญาณ แล้วจะเปลี่ยนเป็นออนไลน์เอง',
     searchHint: 'ค้นหาชื่อหรือรหัส — หรือกรอง: status:offline adapter:modbus',

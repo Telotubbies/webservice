@@ -79,6 +79,9 @@ def edge_acls(org_id, site_id, edge_id) -> list[dict]:
         {"acltype": "publishClientReceive", "topic": f"{p}/cfg", "allow": True},
         {"acltype": "publishClientSend", "topic": f"{p}/cfg-req", "allow": True},
         {"acltype": "publishClientSend", "topic": f"{p}/cfg-ack", "allow": True},
+        # in-band credential rotation for enrolled gateways (backend -> edge)
+        {"acltype": "subscribePattern", "topic": f"{p}/cred", "allow": True},
+        {"acltype": "publishClientReceive", "topic": f"{p}/cred", "allow": True},
     ]
 
 
@@ -87,6 +90,7 @@ def edge_acls(org_id, site_id, edge_id) -> list[dict]:
 BACKEND_ACLS = [
     {"acltype": "publishClientSend", "topic": "v2/+/+/+/cmd/+", "allow": True},
     {"acltype": "publishClientSend", "topic": "v2/+/+/+/cfg", "allow": True},
+    {"acltype": "publishClientSend", "topic": "v2/+/+/+/cred", "allow": True},
     {"acltype": "subscribePattern", "topic": "v2/+/+/+/tele/#", "allow": True},
     {"acltype": "subscribePattern", "topic": "v2/+/+/+/hb", "allow": True},
     {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/tele/#", "allow": True},

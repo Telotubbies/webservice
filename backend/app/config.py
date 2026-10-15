@@ -104,7 +104,7 @@ RATE_MUTATIONS_PER_USER = int(os.environ.get("RATE_MUTATIONS_PER_USER", "60"))  
 RATE_MUTATIONS_WINDOW_S = float(os.environ.get("RATE_MUTATIONS_WINDOW_S", "60"))
 RATE_ENROLL_PER_IP = int(os.environ.get("RATE_ENROLL_PER_IP", "10"))
 RATE_ENROLL_WINDOW_S = float(os.environ.get("RATE_ENROLL_WINDOW_S", "60"))
-RATE_LOGOUT_PER_IP =int(os.environ.get("RATE_LOGOUT_PER_IP", "10"))
+RATE_LOGOUT_PER_IP = int(os.environ.get("RATE_LOGOUT_PER_IP", "10"))
 RATE_LOGOUT_WINDOW_S = float(os.environ.get("RATE_LOGOUT_WINDOW_S", "60"))
 RATE_WS_PER_IP = int(os.environ.get("RATE_WS_PER_IP", "20"))                # concurrent /ws sockets per client IP
 

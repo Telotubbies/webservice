@@ -52,3 +52,12 @@ class MultiAdapter(TagAdapter):
                 ad.close()
             except Exception:
                 pass
+
+
+class IdleAdapter(MultiAdapter):
+    """No sources: an enrolled gateway before its first cfg publishes nothing
+    (never simulated values into a real namespace)."""
+    name = "idle"
+
+    def __init__(self):
+        super().__init__({})

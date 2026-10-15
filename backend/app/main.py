@@ -38,7 +38,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import config, enroll_codes, inference
+from . import config, credpush, enroll_codes, inference
 from .alarms import (
     AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener,
 )
@@ -1540,6 +1540,10 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
         actor=f"user:{p.user_id}", user_id=p.user_id, action="edge.rotated")
     if cred is None:
         return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
+    # Always push in-band: gateways enrolled via a code listen on /cred and
+    # adopt it; env-bootstrap gateways ignore the message (they use files/env).
+    credpush.push_cred(st(request).mqtt, org_id, site_id, eid,
+                       cred["version"], cred["username"], cred["secret"])
     return {"edge_id": str(eid), "credential_version": cred["version"],
             "mqtt_username": cred["username"], "secret": cred["secret"],
             "grace_s": int(config.EDGE_CRED_GRACE_S)}
@@ -1626,6 +1630,9 @@ async def new_enroll_code(org: str, site: str, edge_id: str, request: Request,
     return {"enroll_code": code, "enroll_expires_at": iso_z(expires)}
 
 
+ENROLL_BODY_MAX = 1024
+
+
 class EnrollIn(BaseModel):
     code: str = Field(min_length=1, max_length=64)
 
@@ -1642,7 +1649,7 @@ def _read_ca_pem() -> str:
 
 
 @app.post("/api/v1/edge/enroll")
-async def edge_enroll(body: EnrollIn, request: Request):
+async def edge_enroll(request: Request):
     """Exchange a one-time code for the gateway identity (spec 5.1). No auth:
     the code is the credential, so the endpoint is per-IP rate limited and
     the code is single-use. The MQTT credential is rotated here, so the
@@ -1653,6 +1660,14 @@ async def edge_enroll(body: EnrollIn, request: Request):
         retry = await s.enroll_limiter.retry_after(ip)
         raise HTTPException(status_code=429, detail="rate_limited",
                             headers={"Retry-After": str(max(1, math.ceil(retry)))})
+    # the limiter runs BEFORE the body is read or parsed: junk bodies cost a token
+    raw = await request.body()
+    if len(raw) > ENROLL_BODY_MAX:
+        raise HTTPException(413, "body_too_large")
+    try:
+        body = EnrollIn.model_validate_json(raw)
+    except ValueError:
+        raise HTTPException(422, "invalid_body") from None
     code_hash = enroll_codes.hash_code(body.code)
     if code_hash is None:
         raise HTTPException(404, "unknown_code")

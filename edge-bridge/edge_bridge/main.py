@@ -20,8 +20,9 @@ import signal
 import threading
 import time
 
-from .adapters import load_tags_config, make_adapter
+from .adapters import IdleAdapter, load_tags_config, make_adapter
 from .cfg import AdapterHolder, CfgClient
+from .credpush import CredClient
 from .clock import EdgeClock
 from .commands import CommandHandler
 from .config import Config
@@ -94,8 +95,12 @@ def main() -> int:
         return 2
     clock = EdgeClock(cfg.clock_skew_ms, cfg.clock_ok_threshold_ms)
 
-    tags_cfg = load_tags_config(cfg.tags_config)
-    adapter = make_adapter(cfg.adapter, cfg.site_code, tags_cfg, now=clock.now)
+    if cfg.enrolled:
+        # enrolled: nothing is published until the console pushes a cfg
+        adapter = IdleAdapter()
+    else:
+        tags_cfg = load_tags_config(cfg.tags_config)
+        adapter = make_adapter(cfg.adapter, cfg.site_code, tags_cfg, now=clock.now)
 
     health: dict = {"read_failures": 0}
     bridge = MqttBridge(
@@ -113,16 +118,21 @@ def main() -> int:
     cfg_client = CfgClient(cfg, holder, bridge, cfg.site_code, now=clock.now)
     # A cached backend cfg wins over tags.yaml; tags.yaml stays the fallback.
     cfg_client.load_cached()
+    cred_client = CredClient(cfg, bridge.reconnect) if cfg.enrolled else None
     adapter = holder.get()
 
     def _on_connect(b: MqttBridge) -> None:
         # Re-subscribes on every reconnect (on_connect fires per CONNACK).
         b.subscribe(handler.cmd_topic, qos=1)
         cfg_client.on_connect(b)
+        if cred_client is not None:
+            b.subscribe(cfg.cred_topic, qos=1)
 
     def _on_message(msg) -> None:
         if msg.topic == cfg.cfg_topic:
             cfg_client.handle(msg)
+        elif cred_client is not None and msg.topic == cfg.cred_topic:
+            cred_client.handle(msg)
         else:
             handler.handle_message(msg)
 

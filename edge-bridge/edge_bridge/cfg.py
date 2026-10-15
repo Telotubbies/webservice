@@ -141,7 +141,12 @@ class CfgClient:
                 self._bridge.publish_json(self._cfg.cfg_ack_topic, self._last_ack)
                 log.info("re-sent ack for cfg version=%s", version)
                 return
-            if version <= (self.version if self.version is not None else 0):
+            # env-bootstrap/tags.yaml edges ignore v0 (the backend's "no
+            # sources" resync must not stop them); an enrolled edge has no
+            # fallback, so v0 is its first real answer
+            baseline = (self.version if self.version is not None
+                        else (-1 if self._cfg.enrolled else 0))
+            if version <= baseline:
                 log.info("ignored cfg version=%s (applied=%s)", version, self.version)
                 return
             errors = self._apply(version, sources)

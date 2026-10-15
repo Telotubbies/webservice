@@ -189,6 +189,10 @@ services:
       # its secret lives only in the mounted file (docker inspect clean).
       MQTT_USER: svc-backend
       MQTT_PASSWORD_FILE: /run/secrets/svc_backend_pw
+      # what an enrolling gateway is told to dial (empty host = the host the
+      # enroll request arrived on)
+      PUBLIC_MQTT_HOST: "${PUBLIC_MQTT_HOST:-}"
+      PUBLIC_MQTT_PORT: "${PUBLIC_MQTT_PORT:-8883}"
       # svc-dynsec-admin reconciler channel + provisioning secrets
       DYNSEC_ADMIN_PASSWORD_FILE: /run/secrets/svc_dynsec_admin_pw
       SVC_BACKEND_PW_FILE: /run/secrets/svc_backend_pw

@@ -15,6 +15,7 @@ attempt so a rotated credential takes effect at the next reconnect.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -51,6 +52,7 @@ class Config:
     clock_ok_threshold_ms: float = 500.0
     state_dir: str = "/var/lib/wds-edge"       # applied-cfg cache (cfg.json)
     state_key: str | None = None               # from enrollment; seals the cfg cache
+    identity_file: str | None = None           # set when running from enrollment
 
     @classmethod
     def from_env(cls, identity: dict | None = None) -> "Config":
@@ -68,7 +70,8 @@ class Config:
             mqtt_password=identity.get("mqtt_password") or c.mqtt_password,
             mqtt_user_file=None, mqtt_password_file=None,
             mqtt_ca_file=identity.get("mqtt_ca_file") or c.mqtt_ca_file,
-            state_key=identity.get("state_key") or None)
+            state_key=identity.get("state_key") or None,
+            identity_file=str(Path(c.state_dir) / "identity.json"))
 
     @classmethod
     def _from_env(cls) -> "Config":
@@ -105,6 +108,14 @@ class Config:
         return f"{self.prefix}/cmd/+"
 
     @property
+    def enrolled(self) -> bool:
+        return self.identity_file is not None
+
+    @property
+    def cred_topic(self) -> str:
+        return f"{self.prefix}/cred"
+
+    @property
     def cfg_topic(self) -> str:
         return f"{self.prefix}/cfg"
 
@@ -134,6 +145,15 @@ class Config:
     def credentials(self) -> tuple[str | None, str | None]:
         """Current (username, password); files re-read so a rotated secret
         is picked up on the next connect attempt (doc 17 §5)."""
+        if self.identity_file:
+            # enrolled: identity.json is the live source (in-band rotation
+            # rewrites it); fall back to the values captured at startup
+            try:
+                ident = json.loads(Path(self.identity_file).read_text(encoding="utf-8"))
+                return ident.get("mqtt_username") or self.mqtt_user, \
+                    ident.get("mqtt_password") or self.mqtt_password
+            except (OSError, ValueError):
+                return self.mqtt_user, self.mqtt_password
         user = _file_or_none(self.mqtt_user_file) or self.mqtt_user
         pw = _file_or_none(self.mqtt_password_file) or self.mqtt_password
         return user, pw

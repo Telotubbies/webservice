@@ -13,9 +13,9 @@ from .sim import SimAdapter
 from .modbus import ModbusAdapter
 from .s7 import S7Adapter
 from .opcua import OpcUaAdapter
-from .multi import MultiAdapter
+from .multi import IdleAdapter, MultiAdapter
 
-__all__ = ["MultiAdapter", "make_adapter", "make_source_adapter", "load_tags_config"]
+__all__ = ["IdleAdapter", "MultiAdapter", "make_adapter", "make_source_adapter", "load_tags_config"]
 
 log = logging.getLogger("edge_bridge.adapters")
 
