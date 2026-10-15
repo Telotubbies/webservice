@@ -49,10 +49,11 @@ export function initAuth(): Promise<AuthConfig> {
   initPromise = (async () => {
     try {
       const r = await fetch('/api/auth/config');
+      if (!r.ok) throw new Error(`auth config ${r.status}`);
       cfg = (await r.json()) as AuthConfig;
     } catch {
-      // backend unreachable — dev-shaped config keeps the dev wall usable
-      cfg = { env: 'dev', dev_tokens: true, oidc: null };
+      // backend unreachable/502 — fail closed: never show demo/token UI (G1)
+      cfg = { env: 'prod', dev_tokens: false, oidc: null };
     }
     if (cfg?.oidc) {
       mgr = new UserManager({
