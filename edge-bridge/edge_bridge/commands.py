@@ -20,7 +20,6 @@ import logging
 from collections import OrderedDict
 from datetime import datetime, timezone
 
-from .adapters.base import TagAdapter
 from .clock import EdgeClock
 from .config import Config
 from .mqtt_bridge import MqttBridge
@@ -34,10 +33,10 @@ _IDEMPOTENCY_MAX = 1000      # SDLC 04 §5: remember last N command keys
 
 
 class CommandHandler:
-    def __init__(self, cfg: Config, adapter: TagAdapter,
+    def __init__(self, cfg: Config, holder,
                  clock: EdgeClock, bridge: MqttBridge):
         self._cfg = cfg
-        self._adapter = adapter
+        self._holder = holder  # AdapterHolder: adapter may be swapped live
         self._clock = clock
         self._bridge = bridge
         # idempotency_key -> (status, reason); FIFO eviction
@@ -137,7 +136,7 @@ class CommandHandler:
             return status, reason, command_id
 
         try:
-            result = self._adapter.write(tag, value)
+            result = self._holder.get().write(tag, value)
             status = "acknowledged" if result.ok else "rejected"
             reason = result.detail
         except Exception as exc:

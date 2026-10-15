@@ -161,11 +161,13 @@ services:
       MODBUS_HOST: "${MODBUS_HOST:-host.docker.internal}"
       MODBUS_PORT: "${MODBUS_PORT:-502}"
       POLL_MS: "1000"
+      STATE_DIR: /var/lib/wds-edge
       EDGE_CLOCK_SKEW_MS: "${EDGE_CLOCK_SKEW_MS:-0}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${CERTS_DIR:-./infra/certs}:/mosquitto-certs:ro
+      - edge-state:/var/lib/wds-edge   # applied cfg cache (STATE_DIR)
     secrets:
       - edge_bootstrap_user
       - edge_bootstrap_pw
@@ -292,6 +294,7 @@ services:
 
 volumes:
   pgdata:
+  edge-state:
   # Dynsec plugin state — a CACHE of Postgres, not a source of truth
   # (doc 17 §6). To rebuild ONLY this cache: `docker compose stop mosquitto`
   # + `docker volume rm webservice_mosquitto-data` + `up -d mosquitto`.

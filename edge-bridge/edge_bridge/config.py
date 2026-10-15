@@ -49,6 +49,7 @@ class Config:
     tags_config: str = "tags.yaml"
     heartbeat_s: float = 5.0          # contract: heartbeat every 5 s
     clock_ok_threshold_ms: float = 500.0
+    state_dir: str = "/var/lib/wds-edge"       # applied-cfg cache (cfg.json)
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -68,6 +69,7 @@ class Config:
             poll_ms=int(os.getenv("POLL_MS", "1000")),
             clock_skew_ms=float(os.getenv("EDGE_CLOCK_SKEW_MS", "0")),
             tags_config=os.getenv("TAGS_CONFIG", "tags.yaml"),
+            state_dir=os.getenv("STATE_DIR", "/var/lib/wds-edge"),
         )
 
     # -- doc 17 topic helpers -------------------------------------------------
@@ -82,6 +84,18 @@ class Config:
     @property
     def cmd_topic(self) -> str:
         return f"{self.prefix}/cmd/+"
+
+    @property
+    def cfg_topic(self) -> str:
+        return f"{self.prefix}/cfg"
+
+    @property
+    def cfg_req_topic(self) -> str:
+        return f"{self.prefix}/cfg-req"
+
+    @property
+    def cfg_ack_topic(self) -> str:
+        return f"{self.prefix}/cfg-ack"
 
     def tele_topic(self, tag_path: str) -> str:
         """tag_path is the site-relative path (area/line/device/signal)."""
