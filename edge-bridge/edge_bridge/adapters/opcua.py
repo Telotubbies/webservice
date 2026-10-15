@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -20,13 +21,37 @@ log = logging.getLogger("edge_bridge.opcua")
 try:
     from asyncua import ua  # type: ignore
     from asyncua.sync import Client as _Client  # type: ignore
+    from asyncua.sync import ThreadLoop as _ThreadLoop  # type: ignore
 except Exception:  # pragma: no cover - exercised only when lib missing
     ua = None  # type: ignore[assignment]
     _Client = None  # type: ignore[assignment]
+    _ThreadLoop = None  # type: ignore[assignment]
 
 BROWSE_MAX = 500
 SECURITY_UNSUPPORTED = "security_mode_not_supported_yet"
+USER_AUTH_PLAINTEXT = "user_auth_requires_encryption"
 _INT_TYPES = ("SByte", "Byte", "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64")
+
+
+def _val(dv):
+    """Value of a good DataValue, else None."""
+    try:
+        if dv.StatusCode.is_good() and dv.Value is not None:
+            return dv.Value.Value
+    except Exception:
+        pass
+    return None
+
+
+def _type_name(nid) -> str | None:
+    if nid is None:
+        return None
+    if getattr(nid, "NamespaceIndex", None) == 0 and isinstance(nid.Identifier, int):
+        try:
+            return ua.VariantType(nid.Identifier).name
+        except ValueError:
+            pass
+    return nid.to_string()
 
 
 class OpcUaAdapter(TagAdapter):
@@ -42,6 +67,8 @@ class OpcUaAdapter(TagAdapter):
         self._closed = False
         self._tags = dict(cfg.get("tags") or {})
         self.last_error: str | None = None
+        self._tloop = None
+        self.deadline: float | None = None  # time.monotonic(); set by ops
         if _Client is None:
             log.warning("asyncua not installed — opcua adapter will emit q=bad")
 
@@ -57,24 +84,55 @@ class OpcUaAdapter(TagAdapter):
             return None
         if self._client is not None:
             return self._client
-        timeout = float(self._cfg.get("timeout_ms", 4000)) / 1000.0
-        client = _Client(self._cfg["endpoint"], timeout=timeout)
         if self._cfg.get("auth") == "user":
-            client.set_user(self._cfg.get("username") or "")
-            client.set_password(self._cfg.get("password") or "")
+            # never send a password over an unencrypted channel
+            self.last_error = USER_AUTH_PLAINTEXT
+            return None
+        endpoint = self._cfg.get("endpoint")
+        if not isinstance(endpoint, str) or not endpoint:
+            self.last_error = "missing_endpoint"
+            return None
+        timeout = float(self._cfg.get("timeout_ms", 4000)) / 1000.0
+        rem = self._remaining()
+        if rem is not None:
+            timeout = max(0.1, min(timeout, rem))
+        # own the ThreadLoop so it is stopped on every failure path
+        tloop = _ThreadLoop()
+        tloop.start()
+        client = None
         try:
+            client = _Client(endpoint, timeout=timeout, tloop=tloop)
             client.connect()
         except Exception as exc:
-            self.last_error = f"{type(exc).__name__}: {exc}"
+            self.last_error = (f"connect_failed: {type(exc).__name__}"
+                               + (f": {exc}" if str(exc) else ""))
             log.warning("opcua connect failed: %s", self.last_error)
-            try:
-                client.disconnect()
-            except Exception:
-                pass
+            if client is not None:
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+            self._stop_loop(tloop)
             return None
         self._client = client
+        self._tloop = tloop
         self.last_error = None
         return client
+
+    @staticmethod
+    def _stop_loop(tloop) -> None:
+        try:
+            tloop.stop()
+        except Exception:
+            pass
+
+    def _remaining(self) -> float | None:
+        return None if self.deadline is None else self.deadline - time.monotonic()
+
+    def _check_deadline(self) -> None:
+        rem = self._remaining()
+        if rem is not None and rem <= 0:
+            raise TimeoutError("timeout")
 
     def _drop(self):
         if self._client is not None:
@@ -83,6 +141,9 @@ class OpcUaAdapter(TagAdapter):
             except Exception:
                 pass
             self._client = None
+        if self._tloop is not None:
+            self._stop_loop(self._tloop)
+            self._tloop = None
 
     # -- poll --------------------------------------------------------------
 
@@ -109,12 +170,12 @@ class OpcUaAdapter(TagAdapter):
         return [TagValue(name=n, v=results[n][0], q=results[n][1], ts=ts)  # type: ignore[arg-type]
                 for n in names]
 
-    @staticmethod
-    def _read_each(nodes) -> list:
+    def _read_each(self, nodes) -> list:
         """Batch failed (e.g. one bad node id): isolate it; if every node
         fails the connection itself is suspect."""
         out, failed = [], 0
         for nd in nodes:
+            self._check_deadline()
             try:
                 out.append(nd.read_value())
             except Exception:
@@ -188,29 +249,37 @@ class OpcUaAdapter(TagAdapter):
             if client is None:
                 raise ConnectionError(self.last_error or "adapter_unavailable")
             parent = client.get_node(node_id) if node_id else client.nodes.objects
+            kids = parent.get_children()[:BROWSE_MAX]
+            if not kids:
+                return []
+            self._check_deadline()
+            attr = ua.AttributeIds
+            classes = client.read_attributes(kids, attr.NodeClass)
+            names = client.read_attributes(kids, attr.BrowseName)
+            var_idx = [i for i, dv in enumerate(classes)
+                       if _val(dv) == ua.NodeClass.Variable.value]
+            types: dict[int, object] = {}
+            levels: dict[int, object] = {}
+            if var_idx:
+                self._check_deadline()
+                vn = [kids[i] for i in var_idx]
+                types = dict(zip(var_idx, client.read_attributes(vn, attr.DataType)))
+                levels = dict(zip(var_idx, client.read_attributes(vn, attr.UserAccessLevel)))
             items: list[dict] = []
-            for ch in parent.get_children():
-                if len(items) >= BROWSE_MAX:
-                    break
-                try:
-                    nc = ch.read_node_class()
-                    item = {"node_id": ch.nodeid.to_string(),
-                            "name": ch.read_browse_name().Name,
-                            "node_class": nc.name,
-                            "data_type": None, "writable": False}
-                    if nc == ua.NodeClass.Variable:
-                        try:
-                            item["data_type"] = ch.read_data_type_as_variant_type().name
-                        except Exception:
-                            pass
-                        try:
-                            item["writable"] = (
-                                ua.AccessLevel.CurrentWrite in ch.get_user_access_level())
-                        except Exception:
-                            pass
-                    items.append(item)
-                except Exception as exc:
-                    log.debug("opcua browse skip child: %s", exc)
+            for i, ch in enumerate(kids):
+                cls, bn = _val(classes[i]), _val(names[i])
+                if cls is None or bn is None:
+                    continue
+                item = {"node_id": ch.nodeid.to_string(), "name": bn.Name,
+                        "node_class": ua.NodeClass(cls).name,
+                        "data_type": None, "writable": False}
+                if i in types:
+                    item["data_type"] = _type_name(_val(types[i]))
+                    lv = _val(levels[i])
+                    if lv is not None:
+                        item["writable"] = (
+                            ua.AccessLevel.CurrentWrite in ua.AccessLevel.parse_bitfield(lv))
+                items.append(item)
             return items
 
     def tag_map(self) -> dict[str, dict]:

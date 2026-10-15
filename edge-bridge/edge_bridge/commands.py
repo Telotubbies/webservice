@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from datetime import datetime, timezone
 
@@ -32,6 +33,8 @@ _DEFAULT_TTL_S = 60.0        # used if the backend omits ttl_s
 _MAX_TTL_S = 3600.0          # bounded: an attacker-set year-long TTL is a time bomb
 _MAX_FUTURE_S = 2.0          # issued_at tolerance for harmless clock noise
 _IDEMPOTENCY_MAX = 1000      # SDLC 04 §5: remember last N command keys
+_OP_WORKERS = 2              # read-only ops (test_source/browse) run here
+_OP_INFLIGHT_MAX = 4         # queued + running; more get an immediate "busy"
 
 
 class CommandHandler:
@@ -45,6 +48,10 @@ class CommandHandler:
         self._seen: OrderedDict[str, tuple[str, str]] = OrderedDict()
         self.handled = 0
         self.denied = 0
+        self._op_pool = ThreadPoolExecutor(max_workers=_OP_WORKERS,
+                                           thread_name_prefix="edge-op")
+        self._op_lock = threading.Lock()
+        self._op_inflight = 0
 
     @property
     def cmd_topic(self) -> str:
@@ -74,14 +81,42 @@ class CommandHandler:
         """Worker thread: ops can block on the network for seconds, which
         must never stall the paho network thread."""
         try:
-            result = ops.run(op, payload)
-            status, reason = "acknowledged", "ok"
-        except ops.OpError as exc:
-            result, status, reason = None, "failed", str(exc)
-        except Exception as exc:  # noqa: BLE001 - always answer
-            log.exception("op crashed req_id=%s op=%s", req_id, op)
-            result, status, reason = None, "failed", f"internal:{exc}"
-        self._respond(req_id, status, reason, command_id, result)
+            try:
+                result = ops.run(op, payload)
+                status, reason = "acknowledged", "ok"
+            except ops.OpError as exc:
+                result, status, reason = None, "failed", str(exc)
+                if reason == "timeout":
+                    result = {"ok": False, "detail": "timeout"}
+            except Exception as exc:  # noqa: BLE001 - always answer
+                log.exception("op crashed req_id=%s op=%s", req_id, op)
+                result, status, reason = None, "failed", f"internal:{exc}"
+            self._respond(req_id, status, reason, command_id, result)
+        finally:
+            with self._op_lock:
+                self._op_inflight -= 1
+
+    def _submit_op(self, req_id: str, op: str, payload: dict,
+                   command_id: object) -> tuple[str, str]:
+        """Bounded: at most _OP_INFLIGHT_MAX ops queued+running, executed by
+        _OP_WORKERS threads. Over the cap -> immediate failed/busy."""
+        with self._op_lock:
+            if self._op_inflight >= _OP_INFLIGHT_MAX:
+                busy = True
+            else:
+                busy = False
+                self._op_inflight += 1
+        if busy:
+            self._respond(req_id, "failed", "busy", command_id,
+                          {"ok": False, "detail": "busy"})
+            return "pending", ""
+        try:
+            self._op_pool.submit(self._run_op, req_id, op, payload, command_id)
+        except RuntimeError:  # pool shut down
+            with self._op_lock:
+                self._op_inflight -= 1
+            return "failed", "shutting_down"
+        return "pending", ""
 
     def _respond(self, req_id: str, status: str, reason: str,
                  command_id: object, result: dict | None = None) -> None:
@@ -153,10 +188,8 @@ class CommandHandler:
 
         if op is not None:
             # read-only op on a throwaway adapter; answered from a worker
-            threading.Thread(target=self._run_op,
-                             args=(req_id, op, payload, command_id),
-                             name=f"edge-op-{req_id[:8]}", daemon=True).start()
-            return "pending", "", command_id
+            status, reason = self._submit_op(req_id, op, payload, command_id)
+            return status, reason, command_id
 
         idem = payload.get("idempotency_key")
         if idem is not None and idem in self._seen:

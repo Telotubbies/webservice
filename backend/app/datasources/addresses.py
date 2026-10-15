@@ -270,6 +270,10 @@ def validate_connection(protocol: str, conn: dict) -> dict:
         auth = conn.get("auth", "anonymous")
         if auth not in ("anonymous", "user"):
             raise AddressError("connection.auth", "must be anonymous or user")
+        if auth == "user" and sec == "none":
+            raise AddressError("connection.auth",
+                               "user auth requires security sign or signencrypt "
+                               "(passwords are never sent unencrypted)")
         return {"endpoint": ep.strip(), "security": sec, "auth": auth}
     if protocol == "modbus":
         _check_keys(conn, {"host", "port", "unit_id", "timeout_ms"}, "connection")

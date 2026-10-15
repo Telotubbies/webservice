@@ -6,6 +6,7 @@ import json
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -56,7 +57,8 @@ def test_test_source_unreachable_detail():
     src = _opcua_src(f"opc.tcp://127.0.0.1:{_free_port()}", timeout_ms=500)
     res = ops.run("test_source", {"source": src})
     assert res["ok"] is False and res["sample"][0]["q"] == "bad"
-    assert len(res["detail"]) > 5 and "ok" != res["detail"]
+    assert res["detail"].startswith("connect_failed:")
+    assert any(n in res["detail"] for n in ("TimeoutError", "ConnectionRefused", "OSError"))
 
 
 def test_test_source_ok_returns_sample(opc):
@@ -145,3 +147,100 @@ def test_command_channel_op_errors_and_unknown_op():
     h2.handle_message(_msg("c3", {"command_id": "c3", "op": "rm_rf",
                                   "issued_at": _now_iso()}))
     assert br2.out[0][1]["status"] == "failed" and br2.out[0][1]["reason"] == "unknown_op"
+
+
+def test_user_auth_without_encryption_never_connects(opc):
+    src = _opcua_src(opc["endpoint"], opc["node"], auth="user")
+    src["secrets"] = {"username": "u", "password": "p"}
+    res = ops.run("test_source", {"source": src})
+    assert res["ok"] is False and res["detail"] == "user_auth_requires_encryption"
+
+
+def test_missing_endpoint_is_bad_not_crash():
+    src = _opcua_src("x")
+    src["connection"].pop("endpoint")
+    res = ops.run("test_source", {"source": src})
+    assert res["ok"] is False and res["detail"] == "missing_endpoint"
+
+
+def test_browse_batched_attributes(opc):
+    items = ops.run("browse", {"source": _opcua_src(opc["endpoint"]),
+                               "node_id": None})["items"]
+    dev = next(i for i in items if i["name"] == "Dev")
+    kids = ops.run("browse", {"source": _opcua_src(opc["endpoint"]),
+                              "node_id": dev["node_id"]})["items"]
+    assert kids == [{"node_id": opc["node"], "name": "Speed", "node_class": "Variable",
+                     "data_type": "Double", "writable": False}]
+
+
+def test_op_deadline_expired_raises_timeout(opc):
+    with pytest.raises(ops.OpError, match="timeout"):
+        ops.run("test_source", {"source": _opcua_src(opc["endpoint"], opc["node"])},
+                deadline_s=-1)
+    with pytest.raises(ops.OpError, match="timeout"):
+        ops.run("browse", {"source": _opcua_src(opc["endpoint"])}, deadline_s=-1)
+
+
+def test_op_deadline_closes_adapter_and_replies_timeout(monkeypatch):
+    closed = []
+
+    class Slow:
+        deadline = None
+
+        def tag_map(self):
+            return {"t": {}}
+
+        def read_all(self):
+            time.sleep(0.3)
+            return []
+
+        def close(self):
+            closed.append(1)
+
+    monkeypatch.setattr(ops, "make_source_adapter", lambda s, site: Slow())
+    with pytest.raises(ops.OpError, match="timeout"):
+        ops.run("test_source", {"source": {"protocol": "sim"}}, deadline_s=0.05)
+    assert closed == [1]
+
+
+def test_command_channel_deadline_reply(monkeypatch):
+    def boom(op, payload):
+        raise ops.OpError("timeout")
+
+    monkeypatch.setattr(ops, "run", boom)
+    h, br = _handler()
+    h.handle_message(_msg("c4", {"command_id": "c4", "op": "browse",
+                                 "issued_at": _now_iso(), "ttl_s": 10, "source": {}}))
+    assert br.evt.wait(10)
+    resp = br.out[0][1]
+    assert resp["status"] == "failed" and resp["reason"] == "timeout"
+    assert resp["result"] == {"ok": False, "detail": "timeout"}
+
+
+def test_command_channel_busy_cap(monkeypatch):
+    gate = threading.Event()
+    started = threading.Semaphore(0)
+
+    def blocked(op, payload):
+        started.release()
+        gate.wait(10)
+        return {"items": []}
+
+    monkeypatch.setattr(ops, "run", blocked)
+    h, br = _handler()
+    for i in range(7):
+        h.handle_message(_msg(f"b{i}", {"command_id": f"b{i}", "op": "browse",
+                                        "issued_at": _now_iso(), "ttl_s": 10, "source": {}}))
+    # 2 workers running + 2 queued = 4 in flight; the other 3 are refused at once
+    assert started.acquire(timeout=5) and started.acquire(timeout=5)
+    busy = [r for _, r in br.out]
+    assert len(busy) == 3
+    assert all(r["status"] == "failed" and r["reason"] == "busy"
+               and r["result"] == {"ok": False, "detail": "busy"} for r in busy)
+    gate.set()
+    deadline = time.time() + 10
+    while len(br.out) < 7 and time.time() < deadline:
+        time.sleep(0.05)
+    assert len(br.out) == 7
+    assert sum(1 for _, r in br.out if r["status"] == "acknowledged") == 4
+    assert h._op_inflight == 0

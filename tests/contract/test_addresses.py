@@ -188,3 +188,12 @@ def test_normalized_modbus_resolves_on_edge(raw, tag_type):
 def test_edge_rejects_mismatched_modbus_datatype(addr):
     with pytest.raises(ValueError):
         _resolve({"address": addr})
+
+
+def test_opcua_user_auth_requires_encryption():
+    with pytest.raises(AddressError) as e:
+        validate_connection("opcua", {"endpoint": "opc.tcp://h:4840", "auth": "user"})
+    assert e.value.field == "connection.auth"
+    ok = validate_connection("opcua", {"endpoint": "opc.tcp://h:4840",
+                                       "security": "signencrypt", "auth": "user"})
+    assert ok["auth"] == "user"
