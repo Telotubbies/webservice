@@ -49,6 +49,7 @@ from .dynsec import (
 )
 from .insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
+from .datasources.publisher import CfgPublisher, parse_cfg_req
 from .datasources.routes import router as datasources_router, tags_notify_listener
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
@@ -247,6 +248,7 @@ class State:
         self.commands = CommandManager(pools, self.ws, self.mqtt, self.registry,
                                        cmd_limiter=self.cmd_limiter)
         self.alarms = AlarmEngine(pools, self.ws, self.registry)
+        self.cfgpub = CfgPublisher(pools, self.mqtt, self.registry)
         self.insights = InsightEngine(pools, self.ws, self.registry)
         self.auth = Security(pools, self.ws)  # v4 T5 — OIDC verify + authz
         self.history_buf: list[tuple] = []
@@ -312,12 +314,27 @@ async def _handle_message(st: State, msg) -> None:
     kind = parts[4]
     if kind == "hb" and len(parts) == 5:
         return await _handle_heartbeat(st, msg, edge)
+    if kind in ("cfg-req", "cfg-ack") and len(parts) == 5:
+        return await _handle_cfg(st, msg, edge, kind)
     if kind == "cmd-resp" and len(parts) == 6:
         return _handle_cmd_resp(st, msg, org_id, edge_id)
     if kind == "tele" and len(parts) >= 6:
         return await _handle_telemetry(st, msg, edge, "/".join(parts[5:]))
     return _count(st, "mqtt_bad_topic", "unrecognized v2 subtree — dropped",
                   topic=msg.topic)
+
+
+async def _handle_cfg(st: State, msg, edge, kind: str) -> None:
+    try:
+        payload = json.loads(msg.payload)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _count(st, "cfg_bad_payload", f"bad {kind} payload", topic=msg.topic)
+    if kind == "cfg-req":
+        valid, have = parse_cfg_req(payload)
+        if not valid:
+            return _count(st, "cfg_bad_payload", "bad cfg-req payload", topic=msg.topic)
+        return await st.cfgpub.on_request(edge, have)
+    await st.cfgpub.on_ack(edge, payload)
 
 
 async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
@@ -526,6 +543,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(rules_notify_listener(st.alarms)),
         # wds_tags NOTIFY -> registry refresh on data-source/tag CRUD (spec 5.6)
         asyncio.create_task(tags_notify_listener(st.registry, st.pools)),
+        # wds_cfg NOTIFY -> push edge config over MQTT (spec 5.4)
+        asyncio.create_task(st.cfgpub.start()),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
                                        "site": config.V1_SITE_CODE})

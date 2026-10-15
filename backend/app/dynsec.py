@@ -74,6 +74,11 @@ def edge_acls(org_id, site_id, edge_id) -> list[dict]:
         {"acltype": "publishClientSend", "topic": f"{p}/cmd-resp/+", "allow": True},
         {"acltype": "subscribePattern", "topic": f"{p}/cmd/+", "allow": True},
         {"acltype": "publishClientReceive", "topic": f"{p}/cmd/+", "allow": True},
+        # spec 5.4 config delivery
+        {"acltype": "subscribePattern", "topic": f"{p}/cfg", "allow": True},
+        {"acltype": "publishClientReceive", "topic": f"{p}/cfg", "allow": True},
+        {"acltype": "publishClientSend", "topic": f"{p}/cfg-req", "allow": True},
+        {"acltype": "publishClientSend", "topic": f"{p}/cfg-ack", "allow": True},
     ]
 
 
@@ -81,6 +86,7 @@ def edge_acls(org_id, site_id, edge_id) -> list[dict]:
 # shared ingest group) and publish commands; $CONTROL stays default-denied.
 BACKEND_ACLS = [
     {"acltype": "publishClientSend", "topic": "v2/+/+/+/cmd/+", "allow": True},
+    {"acltype": "publishClientSend", "topic": "v2/+/+/+/cfg", "allow": True},
     {"acltype": "subscribePattern", "topic": "v2/+/+/+/tele/#", "allow": True},
     {"acltype": "subscribePattern", "topic": "v2/+/+/+/hb", "allow": True},
     {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/tele/#", "allow": True},
@@ -89,6 +95,10 @@ BACKEND_ACLS = [
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/tele/#", "allow": True},
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/hb", "allow": True},
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/cmd-resp/+", "allow": True},
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/cfg-req", "allow": True},
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/cfg-ack", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/cfg-req", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/cfg-ack", "allow": True},
 ]
 
 # doc 17 §2 — svc-dynsec-admin is the ONLY $CONTROL identity. The

@@ -33,6 +33,8 @@ SUBSCRIPTIONS = (
     "$share/ingest/v2/+/+/+/tele/#",
     "$share/ingest/v2/+/+/+/hb",
     "$share/ingest/v2/+/+/+/cmd-resp/+",
+    "$share/ingest/v2/+/+/+/cfg-req",
+    "$share/ingest/v2/+/+/+/cfg-ack",
 )
 
 
@@ -154,4 +156,20 @@ class MQTTBridge:
             return ok
         except Exception:  # noqa: BLE001 — paho can raise on dead client
             log.exception("command publish raised")
+            return False
+
+    def publish_cfg(self, topic: str, payload: dict) -> bool:
+        """Publish edge config to `v2/{o}/{s}/{e}/cfg` (QoS1, retain=False —
+        an offline edge asks again with cfg-req). Never logs the payload: it
+        carries opened secrets."""
+        try:
+            info = self.client.publish(
+                topic, json.dumps(payload, separators=(",", ":")),
+                qos=1, retain=False)
+            ok = info.rc == mqtt.MQTT_ERR_SUCCESS
+            if not ok:
+                log.error("cfg publish failed", extra={"rc": info.rc, "topic": topic})
+            return ok
+        except Exception:  # noqa: BLE001
+            log.exception("cfg publish raised")
             return False
