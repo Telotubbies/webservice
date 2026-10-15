@@ -103,7 +103,9 @@ OIDC_REALM = OIDC_ISSUER.rstrip("/").rsplit("/", 1)[-1]
 # Public origin of the console (prod) — provision_idp adds it to wds-web.
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
-GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+# *_FILE wins (secret stays out of `docker inspect`, G9); env kept for dev.
+GOOGLE_CLIENT_SECRET = (_read_secret(os.environ.get("GOOGLE_CLIENT_SECRET_FILE"))
+                        or os.environ.get("GOOGLE_CLIENT_SECRET", "").strip())
 IDPS: list[str] = ["google"] if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET else []
 JWKS_TTL_S = float(os.environ.get("JWKS_TTL_S", "600"))        # ADR-12 §5
 JWKS_REFETCH_MIN_S = float(os.environ.get("JWKS_REFETCH_MIN_S", "30"))

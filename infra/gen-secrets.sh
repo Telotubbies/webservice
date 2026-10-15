@@ -81,6 +81,13 @@ gen_env kc_admin_pw    KC_ADMIN_PASSWORD           admin-dev-pass
 gen_env kc_demo_pw     KC_DEMO_PASSWORD            kc-demo-pass
 gen_env kc_db_pw       KC_DB_PASSWORD              kc-db-dev-pass
 
+# Google OAuth client secret (G9) — never random: empty = Google sign-in off.
+if [ ! -e "$DIR/google_client_secret" ] || [ "${FORCE:-0}" = "1" ]; then
+  printf '%s' "${GOOGLE_CLIENT_SECRET:-}" > "$DIR/google_client_secret"
+  chmod 0644 "$DIR/google_client_secret"
+  echo "  wrote $DIR/google_client_secret"
+fi
+
 # The dev-seeded edge's first dynsec username is deterministic
 # (edge-{V1_EDGE_ID}-v1, doc 17 §2) — write it as a secret file so compose
 # mounts it like every other identity; no secrets differ in kind.
