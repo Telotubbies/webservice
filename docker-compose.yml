@@ -220,9 +220,12 @@ services:
       KC_ADMIN: "${KC_ADMIN:-admin}"
       KC_ADMIN_PASSWORD_FILE: /run/secrets/kc_admin_pw
       KC_DEMO_PASSWORD_FILE: /run/secrets/kc_demo_pw
-      # Google sign-in via Keycloak brokering — off while empty (app.provision_idp).
+      # Google/Microsoft sign-in via Keycloak brokering — off while empty
+      # (app.provision_idp syncs each IdP into the realm).
       GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
       GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID:-}"
+      MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:-}"
     volumes:
       # Tag registry + alarm thresholds are operator-editable config, not
       # image content — single source for backend + edge-bridge.

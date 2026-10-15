@@ -3,17 +3,17 @@
 1. PUBLIC_URL set -> the `wds-web` client accepts redirects/origins for that
    origin (the realm JSON only knows localhost, so a real domain would fail
    with "Invalid redirect_uri").
-2. The `google` identity provider, as below.
+2. The `google` and `microsoft` identity providers, as below.
 
 Runs inside the backend container (`docker compose exec backend python -m
-app.provision_idp`). GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET set -> create or
-update the IdP; unset -> delete it, so Google sign-in is OFF by default and
-the realm JSON never carries a secret. Idempotent.
+app.provision_idp`). <PROVIDER>_CLIENT_ID + <PROVIDER>_CLIENT_SECRET set ->
+create or update that IdP; unset -> delete it, so social sign-in is OFF by
+default and the realm JSON never carries a secret. Idempotent.
 
-Keycloak brokers Google and issues OUR realm tokens, so JWT verification is
-unchanged. A first Google login creates a realm user (email/name imported by
-the built-in Google mapper); authorization still requires a `memberships`
-row — no roles are granted here.
+Keycloak brokers the provider and issues OUR realm tokens, so JWT
+verification is unchanged. A first social login creates a realm user
+(email/name imported by the built-in mapper); authorization still requires
+a `memberships` row — no roles are granted here.
 """
 
 from __future__ import annotations
@@ -25,16 +25,15 @@ from . import config
 from .seed_oidc import ADMIN, ADMIN_PW, KC_URL, REALM, _admin_req, _post_form, _wait_keycloak
 
 log = logging.getLogger("backend.provision_idp")
-ALIAS = "google"
 
 
-def idp_representation(client_id: str, client_secret: str) -> dict:
+def idp_representation(alias: str, client_id: str, client_secret: str) -> dict:
     return {
-        "alias": ALIAS,
-        "providerId": "google",
+        "alias": alias,
+        "providerId": alias,
         "enabled": True,
-        # Google only returns verified addresses; without this Keycloak would
-        # demand an email verification step and we ship no SMTP.
+        # Google/Microsoft return verified addresses; without this Keycloak
+        # would demand an email verification step and we ship no SMTP.
         "trustEmail": True,
         "firstBrokerLoginFlowAlias": "first broker login",
         "config": {
@@ -44,6 +43,16 @@ def idp_representation(client_id: str, client_secret: str) -> dict:
             "syncMode": "IMPORT",
         },
     }
+
+
+# alias -> (client id, client secret) from env; empty pair = disabled
+def _wanted_idps() -> dict[str, tuple[str, str]]:
+    out: dict[str, tuple[str, str]] = {}
+    if config.GOOGLE_CLIENT_ID and config.GOOGLE_CLIENT_SECRET:
+        out["google"] = (config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET)
+    if config.MICROSOFT_CLIENT_ID and config.MICROSOFT_CLIENT_SECRET:
+        out["microsoft"] = (config.MICROSOFT_CLIENT_ID, config.MICROSOFT_CLIENT_SECRET)
+    return out
 
 
 def web_client_with_origin(rep: dict, public_url: str) -> dict:
@@ -68,6 +77,31 @@ def sync_web_client(tok: str, public_url: str) -> None:
     log.info("wds-web client allows %s", public_url)
 
 
+def _sync_idp(tok: str, base: str, alias: str, wanted: tuple[str, str] | None) -> None:
+    try:
+        _admin_req("GET", f"{base}/{alias}", tok)
+        exists = True
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        exists = False
+
+    if wanted is None:
+        if exists:
+            _admin_req("DELETE", f"{base}/{alias}", tok)
+            log.info("%s idp removed (env unset)", alias)
+        else:
+            log.info("%s idp disabled (env unset)", alias)
+        return
+
+    rep = idp_representation(alias, *wanted)
+    if exists:
+        _admin_req("PUT", f"{base}/{alias}", tok, rep)
+    else:
+        _admin_req("POST", base, tok, rep)
+    log.info("%s idp provisioned", alias)
+
+
 def main() -> None:
     _wait_keycloak()
     tok = _post_form(
@@ -77,25 +111,9 @@ def main() -> None:
     if config.PUBLIC_URL:
         sync_web_client(tok, config.PUBLIC_URL)
     base = f"{KC_URL}/admin/realms/{REALM}/identity-provider/instances"
-    try:
-        _admin_req("GET", f"{base}/{ALIAS}", tok)
-        exists = True
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            raise
-        exists = False
-
-    if not config.IDPS:
-        if exists:
-            _admin_req("DELETE", f"{base}/{ALIAS}", tok)
-        log.info("google idp disabled (GOOGLE_CLIENT_ID/SECRET unset)")
-        return
-    rep = idp_representation(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET)
-    if exists:
-        _admin_req("PUT", f"{base}/{ALIAS}", tok, rep)
-    else:
-        _admin_req("POST", base, tok, rep)
-    log.info("google idp provisioned")
+    wanted = _wanted_idps()
+    for alias in ("google", "microsoft"):
+        _sync_idp(tok, base, alias, wanted.get(alias))
 
 
 if __name__ == "__main__":
