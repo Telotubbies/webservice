@@ -154,3 +154,37 @@ def test_connection_rejected(proto, conn, field):
     with pytest.raises(AddressError) as e:
         validate_connection(proto, conn)
     assert e.value.field == field
+
+
+# -- cross-component contract: normalized output must resolve on the edge --
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "edge-bridge"))
+from edge_bridge.adapters.modbus import _resolve  # noqa: E402
+
+
+@pytest.mark.parametrize("raw,tag_type", [
+    ("%QX0.0", "bool"), ("%IX1.2", "bool"), ("%QW2", "float"), ("%IW4", "float"),
+    ("40001", "float"), ("30005", "float"), ("10003", "bool"), ("17", "bool"),
+    ({"area": "holding_register", "index": 5, "datatype": "float32",
+      "word_order": "little"}, "float"),
+    ({"area": "holding_register", "index": 5, "datatype": "int32"}, "float"),
+    ({"area": "input_register", "index": 5, "datatype": "int16"}, "float"),
+    ({"area": "coil", "index": 3, "datatype": "bool"}, "bool"),
+    ({"area": "discrete_input", "index": 3}, "bool"),
+])
+def test_normalized_modbus_resolves_on_edge(raw, tag_type):
+    addr = parse_address("modbus", raw, tag_type)
+    r = _resolve({"address": addr})
+    assert r["type"] == addr["area"]
+    assert r["address"] == addr["index"]
+    assert r["datatype"] == addr["datatype"]
+    assert r["word_order"] == addr["word_order"]
+
+
+@pytest.mark.parametrize("addr", [
+    {"area": "coil", "index": 1, "datatype": "uint16"},
+    {"area": "holding_register", "index": 1, "datatype": "bool"},
+])
+def test_edge_rejects_mismatched_modbus_datatype(addr):
+    with pytest.raises(ValueError):
+        _resolve({"address": addr})

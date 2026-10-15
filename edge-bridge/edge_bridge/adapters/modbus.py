@@ -63,8 +63,12 @@ def _resolve(meta: dict) -> dict:
         area = addr.get("area", meta.get("type"))
         if area not in _READ_FC:
             raise ValueError(f"unknown modbus area: {area!r}")
-        dt = addr.get("datatype", "uint16")
-        if dt not in _DT_WORDS:
+        is_bit = area in ("coil", "discrete_input")
+        dt = addr.get("datatype", "bool" if is_bit else "uint16")
+        if is_bit:
+            if dt != "bool":
+                raise ValueError(f"bit area {area!r} requires datatype bool, got {dt!r}")
+        elif dt not in _DT_WORDS:
             raise ValueError(f"unknown modbus datatype: {dt!r}")
         return {"type": area, "address": _parse_address(addr["index"]),
                 "datatype": dt, "word_order": addr.get("word_order", "big")}

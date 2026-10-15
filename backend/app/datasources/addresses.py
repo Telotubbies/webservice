@@ -73,7 +73,7 @@ def _modbus(raw: object, tag_type: str) -> dict:
     if not isinstance(raw, str):
         raise AddressError("address", "must be a string or object")
     s = raw.strip()
-    m = re.fullmatch(r"%([QI])([XW])(\d+)(?:\.(\d+))?", s)
+    m = re.fullmatch(r"%([QI])([XW])([0-9]+)(?:\.([0-9]+))?", s)
     if m:
         io, kind, n, bit = m.group(1), m.group(2), int(m.group(3)), m.group(4)
         if kind == "X":
@@ -89,14 +89,14 @@ def _modbus(raw: object, tag_type: str) -> dict:
         if idx > 65535:
             raise AddressError("address", "index out of range")
         return _mb_build(area, idx, None, "big", tag_type)
-    if re.fullmatch(r"\d{5}", s) and s[0] in "0134":
+    if re.fullmatch(r"[0-9]{5}", s) and s[0] in "0134":
         n = int(s[1:])
         if not 1 <= n <= 65536:
             raise AddressError("address", "reference out of range")
         area = {"0": "coil", "1": "discrete_input",
                 "3": "input_register", "4": "holding_register"}[s[0]]
         return _mb_build(area, n - 1, None, "big", tag_type)
-    if re.fullmatch(r"\d{1,4}", s) and tag_type == "bool":
+    if re.fullmatch(r"[0-9]{1,4}", s) and tag_type == "bool":
         n = int(s)
         if n < 1:
             raise AddressError("address", "reference out of range")
@@ -155,14 +155,14 @@ def _s7(raw: object, tag_type: str) -> dict:
         suffix = suffix.lower()
         if suffix not in ("int", "dint", "real", "word"):
             raise AddressError("address", "type suffix must be :int, :dint, :real or :word")
-    m = re.fullmatch(r"DB(\d+)\.DB([XWD])(\d+)(?:\.(\d+))?", s, re.I)
+    m = re.fullmatch(r"DB([0-9]+)\.DB([XWD])([0-9]+)(?:\.([0-9]+))?", s, re.I)
     if m:
         area, db = "DB", int(m.group(1))
         kind, byte, bit = m.group(2).upper(), int(m.group(3)), m.group(4)
         if db < 1 or db > 65535:
             raise AddressError("address", "DB number out of range")
     else:
-        m = re.fullmatch(r"([MIQ])([WD])?(\d+)(?:\.(\d+))?", s, re.I)
+        m = re.fullmatch(r"([MIQ])([WD])?([0-9]+)(?:\.([0-9]+))?", s, re.I)
         if not m:
             raise AddressError("address", "unrecognized S7 address "
                                "(use DB1.DBX0.3, DB1.DBD4, MW10, I0.0, ...)")
@@ -201,7 +201,7 @@ def _s7(raw: object, tag_type: str) -> dict:
 
 # ------------------------------------------------------------------ opcua
 
-_NODE_ID = re.compile(r"ns=\d+;(?:s=.+|i=\d+|g=[0-9A-Fa-f-]{36}|b=[A-Za-z0-9+/=]+)")
+_NODE_ID = re.compile(r"ns=[0-9]+;(?:s=.+|i=[0-9]+|g=[0-9A-Fa-f-]{36}|b=[A-Za-z0-9+/=]+)")
 
 
 def _opcua(raw: object, tag_type: str) -> dict:
