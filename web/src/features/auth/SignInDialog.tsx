@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { signIn } from '../../app/session';
 import { authConfig } from './oidc';
-import { Icon } from '../../shared/ui/Icon';
 import './auth.css';
 
 export function SignInDialog({ open, onClose }: { open: boolean; onClose: () => void }) {

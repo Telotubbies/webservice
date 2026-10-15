@@ -161,9 +161,13 @@ export function signInWithSSO(): Promise<void> | undefined {
   return mgr?.signinRedirect();
 }
 
-/** kc_idp_hint makes Keycloak skip its chooser and go straight to Google. */
+/** kc_idp_hint makes Keycloak skip its chooser and go straight to the IdP. */
 export function signInWithGoogle(): Promise<void> | undefined {
   return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'google' } });
+}
+
+export function signInWithMicrosoft(): Promise<void> | undefined {
+  return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'microsoft' } });
 }
 
 export function signOutSSO(): Promise<void> | undefined {

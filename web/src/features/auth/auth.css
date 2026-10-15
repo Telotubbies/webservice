@@ -1,70 +1,156 @@
-/* Sign-in wall + dialog — account-chooser style: centered card on a quiet bg. */
+/* Sign-in wall — Hex app.hex.tech/login anatomy on the landing noir surface:
+   logo top-left, centered "Log in" (Space Grotesk 38px/700 white), corner-tick
+   panel (bg #1f1f29-ish, radius ~5px) with full-width SSO/Google rows, "or"
+   hairline divider, token field, sign-up link and 12px terms line below.
+   Requires ../landing/landing.css for --hx-* vars, .hx-noise/.hx-rail/.hx-corners. */
 
 .signin-wall {
-  min-height: 100svh; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 16px;
-  padding: 24px 16px; background: var(--color-paper);
-}
-.signin-card {
-  width: min(420px, 100%); background: #fff;
-  border: 1px solid var(--color-line); border-radius: 12px;
-  padding: 36px 32px 28px;
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
-  text-align: center;
-}
-@media (max-width: 480px) { .signin-card { padding: 28px 20px 20px; } }
-.brand-mark {
-  display: inline-grid; place-items: center; width: 36px; height: 36px;
-  flex: none;
-}
-.brand-mark img, .ld-mark img { width: 100%; height: 100%; object-fit: contain; }
-.signin-mark { width: 72px; height: 72px; }
-.signin-title { font-size: 24px; font-weight: 600; color: var(--color-ink); margin: 4px 0 0; }
-.signin-body { font-size: 14px; margin: 0; text-wrap: balance; }
-.signin-body.muted { color: #5d6670; }
-.signin-denied {
-  display: flex; gap: 8px; align-items: center; text-align: left;
-  background: #eef1f4; border-radius: 4px; padding: 8px 10px; color: var(--color-ink);
-}
-.signin-actions { width: 100%; display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
-.signin-choice {
-  width: 100%; height: auto; min-height: 44px; padding: 8px 16px;
-  justify-content: center; gap: 10px; text-wrap: balance;
-  font-size: 14px; font-weight: 600; border-radius: 6px;
-}
-.signin-google { background: #fff; color: #1f1f1f; border: 1px solid #747775; }
-.signin-google:hover { background: #f8fafd; }
-.signin-or {
-  width: 100%; display: flex; align-items: center; gap: 12px;
-  font-size: 12px; color: #5d6670; margin: 6px 0 2px;
-}
-.signin-or::before, .signin-or::after { content: ''; flex: 1; border-top: 1px solid var(--color-line); }
-.dev-signin { width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; }
-.dev-signin-label {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: .08em; color: #5d6670;
-}
-.dev-signin-row { display: flex; gap: 8px; }
-.dev-signin-row .token-input { flex: 1; min-width: 0; }
-.dev-signin-row > .btn { flex: 1; justify-content: center; border-style: dashed; }
-.dev-signin-demos { flex-wrap: wrap; }
-.dev-signin-demos > .btn { flex: 1 1 96px; white-space: nowrap; }
-.signin-btn { min-width: 88px; justify-content: center; }
-.token-input { font-family: var(--font-mono); }
-.hint { font-size: 11px; color: #5d6670; }
-.signin-foot {
-  width: min(420px, 100%); display: flex; justify-content: space-between; align-items: center;
-  font-size: 12px; color: #5d6670;
-}
-.signin-lang { display: flex; gap: 4px; }
-.signin-lang button {
-  padding: 6px 8px; border-radius: 4px; color: #5d6670; font-size: 12px; min-height: 32px;
-}
-.signin-lang button:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 1px; }
-.signin-lang button:hover { background: #eef1f4; color: var(--color-ink); }
-.signin-lang button[aria-pressed='true'] { color: var(--color-ink); font-weight: 600; }
+  /* token set duplicated from landing.css (.landing-root) — the wall renders
+     on routes where Landing never mounts, so it can't rely on that scope */
+  --hx-ink: #14141c;
+  --hx-ink-deep: #0f0f15;
+  --hx-panel: #1d1d29;
+  --hx-pink: #f5c0c0;
+  --hx-pink-dim: #e3b2b3;
+  --hx-mauve: #ad8eb6;
+  --hx-line: #3a3138;
+  --hx-ease: cubic-bezier(.25, .1, .25, 1);
 
-/* dialog variant */
+  position: relative; min-height: 100svh; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 96px 16px 60px; background: var(--hx-ink);
+  font-family: "IBM Plex Sans", "IBM Plex Sans Thai", ui-sans-serif, sans-serif;
+}
+.signin-noir .hx-noise { position: fixed; }
+
+/* Hex login canvas: one 1px pink hairline per 290px tile (to-left gradient at
+   x145 of a 290×290 tile) + 1px pink frame at the viewport edges (their
+   OnboardingElements VerticalBorders/HorizontalBorders at ~.15 opacity) */
+.signin-stripes {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: linear-gradient(to left,
+    transparent 145px, rgba(245, 192, 192, .2) 145px, transparent 146px);
+  background-size: 290px 290px;
+}
+.signin-frame {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  border: 1px solid rgba(245, 192, 192, .15);
+}
+
+/* logo top-left (cf. Hex's corner wordmark) + lang switch top-right */
+.signin-brand { position: absolute; top: 20px; left: 28px; text-decoration: none; z-index: 2; }
+.signin-lang { position: absolute; top: 26px; right: 28px; display: flex; gap: 2px; z-index: 2; }
+.signin-lang button {
+  background: none; border: none; cursor: pointer; padding: 4px 7px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px;
+  color: var(--hx-pink); opacity: .5; transition: opacity .2s;
+}
+.signin-lang button:hover { opacity: 1; }
+.signin-lang button[aria-pressed='true'] { opacity: 1; box-shadow: inset 0 0 0 1px var(--hx-line); }
+.signin-lang button:focus-visible { outline: 1px solid var(--hx-pink); outline-offset: 1px; }
+
+/* headline */
+.signin-title {
+  margin: 60px 0 0; position: relative; z-index: 1;
+  font-family: "Space Grotesk", "IBM Plex Sans Thai", sans-serif;
+  font-size: 38px; font-weight: 700; letter-spacing: -0.02em;
+  color: #fff; line-height: 1.16; text-align: center;
+}
+
+/* corner-tick panel — Hex card: ~330px, dark fill, hairline */
+.signin-card {
+  position: relative; z-index: 1; margin-top: 34px;
+  width: min(340px, 100%);
+  background: #1a1a24;
+  border: 1px solid var(--hx-line);
+  padding: 22px 22px 24px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+/* the corner-tick overlay spans the whole card — never let it eat clicks */
+.signin-card .hx-corners { opacity: 1; pointer-events: none; }
+.signin-card .hx-corners i { border-color: var(--hx-line); }
+
+/* provider rows — bg #1f1f29, 3px radius, pink text (cf. Hex buttons) */
+.signin-actions { display: flex; flex-direction: column; gap: 10px; }
+.signin-choice {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  width: 100%; min-height: 32px; padding: 6px 14px;
+  background: #1f1f29; color: #e4e6ec;
+  border: 1px solid var(--hx-line); border-radius: 3px;
+  font-family: inherit; font-size: 14px; font-weight: 400;
+  cursor: pointer; transition: background .18s ease, border-color .18s ease;
+}
+.signin-choice:hover { background: #262633; border-color: rgba(245,192,192,.35); }
+.signin-choice:focus-visible { outline: 1px solid var(--hx-pink); outline-offset: 2px; }
+.signin-choice[disabled], .signin-choice[aria-disabled='true'] { opacity: .6; cursor: progress; }
+.signin-primary { border-color: rgba(245,192,192,.4); color: var(--hx-pink); }
+
+/* divider — hairline + text (cf. "or log in with email") */
+.signin-or {
+  display: flex; align-items: center; gap: 12px; margin: 8px 0 2px;
+  font-size: 12px; color: rgba(227,178,179,.55);
+}
+.signin-or::before, .signin-or::after { content: ''; flex: 1; border-top: 1px solid var(--hx-line); }
+
+/* token field — dark input inside the panel */
+.dev-signin { display: flex; flex-direction: column; gap: 9px; text-align: left; }
+.dev-signin-label { font-size: 14px; color: #e4e6ec; }
+.dev-input {
+  width: 100%; height: 30px; padding: 4px 10px;
+  background: #1f1f29; color: #e4e6ec;
+  border: 1px solid var(--hx-line); border-radius: 3px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px;
+}
+.dev-input::placeholder { color: #6a5f6e; }
+.dev-input:focus-visible { outline: 1px solid var(--hx-pink); outline-offset: 1px; border-color: rgba(245,192,192,.45); }
+.dev-input[aria-invalid='true'] { border-color: #d97b7b; }
+.dev-signin-demos { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.dev-demo {
+  flex: 1 1 84px; padding: 6px 8px; white-space: nowrap; cursor: pointer;
+  background: none; border: 1px dashed var(--hx-line); border-radius: 3px;
+  color: var(--hx-pink-dim); font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  transition: border-color .18s ease, color .18s ease;
+}
+.dev-demo:hover { border-color: rgba(245,192,192,.5); color: var(--hx-pink); }
+.hint { font-size: 11px; color: rgba(227,178,179,.5); }
+
+/* denied / error callout — dark neutral panel */
+.signin-denied {
+  display: flex; gap: 8px; align-items: flex-start; text-align: left;
+  background: #1f1f29; border: 1px solid var(--hx-line); border-radius: 4px;
+  padding: 10px 12px; color: var(--hx-pink-dim); font-size: 13.5px;
+}
+.signin-denied > svg { flex: none; margin-top: 2px; }
+.signin-denied p { margin: 0; line-height: 1.6; }
+.signin-denied p + p { margin-top: 6px; }
+.signin-denied-box { width: 100%; }
+.signin-who strong { color: var(--hx-pink); overflow-wrap: anywhere; }
+.signin-still { min-height: 1.4em; margin: 0; font-size: 12.5px; color: var(--hx-pink); opacity: .8; }
+#signin-bad-token { border-color: rgba(217,123,123,.45); color: #e8a9a9; }
+
+/* below-card sign-up link + terms line (pink 12-14px, centered) */
+.signin-signup {
+  position: relative; z-index: 1; margin-top: 26px;
+  font-size: 14px; color: var(--hx-pink); text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.signin-signup:hover { color: #fff; }
+.signin-terms {
+  position: relative; z-index: 1; margin-top: auto; padding-top: 56px;
+  max-width: 380px; text-align: center;
+  font-size: 12px; line-height: 1.7; color: var(--hx-pink);
+}
+.signin-terms a { color: var(--hx-pink); text-decoration: underline; text-underline-offset: 3px; }
+.signin-terms a:hover { color: #fff; }
+
+@media (max-width: 480px) {
+  .signin-wall { padding-top: 80px; }
+  .signin-card { width: 100%; }
+  .signin-title { font-size: 30px; }
+}
+.signin-wall :lang(th), .signin-wall:lang(th) { line-height: 1.6; }
+
+/* dialog variant (kept for SignInDialog) */
 .auth-dialog-mark { width: 32px; height: 32px; }
 .auth-dialog-title { display: flex; flex-direction: column; }
 .auth-dialog-title h2 { font-size: 15px; font-weight: 700; margin: 0; }
