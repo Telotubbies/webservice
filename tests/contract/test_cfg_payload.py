@@ -14,6 +14,7 @@ from app.datasources.publisher import (  # noqa: E402
     parse_cfg_ack,
     parse_cfg_req,
     should_send,
+    stale_publish,
 )
 from app.dynsec import BACKEND_ACLS, edge_acls  # noqa: E402
 from app.mqtt_client import SUBSCRIPTIONS  # noqa: E402
@@ -108,3 +109,23 @@ def test_topic_and_acls():
     for leaf in ("cfg-req", "cfg-ack"):
         assert f"$share/ingest/v2/+/+/+/{leaf}" in SUBSCRIPTIONS
         assert ("subscribePattern", f"$share/ingest/v2/+/+/+/{leaf}") in b
+
+
+def test_stale_publish_skip_rule():
+    assert stale_publish(5, 6)
+    assert not stale_publish(6, 6) and not stale_publish(7, 6) and not stale_publish(0, None)
+
+
+def test_malformed_cfg_messages_are_counted_not_raised():
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.main import _handle_cfg, new_ingest_counters
+
+    assert "cfg_bad_payload" in new_ingest_counters()
+    st = SimpleNamespace(counters=new_ingest_counters(), cfgpub=None)
+    edge = SimpleNamespace(id="e")
+    for kind, payload in (("cfg-req", b"not json"), ("cfg-req", b'{"have_version":"x"}')):
+        msg = SimpleNamespace(topic=f"v2/o/s/e/{kind}", payload=payload)
+        asyncio.run(_handle_cfg(st, msg, edge, kind))
+    assert st.counters["cfg_bad_payload"] == 2

@@ -6,6 +6,7 @@ throw-away edge so the seeded edge's config_version is left alone.
 
 import json
 import queue
+import time
 import uuid
 
 import pytest
@@ -26,9 +27,17 @@ class FakeEdge:
         self.c.username_pw_set(username, secret)
         self.c.tls_set(ca_certs=MQTT_CA_FILE)
         self.c.on_message = lambda c, u, m: self.cfgs.put(json.loads(m.payload))
-        self.c.on_connect = lambda c, u, f, rc, p: c.subscribe(f"{self.prefix}/cfg", qos=1)
+        self.c.on_connect = lambda c, u, f, rc, p: (
+            c.subscribe(f"{self.prefix}/cfg", qos=1) if not rc.is_failure
+            else self.subacks.put(rc))
+        self.c.on_subscribe = lambda c, u, mid, rcs, p: self.subacks.put(
+            rcs[0] if rcs else None)
         self.c.connect(MQTT_HOST, MQTT_PORT, keepalive=15)
         self.c.loop_start()
+
+    def wait_ready(self, timeout=10):
+        rc = self.subacks.get(timeout=timeout)
+        assert rc is not None and not rc.is_failure, f"connect/subscribe refused: {rc}"
 
     def req(self, have):
         self.c.publish(f"{self.prefix}/cfg-req", json.dumps({"have_version": have}), qos=1)
@@ -57,10 +66,16 @@ def edge(api, admin_headers):
         def up():
             nonlocal fe
             try:
-                fe = FakeEdge(e["id"], e["mqtt_username"], secret)
-                return True
+                cand = FakeEdge(e["id"], e["mqtt_username"], secret)
             except Exception:
                 return False
+            try:
+                cand.wait_ready()
+            except Exception:
+                cand.stop()
+                return False
+            fe = cand
+            return True
         wait_until(up, 30, desc="edge credential connects")
         yield e, fe
     finally:
@@ -104,13 +119,17 @@ def test_cfg_req_current_gets_nothing(api, admin_headers, edge):
         fe.get(timeout=3)
 
 
+def _edge_row(api, headers, eid):
+    r = api.get(f"/api/v1/orgs/{ORG_ID}/sites/{SITE_ID}/edges", headers=headers)
+    return next(x for x in r.json()["items"] if x["id"] == eid)
+
+
 def test_ack_updates_applied_and_source_status(api, admin_headers, edge):
     e, fe = edge
     good, _ = _mk_source(api, admin_headers, e["id"])
-    bad, _ = _mk_source(api, admin_headers, e["id"])
-    wait_until(lambda: fe.cfgs.qsize() > 0, 10)
-    version = None
-    while not fe.cfgs.empty():
+    bad, want = _mk_source(api, admin_headers, e["id"])
+    version = 0
+    while version < want:
         version = fe.get()["version"]
     fe.ack(version, ok=False, errors=[{"source_id": bad["id"], "detail": "connection refused"}])
 
@@ -121,10 +140,12 @@ def test_ack_updates_applied_and_source_status(api, admin_headers, edge):
                 and by[bad["id"]]["status_detail"] == "connection refused"
                 and by[good["id"]]["status"] == "ok")
     wait_until(seen, 10, desc="per-source status from ack")
+    wait_until(lambda: _edge_row(api, admin_headers, e["id"])["config_applied"] == version,
+               10, desc="config_applied from ack")
+    assert _edge_row(api, admin_headers, e["id"])["config_error"]
 
     # an ack for a version the backend never issued is ignored
     fe.ack(version + 1000)
-    r = api.get(f"/api/v1/orgs/{ORG_ID}/sites/{SITE_ID}/edges", headers=admin_headers)
-    mine = next(x for x in r.json()["items"] if x["id"] == e["id"])
-    if "config_applied" in mine:
-        assert mine["config_applied"] == version
+    time.sleep(1)
+    row = _edge_row(api, admin_headers, e["id"])
+    assert row["config_applied"] == version

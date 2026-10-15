@@ -25,7 +25,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    _raw("""DROP POLICY IF EXISTS system_ds_status ON data_sources;
-    REVOKE UPDATE (status, status_detail, status_at) ON data_sources FROM wds_system;
+    _raw("""REVOKE UPDATE (status, status_detail, status_at) ON data_sources FROM wds_system;
     REVOKE UPDATE (config_applied, config_error) ON edges FROM wds_system;
     REVOKE SELECT (config_version, config_applied, config_error) ON edges FROM wds_system;""")

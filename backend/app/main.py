@@ -254,11 +254,7 @@ class State:
         self.history_buf: list[tuple] = []
         self.edge = {"last_rx": None, "last_heartbeat_ts": None, "clock_ok": None,
                      "adapter": None}
-        self.counters = {"telemetry_unknown_tag": 0, "telemetry_bad_payload": 0,
-                         "telemetry_future_ts": 0, "telemetry_too_old": 0,
-                         # doc 17 §4 — security events, counted + logged
-                         "mqtt_topic_identity_mismatch": 0,
-                         "mqtt_bad_topic": 0}
+        self.counters = new_ingest_counters()
         self.db_ok = True
 
     def edge_status(self) -> str:
@@ -275,6 +271,15 @@ class State:
 # ---------------------------------------------------------------------------
 # Ingest
 # ---------------------------------------------------------------------------
+def new_ingest_counters() -> dict:
+    return {"telemetry_unknown_tag": 0, "telemetry_bad_payload": 0,
+            "telemetry_future_ts": 0, "telemetry_too_old": 0,
+            # doc 17 §4 — security events, counted + logged
+            "mqtt_topic_identity_mismatch": 0,
+            "mqtt_bad_topic": 0,
+            "cfg_bad_payload": 0}
+
+
 def _count(st: State, key: str, msg: str, **extra) -> None:
     st.counters[key] += 1
     if st.counters[key] % 100 == 1:
@@ -1111,6 +1116,8 @@ def _edge_json(r, latest_ident=None) -> dict:
         "credential_version": r["credential_version"],
         "last_hb_at": iso_z(r["last_hb_at"]) if r["last_hb_at"] else None,
         "clock_ok": r["clock_ok"], "adapter": r["adapter"],
+        **({"config_version": r["config_version"], "config_applied": r["config_applied"],
+            "config_error": r["config_error"]} if "config_version" in r.keys() else {}),
         # the reconciler recreated a lost credential: broker is live, nobody
         # holds the secret — rotate to regain access (doc 17 §6)
         "needs_rotation": bool(latest_ident and not latest_ident["secret_issued"]),

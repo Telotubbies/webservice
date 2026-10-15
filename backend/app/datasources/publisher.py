@@ -66,6 +66,11 @@ def parse_cfg_req(raw) -> tuple[bool, int | None]:
     return False, None
 
 
+def stale_publish(version: int, last_sent: int | None) -> bool:
+    """True when publishing `version` would regress what was already sent."""
+    return last_sent is not None and version < last_sent
+
+
 def should_send(have_version: int | None, current: int) -> bool:
     return have_version is None or have_version < current
 
@@ -122,8 +127,10 @@ def parse_cfg_ack(raw) -> Ack | None:
 
 # --------------------------------------------------------------------- db
 async def build_cfg(pool, org_id: UUID, edge_id: UUID) -> dict:
-    """Full config for one edge, read in a single tx (consistent with the
-    version). `pool` must be the system pool (RLS via tenant_tx)."""
+    """Full config for one edge. Runs at READ COMMITTED (tenant_tx has already
+    issued a query, so the isolation level cannot be raised), and the version
+    is read first: data can only be newer than the label, never older, and the
+    newer bump's own NOTIFY re-publishes. `pool` must be the system pool."""
     async with tenant_tx(pool, org_id) as tc:
         version = await tc.fetchval(
             "SELECT config_version FROM edges WHERE id=$1", edge_id)
@@ -150,16 +157,22 @@ class CfgPublisher:
         self.mqtt = mqtt
         self.registry = registry
         self._sent: dict[UUID, int] = {}  # edge -> last version published
+        self._locks: dict[UUID, asyncio.Lock] = {}
 
     async def publish_edge(self, org_id: UUID, site_id: UUID, edge_id: UUID) -> bool:
-        cfg = await build_cfg(self.pools.system, org_id, edge_id)
-        ok = self.mqtt.publish_cfg(cfg_topic(org_id, site_id, edge_id), cfg)
-        if ok:
-            self._sent[edge_id] = cfg["version"]
-            log.info("cfg published", extra={
-                "edge_id": str(edge_id), "version": cfg["version"],
-                "sources": len(cfg["sources"])})
-        return ok
+        # serialize build+publish per edge: a slower, older build must not be
+        # published after a newer one
+        async with self._locks.setdefault(edge_id, asyncio.Lock()):
+            cfg = await build_cfg(self.pools.system, org_id, edge_id)
+            if stale_publish(cfg["version"], self._sent.get(edge_id)):
+                return False
+            ok = self.mqtt.publish_cfg(cfg_topic(org_id, site_id, edge_id), cfg)
+            if ok:
+                self._sent[edge_id] = cfg["version"]
+                log.info("cfg published", extra={
+                    "edge_id": str(edge_id), "version": cfg["version"],
+                    "sources": len(cfg["sources"])})
+            return ok
 
     async def publish_edge_id(self, edge_id: UUID) -> None:
         edge = self.registry.edge(edge_id)
