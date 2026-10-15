@@ -100,7 +100,7 @@ export function Landing() {
 
       <nav className="ld-nav">
         <Link to="/" className="ld-nav-logo">
-          <span className="ld-mark"><Icon name="plant" size={16} /></span>
+          <span className="ld-mark"><img src="/logo-192.png" alt="" /></span>
           <b>Plant Ops OS</b>
         </Link>
         <div className="ld-nav-links">

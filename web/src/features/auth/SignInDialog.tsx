@@ -29,7 +29,7 @@ export function SignInDialog({ open, onClose }: { open: boolean; onClose: () => 
     <dialog ref={ref} className="dialog auth-dialog" aria-labelledby="signin-title" onCancel={(e) => { e.preventDefault(); onClose(); }}>
       <form onSubmit={(e) => { e.preventDefault(); if (token.trim()) { signIn(token); onClose(); } }}>
         <div className="dialog-head">
-          <span className="brand-mark auth-dialog-mark"><Icon name="plant" size={18} /></span>
+          <span className="brand-mark auth-dialog-mark"><img src="/logo-192.png" alt="" /></span>
           <div className="auth-dialog-title">
             <h2 id="signin-title">{t('auth.title')}</h2>
             {cfg?.dev_tokens && <span className="dev-signin-label">{t('auth.devTitle')}</span>}

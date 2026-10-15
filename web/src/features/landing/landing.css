@@ -55,8 +55,8 @@
 }
 .ld-nav-logo { display: flex; align-items: center; gap: 10px; color: var(--ld-paper); text-decoration: none; }
 .ld-nav-logo .ld-mark {
-  display: grid; place-items: center; width: 28px; height: 28px;
-  border-radius: 8px; background: var(--ld-volt); color: #0b0b0b;
+  display: grid; place-items: center; width: 34px; height: 34px;
+  flex: none;
 }
 .ld-nav-logo b { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
 .ld-nav-links { display: flex; gap: 2px; margin-left: 24px; }

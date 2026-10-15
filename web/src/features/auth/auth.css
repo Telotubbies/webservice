@@ -15,9 +15,10 @@
 @media (max-width: 480px) { .signin-card { padding: 28px 20px 20px; } }
 .brand-mark {
   display: inline-grid; place-items: center; width: 36px; height: 36px;
-  border-radius: 6px; background: var(--color-blue); color: #fff;
+  flex: none;
 }
-.signin-mark { width: 44px; height: 44px; border-radius: 10px; }
+.brand-mark img, .ld-mark img { width: 100%; height: 100%; object-fit: contain; }
+.signin-mark { width: 72px; height: 72px; }
 .signin-title { font-size: 24px; font-weight: 600; color: var(--color-ink); margin: 4px 0 0; }
 .signin-body { font-size: 14px; margin: 0; text-wrap: balance; }
 .signin-body.muted { color: #5d6670; }

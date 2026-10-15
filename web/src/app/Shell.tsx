@@ -384,8 +384,8 @@ export function Shell() {
           Below md the rail hides and nav opens as a slide-over drawer. */}
       <nav className="fixed bottom-0 left-0 top-0 z-30 hidden w-40 flex-col bg-rail px-1.5 md:flex">
         <NavLink to="/" className="flex h-16 items-center gap-2 px-1.5 text-white">
-          <span className="brand-mark" style={{ width: 26, height: 26 }}>
-            <Icon name="plant" size={16} />
+          <span className="brand-mark" style={{ width: 30, height: 30 }}>
+            <img src="/logo-192.png" alt="" />
           </span>
           <span className="flex flex-col leading-none">
             <span className="text-[13px] font-bold tracking-tight">Plant Ops OS</span>
@@ -430,8 +430,8 @@ export function Shell() {
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-rail px-1.5 outline-none transition-transform duration-200 ease-out md:hidden ${navOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="flex h-16 items-center gap-2 px-1.5 text-white">
-          <span className="brand-mark" style={{ width: 26, height: 26 }}>
-            <Icon name="plant" size={16} />
+          <span className="brand-mark" style={{ width: 30, height: 30 }}>
+            <img src="/logo-192.png" alt="" />
           </span>
           <span className="flex flex-col leading-none">
             <span className="text-[13px] font-bold tracking-tight">Plant Ops OS</span>

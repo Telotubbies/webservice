@@ -55,7 +55,7 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
   return (
     <div className="signin-wall">
       <main className="signin-card">
-        <span className="brand-mark signin-mark"><Icon name="plant" size={26} /></span>
+        <span className="brand-mark signin-mark"><img src="/logo-192.png" alt="" /></span>
         <h1 className="signin-title">{t('auth.title')}</h1>
         {denied ? (
           // account state, not an alarm — neutral callout, role=alert so the
