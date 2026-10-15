@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import struct
 import threading
 from datetime import datetime, timezone
 from typing import Callable
@@ -48,6 +49,48 @@ def _parse_address(addr: object) -> int:
         raise ValueError(f"unparseable modbus address: {addr!r}")
     base, bit = int(m.group(1)), m.group(2)
     return base * 8 + int(bit) if bit is not None else base
+
+
+_DT_WORDS = {"int16": 1, "uint16": 1, "int32": 2, "uint32": 2, "float32": 2}
+_DT_FMT = {"int16": "h", "uint16": "H", "int32": "i", "uint32": "I", "float32": "f"}
+
+
+def _resolve(meta: dict) -> dict:
+    """Normalize a tag meta (legacy string address or address dict) to
+    {type, address, datatype, word_order}."""
+    addr = meta["address"]
+    if isinstance(addr, dict):
+        area = addr.get("area", meta.get("type"))
+        if area not in _READ_FC:
+            raise ValueError(f"unknown modbus area: {area!r}")
+        dt = addr.get("datatype", "uint16")
+        if dt not in _DT_WORDS:
+            raise ValueError(f"unknown modbus datatype: {dt!r}")
+        return {"type": area, "address": _parse_address(addr["index"]),
+                "datatype": dt, "word_order": addr.get("word_order", "big")}
+    dt = meta.get("datatype", "uint16")
+    if dt not in _DT_WORDS:
+        raise ValueError(f"unknown modbus datatype: {dt!r}")
+    return {"type": meta["type"], "address": _parse_address(addr),
+            "datatype": dt, "word_order": meta.get("word_order", "big")}
+
+
+def _decode(regs: list[int], datatype: str, word_order: str) -> float | int:
+    n = _DT_WORDS[datatype]
+    words = list(regs[:n])
+    if n == 2 and word_order == "little":
+        words.reverse()
+    raw = b"".join(struct.pack(">H", w & 0xFFFF) for w in words)
+    return struct.unpack(">" + _DT_FMT[datatype], raw)[0]
+
+
+def _encode(value: float, datatype: str, word_order: str) -> list[int]:
+    fmt = ">" + _DT_FMT[datatype]
+    raw = struct.pack(fmt, float(value) if datatype == "float32" else int(round(value)))
+    words = list(struct.unpack(">" + "H" * (len(raw) // 2), raw))
+    if len(words) == 2 and word_order == "little":
+        words.reverse()
+    return words
 
 
 class ModbusAdapter(TagAdapter):
@@ -104,17 +147,20 @@ class ModbusAdapter(TagAdapter):
         return values
 
     def _read_one(self, client, meta: dict) -> tuple[float | bool, Quality]:
-        fc = _READ_FC[meta["type"]]
-        address = _parse_address(meta["address"])
-        count = int(meta.get("count", 1))
-        resp = getattr(client, fc)(address, count=count,
+        r = _resolve(meta)
+        fc = _READ_FC[r["type"]]
+        is_bit = r["type"] in ("coil", "discrete_input")
+        count = 1 if is_bit else int(meta.get("count", _DT_WORDS[r["datatype"]]))
+        resp = getattr(client, fc)(r["address"], count=count,
                                    slave=int(self._cfg.get("unit_id", 1)))
         if resp.isError():
             return 0.0, Quality.BAD
-        raw = resp.bits[0] if hasattr(resp, "bits") else resp.registers[0]
+        if is_bit:
+            return bool(resp.bits[0]), Quality.GOOD
+        raw = _decode(resp.registers, r["datatype"], r["word_order"])
         scale = float(meta.get("scale", 1.0))
-        v = bool(raw) if meta["type"] in ("coil", "discrete_input") else raw * scale
-        return v, Quality.GOOD
+        offset = float(meta.get("offset", 0.0))
+        return raw * scale + offset, Quality.GOOD
 
     # -- command write-back --------------------------------------------------
 
@@ -134,14 +180,21 @@ class ModbusAdapter(TagAdapter):
         if client is None:
             return WriteResult.denied("adapter_unavailable")
 
-        address = _parse_address(meta["address"])
-        if meta["type"] == "coil":
-            resp = client.write_coil(address, bool(value),
-                                     slave=int(self._cfg.get("unit_id", 1)))
-        elif meta["type"] == "holding_register":
-            scale = float(meta.get("scale", 1.0))
-            resp = client.write_register(address, int(float(value) / scale),
-                                         slave=int(self._cfg.get("unit_id", 1)))
+        try:
+            r = _resolve(meta)
+        except (ValueError, KeyError):
+            return WriteResult.denied("bad_address")
+        unit = int(self._cfg.get("unit_id", 1))
+        if r["type"] == "coil":
+            resp = client.write_coil(r["address"], bool(value), slave=unit)
+        elif r["type"] == "holding_register":
+            scale = float(meta.get("scale", 1.0)) or 1.0
+            raw = (float(value) - float(meta.get("offset", 0.0))) / scale
+            words = _encode(raw, r["datatype"], r["word_order"])
+            if len(words) == 1:
+                resp = client.write_register(r["address"], words[0], slave=unit)
+            else:
+                resp = client.write_registers(r["address"], words, slave=unit)
         else:
             # discrete_input / input_register are never writable by Modbus
             return WriteResult.denied("not_writable")

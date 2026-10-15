@@ -50,6 +50,12 @@ _DEFAULT_TAGS: dict[str, dict] = {
     },
 }
 
+_LEGACY_TAILS = (
+    "sort.line1.motor1.running", "sort.line1.motor1.speed_sp",
+    "sort.line1.conv1.speed_mps", "sort.line1.conv1.temp_c",
+    "sort.line1.bin1.level_pct", "sort.vision.cam1.gravel_ratio",
+)
+
 # Simple conveyor physics — tuned so ~30 s of running at 45 Hz pushes
 # temp_c past the seeded 80 degC alarm rule.
 _BELT_MAX_MPS = 2.5        # belt speed at 60 Hz setpoint
@@ -150,6 +156,16 @@ class SimAdapter(TagAdapter):
         return f"{self._site}.{tail}"
 
     def _tick(self, dt: float) -> None:
+        if self._tag("sort.line1.motor1.running") in self._values and all(
+                self._tag(t) in self._values for t in _LEGACY_TAILS):
+            self._tick_sorting_line(dt)
+        legacy = {self._tag(t) for t in _LEGACY_TAILS}
+        for tag, meta in self._tags.items():
+            if meta.get("behavior") == "random_walk" and tag not in legacy:
+                v = float(self._values[tag]) + random.uniform(-_GRAVEL_STEP, _GRAVEL_STEP)
+                self._values[tag] = round(v, 4)
+
+    def _tick_sorting_line(self, dt: float) -> None:
         running = bool(self._values[self._tag("sort.line1.motor1.running")])
         sp = float(self._values[self._tag("sort.line1.motor1.speed_sp")])
         load = sp / 60.0  # 0..1 fraction of full speed
