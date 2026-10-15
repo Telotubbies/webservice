@@ -1,0 +1,237 @@
+erDiagram
+    organizations ||--o{ memberships : "org_id"
+    users ||--o{ memberships : "user_id"
+    users ||--o{ invites : "accepted_by"
+    users ||--o{ invites : "invited_by"
+    organizations ||--o{ invites : "org_id"
+    organizations ||--o{ sites : "org_id"
+    sites ||--o{ lines : "site_id"
+    lines ||--o{ devices : "line_id"
+    sites ||--o{ edges : "site_id"
+    devices ||--o{ tags : "device_id"
+    sites ||--o{ tags : "site_id"
+    edges ||--o{ tags : "site_id,edge_id"
+    tags ||--o{ tag_latest : "tag_id"
+    tags ||--o{ tag_history : "tag_id"
+    tags ||--o{ alarm_rules : "tag_id"
+    users ||--o{ alarms : "acked_by"
+    tags ||--o{ alarms : "tag_id"
+    alarm_rules ||--o{ alarms : "tag_id,rule_id"
+    users ||--o{ commands : "actor_user_id"
+    edges ||--o{ commands : "site_id,edge_id"
+    tags ||--o{ commands : "site_id,tag_id"
+    commands ||--o{ command_events : "command_id"
+    commands ||--o{ command_outbox : "command_id"
+    organizations ||--o{ audit_log : "org_id"
+    organizations ||--o{ insights : "org_id"
+    tags ||--o{ insights : "tag_id"
+    edges ||--o{ edge_identities : "edge_id"
+    alarm_rules {
+        uuid id PK
+        uuid org_id
+        uuid tag_id FK
+        text name
+        text kind
+        float8 threshold
+        int stale_s
+        float8 deadband
+        text severity
+        bool enabled
+    }
+    alarms {
+        uuid id PK
+        uuid org_id
+        uuid tag_id FK
+        uuid rule_id FK
+        text severity
+        text state
+        timestamptz raised_at
+        timestamptz acked_at
+        uuid acked_by FK
+        timestamptz cleared_at
+        int version
+    }
+    audit_log {
+        bigint id PK
+        uuid org_id FK
+        bigint seq
+        timestamptz at
+        text actor
+        text action
+        jsonb target
+        jsonb detail
+        text prev_hash
+        text hash
+    }
+    command_events {
+        bigint id PK
+        uuid org_id
+        uuid command_id FK
+        text from_status
+        text to_status
+        text actor
+        text reason
+        timestamptz at
+    }
+    command_outbox {
+        uuid command_id PK
+        uuid org_id
+        text topic
+        jsonb payload
+        timestamptz not_after
+        int attempts
+        timestamptz created_at
+    }
+    commands {
+        uuid id PK
+        uuid org_id
+        uuid site_id FK
+        uuid edge_id FK
+        uuid tag_id FK
+        jsonb value
+        text status
+        text reason
+        int ttl_s
+        text idempotency_key
+        text note
+        uuid actor_user_id FK
+        timestamptz issued_at
+        timestamptz updated_at
+        int version
+    }
+    devices {
+        uuid id PK
+        uuid org_id
+        uuid line_id FK
+        text name
+    }
+    edge_identities {
+        uuid id PK
+        uuid org_id
+        uuid edge_id FK
+        int version
+        text username
+        text fingerprint
+        text status
+        bool secret_issued
+        timestamptz grace_until
+        timestamptz rotated_at
+        timestamptz created_at
+    }
+    edges {
+        uuid id PK
+        uuid org_id
+        uuid site_id FK
+        text name
+        text status
+        text mqtt_username
+        int credential_version
+        text credential_fingerprint
+        timestamptz last_hb_at
+        bool clock_ok
+        text adapter
+        int buffer_depth
+        bigint buffer_dropped
+        timestamptz created_at
+    }
+    insights {
+        uuid id PK
+        uuid org_id FK
+        uuid tag_id FK
+        text kind
+        text severity
+        real score
+        text state
+        timestamptz ts_start
+        timestamptz ts_end
+        jsonb detail
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    invites {
+        uuid id PK
+        uuid org_id FK
+        text email
+        text role
+        text token_hash
+        uuid invited_by FK
+        timestamptz expires_at
+        timestamptz accepted_at
+        uuid accepted_by FK
+        timestamptz created_at
+    }
+    lines {
+        uuid id PK
+        uuid org_id
+        uuid site_id FK
+        text name
+    }
+    memberships {
+        uuid org_id PK
+        uuid user_id PK
+        text role
+        timestamptz created_at
+    }
+    organizations {
+        uuid id PK
+        text name
+        jsonb plan_limits
+        timestamptz created_at
+        timestamptz deleted_at
+    }
+    revoked_sessions {
+        text sid PK
+        timestamptz revoked_at
+    }
+    sites {
+        uuid id PK
+        uuid org_id FK
+        text name
+        text code
+        text timezone
+        bool control_enabled
+        timestamptz created_at
+    }
+    tag_history {
+        uuid tag_id PK
+        timestamptz ts PK
+        uuid org_id
+        jsonb v
+        text q
+    }
+    tag_latest {
+        uuid tag_id PK
+        uuid org_id
+        jsonb v
+        text q
+        timestamptz ts
+    }
+    tags {
+        uuid id PK
+        uuid org_id
+        uuid site_id FK
+        uuid edge_id FK
+        uuid device_id FK
+        text path
+        text name
+        text type
+        text unit
+        bool writable
+        float8 min_value
+        float8 max_value
+        float8 step_value
+        jsonb enum_values
+        jsonb requires
+        text description
+        timestamptz created_at
+    }
+    users {
+        uuid id PK
+        text sub
+        text email
+        bool email_verified
+        text display_name
+        text locale
+        timestamptz disabled_at
+        timestamptz created_at
+    }
