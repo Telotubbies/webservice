@@ -13,8 +13,8 @@ dashboards แก้ไขได้ · หน้าใหม่ (SLOs, Infrastru
 | G1 | หน้า sign-in บน prod-test แสดงปุ่ม Demo/ช่อง token ทั้งที่ `dev_tokens:false` | สับสน, ดูไม่มืออาชีพ (backend ปฏิเสธอยู่แล้ว ไม่ใช่ช่องโหว่) | ยังไม่รู้ — ต้องตรวจ `SignInWall` ว่าอ่าน config ก่อน render หรือไม่ | debug + fix + ทดสอบบน prod-test |
 | G2 | กด "company account" บน prod-test ถูกพาไป `localhost:5173` แทน `:5180` | sign-in ใช้ไม่ได้ถ้าเกิดบน prod | discovery ของ Keycloak ตอบ `:5180` ถูก → สงสัย cache ของ Chrome profile / client `rootUrl` / redirect จาก realm เดิม | debug ด้วย network log |
 | G3 | `tag_history` ไม่มี prune job | ดิสก์ VPS เต็มในไม่กี่วัน (~43 ล้านแถว/วันที่ 10 อุปกรณ์) | ออกแบบไว้แต่ไม่ได้ทำ | เพิ่ม job ลบ > 8 ชม. ทุก 5 นาที + index ตรวจ |
-| G4 | ยังไม่มีกลไก feature flag | หน้า Downtimes/Errors (ข้อมูลจำลอง) จะโผล่ใน prod | — | `VITE_FEATURES` ซ่อนเมนู + route |
-| G5 | ไอคอน druids (ลิขสิทธิ์ Datadog) ยังใช้ทั้ง rail | ความเสี่ยงลิขสิทธิ์เมื่อขาย/เผยแพร่ | — | map `DdIcon` → lucide (คง API เดิม) |
+| G4 ✅ | ยังไม่มีกลไก feature flag | หน้า Downtimes/Errors (ข้อมูลจำลอง) จะโผล่ใน prod | — | `VITE_FEATURES` ซ่อนเมนู + route  **ปิดแล้ว 15 ต.ค.** — `lib/features.ts` ซ่อนทั้งเมนู (`nav.ts`) และ route (`App.tsx`) |
+| G5 ✅ | ไอคอน druids (ลิขสิทธิ์ Datadog) ยังใช้ทั้ง rail | ความเสี่ยงลิขสิทธิ์เมื่อขาย/เผยแพร่ | — | map `DdIcon` → lucide (คง API เดิม)  **ปิดแล้ว 15 ต.ค.** — `DdIcon` ใช้ lucide 90 ไอคอน, API เดิม (commit d3ba784); ยังต้องตรวจด้วยตา |
 | G6 | UAT นับเมนู 13 แต่ตอนนี้มากกว่า | CI UAT fail | เมนูใหม่ | อัปเดต `tests/e2e/uat.mjs` |
 | G7 | bootstrap CLI ยังไม่ทดสอบ E2E (ล็อกอิน → none → bootstrap → owner) | onboarding ลูกค้าแรกอาจติด | — | ทดสอบบน prod-test |
 | G8 | Google sign-in ยังไม่ทดสอบกับบัญชีจริง | ปุ่ม Google ใช้ไม่ได้ | ไม่มี OAuth client | สร้าง client ใน Google Console (ผู้ใช้) → ทดสอบ |
@@ -79,3 +79,13 @@ docker compose exec backend python -m app.bootstrap --org "Acme Aggregates" --si
 cp deploy/garage/garage.toml.example deploy/garage/garage.toml  # แทน secret 2 ค่า
 docker compose -f deploy/garage/docker-compose.yml up -d && ./deploy/garage/init.sh 100G
 ```
+
+## 7. บันทึกความคืบหน้า
+
+| วันที่ | branch | งาน | ผล |
+|---|---|---|---|
+| 2026-10-15 | `feature/design` | G5 ไอคอน → lucide | ✅ build ผ่าน · ตรวจด้วยตา: เลื่อนไปช่วง test |
+| 2026-10-15 | `feature/design` | G4 feature flag | ✅ มีอยู่แล้ว ตรวจโค้ดครบทุกหน้า demo |
+| 2026-10-15 | `feature/design` | design-system audit: เพิ่ม token สถานะ (`--color-danger/ok/caution` + soft) แทน hex ใน TSX | ✅ hex 170 → 101 (ที่เหลือเป็น SVG/chart attribute) |
+| 2026-10-15 | `feature/design` | commit งานค้าง 4 ก้อน (docs, ops, web, หน้า demo ที่ untracked) | ✅ working tree สะอาด |
+| ค้าง | — | G6 UAT · G7 bootstrap E2E · G8 Google · ตรวจหน้าจอ/มือถือ/contrast | ⏳ ช่วง test ท้ายแผน |

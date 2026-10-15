@@ -71,11 +71,11 @@ pagebar 44 px (ไอคอน + ชื่อ + แท็บ + action ขวา)
 | rail | `#292e39` | rail + topbar |
 | blue | `#006bc2` | ลิงก์, ปุ่มหลัก, focus ring |
 | severity | critical `#d24f57` ▲ · warning `#f99d02` ◆ · info `#828ba4` ● | แอลาร์ม/insight เท่านั้น |
-| ok | `#2c9a63` ● | สถานะปกติ (online, SLO ok) |
+| ok / danger / caution | `--color-ok #1c9a67` · `--color-danger #b83d44` · `--color-caution #b5740a` (+ `-soft` พื้นอ่อน) | สถานะในตาราง/ปุ่มอันตราย — ห้ามใช้ hex ตรงใน TSX |
 | ฟอนต์ | IBM Plex Sans / Sans Thai / Mono | ข้อความ / ไทย / ตัวเลข-โค้ด |
 | ขนาด | 13 px หลัก (body/table), 11 px overline, 15 px หัวข้อหน้า; ขั้นต่ำ 11 px | ความหนาแน่นแบบ console |
 | radius / spacing | 4–5 px; table row 36–48 px | |
-| icons | lucide-react (ISC) สำหรับ UI ใหม่ — druids sprite เดิมต้องแทนก่อนขาย | |
+| icons | lucide-react (ISC) ทั้งระบบผ่าน `<DdIcon name>` (`shared/ui/ddicons.ts`) — druids ถูกแทนแล้ว 15 ต.ค. | |
 | motion | 120–300 ms; ปิดเมื่อ `prefers-reduced-motion` | |
 
 **Data viz (ตาม dataviz skill):** หนึ่งกราฟหนึ่งหน่วย (ห้าม dual axis) · สีซีรีส์ตามลำดับคงที่ 6 สี ไม่วน ·
