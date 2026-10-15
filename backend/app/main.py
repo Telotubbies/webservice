@@ -1116,8 +1116,8 @@ def _edge_json(r, latest_ident=None) -> dict:
         "credential_version": r["credential_version"],
         "last_hb_at": iso_z(r["last_hb_at"]) if r["last_hb_at"] else None,
         "clock_ok": r["clock_ok"], "adapter": r["adapter"],
-        **({"config_version": r["config_version"], "config_applied": r["config_applied"],
-            "config_error": r["config_error"]} if "config_version" in r.keys() else {}),
+        "config_version": r["config_version"], "config_applied": r["config_applied"],
+        "config_error": r["config_error"],
         # the reconciler recreated a lost credential: broker is live, nobody
         # holds the secret — rotate to regain access (doc 17 §6)
         "needs_rotation": bool(latest_ident and not latest_ident["secret_issued"]),
@@ -1441,7 +1441,8 @@ async def list_edges(org: str, site: str, request: Request,
     async with tenant_tx(st(request).pools.app, org_id) as tc:
         rows = await tc.fetch(
             "SELECT id, org_id, site_id, name, status, mqtt_username,"
-            " credential_version, last_hb_at, clock_ok, adapter FROM edges"
+            " credential_version, last_hb_at, clock_ok, adapter,"
+            " config_version, config_applied, config_error FROM edges"
             " WHERE site_id=$1 ORDER BY name", site_id)
         latest = await tc.fetch(
             "SELECT DISTINCT ON (edge_id) edge_id, secret_issued"
@@ -1503,7 +1504,8 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
     await st(request).registry.refresh()
     edge = {"id": str(eid), "org_id": str(org_id), "site_id": str(site_id),
             "name": body.name, "status": "active", "mqtt_username": username,
-            "credential_version": version, "needs_rotation": False}
+            "credential_version": version, "needs_rotation": False,
+            "config_version": 0, "config_applied": None, "config_error": None}
     return {"edge": edge, "secret": secret}
 
 

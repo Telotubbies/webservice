@@ -370,6 +370,7 @@ export interface Device {
   mqtt_username: string; credential_version: number;
   last_hb_at: string | null; clock_ok: boolean | null; adapter: string | null;
   needs_rotation: boolean;
+  config_version?: number; config_applied?: number | null; config_error?: string | null;
 }
 
 /** v2 command row (`_v2` shape, commands.py) — status in v2 vocabulary

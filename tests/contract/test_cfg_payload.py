@@ -129,3 +129,13 @@ def test_malformed_cfg_messages_are_counted_not_raised():
         msg = SimpleNamespace(topic=f"v2/o/s/e/{kind}", payload=payload)
         asyncio.run(_handle_cfg(st, msg, edge, kind))
     assert st.counters["cfg_bad_payload"] == 2
+
+
+def test_edge_json_ships_config_fields():
+    from app.main import _edge_json
+    row = {"id": "i", "org_id": "o", "site_id": "s", "name": "n", "status": "active",
+           "mqtt_username": "u", "credential_version": 1, "last_hb_at": None,
+           "clock_ok": None, "adapter": None, "config_version": 3,
+           "config_applied": 2, "config_error": "x"}
+    j = _edge_json(row)
+    assert (j["config_version"], j["config_applied"], j["config_error"]) == (3, 2, "x")
