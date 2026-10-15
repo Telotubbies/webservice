@@ -1,7 +1,7 @@
 // App shell — auth boot (OIDC restore → sign-in wall) → live-data bootstrap
 // (REST seed → WS stream + health polling) → routed console inside Shell.
 
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { api } from './lib/api';
@@ -62,6 +62,9 @@ const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then(
 const MetricsSummaryPage = lazy(() => import('./features/metrics/MetricsSummaryPage').then((m) => ({ default: m.MetricsSummaryPage })));
 const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })));
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+
+// One wrapper for every page route: error boundary + lazy-load skeleton.
+const page = (P: ComponentType) => <RouteBoundary><Suspense fallback={<PageSkeleton />}><P /></Suspense></RouteBoundary>;
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 2, refetchOnWindowFocus: false } },
@@ -170,46 +173,46 @@ export default function App() {
               unauthenticated, so no API traffic fires before a token exists */}
           <Route element={<Boot />} errorElement={<RouteError />}>
             <Route index element={<RouteBoundary><OverviewPage /></RouteBoundary>} />
-            <Route path="line" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><LinePage /></Suspense></RouteBoundary>} />
-            <Route path="line3d" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><Line3DPage /></Suspense></RouteBoundary>} />
-            <Route path="alarms" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AlarmsPage /></Suspense></RouteBoundary>} />
-            <Route path="alarms/:id" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AlarmDetailPage /></Suspense></RouteBoundary>} />
-            <Route path="trends" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><TrendsPage /></Suspense></RouteBoundary>} />
-            <Route path="insights" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><InsightsPage /></Suspense></RouteBoundary>} />
-            <Route path="tags" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><TagsPage /></Suspense></RouteBoundary>} />
-            <Route path="commands" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><CommandsPage /></Suspense></RouteBoundary>} />
-            <Route path="health" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><HealthPage /></Suspense></RouteBoundary>} />
-            <Route path="admin" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense></RouteBoundary>} />
-            <Route path="admin/rules" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AlarmRulesPage /></Suspense></RouteBoundary>} />
-            <Route path="admin/rules/new" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><RuleCreatePage /></Suspense></RouteBoundary>} />
-            <Route path="admin/users" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><UsersPage /></Suspense></RouteBoundary>} />
-            <Route path="admin/audit" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AuditPage /></Suspense></RouteBoundary>} />
-            <Route path="activity" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense></RouteBoundary>} />
-            {enabled('errors') && <Route path="errors" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><ErrorTrackingPage /></Suspense></RouteBoundary>} />}
-            <Route path="slos" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><SloPage /></Suspense></RouteBoundary>} />
-            {enabled('downtimes') && <Route path="downtimes" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><DowntimesPage /></Suspense></RouteBoundary>} />}
-            <Route path="dashboards" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><DashboardsPage /></Suspense></RouteBoundary>} />
-            <Route path="dashboards/:id" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><DashboardViewPage /></Suspense></RouteBoundary>} />
-            <Route path="infrastructure" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><DevicesPage /></Suspense></RouteBoundary>} />
-            <Route path="infrastructure/add" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AddDeviceWizard /></Suspense></RouteBoundary>} />
-            <Route path="settings" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><SettingsPage /></Suspense></RouteBoundary>} />
-            <Route path="alarms/quality" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AlarmQualityPage /></Suspense></RouteBoundary>} />
-            {enabled('alarmsettings') && <Route path="alarms/settings" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AlarmSettingsPage /></Suspense></RouteBoundary>} />}
-            <Route path="events" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><EventsPage /></Suspense></RouteBoundary>} />
-            {enabled('incidents') && <Route path="incidents" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><IncidentsPage /></Suspense></RouteBoundary>} />}
-            {enabled('notebooks') && <Route path="notebooks" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><NotebooksPage /></Suspense></RouteBoundary>} />}
-            {enabled('notebooks') && <Route path="notebooks/:id" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><NotebookViewPage /></Suspense></RouteBoundary>} />}
-            {enabled('catalog') && <Route path="catalog" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><CatalogPage /></Suspense></RouteBoundary>} />}
-            {enabled('logs') && <Route path="logs" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><LogsPage /></Suspense></RouteBoundary>} />}
-            {enabled('teams') && <Route path="teams" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><TeamsPage /></Suspense></RouteBoundary>} />}
-            {enabled('traces') && <Route path="traces" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><TracesPage /></Suspense></RouteBoundary>} />}
-            {enabled('query') && <Route path="query" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><QueryPage /></Suspense></RouteBoundary>} />}
-            {enabled('processes') && <Route path="processes" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><ProcessesPage /></Suspense></RouteBoundary>} />}
-            {enabled('synthetics') && <Route path="synthetics" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><SyntheticsPage /></Suspense></RouteBoundary>} />}
-            {enabled('security') && <Route path="security" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><SecurityPage /></Suspense></RouteBoundary>} />}
-            {enabled('sessions') && <Route path="sessions" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><SessionsPage /></Suspense></RouteBoundary>} />}
-            <Route path="metrics" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><MetricsSummaryPage /></Suspense></RouteBoundary>} />
-            {enabled('assistant') && <Route path="assistant" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><AssistantPage /></Suspense></RouteBoundary>} />}
+            <Route path="line" element={page(LinePage)} />
+            <Route path="line3d" element={page(Line3DPage)} />
+            <Route path="alarms" element={page(AlarmsPage)} />
+            <Route path="alarms/:id" element={page(AlarmDetailPage)} />
+            <Route path="trends" element={page(TrendsPage)} />
+            <Route path="insights" element={page(InsightsPage)} />
+            <Route path="tags" element={page(TagsPage)} />
+            <Route path="commands" element={page(CommandsPage)} />
+            <Route path="health" element={page(HealthPage)} />
+            <Route path="admin" element={page(AdminPage)} />
+            <Route path="admin/rules" element={page(AlarmRulesPage)} />
+            <Route path="admin/rules/new" element={page(RuleCreatePage)} />
+            <Route path="admin/users" element={page(UsersPage)} />
+            <Route path="admin/audit" element={page(AuditPage)} />
+            <Route path="activity" element={page(ActivityPage)} />
+            {enabled('errors') && <Route path="errors" element={page(ErrorTrackingPage)} />}
+            <Route path="slos" element={page(SloPage)} />
+            {enabled('downtimes') && <Route path="downtimes" element={page(DowntimesPage)} />}
+            <Route path="dashboards" element={page(DashboardsPage)} />
+            <Route path="dashboards/:id" element={page(DashboardViewPage)} />
+            <Route path="infrastructure" element={page(DevicesPage)} />
+            <Route path="infrastructure/add" element={page(AddDeviceWizard)} />
+            <Route path="settings" element={page(SettingsPage)} />
+            <Route path="alarms/quality" element={page(AlarmQualityPage)} />
+            {enabled('alarmsettings') && <Route path="alarms/settings" element={page(AlarmSettingsPage)} />}
+            <Route path="events" element={page(EventsPage)} />
+            {enabled('incidents') && <Route path="incidents" element={page(IncidentsPage)} />}
+            {enabled('notebooks') && <Route path="notebooks" element={page(NotebooksPage)} />}
+            {enabled('notebooks') && <Route path="notebooks/:id" element={page(NotebookViewPage)} />}
+            {enabled('catalog') && <Route path="catalog" element={page(CatalogPage)} />}
+            {enabled('logs') && <Route path="logs" element={page(LogsPage)} />}
+            {enabled('teams') && <Route path="teams" element={page(TeamsPage)} />}
+            {enabled('traces') && <Route path="traces" element={page(TracesPage)} />}
+            {enabled('query') && <Route path="query" element={page(QueryPage)} />}
+            {enabled('processes') && <Route path="processes" element={page(ProcessesPage)} />}
+            {enabled('synthetics') && <Route path="synthetics" element={page(SyntheticsPage)} />}
+            {enabled('security') && <Route path="security" element={page(SecurityPage)} />}
+            {enabled('sessions') && <Route path="sessions" element={page(SessionsPage)} />}
+            <Route path="metrics" element={page(MetricsSummaryPage)} />
+            {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

@@ -258,7 +258,10 @@ services:
     logging: *default-logging
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        VITE_FEATURES: "${VITE_FEATURES:-}"
     ports:
       - "127.0.0.1:5173:80"
     networks:

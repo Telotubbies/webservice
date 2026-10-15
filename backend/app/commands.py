@@ -22,7 +22,6 @@ from uuid import UUID
 
 import asyncpg
 
-from . import config
 from .db import audit
 from .db.context import TenantConn, active_org_ids, tenant_tx
 from .db.util import iso_z, utcnow

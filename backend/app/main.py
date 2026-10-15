@@ -53,8 +53,7 @@ from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .mqtt_client import MQTTBridge
 from .observability import (
-    ObservabilityMiddleware, _client_ip, _trusted_peer,
-    metrics_response, migration_at_head, RUNTIME,
+    ObservabilityMiddleware, _client_ip, metrics_response, migration_at_head, RUNTIME,
 )
 from .ratelimit import RateLimiter
 from .registry import Registry
@@ -1629,7 +1628,7 @@ async def v2_create_alarm_rule(org: str, site: str, body: AlarmRuleIn,
     async with org_tx(request, org_id, p.user_id) as tc:
         try:
             row = await tc.fetchrow(
-                f"INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold,"
+                "INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold,"
                 " stale_s, deadband, severity, enabled)"
                 " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING " + _RULE_COLS,
                 org_id, tag.id, body.name, body.kind, body.threshold,
