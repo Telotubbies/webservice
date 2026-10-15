@@ -1,0 +1,99 @@
+/* Datadog UI — extracted design tokens (live capture, 2025-10)
+ * Source: computed styles from ap2.datadoghq.com (monitors, dashboards,
+ * apm, infra, logs, metrics, monitor-create). Tailwind v4 @theme format —
+ * drop into your global CSS after `import "tailwindcss"`.
+ * Raw evidence: ./*-vocab.json, ./*-components.json
+ */
+
+@theme {
+  /* ---- ink / neutrals (light theme) ---- */
+  --color-ink:        rgb(28 43 52 / 0.98);   /* primary text */
+  --color-ink-68:     rgb(28 43 52 / 0.68);   /* secondary text */
+  --color-ink-46:     rgb(28 43 52 / 0.46);   /* tertiary / disabled */
+  --color-ink-35:     rgb(28 43 52 / 0.35);   /* placeholder */
+  --color-paper:      #ffffff;
+  --color-subtle:     #f9fafb;                /* tinted row / section bg */
+  --color-line:       #e2e5ed;                /* hairline border */
+  --color-line-hard:  #c2c8dd;                /* input border */
+
+  /* ---- dark chrome (rail + topbar) ---- */
+  --color-rail:       #292e39;                /* sidebar bg */
+  --color-topbar:     #292e39;                /* global top bar — same chrome tone (measured) */
+  --color-rail-hover: #3b393d;                /* dark surface raised */
+  --color-rail-line:  #65626a;                /* dark button border */
+  --color-nav-text:   rgb(255 255 255 / 0.76);/* nav label */
+  --color-nav-dim:    #babdbb;                /* nav label dim */
+  --color-nav-hi:     #eeefee;                /* nav label hover/active */
+
+  /* ---- accents ---- */
+  --color-blue:       #006bc2;                /* links, primary button */
+  --color-blue-nav:   #3d8bd0;                /* active rail item */
+  --color-purple:     #c159ff;                /* brand accent on dark */
+  --color-purple-dd:  #632ca6;                /* brand purple (marketing) */
+  --color-bits:       #5e6dd6;                /* Bits/AI button */
+  --color-warn:       #f99d02;
+  --color-muted-pill: #828ba4;                /* neutral pill bg */
+  --color-info-soft:  #eaf6fc;                /* info tint bg */
+  --color-warn-soft:  #fcd579;                /* warn tint */
+  --color-rose-soft:  #ffe6f5;
+  /* status (ISA-101: colour only for abnormal) */
+  --color-danger:       #b83d44;
+  --color-danger-hover: #a5363c;
+  --color-danger-bright:#d24f57;
+  --color-danger-soft:  #fdecec;
+  --color-ok:           #1c9a67;
+  --color-ok-soft:      #e6f5ee;
+  --color-caution:      #b5740a;
+  --color-caution-soft: #fff4dc;
+
+  /* ---- typography ---- */
+  --font-sans: "NotoSans", "Lucida Grande", "Lucida Sans Unicode", sans-serif;
+  --font-mono: "Roboto Mono", Menlo, "Liberation Mono", Courier, monospace;
+
+  --text-2xs: 10px;   /* rare, badges */
+  --text-xs:  11px;   /* pills, overline (uppercase) */
+  --text-sm:  12px;   /* dark-chrome controls */
+  --text-md:  13px;   /* DOMINANT — body, buttons, table, nav */
+  --text-lg:  15px;   /* section titles, tabs */
+  --text-xl:  16px;   /* page titles */
+  --text-2xl: 18px;
+  --text-3xl: 22px;
+  --text-display: 40px;
+
+  /* Datadog runs tight leading — often equal to font size */
+  --leading-flush: 1;
+  --leading-tight-dd: 1.2;
+  --leading-body: 1.4;
+
+  /* ---- radius ---- */
+  --radius-dd:    4px;    /* buttons, inputs, most surfaces */
+  --radius-card:  5px;    /* cards */
+  --radius-panel: 8px;    /* flyouts, panels */
+  --radius-lg-dd: 12px;
+
+  /* ---- shadows (real values) ---- */
+  --shadow-card:   0 0 1px rgb(36 41 49 / 0.10), 0 1px 2px rgb(36 41 49 / 0.25);
+  --shadow-pop:    0 0 1px rgb(36 41 49 / 0.10), 0 3px 11px rgb(36 41 49 / 0.25);
+  --shadow-flyout: 0 0 1px rgb(36 41 49 / 0.10), 0 8px 36px rgb(36 41 49 / 0.25);
+  --shadow-hairline: 0 1px 0 #e2e5ed;                        /* topbar divider */
+  --shadow-dark-btn: 0 0.25px 2px rgb(0 0 0 / 0.6), inset 0 0.5px 1.25px rgb(255 255 255 / 0.2);
+  --shadow-bits:     0 0.25px 2px rgb(0 0 0 / 0.6), inset 0 0.5px 1.25px #a2bbff;
+  --shadow-purple:   0 4px 16px rgb(97 83 221 / 0.4);
+
+  /* ---- control heights (density) ---- */
+  --h-btn-sm:  24px;   /* dark-chrome buttons */
+  --h-control: 28px;   /* buttons, selects — most common */
+  --h-input:   32px;
+  --h-row:     36px;   /* list/table row */
+  --h-topbar:  36px;   /* global bar */
+  --h-pagebar: 44px;   /* sticky page header + tabs */
+  --h-nav-item: 31px;  /* sidebar item row (measured) */
+  --h-nav-sect: 44px;
+
+  /* ---- layout ---- */
+  --w-rail:    160px;   /* expanded sidebar (measured monitors page) */
+  --w-flyout:  400px;   /* white contextual sidebar */
+  --icon-sm:   12px;
+  --icon-md:   14px;
+  --icon-lg:   16px;
+}

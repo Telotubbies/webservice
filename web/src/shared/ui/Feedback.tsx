@@ -23,7 +23,7 @@ export function ErrorState({ onRetry, detail }: { onRetry?: () => void; detail?:
       <h3>{t('errors.load')}</h3>
       <p>{detail ?? t('errors.loadBody')}</p>
       {onRetry && (
-        <button className="btn btn-sm" onClick={onRetry}>
+        <button type="button" className="btn btn-sm" onClick={onRetry}>
           <Icon name="refresh" size={16} /> {t('common.retry')}
         </button>
       )}
@@ -34,8 +34,10 @@ export function ErrorState({ onRetry, detail }: { onRetry?: () => void; detail?:
 export function Notice({ tone = 'info', children, icon }: {
   tone?: 'info' | 'warn' | 'error'; children: ReactNode; icon?: IconName;
 }) {
+  // error → assertive alert, warn → polite live region, info → passive note
+  const role = tone === 'error' ? 'alert' : tone === 'warn' ? 'status' : 'note';
   return (
-    <div className={`notice${tone !== 'info' ? ` notice-${tone}` : ''}`} role={tone === 'error' ? 'alert' : 'note'}>
+    <div className={`notice${tone !== 'info' ? ` notice-${tone}` : ''}`} role={role}>
       <Icon name={icon ?? (tone === 'info' ? 'info' : 'warn')} size={18} />
       <div>{children}</div>
     </div>

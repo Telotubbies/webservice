@@ -1,86 +1,70 @@
-import { useQuery } from '@tanstack/react-query';
+// Commands — command lifecycle history from the live store (WS-driven).
+// issued → sent → acked → done/failed/timeout rendered as status pills.
+
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
-import { api } from '../../lib/api';
+import { useQuery } from '@tanstack/react-query';
 import { live } from '../../lib/live';
-import { useStore } from '../../lib/hooks';
-import { SIGNALS, formatSignal, shortName } from '../../lib/plant';
+import { api } from '../../lib/api';
+import { useNow, useStore } from '../../lib/hooks';
+import { fmtAge } from '../../lib/format';
 import { canOperate, useRole } from '../../app/session';
+import { LifecyclePill } from '../line/LifecyclePill';
+import { PageBar, Card, Table } from '../../shared/ui/Page';
 import { EmptyState, ErrorState, Notice, Skeleton } from '../../shared/ui/Feedback';
 import type { Command } from '../../types';
-import './commands.css';
-
-const GOOD = new Set(['done', 'acknowledged']);
-const PENDING = new Set(['issued', 'sent', 'accepted', 'dispatched', 'acked']);
 
 export function CommandsPage() {
-  const { t, i18n } = useTranslation();
-  const role = useRole();
-  const allowed = canOperate(role);
-  const q = useQuery({
-    queryKey: ['commands', role], queryFn: () => api.listCommands(100), enabled: allowed,
-  });
+  const { t } = useTranslation();
+  const now = useNow();
+  const operable = canOperate(useRole());
   useStore(() => live.cmdRev);
 
-  // merge server list with live updates (WS) so status changes appear instantly
-  const rows: Command[] = (q.data ?? []).map((c) => ({ ...c, ...live.commands.get(c.id) }));
-  for (const c of live.commands.values()) if (!rows.some((r) => r.id === c.id)) rows.unshift(c);
-  rows.sort((a, b) => (Date.parse(b.created_at ?? '') || 0) - (Date.parse(a.created_at ?? '') || 0));
-  const label = (n: string) => (SIGNALS[n] ? t(SIGNALS[n].labelKey) : shortName(n));
-  const fmtTime = (ts?: string) => (ts ? new Date(ts).toLocaleString(i18n.language === 'th' ? 'th-TH' : 'en-GB', { hour12: false }) : '—');
+  // Page-level seed (App.tsx also seeds on auth, but its failure is silent) —
+  // merges only ids the WS hasn't already delivered fresher state for.
+  const seed = useQuery({
+    queryKey: ['commands-seed'],
+    queryFn: () => api.listCommands(20).then((cmds) => {
+      cmds.forEach((c) => { if (!live.commands.has(c.id)) live.mergeCommand(c); });
+      return cmds.length;
+    }),
+    enabled: operable,
+  });
+
+  const rows = [...live.commands.values()]
+    .sort((a, b) => Date.parse(b.updated_at ?? b.created_at ?? '') - Date.parse(a.updated_at ?? a.created_at ?? ''));
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>{t('commands.title')}</h1>
-          <p className="lede">{t('commands.lede')}</p>
-        </div>
-        {allowed && <div className="actions"><Link to="/line?eq=motor" className="btn">{t('commands.newCommand')}</Link></div>}
-      </header>
-      <section className="panel cmd-panel">
-        {!allowed ? (
-          <div className="panel-body"><Notice icon="lock">{t('commands.restricted')}</Notice></div>
-        ) : q.isError ? (
-          <ErrorState onRetry={() => void q.refetch()} />
-        ) : q.isPending ? (
-          <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
-            {[0, 1, 2, 3].map((i) => <Skeleton key={i} h={28} />)}
-          </div>
-        ) : rows.length === 0 ? (
-          <EmptyState icon="commands" title={t('commands.empty')} body={t('commands.emptyBody')} />
-        ) : (
-          <div className="panel-body flush" style={{ overflowX: 'auto' }}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th scope="col">{t('commands.colTime')}</th>
-                  <th scope="col">{t('commands.colSignal')}</th>
-                  <th scope="col" className="num">{t('commands.colValue')}</th>
-                  <th scope="col">{t('commands.colUser')}</th>
-                  <th scope="col">{t('commands.colStatus')}</th>
-                  <th scope="col">{t('commands.colDetail')}</th>
+    <>
+      <PageBar title={t('nav.commands')} lede={t('commands.lede')} />
+      <div className="p-4">
+        <Card pad={false}>
+          {!operable ? (
+            <Notice tone="info">{t('commands.restricted')}</Notice>
+          ) : rows.length > 0 ? (
+            <Table head={[t('commands.colId'), t('commands.colSignal'), t('commands.colValue'), t('commands.colStatus'), t('commands.colUser'), t('commands.colTime'), t('commands.colDetail')]}>
+              {rows.map((c: Command) => (
+                <tr key={c.id}>
+                  <td className="font-mono text-[11px] text-ink-46">{c.id.slice(0, 8)}</td>
+                  <td className="font-mono text-[12px]">{c.tag}</td>
+                  <td className="font-mono text-[12px]">{String(c.value ?? '—')}</td>
+                  <td><LifecyclePill status={c.status} /></td>
+                  <td className="text-[12px] text-ink-68">{c.user ?? '—'}</td>
+                  <td className="text-[12px] text-ink-68">{fmtAge(c.updated_at ?? c.created_at, now)}</td>
+                  <td className="max-w-48 truncate text-[12px] text-ink-68">{c.detail ?? ''}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {rows.map((c) => {
-                  const tone = GOOD.has(c.status) ? 'ok' : PENDING.has(c.status) ? 'pending' : 'bad';
-                  return (
-                    <tr key={c.id} className="cmd-row" data-status={c.status}>
-                      <td className="mono">{fmtTime(c.created_at)}</td>
-                      <td>{label(c.tag)}</td>
-                      <td className="value">{formatSignal(c.tag, c.value, i18n.language)}</td>
-                      <td className="dim">{c.user ?? '—'}</td>
-                      <td><span className={`cmd-result is-${tone}`}><span className="lc-dot" aria-hidden />{t(`lifecycle.${c.status}`)}</span></td>
-                      <td className="mono dim">{c.detail ?? ''}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </div>
+              ))}
+            </Table>
+          ) : seed.isError ? (
+            <ErrorState onRetry={() => void seed.refetch()} />
+          ) : seed.isPending ? (
+            <div className="flex flex-col gap-2 p-3" role="status" aria-label={t('common.loading')}>
+              <Skeleton h={28} /><Skeleton h={28} /><Skeleton h={28} />
+            </div>
+          ) : (
+            <EmptyState title={t('commands.empty')} body={t('commands.emptyBody')} icon="commands" />
+          )}
+        </Card>
+      </div>
+    </>
   );
 }

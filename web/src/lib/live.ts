@@ -8,6 +8,22 @@ import type {
 
 export const BUFFER_CAP = 3600; // ~1h at 1s sim cadence
 export const STALE_MS = 15_000; // spec: tag silent >15s -> STALE
+export const JOURNAL_CAP = 200; // F05 session notification ring, newest first
+
+/** Client-side event journal entry (F05 notify bell / F20 activity feed).
+ *  `title` is an i18n KEY (notify.*), not literal text — rows translate at
+ *  render so a language switch re-translates history; `params` feeds its
+ *  interpolation. Written only by ws.ts dispatch() — WS-driven, zero fetch. */
+export interface JournalEvent {
+  id: string;
+  ts: string;        // ISO — journal clock, not the event's source ts
+  kind: 'alarm' | 'alarm_update' | 'insight' | 'command' | 'health' | 'auth';
+  severity?: string; // real severity where the event carries one (alarm/insight)
+  title: string;     // i18n key
+  params?: Record<string, string>;
+  tag?: string;
+  href?: string;     // deep link; '?fp=…' merges into current params
+}
 
 export interface BufferPoint {
   t: number; // epoch ms
@@ -23,6 +39,7 @@ class LiveStore {
   alarms: Alarm[] = [];
   insights: Insight[] = [];
   commands = new Map<string, Command>();
+  journal: JournalEvent[] = []; // F05 notification ring, newest first
   health: Health | null = null;
   sysHealth: SystemHealth | null = null;
   ws: WSState = 'connecting';
@@ -41,6 +58,7 @@ class LiveStore {
   alarmRev = 0;
   insightRev = 0;
   cmdRev = 0;
+  journalRev = 0;
   healthRev = 0;
   wsRev = 0;
   tagRev = 0;
@@ -48,6 +66,7 @@ class LiveStore {
   authRev = 0; // bumped when the bearer token changes (re-render role gates)
 
   private listeners = new Set<Listener>();
+  private journalSeq = 0;
   private rafId = 0;
   private dirty = false;
 
@@ -174,6 +193,19 @@ class LiveStore {
     const prev = this.commands.get(c.id);
     this.commands.set(c.id, { ...prev, ...c } as Command);
     this.cmdRev++;
+    this.poke();
+  }
+
+  /** Append one journal entry (newest-first ring, capped). id/ts are stamped
+   *  here unless the caller supplies them — call sites stay one-liners. */
+  pushJournal(ev: Omit<JournalEvent, 'id' | 'ts'> & Partial<Pick<JournalEvent, 'id' | 'ts'>>) {
+    this.journal.unshift({
+      id: `j${++this.journalSeq}`,
+      ts: new Date().toISOString(),
+      ...ev,
+    });
+    if (this.journal.length > JOURNAL_CAP) this.journal.length = JOURNAL_CAP;
+    this.journalRev++;
     this.poke();
   }
 

@@ -19,6 +19,8 @@ export interface AuthConfig {
   env: string;
   dev_tokens: boolean;
   oidc: { realm: string; client_id: string } | null;
+  /** brokered IdPs configured in Keycloak, e.g. ["google"]; absent = none */
+  idps?: string[];
 }
 
 const SILENT_PATH = '/auth/silent-callback';
@@ -156,6 +158,11 @@ export async function ensureFreshToken(): Promise<boolean> {
 
 export function signInWithSSO(): Promise<void> | undefined {
   return mgr?.signinRedirect();
+}
+
+/** kc_idp_hint makes Keycloak skip its chooser and go straight to Google. */
+export function signInWithGoogle(): Promise<void> | undefined {
+  return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'google' } });
 }
 
 export function signOutSSO(): Promise<void> | undefined {

@@ -45,6 +45,15 @@ export function useOperateAnyOrg(): boolean {
   return (q.data?.memberships ?? []).some((m) => canOperate(m.role));
 }
 
+/** Resolve the (org, site) pair for member-read v2 calls outside the admin
+ * pages — e.g. command event trails, edge inventory. First membership's
+ * first site; the seeded deployment has exactly one of each. */
+export function usePrimaryScope(): { orgId: string | null; siteId: string | null; loading: boolean } {
+  const { orgId, loading: orgLoading } = useAdminOrg();
+  const { site, loading: siteLoading } = useAdminSite(orgId);
+  return { orgId, siteId: site?.id ?? null, loading: orgLoading || siteLoading };
+}
+
 /** First site of the admin org (selector rendered when the org has >1). */
 export function useAdminSite(orgId: string | null) {
   const [siteId, setSiteId] = useState<string | null>(null);

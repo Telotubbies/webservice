@@ -1,36 +1,160 @@
-// Line view — full-width mimic. Selecting equipment sets ?eq=<id>, which the
-// global FaceplateContext maps to the equipment's primary signal and opens the
-// faceplate (spec §3.3-B); the old per-page Inspector is gone.
+// Line view — equipment cards (motor/conveyor/camera/bin) with live signals
+// + gated controls. The 2D SVG mimic from v4 is intentionally deferred —
+// cards carry the same state contract until the new mimic lands.
 
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router';
-import { EQUIPMENT, type EquipmentId } from '../../lib/plant';
-import { LineSchematic } from './LineSchematic';
+import { live, STALE_MS } from '../../lib/live';
+import { useNow, useStore } from '../../lib/hooks';
+import { EQUIPMENT, SIGNALS, T, formatSignal, unitOf, type EquipmentId } from '../../lib/plant';
+import { fmtAge } from '../../lib/format';
+import { useControlGate, gateReasonKey } from '../../app/session';
+import { useCommand } from './useCommand';
+import { LifecyclePill } from './LifecyclePill';
+import { QualityMark } from '../../shared/ui/Status';
+import { PageBar, Card } from '../../shared/ui/Page';
+import { Icon } from '../../shared/ui/Icon';
+import { Confirm } from '../../shared/ui/Confirm';
+import { ErrorState, PageSkeleton } from '../../shared/ui/Feedback';
+import { Mimic } from './Mimic';
+
+function EquipmentCard({ id, selected, onSelect }: { id: EquipmentId; selected: boolean; onSelect: () => void }) {
+  const { t, i18n } = useTranslation();
+  const now = useNow();
+  useStore(() => live.version);
+  const eq = EQUIPMENT.find((e) => e.id === id)!;
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={onSelect}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
+      className={`cursor-pointer rounded-[5px] border bg-white p-3 text-left shadow-card transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue ${
+        selected ? 'border-blue ring-1 ring-blue/30' : 'border-line hover:border-line-hard'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <Icon name={id === 'motor' ? 'gauge' : id === 'conveyor' ? 'line' : id === 'camera' ? 'eye' : 'layers'} size={16} className="text-ink-46" />
+        <span className="text-[13px] font-semibold">{t(eq.labelKey)}</span>
+        {selected && <span className="ml-auto rounded bg-[#e8f1fb] px-1.5 py-0.5 text-[10px] font-bold uppercase text-blue">{t('line.selected')}</span>}
+      </div>
+      <dl className="mt-2 flex flex-col gap-1">
+        {eq.signals.map((tag) => {
+          const tv = live.latest.get(tag);
+          const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
+          const meta = SIGNALS[tag];
+          return (
+            <div key={tag} className="flex items-baseline justify-between gap-2">
+              <dt className="truncate text-[11px] text-ink-46">{meta ? t(meta.labelKey) : tag}</dt>
+              <dd className="flex items-center gap-1.5 font-mono text-[13px] font-semibold">
+                {tv && !stale ? formatSignal(tag, tv.v, i18n.language) : '—'}
+                {unitOf(tag) && <span className="font-sans text-[10px] font-normal text-ink-46">{unitOf(tag)}</span>}
+                <QualityMark q={tv?.q} stale={stale} />
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+}
+
+function Controls() {
+  const { t, i18n } = useTranslation();
+  const gate = useControlGate();
+  const { send, tracked, error, busy } = useCommand();
+  const [sp, setSp] = useState('40');
+  const [confirmStop, setConfirmStop] = useState(false);
+  useStore(() => live.version);
+  const currentSp = live.latest.get(T.speedSp);
+
+  if (!gate.allowed) {
+    return (
+      <div className="flex items-center gap-2 rounded border border-line bg-subtle px-3 py-2 text-[12px] text-ink-68">
+        <Icon name="lock" size={14} />
+        {t(`control.reason${gate.reason ? gateReasonKey(gate.reason) : 'Role'}`, { defaultValue: t('control.unavailable') })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <button className="btn flex-1 justify-center" disabled={busy} onClick={() => void send(T.running, true)}>
+          <Icon name="play" size={14} /> {t('control.start')}
+        </button>
+        <button className="btn btn-danger flex-1 justify-center" disabled={busy} onClick={() => setConfirmStop(true)}>
+          <Icon name="stop" size={14} /> {t('control.stop')}
+        </button>
+        {confirmStop && (
+          <Confirm
+            title={t('control.confirmStopTitle')}
+            body={t('control.stopConsequence')}
+            confirm={t('control.stop')}
+            onYes={() => { setConfirmStop(false); void send(T.running, false); }}
+            onNo={() => setConfirmStop(false)}
+          />
+        )}
+      </div>
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); const v = Number(sp); if (!Number.isNaN(v)) void send(T.speedSp, v); }}>
+        <input
+          className="input num flex-1" value={sp} onChange={(e) => setSp(e.target.value)}
+          aria-label={t('control.newValue')} inputMode="decimal"
+        />
+        <button className="btn btn-ghost" type="submit" disabled={busy}>{t('control.apply')}</button>
+      </form>
+      <p className="text-[10px] text-ink-46">
+        {t('control.range', { min: 0, max: 60, unit: 'Hz' })}
+        {currentSp && ` · ${t('line.nowHz', { v: formatSignal(T.speedSp, currentSp.v, i18n.language) })}`}
+      </p>
+      {tracked && (
+        <p className="flex items-center gap-2 text-[11px] text-ink-46">
+          {t('control.sent')} <LifecyclePill status={tracked.status} />
+        </p>
+      )}
+      {error && <p className="notice notice-error" role="alert">{error}</p>}
+    </div>
+  );
+}
 
 export function LinePage() {
   const { t } = useTranslation();
-  const [params, setParams] = useSearchParams();
-  const sel = params.get('eq') as EquipmentId | null;
-  const selected = EQUIPMENT.some((e) => e.id === sel) ? sel : null;
-  const select = (id: EquipmentId | null) => {
-    const next = new URLSearchParams(params);
-    // ?fp wins over ?eq — clear it so a mimic click always takes effect
-    if (id && id !== selected) { next.set('eq', id); next.delete('fp'); }
-    else next.delete('eq');
-    setParams(next, { replace: true });
-  };
+  const now = useNow();
+  const [sel, setSel] = useState<EquipmentId | null>('conveyor');
+  useStore(() => live.version);
+  const seeded = useStore(() => live.tagRev);
+  const seedError = useStore(() => live.seedRev);
+
+  if (seedError && !live.tagsSeeded) {
+    return <><PageBar title={t('line.title')} /><ErrorState onRetry={() => window.location.reload()} /></>;
+  }
+  if (!live.tagsSeeded && !seeded) {
+    return <><PageBar title={t('line.title')} /><PageSkeleton /></>;
+  }
+
+  const runTs = live.latest.get(T.running)?.ts;
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>{t('line.title')}</h1>
-          <p className="lede">{t('line.lede')}</p>
+    <>
+      <PageBar title={t('line.title')} lede={t('line.lede')} />
+      <div className="p-4">
+        <p className="mb-3 text-[12px] text-ink-46">
+          {t('line.selectHint')}
+          {runTs && ` · ${t('state.updated', { age: fmtAge(runTs, now) })}`}
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {EQUIPMENT.map((e) => (
+            <EquipmentCard key={e.id} id={e.id} selected={sel === e.id} onSelect={() => setSel(e.id)} />
+          ))}
         </div>
-      </header>
-      <section className="panel schematic-panel">
-        <LineSchematic selected={selected} onSelect={(id) => select(id)} />
-      </section>
-    </div>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card title={t('line.controls')}><Controls /></Card>
+          <Card title={t('line.schematic')} pad={false}>
+            <Mimic sel={sel} onSelect={setSel} />
+          </Card>
+        </div>
+      </div>
+    </>
   );
 }

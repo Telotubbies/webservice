@@ -1,123 +1,122 @@
-// Organization overview — the admin landing: org identity, your memberships
-// across orgs, and the sites of the selected org. Read-only by contract
-// (org/site CRUD stays out of the v4 admin scope — doc 20 §6).
+// Admin — org + sites overview. Read surface for operator+, mutations stay
+// admin|owner server-side (v4 T10 contract).
 
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api, adminApi } from '../../lib/api';
-import { canOperate } from '../../app/session';
-import { EmptyState, ErrorState, PageSkeleton } from '../../shared/ui/Feedback';
-import { fmtClock } from '../../lib/format';
-import { useAdminOrg } from './admin';
-import './admin.css';
+import { useQuery } from '@tanstack/react-query';
+import { adminApi } from '../../lib/api';
+import { useAdminOrg, useAdminSite } from './admin';
+import { PageBar, Card, Table } from '../../shared/ui/Page';
+import { PageSkeleton, Skeleton } from '../../shared/ui/Feedback';
+import { Notice, ErrorState, EmptyState } from '../../shared/ui/Feedback';
+import { AdminNav } from './AdminNav';
 
 export function AdminPage() {
   const { t } = useTranslation();
-  // gate on the role in the managed org, not the v1 shim org (v4 T14)
-  const { orgId, orgRole, loading } = useAdminOrg();
-  const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
-  const org = useQuery({
-    queryKey: ['admin-org', orgId],
-    queryFn: () => adminApi.org(orgId!),
-    enabled: orgId != null,
+  const { orgId, loading } = useAdminOrg();
+  const { site, sites, setSiteId, loading: sitesLoading } = useAdminSite(orgId);
+
+  const edges = useQuery({
+    queryKey: ['admin-edges', orgId, site?.id],
+    queryFn: () => adminApi.edges(orgId!, site!.id),
+    enabled: !!orgId && !!site?.id,
   });
-  const sites = useQuery({
-    queryKey: ['admin-sites', orgId],
-    queryFn: () => adminApi.sites(orgId!),
-    enabled: orgId != null,
+  const tags = useQuery({
+    queryKey: ['admin-tags', orgId, site?.id],
+    queryFn: () => adminApi.siteTags(orgId!, site!.id),
+    enabled: !!orgId && !!site?.id,
   });
 
-  if (loading) return <PageSkeleton />;
-  if (!canOperate(orgRole ?? 'none')) {
-    return (
-      <div className="page admin-page">
-        <header className="page-head"><div><h1>{t('admin.title')}</h1></div></header>
-        <EmptyState icon="lock" title={t('admin.restricted')} body={t('admin.restrictedBody')} />
-      </div>
-    );
-  }
+  if (loading) return <><PageBar title={t('nav.admin')} /><PageSkeleton /></>;
+  if (!orgId) return <><PageBar title={t('nav.admin')} /><div className="p-4"><Notice tone="warn">{t('auth.denied')}</Notice></div></>;
 
-  const memberships = me.data?.memberships ?? [];
+  const edgeItems = edges.data?.items ?? [];
+  const tagItems = tags.data?.items ?? [];
+  const TAG_PREVIEW = 12;
 
   return (
-    <div className="page admin-page">
-      <header className="page-head">
-        <div>
-          <h1>{t('admin.title')}</h1>
-          <p className="lede">{t('admin.lede')}</p>
-        </div>
-      </header>
-
-      <section className="panel">
-        <header className="panel-head"><h2>{t('admin.org')}</h2></header>
-        <div className="panel-body flush">
-          {org.isError ? <ErrorState onRetry={() => void org.refetch()} /> : (
-            <table className="table admin-table">
-              <tbody>
-                <tr><th scope="row">{t('admin.colName')}</th><td>{org.data?.name ?? '—'}</td></tr>
-                <tr><th scope="row">{t('admin.colId')}</th><td className="mono dim">{orgId ?? '—'}</td></tr>
-                <tr><th scope="row">{t('admin.colRole')}</th><td><span className="badge">{org.data ? t(`roles.${org.data.role}`) : '—'}</span></td></tr>
-                <tr><th scope="row">{t('admin.colCreated')}</th><td className="dim">{org.data ? fmtClock(org.data.created_at) : '—'}</td></tr>
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
-
-      <section className="panel">
-        <header className="panel-head"><h2>{t('admin.sites')}</h2></header>
-        <div className="panel-body flush" style={{ overflowX: 'auto' }}>
-          {sites.isError ? <ErrorState onRetry={() => void sites.refetch()} />
-            : (sites.data?.items.length ?? 0) === 0 ? (
-              <EmptyState title={t('admin.noSites')} />
-            ) : (
-              <table className="table admin-table">
-                <thead>
-                  <tr>
-                    <th scope="col">{t('admin.colName')}</th>
-                    <th scope="col">{t('admin.colCode')}</th>
-                    <th scope="col">{t('admin.colTimezone')}</th>
-                    <th scope="col">{t('admin.colId')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sites.data!.items.map((s) => (
-                    <tr key={s.id}>
-                      <td>{s.name}</td>
-                      <td className="mono dim">{s.code}</td>
-                      <td className="dim">{s.timezone}</td>
-                      <td className="mono dim">{s.id}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-        </div>
-      </section>
-
-      <section className="panel">
-        <header className="panel-head"><h2>{t('admin.yourOrgs')}</h2></header>
-        <div className="panel-body flush" style={{ overflowX: 'auto' }}>
-          <table className="table admin-table">
-            <thead>
-              <tr>
-                <th scope="col">{t('admin.colOrg')}</th>
-                <th scope="col">{t('admin.colRole')}</th>
-                <th scope="col">{t('admin.colId')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {memberships.map((m) => (
-                <tr key={m.org_id}>
-                  <td>{m.org_name ?? '—'}</td>
-                  <td><span className="badge">{t(`roles.${m.role}`)}</span></td>
-                  <td className="mono dim">{m.org_id}</td>
+    <>
+      <PageBar
+        title={t('nav.adminOrg')}
+        lede={`${t('admin.org')}: ${orgId}`}
+        actions={
+          sites.length > 1 ? (
+            <select className="input" aria-label={t('admin.selectSite')} value={site?.id ?? ''} onChange={(e) => setSiteId(e.target.value)}>
+              {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          ) : site ? <span className="text-[12px] text-ink-46">{site.name} · {site.timezone}</span> : undefined
+        }
+      />
+      <div className="flex p-4">
+        <AdminNav />
+        <div className="grid min-w-0 flex-1 gap-3 pl-4 lg:grid-cols-2">
+        <Card title={`${t('health.edges')} (${edgeItems.length})`} pad={false}>
+          {edges.isLoading || sitesLoading ? (
+            <div className="space-y-2 p-3">
+              {[28, 20, 28].map((h, i) => <Skeleton key={i} h={h} />)}
+            </div>
+          ) : edges.isError ? (
+            <ErrorState onRetry={() => void edges.refetch()} />
+          ) : edgeItems.length === 0 ? (
+            <EmptyState title={t('admin.noEdges')} />
+          ) : (
+            <Table head={[t('health.colName'), t('admin.colStatus'), t('health.colHb'), t('health.colBuffer'), t('health.colClock')]}>
+              {edgeItems.map((e) => (
+                <tr key={e.id}>
+                  <td className="font-medium">{e.name}</td>
+                  <td>
+                    {/* up → green, down → red, stale/other → amber (never colour alone — label inside) */}
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      e.status === 'up' ? 'bg-[var(--color-ok-soft)] text-[var(--color-ok)]'
+                        : e.status === 'down' ? 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]'
+                        : 'bg-[#fff4e0] text-[var(--color-caution)]'
+                    }`}>
+                      {t(`health.${e.status}`, { defaultValue: e.status })}
+                    </span>
+                  </td>
+                  <td className="font-mono text-[11px] text-ink-68">{e.last_hb ?? '—'}</td>
+                  <td className="w-36">
+                    <span className="flex items-center gap-1.5 font-mono text-[12px]">
+                      {e.buffer_depth}
+                      {/* inline %-bar — dd host-list metric cell; cap from BUFFER_CAP=3600 */}
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+                        <span className="block h-full bg-blue" style={{ width: `${Math.min(100, (e.buffer_depth / 3600) * 100)}%` }} />
+                      </span>
+                    </span>
+                  </td>
+                  <td>{e.clock_ok == null ? '—' : e.clock_ok ? t('health.clockOk') : t('health.clockBad')}</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+            </Table>
+          )}
+        </Card>
+        <Card title={`${t('admin.siteTags')} (${tagItems.length})`} pad={false}>
+          {tags.isLoading || sitesLoading ? (
+            <div className="space-y-2 p-3">
+              {[28, 20, 28].map((h, i) => <Skeleton key={i} h={h} />)}
+            </div>
+          ) : tags.isError ? (
+            <ErrorState onRetry={() => void tags.refetch()} />
+          ) : tagItems.length === 0 ? (
+            <EmptyState title={t('tags.emptyTitle')} body={t('tags.emptyBody')} />
+          ) : (
+            <>
+              <Table head={[t('tags.colPath'), t('admin.colType'), t('tags.colUnit')]}>
+                {tagItems.slice(0, TAG_PREVIEW).map((x) => (
+                  <tr key={x.id}>
+                    <td className="font-mono text-[12px]">{x.path}</td>
+                    <td className="text-[12px]">{x.type}</td>
+                    <td className="text-[12px] text-ink-68">{x.unit ?? '—'}</td>
+                  </tr>
+                ))}
+              </Table>
+              {tagItems.length > TAG_PREVIEW && (
+                <p className="px-3 py-1.5 text-[11px] text-ink-46">{t('tags.showing', { shown: TAG_PREVIEW, total: tagItems.length })}</p>
+              )}
+            </>
+          )}
+        </Card>
         </div>
-      </section>
-    </div>
+      </div>
+    </>
   );
 }

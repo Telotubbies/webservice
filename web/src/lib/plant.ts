@@ -2,6 +2,8 @@
 // label and format them. Tag names stay the backend contract; labels are
 // i18n keys so nothing user-facing is a raw tag string.
 
+import i18n from './i18n';
+
 export type EquipmentId = 'motor' | 'conveyor' | 'camera' | 'bin';
 
 export interface SignalMeta {
@@ -53,7 +55,7 @@ export function displayNumber(name: string, v: number): number {
 
 export function formatSignal(name: string, v: number | boolean | undefined, locale: string): string {
   if (v === undefined) return '—';
-  if (typeof v === 'boolean') return v ? 'ON' : 'OFF';
+  if (typeof v === 'boolean') return i18n.t(v ? 'state.on' : 'state.off');
   if (!Number.isFinite(v)) return '—';
   const d = SIGNALS[name]?.decimals ?? (Math.abs(v) >= 100 ? 0 : Math.abs(v) >= 10 ? 1 : 2);
   return displayNumber(name, v).toLocaleString(locale === 'th' ? 'th-TH' : 'en-GB', {

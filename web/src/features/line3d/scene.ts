@@ -3,14 +3,22 @@
 // Vanilla three only, bound imperatively to LiveStore: `applyState` mutates
 // meshes on each store flush; the host renders on demand — no reconciler.
 //
+// v5: equipment bodies are REAL models, not hand-built primitives — CC0
+// Kenney Factory Kit GLBs loaded via GLTFLoader from /models (see
+// public/models/LICENSE-Kenney.txt). Materials are cloned per equipment so
+// applyState can still shade-code them (tint multiplies the colormap
+// texture): running = dark fill, idle = light fill — ISA-101 shade rules
+// carried over the asset geometry unchanged.
+//
 // Evidence rules (doc 22 §6): 3D carries WHERE (spatial layout + state
-// glows); quantities stay in the 2D HTML labels. State = shade + cyan
-// emissive; hue only for abnormal (severity under-glow, AI halo, selection
-// edge). Machines sit on contact-shadow decals + fog — iso drawings read
-// flat without depth cues.
+// shades); quantities stay in the 2D HTML labels. State = shade + cyan
+// live strip; hue only for abnormal (severity under-glow, AI halo,
+// selection cage). Machines sit on contact-shadow decals + fog — iso
+// scenes read flat without depth cues.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EQUIPMENT, T, type EquipmentId } from '../../lib/plant';
 import { STALE_MS, live } from '../../lib/live';
 import { normSeverity } from '../../shared/ui/Status';
@@ -23,13 +31,15 @@ export interface ApplyOpts {
 interface EquipRefs {
   id: EquipmentId;
   root: THREE.Group;
-  /** shade-coded driven body materials (empty for uninstrumented camera) */
+  /** cloned body materials — applyState tints them (state = shade) */
   driven: THREE.MeshStandardMaterial[];
   /** cyan "live" strip, shown while the line runs */
   strip: THREE.MeshBasicMaterial | null;
   glow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
   halo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   edge: THREE.LineSegments;
+  /** world bbox of the model, captured in dress() before decals are added */
+  bb?: THREE.Box3;
   alarmSev: 'critical' | 'warning' | null;
   alarmPulse: boolean;
 }
@@ -93,19 +103,6 @@ function shadowTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
-/** Stripe texture for the belt tread — offset.x scrolls while running. */
-function treadTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 32; c.height = 8;
-  const g = c.getContext('2d')!;
-  g.fillStyle = 'rgba(255,255,255,0.16)';
-  g.fillRect(0, 2, 12, 4);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = THREE.RepeatWrapping;
-  t.repeat.set(26, 1);
-  return t;
-}
-
 const std = (color: THREE.Color, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) =>
   new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.05, ...extra });
 
@@ -113,28 +110,71 @@ const box = (w: number, h: number, d: number, mat: THREE.Material) =>
   new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
 
 /* ------------------------------------------------------------------ */
+/* model loading — real assets, normalized to scene scale               */
+/* ------------------------------------------------------------------ */
+
+const MODEL_DIR = '/models';
+
+/** Clone every mesh material once per model instance so per-equipment
+ *  shade-tinting never bleeds across shared GLB materials. Returns the
+ *  clones (driven materials for applyState). */
+function cloneMaterials(root: THREE.Object3D): THREE.MeshStandardMaterial[] {
+  const map = new Map<THREE.Material, THREE.MeshStandardMaterial>();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    const out = mats.map((mat) => {
+      if (!map.has(mat)) map.set(mat, (mat as THREE.MeshStandardMaterial).clone());
+      return map.get(mat)!;
+    });
+    m.material = Array.isArray(m.material) ? out : out[0];
+  });
+  return [...map.values()];
+}
+
+/** Fit a loaded GLB in place: uniform scale to a target horizontal length
+ *  (x-axis) or height (y-axis), centred on x/z with its base resting on y=0.
+ *  Works on the detached object — call before adding it to a placed root. */
+function fit(obj: THREE.Object3D, opts: { len?: number; h?: number; yaw?: number }): { size: THREE.Vector3 } {
+  if (opts.yaw) obj.rotation.y = opts.yaw;
+  const b = new THREE.Box3().setFromObject(obj);
+  const size = b.getSize(new THREE.Vector3());
+  const s = opts.len
+    ? opts.len / Math.max(size.x, 1e-6)
+    : (opts.h ?? 1) / Math.max(size.y, 1e-6);
+  obj.scale.setScalar(s);
+  const b2 = new THREE.Box3().setFromObject(obj);
+  const c = b2.getCenter(new THREE.Vector3());
+  obj.position.x -= c.x;
+  obj.position.z -= c.z;
+  obj.position.y -= b2.min.y;
+  return { size: b2.getSize(new THREE.Vector3()) };
+}
+
+/* ------------------------------------------------------------------ */
 /* build                                                                */
 /* ------------------------------------------------------------------ */
 
-export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
+export async function buildScene(canvas: HTMLCanvasElement): Promise<LineSceneView> {
   const palette = makePalette(document);
   const C = {
-    canvas: palette.col('--bg-canvas', '#0d0f12'),
-    panel: palette.col('--bg-panel', '#14161a'),
-    raised: palette.col('--bg-raised', '#1b1e23'),
-    idle: palette.col('--equip-idle', '#343a3f'),
-    running: palette.col('--state-running', '#c1c7cd'),
-    manual: palette.col('--equip-manual', '#4d5358'),
-    edge: palette.col('--equip-edge', '#4d565f'),
-    detail: palette.col('--equip-detail', '#7a848e'),
-    mid: palette.col('--equip-mid', '#39414a'),
-    belt: palette.col('--equip-belt', '#1c2126'),
-    fill: palette.col('--equip-fill', '#697077'),
-    lump: palette.col('--material', '#8d939c'),
-    live: palette.col('--state-selected', '#3fc6d8'),
-    crit: palette.col('--sev-critical', '#f4534a'),
-    warn: palette.col('--sev-warning', '#ff9830'),
-    ai: palette.col('--ai-accent', '#b98df0'),
+    canvas: palette.col('--bg-canvas', '#e8eaee'),
+    panel: palette.col('--bg-panel', '#f4f5f7'),
+    raised: palette.col('--bg-raised', '#e3e5e9'),
+    idle: palette.col('--equip-idle', '#d8dce1'),
+    running: palette.col('--state-running', '#3a424c'),
+    manual: palette.col('--equip-manual', '#aab1ba'),
+    edge: palette.col('--equip-edge', '#5d6670'),
+    detail: palette.col('--equip-detail', '#8b939d'),
+    mid: palette.col('--equip-mid', '#bcc2c9'),
+    belt: palette.col('--equip-belt', '#575f68'),
+    fill: palette.col('--equip-fill', '#9aa3ac'),
+    lump: palette.col('--material', '#79828c'),
+    live: palette.col('--state-selected', '#149eb4'),
+    crit: palette.col('--sev-critical', '#cf352b'),
+    warn: palette.col('--sev-warning', '#f08a10'),
+    ai: palette.col('--ai-accent', '#8658d4'),
   };
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -143,11 +183,14 @@ export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
 
   const scene = new THREE.Scene();
   scene.background = C.panel.clone();
-  scene.fog = new THREE.Fog(C.panel.clone(), 24, 46); // depth cue for iso
+  scene.fog = new THREE.Fog(C.panel.clone(), 33, 58); // line crisp, yard reads as soft silhouettes
 
   // --- ortho ~30° iso camera (elevation 30°, azimuth 45°) ---
-  const VIEW_H = 7.4; // world half-height
-  const target0 = new THREE.Vector3(0.2, 1.0, 0);
+  // line spans x ∈ [-5.4, 5.4], tops out ~y 3 (labels ride above the
+  // anchors); at iso 30°/45° that content projects to screen-y ≈ [-3.0, +2.9]
+  // around this target — half-height 5.2 fills the panel without clipping
+  const VIEW_H = 5.2; // world half-height
+  const target0 = new THREE.Vector3(0.2, 0.7, 0);
   const camera = new THREE.OrthographicCamera(-VIEW_H, VIEW_H, VIEW_H, -VIEW_H, 0.1, 90);
   camera.position.set(
     target0.x + Math.cos(Math.PI / 6) * Math.SQRT1_2 * 26,
@@ -168,11 +211,13 @@ export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
   controls.saveState();
 
   // --- lights (no shadowmaps — contact-shadow decals instead) ---
-  scene.add(new THREE.HemisphereLight(0x9aa4b0, 0x11141a, 1.15));
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
+  // light-scene variant: bright flat hemisphere keeps the CC0 colormap
+  // readable; key/rim add just enough form.
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xd3d8dd, 1.35));
+  const key = new THREE.DirectionalLight(0xffffff, 1.35);
   key.position.set(7, 14, 5);
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0x8899aa, 0.5);
+  const rim = new THREE.DirectionalLight(0xdfe5ec, 0.55);
   rim.position.set(-6, 8, -8);
   scene.add(rim);
 
@@ -181,15 +226,14 @@ export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.02;
   scene.add(floor);
-  const grid = new THREE.GridHelper(70, 70, C.mid, C.raised);
+  const grid = new THREE.GridHelper(70, 70, C.edge, C.mid);
   grid.position.y = 0;
   (grid.material as THREE.Material).transparent = true;
-  (grid.material as THREE.Material).opacity = 0.4;
+  (grid.material as THREE.Material).opacity = 0.25;
   (grid.material as THREE.Material).depthWrite = false;
   scene.add(grid);
 
   const shadowTex = shadowTexture();
-  const treadTex = treadTexture();
   const contactShadow = (w: number, d: number) => {
     const m = new THREE.Mesh(
       new THREE.PlaneGeometry(w, d),
@@ -197,210 +241,248 @@ export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
     );
     m.rotation.x = -Math.PI / 2;
     m.position.y = 0.005;
+    // floor decal, not a pick target — it extends past the model, so a
+    // click near a machine must still clear the selection, not set it
+    m.raycast = () => {};
     return m;
   };
+
+  /* ---------- load the real models (Kenney Factory Kit, CC0) ---------- */
+  const loader = new GLTFLoader();
+  const load = (file: string) => loader.loadAsync(`${MODEL_DIR}/${file}.glb`).then((g) => g.scene);
+  let motorM: THREE.Group, convM: THREE.Group, camM: THREE.Group,
+    binM: THREE.Group, boxM: THREE.Group, cogM: THREE.Group;
+  try {
+    [motorM, convM, camM, binM, boxM, cogM] = await Promise.all([
+      load('machine-window'),      // drive unit with window panel
+      load('conveyor-long'),       // belt conveyor section
+      load('scanner-high'),        // inspection scanner on a post → vision camera
+      load('hopper-high-round'),   // tall hopper → gravel bin
+      load('box-small'),           // parcels riding the belt (material)
+      load('cog-a'),               // spinning coupling on the motor
+    ]);
+  } catch (err) {
+
+    // renderer + palette probe already exist — release them so a failed
+    // mount leaves no live GL context or stray DOM behind (the host then
+    // takes the same silent fallback path as a context loss)
+    scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
+      for (const mat of mats) (mat as THREE.Material).dispose();
+    });
+    shadowTex.dispose();
+    renderer.dispose();
+    renderer.forceContextLoss();
+    palette.dispose();
+    throw err;
+  }
+
+  /* Scenery backdrop — real plant structures from 3D Warehouse (optimized/
+     quantized copies in /models). Optional by design: each load has its own
+     catch so a missing file drops that structure, never the scene. */
+  const sceneryNames = ['batching-plant', 'cement-plant', 'colliery-tower', 'cement-mixer'] as const;
+  const scenery = await Promise.all(sceneryNames.map((n) => load(n).catch(() => null)));
 
   const pickRoots: THREE.Object3D[] = [];
   const equipment: EquipRefs[] = [];
   const selMat = new THREE.LineBasicMaterial({ color: C.live });
 
-  const mkEquip = (id: EquipmentId, glowR: [number, number], shell: THREE.Mesh): EquipRefs => {
+  const mkEquip = (id: EquipmentId): EquipRefs => {
     const root = new THREE.Group();
     root.userData.eq = id;
+    const ref: EquipRefs = {
+      id, root, driven: [], strip: null,
+      glow: null!, halo: null!, edge: null!, alarmSev: null, alarmPulse: false,
+    };
+    equipment.push(ref);
+    pickRoots.push(root);
+    return ref;
+  };
+
+  /** After a model is placed at its world position: measure the world bbox,
+   *  then add floor decals (alarm glow, AI halo), a cyan live strip on the
+   *  front face, and a hidden selection cage from the box edges. */
+  function dress(ref: EquipRefs, opts: { stripY?: number; wallOpacity?: number } = {}) {
+    ref.root.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(ref.root);
+    const size = bb.getSize(new THREE.Vector3());
+    const ctr = bb.getCenter(new THREE.Vector3());
+    const local = (v: THREE.Vector3) => v.clone().sub(ref.root.position); // roots translate only
+
     // red under-glow disc (pulses while an alarm is unacked)
     const glow = new THREE.Mesh(
       new THREE.CircleGeometry(1, 40),
       new THREE.MeshBasicMaterial({ color: C.crit, transparent: true, opacity: 0.0, depthWrite: false }),
     );
     glow.rotation.x = -Math.PI / 2;
-    glow.position.y = 0.012;
-    glow.scale.set(glowR[0], glowR[1], 1);
+    glow.position.copy(local(new THREE.Vector3(ctr.x, 0.012, ctr.z)));
+    glow.scale.set(size.x * 0.62, size.z * 0.95, 1);
     glow.visible = false;
-    root.add(glow);
+    ref.root.add(glow);
+    ref.glow = glow as EquipRefs['glow'];
     // violet halo for open insights
     const halo = new THREE.Mesh(
       new THREE.RingGeometry(0.92, 1.05, 48),
       new THREE.MeshBasicMaterial({ color: C.ai, transparent: true, opacity: 0.55, depthWrite: false }),
     );
     halo.rotation.x = -Math.PI / 2;
-    halo.position.y = 0.014;
-    halo.scale.set(glowR[0], glowR[1], 1);
+    halo.position.copy(local(new THREE.Vector3(ctr.x, 0.014, ctr.z)));
+    halo.scale.set(size.x * 0.62, size.z * 0.95, 1);
     halo.visible = false;
-    root.add(halo);
-    // glow/halo discs are floor decals, not pick targets — without this a
-    // click on empty floor near equipment hits the (invisible) disc and
-    // selects instead of clearing the selection.
+    ref.root.add(halo);
+    ref.halo = halo as EquipRefs['halo'];
+    // floor decals are not pick targets
     glow.raycast = () => {};
     halo.raycast = () => {};
-    // selection edge on the representative shell
-    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(shell.geometry, 20), selMat);
-    edge.visible = false;
-    shell.add(edge);
-    const ref: EquipRefs = { id, root, driven: [], strip: null, glow, halo, edge, alarmSev: null, alarmPulse: false };
-    equipment.push(ref);
-    pickRoots.push(root);
-    return ref;
-  };
 
-  /* ---------- motor ---------- */
-  const motorBody = box(1.7, 1.2, 1.3, std(C.idle.clone()));
-  motorBody.position.y = 0.62;
-  const motor = mkEquip('motor', [1.5, 1.2], motorBody);
-  motor.driven.push(motorBody.material as THREE.MeshStandardMaterial);
-  motor.root.position.set(-4.4, 0, 0);
-  motor.root.add(contactShadow(2.6, 2.0));
-  motor.root.add(motorBody);
-  for (let i = 0; i < 4; i++) {
-    const fin = box(0.14, 0.18, 1.36, std(C.mid.clone()));
-    fin.position.set(-0.6 + i * 0.4, 1.3, 0);
-    motor.root.add(fin);
-  }
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.4, 24), std(C.mid.clone()));
-  cap.rotation.z = Math.PI / 2;
-  cap.position.set(0.95, 0.62, 0);
-  motor.root.add(cap);
-  // shaft + rotor marker (rotation reads only while running)
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.9, 16), std(C.detail.clone()));
-  shaft.rotation.z = Math.PI / 2;
-  shaft.position.set(1.55, 0.62, 0);
-  motor.root.add(shaft);
-  const rotor = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, 0.05), std(C.detail.clone()));
-  rotor.position.set(1.95, 0.62, 0);
-  motor.root.add(rotor);
-  // cyan live strip on the front face
-  const mStrip = new THREE.MeshBasicMaterial({ color: C.live, transparent: true, opacity: 0.9 });
-  const mStripMesh = box(1.72, 0.07, 0.02, mStrip);
-  mStripMesh.position.set(0, 0.5, 0.66);
-  motor.root.add(mStripMesh);
-  motor.strip = mStrip;
-  scene.add(motor.root);
+    // model-only bbox (pre-decal) — reused for HTML label anchors
+    ref.bb = bb;
 
-  /* ---------- conveyor ---------- */
-  const convFrame = box(6.4, 0.3, 1.15, std(C.idle.clone()));
-  convFrame.position.y = 1.45;
-  const conveyor = mkEquip('conveyor', [3.6, 1.1], convFrame);
-  conveyor.driven.push(convFrame.material as THREE.MeshStandardMaterial);
-  conveyor.root.add(contactShadow(7.4, 1.9));
-  conveyor.root.add(convFrame);
-  const belt = box(6.05, 0.06, 0.95, std(C.belt.clone()));
-  belt.position.y = 1.64;
-  conveyor.root.add(belt);
-  const tread = new THREE.Mesh(
-    new THREE.PlaneGeometry(6.05, 0.95),
-    new THREE.MeshBasicMaterial({ map: treadTex, transparent: true, depthWrite: false }),
-  );
-  tread.rotation.x = -Math.PI / 2;
-  tread.position.y = 1.675;
-  conveyor.root.add(tread);
-  for (const sx of [-3.05, 3.05]) {
-    const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 1.0, 16), std(C.mid.clone()));
-    roller.rotation.x = Math.PI / 2;
-    roller.position.set(sx, 1.45, 0);
-    conveyor.root.add(roller);
-  }
-  for (const lx of [-2.6, -0.9, 0.9, 2.6]) {
-    for (const lz of [-0.42, 0.42]) {
-      const leg = box(0.14, 1.3, 0.14, std(C.edge.clone()));
-      leg.position.set(lx, 0.65, lz);
-      conveyor.root.add(leg);
+    // cyan live strip on the model's front face
+    const strip = new THREE.MeshBasicMaterial({ color: C.live, transparent: true, opacity: 0.9 });
+    const stripMesh = box(size.x * 0.9, 0.06, 0.02, strip);
+    stripMesh.position.copy(local(new THREE.Vector3(
+      ctr.x, bb.min.y + (opts.stripY ?? size.y * 0.28), bb.max.z + 0.012,
+    )));
+    ref.root.add(stripMesh);
+    ref.strip = strip;
+
+    // selection cage = cyan edges of the model's bounding box
+    const cage = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(size.x * 1.07, size.y * 1.07, size.z * 1.07)),
+      selMat,
+    );
+    cage.position.copy(local(ctr));
+    cage.visible = false;
+    ref.root.add(cage);
+    ref.edge = cage;
+    cage.raycast = () => {};   // never block the model pick
+
+    // hopper walls translucent so the interior fill reads
+    if (opts.wallOpacity !== undefined) {
+      for (const m of ref.driven) { m.transparent = true; m.opacity = opts.wallOpacity; m.depthWrite = false; }
     }
   }
-  const cStrip = new THREE.MeshBasicMaterial({ color: C.live, transparent: true, opacity: 0.9 });
-  const cStripMesh = box(6.42, 0.07, 0.02, cStrip);
-  cStripMesh.position.set(0, 1.38, 0.585);
-  conveyor.root.add(cStripMesh);
-  conveyor.strip = cStrip;
-  // material lumps riding the belt (visible motion while running)
-  const lumps: THREE.Mesh[] = [];
-  for (let i = 0; i < 4; i++) {
-    const lump = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), std(C.lump.clone()));
-    lump.scale.y = 0.75;
-    conveyor.root.add(lump);
-    lumps.push(lump);
-  }
-  scene.add(conveyor.root);
 
-  /* ---------- camera (vision head over the belt) ---------- */
-  const camHead = box(0.45, 0.3, 0.35, std(C.manual.clone()));
-  camHead.position.set(0.6, 2.9, -0.05);
-  const cameraEq = mkEquip('camera', [0.9, 0.9], camHead);
-  cameraEq.root.add(contactShadow(1.1, 1.1));
-  const post = box(0.12, 3.1, 0.12, std(C.edge.clone()));
-  post.position.set(0.6, 1.55, -0.95);
-  cameraEq.root.add(post);
-  const arm = box(0.12, 0.12, 0.95, std(C.edge.clone()));
-  arm.position.set(0.6, 3.05, -0.5);
-  cameraEq.root.add(arm);
-  cameraEq.root.add(camHead);
-  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.14, 16), std(C.belt.clone()));
-  lens.position.set(0.6, 2.7, -0.05);
-  cameraEq.root.add(lens);
+  /* ---------- motor ---------- */
+  const motor = mkEquip('motor');
+  const motorFit = fit(motorM, { h: 1.5 });
+  motor.driven.push(...cloneMaterials(motorM));
+  motor.root.position.set(-4.4, 0, 0);
+  motor.root.add(motorM);
+  scene.add(motor.root);
+  dress(motor);   // dress() measures the model-only bbox — decals go in after
+  motor.root.add(contactShadow(motorFit.size.x * 1.35, motorFit.size.z * 1.5));
+  // flat cog on the motor housing — spins while the line runs (shaft cue)
+  const cog = cogM.clone();
+  cog.scale.setScalar(0.55 / Math.max(new THREE.Box3().setFromObject(cog).getSize(new THREE.Vector3()).x, 1e-6));
+  cog.position.set(motorFit.size.x * 0.25, motorFit.size.y * 0.82, motorFit.size.z * 0.3);
+  motor.root.add(cog);
+
+  /* ---------- conveyor ---------- */
+  const conveyor = mkEquip('conveyor');
+  // auto-orient the long axis onto x
+  const cb0 = new THREE.Box3().setFromObject(convM);
+  const cs0 = cb0.getSize(new THREE.Vector3());
+  const convFit = fit(convM, { len: 6.4, yaw: cs0.z > cs0.x ? Math.PI / 2 : 0 });
+  conveyor.driven.push(...cloneMaterials(convM));
+  conveyor.root.add(convM);
+  scene.add(conveyor.root);
+  dress(conveyor, { stripY: convFit.size.y * 0.9 });
+  conveyor.root.add(contactShadow(convFit.size.x * 1.08, convFit.size.z * 1.7));
+  const beltTop = convFit.size.y;
+
+  /* ---------- camera (scanner head on a post over the belt) ---------- */
+  const cameraEq = mkEquip('camera');
+  const camFit = fit(camM, { h: 2.6 });
+  cameraEq.driven.push(...cloneMaterials(camM));
+  cameraEq.root.position.set(0.6, 0, -0.7);
+  cameraEq.root.add(camM);
+  scene.add(cameraEq.root);
+  dress(cameraEq, { stripY: camFit.size.y * 0.55 });
+  cameraEq.root.add(contactShadow(camFit.size.x * 1.3, camFit.size.z * 1.3));
+  // vision cone — wireframe, apex down toward the belt (local coords:
+  // root sits at z=-0.7, so +0.7 local lands over belt centre)
   const cone = new THREE.Mesh(
     new THREE.ConeGeometry(0.55, 1.0, 20, 1, true),
-    new THREE.MeshBasicMaterial({ color: C.detail, wireframe: true, transparent: true, opacity: 0.35 }),
+    new THREE.MeshBasicMaterial({ color: C.detail, wireframe: true, transparent: true, opacity: 0.4 }),
   );
-  cone.rotation.x = Math.PI;           // apex down, toward the belt
-  cone.position.set(0.6, 2.15, -0.05);
+  cone.rotation.x = Math.PI;
+  cone.position.set(0, beltTop + 0.7, 0.7);
   cameraEq.root.add(cone);
-  scene.add(cameraEq.root);
 
   /* ---------- bin (gravel hopper) ---------- */
-  const binTop = box(2.0, 1.0, 1.6, std(C.idle.clone(), { transparent: true, opacity: 0.3, depthWrite: false }));
-  binTop.position.y = 1.0;
-  const bin = mkEquip('bin', [1.7, 1.4], binTop);
+  const bin = mkEquip('bin');
+  const binFit = fit(binM, { h: 2.2 });
+  bin.driven.push(...cloneMaterials(binM));
   bin.root.position.set(4.4, 0, 0);
-  bin.root.add(contactShadow(2.9, 2.3));
-  const frustum = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.0, 0.42, 0.65, 4),
-    std(C.idle.clone(), { transparent: true, opacity: 0.3, depthWrite: false, flatShading: true }),
-  );
-  frustum.rotation.y = Math.PI / 4;
-  frustum.scale.set(1.414, 1, 1.13);   // square 4-seg → 2.0 × 1.6 footprint
-  frustum.position.y = 0.475;
-  bin.root.add(frustum);
-  const binRim = new THREE.LineSegments(new THREE.EdgesGeometry(binTop.geometry, 20), new THREE.LineBasicMaterial({ color: C.edge }));
-  binRim.position.copy(binTop.position);
-  bin.root.add(binRim);
-  const binRim2 = new THREE.LineSegments(new THREE.EdgesGeometry(frustum.geometry, 20), new THREE.LineBasicMaterial({ color: C.edge }));
-  binRim2.position.copy(frustum.position);
-  binRim2.rotation.copy(frustum.rotation);
-  binRim2.scale.copy(frustum.scale);
-  bin.root.add(binRim2);
-  // fill — scales with T.binLevel inside the translucent walls
-  const fill = box(1.8, 0.95, 1.4, std(C.fill.clone()));
-  fill.position.y = 0.5;
+  bin.root.add(binM);
+  scene.add(bin.root);
+  dress(bin, { wallOpacity: 0.5 });
+  bin.root.add(contactShadow(binFit.size.x * 1.5, binFit.size.z * 1.5));
+  // interior fill — scales with T.binLevel through the translucent walls
+  const fillH = binFit.size.y * 0.55;
+  const fillBase = 0.06;
+  const fill = box(binFit.size.x * 0.7, fillH, binFit.size.z * 0.7, std(C.fill.clone()));
+  fill.position.y = fillBase + fillH / 2;
   fill.scale.y = 0.001;
   fill.renderOrder = 1;
-  binTop.renderOrder = 2;
-  frustum.renderOrder = 2;
   bin.root.add(fill);
-  for (const [lx, lz] of [[-0.8, -0.6], [0.8, -0.6], [-0.8, 0.6], [0.8, 0.6]] as const) {
-    const leg = box(0.12, 0.16, 0.12, std(C.edge.clone()));
-    leg.position.set(lx, 0.08, lz);
-    bin.root.add(leg);
+
+  /* ---------- material: parcels riding the belt ---------- */
+  const parcels: THREE.Object3D[] = [];
+  const parcelProto = boxM.clone();
+  const pb = new THREE.Box3().setFromObject(parcelProto).getSize(new THREE.Vector3());
+  const pScale = 0.42 / Math.max(pb.y, 1e-6);
+  for (let i = 0; i < 4; i++) {
+    const p = parcelProto.clone();
+    p.scale.setScalar(pScale);
+    p.rotation.y = (i % 2 ? 0.15 : -0.1);
+    p.position.set(-2.9 + i * 1.5, beltTop, (i % 2 ? 0.18 : -0.14));
+    conveyor.root.add(p);
+    parcels.push(p);
   }
-  const bStrip = new THREE.MeshBasicMaterial({ color: C.live, transparent: true, opacity: 0.9 });
-  const bStripMesh = box(2.02, 0.06, 0.02, bStrip);
-  bStripMesh.position.set(0, 1.42, 0.81);
-  bin.root.add(bStripMesh);
-  bin.strip = bStrip;
-  bin.driven.push(binTop.material as THREE.MeshStandardMaterial, frustum.material as THREE.MeshStandardMaterial);
-  scene.add(bin.root);
 
-  // chute plate from the belt end into the bin mouth
-  const chute = box(1.3, 0.06, 0.9, std(C.mid.clone()));
-  chute.position.set(3.65, 1.5, 0);
-  chute.rotation.z = -0.35;
-  scene.add(chute);
+  /* ---------- backdrop: the plant yard the line lives in ---------- */
+  // file units vary (some real-world mm) — normalize each footprint, then
+  // ground-place around the line. Scenery only: raycast disabled, never
+  // pickable, never label-anchored.
+  const placeBackdrop = (m: THREE.Object3D, footprint: number, x: number, z: number, rotY = 0) => {
+    m.rotation.y = rotY;
+    const bb0 = new THREE.Box3().setFromObject(m);
+    const sz0 = bb0.getSize(new THREE.Vector3());
+    m.scale.setScalar(footprint / Math.max(sz0.x, sz0.z, 1e-6));
+    const bb1 = new THREE.Box3().setFromObject(m);
+    const ctr = bb1.getCenter(new THREE.Vector3());
+    m.position.set(x - ctr.x, -bb1.min.y, z - ctr.z);
+    m.traverse((o) => { o.raycast = () => {}; });
+    scene.add(m);
+  };
+  /* real bounding boxes were inspected (ref/models/batching): BM120 is a
+     ~square site (~158m²), so it owns the whole back yard centered behind
+     the line; the tower and silo row stand clear on each flank; the mixer
+     truck sits mid-field at believable scale. steel-depot is a flat slab —
+     dropped, it only added clutter. */
+  const [plantM, cementM, towerM, mixerM] = scenery;
+  if (plantM) placeBackdrop(plantM, 16, 0, -10.5);          // z −18.5…−2.5
+  if (cementM) placeBackdrop(cementM, 8, 12, -8, 0.15);     // narrow silo row, right flank
+  if (towerM) placeBackdrop(towerM, 6, -13, -9, 0.2);       // winding tower, left flank
+  if (mixerM) placeBackdrop(mixerM, 2.4, -5.5, -3.5, -0.5); // truck scale vs the plant
 
-  /* ---------- HTML label anchors (world positions) ---------- */
+  /* ---------- HTML label anchors (world positions, model-only bboxes) ---------- */
+  const motorBb = motor.bb!, convBb = conveyor.bb!, camBb = cameraEq.bb!, binBb = bin.bb!;
+  const mc = motorBb.getCenter(new THREE.Vector3());
+  const cc = camBb.getCenter(new THREE.Vector3());
+  const bc = binBb.getCenter(new THREE.Vector3());
   const anchors: Record<string, THREE.Vector3> = {
-    'motor-state': new THREE.Vector3(-4.4, 2.0, 0),
-    'speed-sp': new THREE.Vector3(-4.4, 0.12, 0.85),
-    'belt-speed': new THREE.Vector3(-1.5, 2.3, 0),
-    'belt-temp': new THREE.Vector3(1.9, 2.3, 0),
-    'gravel': new THREE.Vector3(0.6, 3.7, 0),
-    'bin-level': new THREE.Vector3(4.4, 2.2, 0),
+    'motor-state': new THREE.Vector3(mc.x, motorBb.max.y + 0.5, mc.z),
+    'speed-sp':    new THREE.Vector3(mc.x, 0.12, motorBb.max.z + 0.35),
+    'belt-speed':  new THREE.Vector3(-1.5, convBb.max.y + 0.7, 0),
+    'belt-temp':   new THREE.Vector3(1.9, convBb.max.y + 0.7, 0),
+    'gravel':      new THREE.Vector3(cc.x, camBb.max.y + 0.35, cc.z),
+    'bin-level':   new THREE.Vector3(bc.x, binBb.max.y + 0.4, bc.z),
   };
 
   /* ---------- runtime state ---------- */
@@ -444,11 +526,10 @@ export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
         state.phase += dtMs;
         const ph = state.phase / 1000;
         if (state.running) {
-          treadTex.offset.x = (ph * 0.9) % 1;
-          rotor.rotation.x = ph * 3.2;
-          for (let i = 0; i < lumps.length; i++) {
+          cog.rotation.y = ph * 3.2;
+          for (let i = 0; i < parcels.length; i++) {
             const x = -2.9 + ((ph * 1.1 + i * 1.5) % 6.0);
-            lumps[i].position.set(x, 1.72, (i % 2 ? 0.18 : -0.14));
+            parcels[i].position.set(x, beltTop, (i % 2 ? 0.18 : -0.14));
           }
         }
         // unacked alarm under-glow pulses ~0.8 Hz
@@ -472,7 +553,6 @@ export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
         }
       });
       shadowTex.dispose();
-      treadTex.dispose();
       selMat.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
@@ -483,7 +563,7 @@ export function buildScene(canvas: HTMLCanvasElement): LineSceneView {
 
   /* ---------- applyState support ---------- */
   // stash internals on the view for applyState
-  (view as unknown as { _i: object })._i = { equipment, state, C, fill };
+  (view as unknown as { _i: object })._i = { equipment, state, C, fill, fillBase, fillH };
   return view;
 }
 
@@ -497,10 +577,12 @@ interface Internals {
   state: { running: boolean; reduceMotion: boolean; phase: number };
   C: Record<string, THREE.Color>;
   fill: THREE.Mesh;
+  fillBase: number;
+  fillH: number;
 }
 
 export function applyState(view: LineSceneView, store: typeof live, opts: ApplyOpts = {}): void {
-  const { equipment, state, C, fill } = (view as unknown as { _i: Internals })._i;
+  const { equipment, state, C, fill, fillBase, fillH } = (view as unknown as { _i: Internals })._i;
   const now = Date.now();
   const run = store.latest.get(T.running);
   const stale = !run || now - (Date.parse(run.ts) || 0) > STALE_MS;
@@ -510,7 +592,7 @@ export function applyState(view: LineSceneView, store: typeof live, opts: ApplyO
   const level = store.latest.get(T.binLevel);
   const pct = level && typeof level.v === 'number' ? Math.max(0, Math.min(100, level.v)) / 100 : 0;
   fill.scale.y = Math.max(0.001, pct);
-  fill.position.y = 0.5 + 0.475 * pct; // anchored to the hopper floor
+  fill.position.y = fillBase + (fillH * pct) / 2; // anchored to the hopper floor
 
   for (const e of equipment) {
     const signals = EQUIPMENT.find((x) => x.id === e.id)?.signals ?? [];

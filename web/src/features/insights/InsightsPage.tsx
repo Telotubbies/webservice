@@ -1,135 +1,124 @@
-// InsightsPage — the AI feed (spec §3.3-C). Full history comes from
-// GET /api/insights (open + closed, newest 200); live.insights (WS pushes)
-// wins on id so open/close transitions appear instantly. Tag cell opens the
-// tag faceplate (carry-over ruling: insight cards open the faceplate); the
-// trailing link deep-links the tag into trends at 1h.
+// Insights — dd Watchdog pattern: left facet panel (kind + state checkbox
+// groups with counts and status dots), findings table on the right.
 
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useSearchParams } from 'react-router';
-import { api } from '../../lib/api';
 import { live } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
-import { fmtAge, fmtClock } from '../../lib/format';
-import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
-import { Segmented } from '../../shared/ui/Segmented';
-import { SeverityBadge, normSeverity } from '../../shared/ui/Status';
-import { useSignalLabel } from '../alarms/AlarmRows';
-import { useFaceplate } from '../faceplate/FaceplateContext';
+import { fmtAge } from '../../lib/format';
+import { SeverityBadge } from '../../shared/ui/Status';
+import { PageBar, Card, Table } from '../../shared/ui/Page';
+import { EmptyState, ErrorState, PageSkeleton } from '../../shared/ui/Feedback';
+import { Icon } from '../../shared/ui/Icon';
 import type { Insight } from '../../types';
-import './insights.css';
 
-type StateFilter = 'open' | 'closed' | 'all';
-type KindFilter = 'all' | Insight['kind'];
-
-const KIND_KEY = { anomaly: 'kindAnomaly', drift: 'kindDrift', flatline: 'kindFlatline', flapping: 'kindFlapping' } as const;
-const KINDS = ['all', 'anomaly', 'drift', 'flatline', 'flapping'] as KindFilter[];
+const STATE_DOT: Record<string, string> = { open: '#d24f57', closed: '#828ba4' };
 
 export function InsightsPage() {
   const { t } = useTranslation();
-  const [params, setParams] = useSearchParams();
-  const { openFaceplate } = useFaceplate();
-  const label = useSignalLabel();
-  const now = useNow(1000);
-  const rev = useStore(() => live.insightRev);
-  const q = useQuery({ queryKey: ['insights'], queryFn: () => api.insights(), staleTime: 30_000 });
+  const now = useNow();
+  const insightRev = useStore(() => live.insightRev);
+  const seedError = useStore(() => live.seedRev);
+  /* Facets are modelled as EXCLUSION sets ("empty = everything shown").
+   * The old inclusion model made the first uncheck select only that item —
+   * with `kinds` starting empty (= all checked), clicking a checked row
+   * produced a set containing just that kind, the opposite of the intent. */
+  const [statesOff, setStatesOff] = useState<Set<string>>(new Set());
+  const [kindsOff, setKindsOff] = useState<Set<string>>(new Set());
+  const [fq, setFq] = useState('');
 
-  const state = (params.get('state') as StateFilter) || 'all';
-  const kind = (params.get('kind') as KindFilter) || 'all';
-  const set = (k: string, v: string, dflt: string) => {
-    const next = new URLSearchParams(params);
-    if (v === dflt) next.delete(k); else next.set(k, v);
-    setParams(next, { replace: true });
-  };
+  const allKinds = useMemo(() => [...new Set(live.insights.map((i) => i.kind))], [insightRev]);
+  const kindCount = (k: string) => live.insights.filter((i) => i.kind === k).length;
+  const stateCount = (s: string) => live.insights.filter((i) => i.state === s).length;
 
-  // REST history merged with the live slice — live wins on id.
-  const all = useMemo(() => {
-    const map = new Map<string, Insight>();
-    for (const i of q.data ?? []) map.set(i.id, i);
-    for (const i of live.insights) map.set(i.id, i);
-    return [...map.values()].sort(
-      (a, b) => (Date.parse(b.ts_start) || 0) - (Date.parse(a.ts_start) || 0),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q.data, rev]);
+  const rows = useMemo(() => {
+    const needle = fq.trim().toLowerCase();
+    return live.insights.filter((i) =>
+      !statesOff.has(i.state) &&
+      !kindsOff.has(i.kind) &&
+      (!needle || i.tag.toLowerCase().includes(needle) || i.kind.toLowerCase().includes(needle)));
+  }, [statesOff, kindsOff, fq, insightRev]);
 
-  const rows = all.filter((i) => (state === 'all' || i.state === state) && (kind === 'all' || i.kind === kind));
-  const count = (s: StateFilter) => (s === 'all' ? all.length : all.filter((i) => i.state === s).length);
+  const toggle = (set: Set<string>, v: string, apply: (s: Set<string>) => void) =>
+    apply(new Set(set.has(v) ? [...set].filter((x) => x !== v) : [...set, v]));
+
+  const kindLabel = (k: Insight['kind']) =>
+    t(`insights.kind${k[0].toUpperCase()}${k.slice(1)}`, { defaultValue: k });
+
+  if (seedError && !live.insightsSeeded) {
+    return <><PageBar title={t('insights.title')} /><ErrorState onRetry={() => window.location.reload()} /></>;
+  }
+  if (!live.insightsSeeded) {
+    return <><PageBar title={t('insights.title')} /><PageSkeleton /></>;
+  }
+
+  const facet = (v: string, label: string, count: number, set: Set<string>, apply: (s: Set<string>) => void, dot?: string) => (
+    <label key={v} className="flex h-7 cursor-pointer items-center gap-2 rounded px-2 text-[13px] text-ink-68 hover:bg-subtle has-[:focus-visible]:bg-subtle">
+      <input type="checkbox" checked={!set.has(v)} onChange={() => toggle(set, v, apply)} className="accent-blue" aria-label={label} />
+      {dot && <span className="h-2 w-2 rounded-full" style={{ background: dot }} />}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="text-[11px] text-ink-46">{count}</span>
+    </label>
+  );
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>{t('insights.title')}</h1>
-          <p className="lede">{t('insights.lede')}</p>
-        </div>
-      </header>
-      <section className="panel insight-list">
-        <div className="insight-filters">
-          <Segmented<StateFilter>
-            label={t('insights.state')} value={state} onChange={(v) => set('state', v, 'all')}
-            options={(['open', 'closed', 'all'] as StateFilter[]).map((s) => ({
-              value: s, label: `${t(`insights.${s}`)} ${count(s)}`,
-            }))}
-          />
-          <Segmented<KindFilter>
-            label={t('insights.kind')} value={kind} onChange={(v) => set('kind', v, 'all')}
-            options={KINDS.map((k) => ({
-              value: k, label: k === 'all' ? t('insights.all') : t(`insights.${KIND_KEY[k]}`),
-            }))}
+    <>
+      <PageBar title={t('insights.title')} lede={t('insights.lede')} />
+      {/* omnibar row */}
+      <div className="border-b border-line bg-white px-4 py-2">
+        <div className="relative">
+          <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
+          <input
+            className="input w-full pl-7"
+            placeholder={t('insights.filterPh')}
+            aria-label={t('insights.filterPh')}
+            value={fq}
+            onChange={(e) => setFq(e.target.value)}
           />
         </div>
-        <div className="panel-body flush">
-          {all.length === 0 && q.isError ? (
-            <ErrorState onRetry={() => void q.refetch()} />
-          ) : all.length === 0 && q.isPending ? (
-            <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
-              {[0, 1, 2].map((i) => <Skeleton key={i} h={28} />)}
-            </div>
-          ) : rows.length === 0 ? (
-            <EmptyState icon="sparkle" title={t('insights.empty')} body={t('insights.emptyBody')} />
-          ) : (
-            <table className="table insight-table">
-              <thead>
-                <tr>
-                  <th scope="col">{t('insights.kind')}</th>
-                  <th scope="col">{t('insights.tag')}</th>
-                  <th scope="col">{t('insights.severity')}</th>
-                  <th scope="col" className="num">{t('insights.score')}</th>
-                  <th scope="col">{t('insights.window')}</th>
-                  <th scope="col">{t('insights.state')}</th>
-                  <th scope="col"><span className="sr-only">{t('insights.openInTrends')}</span></th>
-                </tr>
-              </thead>
-              <tbody>
+      </div>
+
+      <div className="flex p-4">
+        {/* facet panel — watchdog pattern */}
+        <aside className="w-48 shrink-0 pr-3">
+          <p className="px-2 pb-1 text-[11px] font-semibold uppercase text-ink-46">{t('insights.kind')}</p>
+          {allKinds.map((k) => facet(k, kindLabel(k), kindCount(k), kindsOff, setKindsOff))}
+          {!allKinds.length && <p className="px-2 text-[11px] italic text-ink-46">{t('insights.noMatch')}</p>}
+          <p className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase text-ink-46">{t('insights.state')}</p>
+          {facet('open', t('insights.open'), stateCount('open'), statesOff, setStatesOff, STATE_DOT.open)}
+          {facet('closed', t('insights.closed'), stateCount('closed'), statesOff, setStatesOff, STATE_DOT.closed)}
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          <p className="pb-2 text-[12px] text-ink-46">{t('insights.count', { count: rows.length })}</p>
+          <Card pad={false}>
+            {rows.length === 0 ? (
+              <EmptyState title={t('insights.empty')} body={t('insights.emptyBody')} icon="sparkle" />
+            ) : (
+              <Table head={[t('alarms.severity'), t('insights.kind'), t('control.tag'), t('insights.score'), t('alarms.colState'), t('alarms.colRaised'), t('insights.window')]}>
                 {rows.map((i) => (
-                  <tr key={i.id} className="insight-row" data-kind={i.kind} data-sev={normSeverity(i.severity)} data-state={i.state}>
-                    <td><span className="insight-kind">{t(`insights.${KIND_KEY[i.kind]}`)}</span></td>
-                    <td>
-                      <button type="button" className="tag-link insight-tag" title={i.tag} onClick={() => openFaceplate(i.tag)}>
-                        {label(i.tag)}
-                      </button>
-                    </td>
+                  <tr key={i.id}>
                     <td><SeverityBadge severity={i.severity} /></td>
-                    <td className="num">{i.score.toFixed(1)}</td>
-                    <td className="insight-window mono">
-                      {fmtClock(i.ts_start)} → {i.ts_end ? fmtClock(i.ts_end) : '·'}
-                      <span className="insight-age">{fmtAge(i.ts_start, now)}</span>
+                    <td className="font-medium">{kindLabel(i.kind)}</td>
+                    <td className="font-mono text-[12px]">{i.tag}</td>
+                    <td className="font-mono text-[12px]">{i.score.toFixed(2)}</td>
+                    <td>
+                      <span className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] font-semibold ${i.state === 'open' ? 'bg-[#fff4e0] text-[var(--color-caution)]' : 'bg-subtle text-ink-68'}`}>
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATE_DOT[i.state] ?? '#828ba4' }} />
+                        {t(`insights.${i.state}`)}
+                      </span>
                     </td>
-                    <td><span className={`insight-state is-${i.state}`}>{t(`insights.${i.state}`)}</span></td>
-                    <td className="insight-action">
-                      <Link className="insight-trend" to={`/trends?s=${encodeURIComponent(i.tag)}&w=1h`}>
-                        {t('insights.openInTrends')}
-                      </Link>
+                    <td className="text-[12px] text-ink-68">{fmtAge(i.ts_start, now)}</td>
+                    <td className="text-[12px] text-ink-68">
+                      {i.ts_end ? `${fmtAge(i.ts_end, now)}` : t('insights.ongoing')}
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          )}
+              </Table>
+            )}
+          </Card>
         </div>
-      </section>
-    </div>
+      </div>
+    </>
   );
 }

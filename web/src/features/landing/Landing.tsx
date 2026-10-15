@@ -1,149 +1,204 @@
-// Public landing (v4): the anonymous front door every SaaS has — until now
-// unauthenticated visitors hit the sign-in wall directly. Dark canvas + the
-// same static CSS contour motif as the wall (duplicated here, not imported —
-// auth.css stays scoped to auth). The product preview is a stylised console
-// mock drawn in DOM/SVG — decorative shapes in token colours, no screenshot
-// and no fake data. No metrics are claimed anywhere on this page.
-//
-// Routing contract (see App.tsx Boot): anonymous at '/' -> this page; at any
-// other path -> SignInWall; the wall itself lives at /signin, reached via the
-// Sign-in CTAs below or by hitting a deep link signed out.
+// Landing — LaunchDarkly current-site pattern (video ref): announcement bar,
+// full-width dark nav, tight display headline on a faint grid, glowing
+// sign-in input with volt button, floating live-stat product cards, feature
+// grid, mono spec strip. Console inside stays dd-light — this is the
+// marketing skin only.
 
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
-import { setLang, type Lang } from '../../lib/i18n';
-import { Icon, type IconName } from '../../shared/ui/Icon';
+import { Link, useNavigate } from 'react-router';
+import { signIn } from '../../app/session';
+import { api, setSessionToken } from '../../lib/api';
+import { LANGS, setLang } from '../../lib/i18n';
+import { authConfig } from '../auth/oidc';
+import { Icon } from '../../shared/ui/Icon';
 import './landing.css';
 
-interface Feature { icon: IconName; title: string; body: string; ai?: boolean }
-
-const FEATURES: Feature[] = [
-  { icon: 'line', title: 'landing.f1Title', body: 'landing.f1Body' },
-  { icon: 'alarm', title: 'landing.f2Title', body: 'landing.f2Body' },
-  { icon: 'sparkle', title: 'landing.f3Title', body: 'landing.f3Body', ai: true },
-  { icon: 'globe', title: 'landing.f4Title', body: 'landing.f4Body' },
-  { icon: 'shield', title: 'landing.f5Title', body: 'landing.f5Body' },
-  { icon: 'commands', title: 'landing.f6Title', body: 'landing.f6Body' },
+const FEATURES = [
+  { icon: 'line' as const, t: 'f1' },
+  { icon: 'alarm' as const, t: 'f2' },
+  { icon: 'sparkle' as const, t: 'f3' },
+  { icon: 'shield' as const, t: 'f4' },
+  { icon: 'lock' as const, t: 'f5' },
+  { icon: 'commands' as const, t: 'f6' },
 ];
 
-// honest capability strip — a list of what the system is, never numbers
-const STRIP = ['landing.s1', 'landing.s2', 'landing.s3', 'landing.s4', 'landing.s5'];
+/** spec strip rows — landing.specX / specXV key pairs */
+const SPEC_KEYS = ['specIngest', 'specRealtime', 'specControl', 'specAuth', 'specAudit'] as const;
 
-/** One gauge arc: muted track + a partial value arc. Shapes only — the arcs
- * carry no labels or numbers so nothing reads as a real measurement. */
-function GaugeArc({ pct, tone }: { pct: number; tone: 'live' | 'run' | 'dim' }) {
-  const d = 'M14 40 A 22 22 0 0 1 58 40';
+/** floating stat cards — landing.mX label keys (+ mClear for the delta word) */
+const MINIS: { key: string; value: string; delta: string; deltaKey?: string; up?: boolean; tint: string }[] = [
+  { key: 'mBelt', value: '1.42', delta: '+2.1%', up: true, tint: '#d3f138' },
+  { key: 'mAlarms', value: '0', delta: 'clear', deltaKey: 'mClear', up: true, tint: '#7ee787' },
+  { key: 'mMqtt', value: '102', delta: '-0.4%', tint: '#58a6ff' },
+  { key: 'mUptime', value: '99.9%', delta: '7d', up: true, tint: '#c297ff' },
+];
+
+/** mini sparkline for the floating stat cards — static decorative series */
+function MiniSpark({ color = '#d3f138' }: { color?: string }) {
+  const pts = '0,30 14,26 28,32 42,22 56,26 70,18 84,24 98,14 112,20 126,10';
   return (
-    <svg className="mk-gauge" viewBox="0 0 72 46" aria-hidden="true">
-      <path className="mk-track" d={d} />
-      <path className={`mk-arc mk-arc-${tone}`} d={d} pathLength={100} strokeDasharray={`${pct} 100`} />
-      <line className="mk-tick" x1="14" y1="40" x2="20" y2="40" />
-      <line className="mk-tick" x1="52" y1="40" x2="58" y2="40" />
+    <svg viewBox="0 0 126 40" preserveAspectRatio="none" aria-hidden>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
 
-/** Stylised mini-console: a chrome strip, a mimic run (motor -> belt -> bin,
- * camera on post) and three gauge arcs. Entirely decorative. */
-function ConsoleMock() {
+function MiniCard({ label, value, delta, up, tint = '#d3f138' }: {
+  label: string; value: string; delta: string; up?: boolean; tint?: string;
+}) {
   return (
-    <div className="landing-mock" aria-hidden="true">
-      <div className="landing-mock-head">
-        <span className="mk-brand" />
-        <span className="mk-pill"><i /></span>
-        <span className="mk-line" />
-      </div>
-      <svg className="landing-mimic" viewBox="0 0 320 84">
-        {/* operator selection ring on the motor — the cyan live/selection hue */}
-        <rect className="mk-sel" x="9" y="27" width="50" height="38" rx="6" />
-        <rect className="mk-running" x="16" y="34" width="36" height="24" rx="3" />
-        <circle className="mk-mid" cx="34" cy="46" r="6" />
-        {/* conveyor: belt body, tread marks, two legs, material on top */}
-        <rect className="mk-belt" x="62" y="41" width="116" height="10" rx="5" />
-        {[76, 92, 108, 124, 140, 156].map((x) => (
-          <line key={x} className="mk-tread" x1={x} y1="42" x2={x} y2="50" />
-        ))}
-        <line className="mk-leg" x1="80" y1="51" x2="80" y2="64" />
-        <line className="mk-leg" x1="160" y1="51" x2="160" y2="64" />
-        <circle className="mk-material" cx="96" cy="36" r="3" />
-        <circle className="mk-material" cx="132" cy="36" r="3" />
-        {/* receiving bin with a level mark */}
-        <path className="mk-body" d="M194 24 h50 l-7 30 h-36 z" />
-        <line className="mk-tread" x1="204" y1="40" x2="236" y2="40" />
-        {/* vision camera on a post */}
-        <rect className="mk-mid" x="262" y="12" width="20" height="16" rx="2" />
-        <line className="mk-leg" x1="272" y1="28" x2="272" y2="58" />
-        {/* flow baseline under the run */}
-        <line className="mk-edge" x1="64" y1="72" x2="238" y2="72" />
-      </svg>
-      <div className="landing-gauges">
-        <GaugeArc pct={62} tone="live" />
-        <GaugeArc pct={38} tone="run" />
-        <GaugeArc pct={80} tone="dim" />
-      </div>
+    <div className="ld-mini">
+      <div className="lbl"><span className="sq" style={{ background: tint }} />{label}</div>
+      <div className="val">{value}<span className={`delta ${up ? 'up' : 'dn'}`}>{delta}</span></div>
+      <MiniSpark color={tint} />
     </div>
   );
 }
 
 export function Landing() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const cfg = authConfig();
+  const [token, setToken] = useState('');
+  const [bar, setBar] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  /** Validate the token against /api/me BEFORE the real sign-in — otherwise
+   *  signIn → refreshSession cleared the token and the landing re-rendered
+   *  with zero feedback. Staging the token keeps this component mounted
+   *  (nothing bumps authRev until the token is known-good). */
+  const enter = async () => {
+    const tok = token.trim();
+    if (!tok || busy) return;
+    setBusy(true);
+    setSessionToken(tok);
+    try {
+      await api.me();
+      signIn(tok);
+      navigate('/');
+    } catch {
+      setSessionToken('');
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="landing">
-      <header className="landing-nav">
-        <span className="landing-brand">
-          <span className="brand-mark landing-mark"><Icon name="plant" size={20} /></span>
-          <span className="landing-wordmark">Plant Ops OS</span>
-        </span>
-        <div className="landing-nav-actions">
-          <div className="lang-toggle" role="group" aria-label={t('shell.language')}>
-            {(['th', 'en'] as Lang[]).map((l) => (
-              <button key={l} type="button" aria-pressed={i18n.language === l} onClick={() => setLang(l)}>
-                {l.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          <Link to="/signin" className="btn btn-sm btn-primary landing-signin">{t('shell.signIn')}</Link>
+    <div className="landing-root">
+      <div className="ld-gridbg" />
+
+      {bar && (
+        <div className="ld-announce">
+          <span><b>{t('landing.headlineA')}</b> — {t('landing.milestone')}</span>
+          <Link to="/signin" className="go">{t('shell.signIn')} →</Link>
+          <button className="close" onClick={() => setBar(false)} aria-label={t('common.close')}>✕</button>
         </div>
+      )}
+
+      <nav className="ld-nav">
+        <Link to="/" className="ld-nav-logo">
+          <span className="ld-mark"><Icon name="plant" size={16} /></span>
+          <b>Plant Ops OS</b>
+        </Link>
+        <div className="ld-nav-links">
+          <a href="#caps">{t('landing.capsTitle')}</a>
+          <a href="#spec">{t('landing.navSpec')}</a>
+        </div>
+        <span className="spacer" />
+        {/* pre-auth language switch — the wall/landing sit outside the shell
+            user menu, so expose EN/TH here */}
+        <span className="mr-2 flex items-center gap-0.5" role="group" aria-label={t('shell.language')}>
+          {LANGS.map((l) => (
+            <button
+              key={l}
+              type="button"
+              aria-pressed={i18n.language === l}
+              onClick={() => setLang(l)}
+              className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${i18n.language === l ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white'}`}
+            >
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </span>
+        <Link to="/signin" className="ld-signin">{t('shell.signIn')}</Link>
+        <Link to="/signin" className="ld-btn ld-btn-primary">{t('landing.ctaCaps')}</Link>
+      </nav>
+
+      <header className="ld-hero">
+        <h1 className="ld-h1">
+          {t('landing.headlineA')}.
+          <span className="l2">{t('landing.headlineB')}.</span>
+        </h1>
+        <p className="ld-sub">{t('landing.sub')}</p>
+
+        <form className="ld-form" onSubmit={(e) => { e.preventDefault(); void enter(); }}>
+          <input
+            value={token}
+            onChange={(e) => { setToken(e.target.value); setFailed(false); }}
+            placeholder={cfg?.dev_tokens ? t('auth.demoHint') : t('auth.token')}
+            aria-label={t('auth.token')}
+            autoComplete="off" spellCheck={false}
+          />
+          <button type="submit" className="ld-btn ld-btn-primary" disabled={!token.trim() || busy}>
+            {busy ? t('auth.signingIn') : `${t('auth.submit')} →`}
+          </button>
+        </form>
+        {failed && (
+          <div className="notice notice-error mt-3" role="alert">
+            <Icon name="warn" size={16} /> {t('auth.badToken')}
+          </div>
+        )}
       </header>
 
-      <main className="landing-main">
-        <section className="landing-hero">
-          <div className="landing-hero-copy">
-            <p className="landing-eyebrow">Plant Ops OS</p>
-            <h1 className="landing-headline">{t('landing.headline')}</h1>
-            <p className="landing-sub">{t('landing.sub')}</p>
-            <div className="landing-cta">
-              <Link to="/signin" className="btn btn-primary landing-signin">{t('shell.signIn')}</Link>
-              <a href="#capabilities" className="btn btn-ghost">{t('landing.ctaCaps')}</a>
+      {/* floating live-stat cards — the video's hero-bottom product panels */}
+      <div className="ld-cards" aria-hidden>
+        {MINIS.map((m) => (
+          <MiniCard
+            key={m.key}
+            label={t(`landing.${m.key}`)}
+            value={m.value}
+            delta={m.deltaKey ? t(`landing.${m.deltaKey}`) : m.delta}
+            up={m.up}
+            tint={m.tint}
+          />
+        ))}
+      </div>
+
+      <section className="ld-section" id="caps">
+        <span className="ld-kicker"><span className="tag">◆</span>{t('landing.capsTitle')}</span>
+        <h2 className="ld-h2">{t('landing.headlineA')}.</h2>
+        <div className="ld-grid">
+          {FEATURES.map((f) => (
+            <div key={f.t} className="ld-card">
+              <span className="ico"><Icon name={f.icon} size={17} /></span>
+              <h3>{t(`landing.${f.t}Title`)}</h3>
+              <p>{t(`landing.${f.t}Body`)}</p>
             </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="ld-section" id="spec">
+        <span className="ld-kicker"><span className="tag">◆</span>{t('landing.specTitle')}</span>
+        <dl className="ld-spec">
+          {SPEC_KEYS.map((k) => (
+            <div key={k} className="ld-spec-row">
+              <dt>{t(`landing.${k}`)}</dt>
+              <dd>{t(`landing.${k}V`)}</dd>
+            </div>
+          ))}
+          <div className="ld-spec-row">
+            <dt>{t('landing.specTopic')}</dt>
+            <dd><b>{'v2/{org}/{site}/{edge}/…'}</b> — {t('landing.uns')}</dd>
           </div>
-          <ConsoleMock />
-        </section>
+        </dl>
+      </section>
 
-        <ul className="landing-strip">
-          {STRIP.map((k) => <li key={k}>{t(k)}</li>)}
-        </ul>
-
-        <section id="capabilities" className="landing-caps">
-          <h2 className="landing-caps-title">{t('landing.capsTitle')}</h2>
-          <div className="landing-grid">
-            {FEATURES.map((f) => (
-              <article key={f.title} className={`landing-card${f.ai ? ' is-ai' : ''}`}>
-                <Icon name={f.icon} size={22} />
-                <h3>{t(f.title)}</h3>
-                <p>{t(f.body)}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-      </main>
-
-      <footer className="landing-foot">
-        <span className="landing-foot-product">Plant Ops OS · v0.2</span>
-        <nav className="landing-foot-nav" aria-label={t('landing.footNav')}>
-          <Link to="/signin">{t('shell.signIn')}</Link>
-        </nav>
-        <span className="landing-foot-note dim">{t('landing.langNote')}</span>
+      <footer className="ld-foot">
+        {t('landing.langNote')} · Plant 1 · v0.2
       </footer>
     </div>
   );

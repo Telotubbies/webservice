@@ -1,121 +1,182 @@
-import { useQuery } from '@tanstack/react-query';
+// Overview — KPI strip over the live store: signal cards (value + sparkline),
+// active alarms rail, open insights count. Data arrives via live buffers —
+// skeletons until the first seed, never a fake "quiet" state.
+
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { live, STALE_MS } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
-import { live } from '../../lib/live';
-import { T } from '../../lib/plant';
-import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
-import { AlarmRows } from '../alarms/AlarmRows';
+import { T, SIGNALS, formatSignal, unitOf } from '../../lib/plant';
+import { fmtAge } from '../../lib/format';
 import { useAlarms } from '../alarms/alarms';
-import { LineSchematic } from '../line/LineSchematic';
-import { AmbientField } from './AmbientField';
-import { InsightRail } from './InsightRail';
-import { MetricTile, type TileBand } from './MetricTile';
-import './overview.css';
+import { StatePill, SeverityBadge, QualityMark, type RunState } from '../../shared/ui/Status';
+import { Sparkline } from '../../shared/ui/Sparkline';
+import { PageBar, Card } from '../../shared/ui/Page';
+import { EmptyState, PageSkeleton, ErrorState } from '../../shared/ui/Feedback';
+import { Icon } from '../../shared/ui/Icon';
 
-const KPIS = [T.beltSpeed, T.beltTemp, T.binLevel, T.gravel, T.speedSp];
-
-/** Per-tag analog band edges from alarm rules: `hi` = min enabled hi/hihi
- *  threshold, `lo` = max enabled lo/lolo threshold (raw units). */
-function useLimits() {
-  const q = useQuery({ queryKey: ['alarm-rules'], queryFn: api.alarmRules, staleTime: 60_000 });
-  const map = new Map<string, TileBand>();
-  for (const r of q.data ?? []) {
-    if (!r.tag || r.threshold == null || !r.enabled) continue;
-    const band = map.get(r.tag) ?? {};
-    if (r.kind === 'hi' || r.kind === 'hihi') {
-      band.hi = band.hi === undefined ? r.threshold : Math.min(band.hi, r.threshold);
-    } else if (r.kind === 'lo' || r.kind === 'lolo') {
-      band.lo = band.lo === undefined ? r.threshold : Math.max(band.lo, r.threshold);
-    } else {
-      continue;
-    }
-    map.set(r.tag, band);
-  }
-  return map;
+function signalState(tag: string, now: number): RunState {
+  const tv = live.latest.get(tag);
+  if (!tv) return 'unknown';
+  if (now - Date.parse(tv.ts) > STALE_MS || tv.q === 'stale') return 'stale';
+  if (tag === T.running) return tv.v ? 'running' : 'stopped';
+  return tv.q === 'bad' ? 'stale' : 'running';
 }
 
-/** KPI tile placeholder — same vertical rhythm as a MetricTile so first
- *  load doesn't shift layout (v4 T12, skeletons not spinners). */
-function TileSkeleton() {
+function KpiCard({ tag, limit }: { tag: string; limit?: number }) {
+  const { t, i18n } = useTranslation();
+  const now = useNow();
+  useStore(() => live.version);
+  const meta = SIGNALS[tag];
+  const tv = live.latest.get(tag);
+  const state = signalState(tag, now);
+  const val = tv ? formatSignal(tag, tv.v, i18n.language) : '—';
+  const unit = unitOf(tag);
   return (
-    <article className="kpi tile-skel" aria-hidden>
-      <header className="kpi-head"><Skeleton w="55%" h={14} /></header>
-      <div className="kpi-gauge"><Skeleton h={86} /></div>
-      <p className="kpi-value"><Skeleton w={96} h={28} /></p>
-      <div className="kpi-spark"><Skeleton h={40} /></div>
-    </article>
+    <Card pad={false}>
+      <div className="flex h-[86px] flex-col px-3 py-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-46">
+          <span className="truncate">{t(meta?.labelKey ?? tag)}</span>
+          {meta?.stub && (
+            <span className="rounded border border-dashed border-[var(--color-caution)] px-1 text-[9px] text-[var(--color-caution)]" title={t('overview.stubTitle')}>
+              {t('overview.stub')}
+            </span>
+          )}
+          <span className="flex-1" />
+          <QualityMark q={tv?.q} stale={state === 'stale'} />
+        </div>
+        <div className="mt-0.5 flex items-baseline gap-1">
+          <span className="font-mono text-[22px] font-semibold leading-none text-ink">{val}</span>
+          {unit && <span className="text-[11px] text-ink-46">{unit}</span>}
+        </div>
+        <div className="mt-auto">
+          <Sparkline tag={tag} limit={limit} />
+        </div>
+      </div>
+    </Card>
   );
 }
 
 export function OverviewPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const now = useNow(1000);
-  const limits = useLimits();
-  const { open } = useAlarms();
-  // cold-start: skeleton tiles/rows until the first REST seed lands —
-  // a failed seed surfaces an error + retry instead (T12 review)
-  useStore(() => live.tagRev);
-  useStore(() => live.seedRev);
-  const seeded = live.tagsSeeded;
-  const alarmsSeeded = live.alarmsSeeded;
-  const seedError = live.seedError;
+  const now = useNow();
+  const seeded = useStore(() => live.tagRev);
+  const seedError = useStore(() => live.seedRev);
+  useStore(() => live.version);
+  const { active, critical } = useAlarms();
+  const insightRev = useStore(() => live.insightRev);
+  const openInsights = live.insights.filter((i) => i.state === 'open');
+  const qc = useQueryClient();
+  void insightRev;
+
+  /** Re-run the boot seed (mirrors useLiveBoot in App) so the error state
+   *  offers a real retry instead of a dead end. */
+  const retrySeed = () => {
+    void qc.invalidateQueries({ queryKey: ['tags'] });
+    void api.latestAll().then((rows) => rows.forEach((r) => live.pushTag(r.name, r.v, r.q, r.ts)))
+      .catch(() => live.setSeedError());
+    void api.alarms().then((a) => live.setAlarms(a)).catch(() => live.setSeedError());
+    void api.insights({ state: 'open' }).then((a) => live.setInsights(a)).catch(() => live.setSeedError());
+  };
+
+  if (seedError && !live.tagsSeeded) return <><PageBar title={t('overview.title')} /><ErrorState onRetry={retrySeed} /></>;
+  if (!live.tagsSeeded && !seeded) return <><PageBar title={t('overview.title')} /><PageSkeleton /></>;
+
+  const runState = signalState(T.running, now);
 
   return (
     <>
-      {/* ambient tier: live isobar field under everything (T11) */}
-      <AmbientField />
-      <div className="page overview">
-        {/* context bar — the h1+lede collapsed to a single line (T11) */}
-        <header className="context-bar">
-          <h1 className="context-title">{t('overview.title')}</h1>
-          <span className="context-sub">{t('overview.lede')}</span>
-          {/* no "open line view" CTA — the rail nav + clickable mimic cover it */}
-        </header>
-
-        <InsightRail />
-
-        <section className="panel hero">
-          <LineSchematic compact onSelect={(id) => navigate(`/line?eq=${id}`)} />
-        </section>
-
-        <section className="kpi-grid" aria-label={t('overview.title')}>
-          {!seeded && seedError ? (
-            <div style={{ gridColumn: '1 / -1' }}>
-              <ErrorState onRetry={() => void api.tags().then((rows) => live.setTags(rows)).catch(() => live.setSeedError())} />
-            </div>
-          ) : !seeded ? (
-            KPIS.map((name) => <TileSkeleton key={name} />)
-          ) : (
-            KPIS.map((name) => <MetricTile key={name} name={name} band={limits.get(name)} now={now} />)
-          )}
-        </section>
-
-        {/* Equipment list and the insights mini-feed were cut (T11): the rail
-            and the schematic already carry that state. What remains is the
-            one foreground surface that matters — active alarms. */}
-        <section className="panel">
-          <header className="panel-head">
-            <h2>{t('overview.activeAlarms')}</h2>
-            <span className="meta num">{open.length}</span>
-            <div className="tools"><Link to="/alarms" className="btn btn-sm btn-ghost">{t('shell.viewAlarms')}</Link></div>
-          </header>
-          <div className="panel-body flush">
-            {!alarmsSeeded && seedError ? (
-              <ErrorState onRetry={() => void api.alarms().then((a) => live.setAlarms(a)).catch(() => live.setSeedError())} />
-            ) : !alarmsSeeded && open.length === 0 ? (
-              <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
-                {[0, 1, 2].map((i) => <Skeleton key={i} h={28} />)}
-              </div>
-            ) : open.length === 0 ? (
-              <EmptyState title={t('overview.noActive')} body={t('overview.noActiveBody')} />
-            ) : (
-              <AlarmRows alarms={open.slice(0, 6)} compact />
+      <PageBar
+        title={t('overview.title')}
+        lede={t('overview.lede')}
+        actions={
+          <Link to="/line" className="btn btn-sm btn-ghost">
+            {t('overview.openLine')} <Icon name="arrow-right" size={13} />
+          </Link>
+        }
+      />
+      <div className="flex flex-col gap-3 p-4">
+        {/* line state banner */}
+        <Card pad={false}>
+          <div className="flex h-12 items-center gap-3 px-3">
+            <StatePill state={runState} />
+            <span className="text-[12px] text-ink-46">
+              {live.latest.get(T.running)?.ts
+                ? t('state.updated', { age: fmtAge(live.latest.get(T.running)!.ts, now) })
+                : t('state.never')}
+            </span>
+            <span className="flex-1" />
+            {critical.length > 0 && (
+              <Link to="/alarms" className="flex min-w-0 items-center gap-1 truncate rounded text-[12px] font-semibold text-[var(--color-danger)] focus-visible:outline-2 focus-visible:outline-blue">
+                <Icon name="warn" size={13} /> {t('shell.criticalActive', { count: critical.length, what: critical[0].rule || critical[0].tag })}
+              </Link>
             )}
           </div>
-        </section>
+        </Card>
+
+        {/* KPI grid */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+          <KpiCard tag={T.beltSpeed} />
+          <KpiCard tag={T.beltTemp} limit={80} />
+          <KpiCard tag={T.binLevel} limit={90} />
+          <KpiCard tag={T.gravel} />
+          <KpiCard tag={T.speedSp} />
+          <KpiCard tag={T.running} />
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Card
+            title={`${t('overview.activeAlarms')} (${active.length})`}
+            actions={<Link to="/alarms" className="text-[12px] text-blue">{t('insights.viewAll')}</Link>}
+            pad={false}
+          >
+            {active.length === 0 ? (
+              <EmptyState title={t('overview.noActive')} body={t('overview.noActiveBody')} />
+            ) : (
+              <ul>
+                {active.slice(0, 6).map((a) => (
+                  <li key={a.id}>
+                    <Link
+                      to={`/alarms/${a.id}`}
+                      className="flex h-9 items-center gap-2 border-b border-line px-3 last:border-0 hover:bg-subtle focus-visible:bg-subtle focus-visible:outline-none"
+                    >
+                      <SeverityBadge severity={a.severity} />
+                      <span className="min-w-0 flex-1 truncate text-[13px]">
+                        {a.rule} <span className="font-mono text-[11px] text-ink-46">{a.tag.split('.').slice(-1)[0]}</span>
+                      </span>
+                      <span className="text-[11px] text-ink-46">{fmtAge(a.ts, now)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card title={`${t('nav.insights')} (${openInsights.length})`} pad={false}>
+            {openInsights.length === 0 ? (
+              <EmptyState title={t('insights.empty')} body={t('insights.emptyBody')} icon="sparkle" />
+            ) : (
+              <ul>
+                {openInsights.slice(0, 6).map((i) => (
+                  <li key={i.id}>
+                    <Link
+                      to="/insights"
+                      className="flex h-9 items-center gap-2 border-b border-line px-3 last:border-0 hover:bg-subtle focus-visible:bg-subtle focus-visible:outline-none"
+                    >
+                      <SeverityBadge severity={i.severity} />
+                      <span className="min-w-0 flex-1 truncate text-[13px]">
+                        {t(`insights.kind${i.kind[0].toUpperCase()}${i.kind.slice(1)}`)} · <span className="font-mono text-[11px] text-ink-46">{i.tag.split('.').slice(-1)[0]}</span>
+                      </span>
+                      <span className="font-mono text-[11px] text-ink-46">{i.score.toFixed(2)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
     </>
   );

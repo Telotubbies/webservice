@@ -21,7 +21,9 @@ export interface Alarm {
   severity: string;    // 'critical' | 'warning' | ... (free-form per contract)
   state: 'active' | 'acked' | 'cleared' | string;
   ts: string;
+  acked_at?: string | null;
   acked_by?: string | null;
+  cleared_at?: string | null;
   version?: number;
 }
 
@@ -53,6 +55,14 @@ export interface AlarmRule {
 export type CommandStatus =
   | 'issued' | 'sent' | 'acked' | 'done' | 'denied' | 'failed' | 'timeout';
 
+export interface CommandEvent {
+  from: string;
+  to: string;
+  actor: string;
+  reason?: string | null;
+  at: string;
+}
+
 export interface Command {
   id: string;
   tag: string;
@@ -62,6 +72,7 @@ export interface Command {
   created_at?: string;
   updated_at?: string;
   user?: string;
+  events?: CommandEvent[];
 }
 
 export interface Health {

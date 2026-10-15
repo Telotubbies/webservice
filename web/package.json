@@ -1,36 +1,41 @@
 {
-  "name": "wds-web",
+  "name": "web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit -p tsconfig.json && vite build",
-    "preview": "vite preview --port 5173",
-    "check:tokens": "node scripts/check-tokens.mjs",
-    "check:i18n": "node scripts/check-i18n.mjs",
-    "check": "node scripts/check-tokens.mjs && node scripts/check-i18n.mjs"
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@fontsource/ibm-plex-mono": "5.3.0",
-    "@fontsource/ibm-plex-sans": "5.3.0",
-    "@fontsource/ibm-plex-sans-thai": "5.3.0",
-    "@tanstack/react-query": "5.104.1",
-    "i18next": "26.4.2",
-    "oidc-client-ts": "3.5.0",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "react-i18next": "17.0.15",
-    "react-router": "7.18.4",
-    "three": "0.186.1",
-    "uplot": "1.6.32"
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/ibm-plex-sans-thai": "^5.3.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.104.2",
+    "i18next": "^26.4.4",
+    "lucide-react": "1.48.0",
+    "oidc-client-ts": "^3.5.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-grid-layout": "2.2.4",
+    "react-i18next": "^17.0.16",
+    "react-router": "^8.4.0",
+    "react-router-dom": "^7.18.4",
+    "tailwindcss": "^4.3.3",
+    "three": "^0.186.1",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
-    "@types/react": "18.3.31",
-    "@types/react-dom": "18.3.7",
-    "@types/three": "0.186.0",
-    "@vitejs/plugin-react": "4.7.0",
-    "typescript": "5.9.3",
-    "vite": "6.4.4"
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
   }
 }

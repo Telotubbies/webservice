@@ -14,6 +14,10 @@ const BACKOFF_BASE_MS = 500;
 const BACKOFF_MAX_MS = 15_000;
 const JITTER = 0.25; // ±25%
 
+// F05 journal: only terminal command states are worth a notification;
+// in-flight transitions (issued/sent/acked) would be noise.
+const CMD_TERMINAL = new Set(['done', 'failed', 'denied', 'timeout']);
+
 let sock: WebSocket | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let attempt = 0;
@@ -131,13 +135,38 @@ function dispatch(msg: WSEvent): void {
     case 'alarm_update': {
       // backend may send {type, alarm:{...}} or a flat alarm object
       const a = (msg.alarm ?? msg) as Alarm;
-      if (a && a.id != null) live.upsertAlarm(a);
+      if (a && a.id != null) {
+        live.upsertAlarm(a);
+        live.pushJournal({
+          kind: msg.type,
+          severity: a.severity,
+          // journal titles are i18n keys — translated at render
+          title: msg.type === 'alarm' ? 'notify.alarmRaised'
+            : a.state === 'cleared' ? 'notify.alarmCleared'
+            : a.state === 'acked' ? 'notify.alarmAcked' : 'notify.alarmRaised',
+          params: a.state ? { state: a.state } : undefined,
+          tag: a.tag,
+          href: `/alarms?alarm=${encodeURIComponent(String(a.id))}`,
+        });
+      }
       break;
     }
     case 'insight': {
       // backend may send {type, insight:{...}} or a flat insight object
       const i = (msg.insight ?? msg) as Insight;
-      if (i && i.id != null) live.mergeInsight(i);
+      if (i && i.id != null) {
+        live.mergeInsight(i);
+        if (i.state === 'open') {
+          live.pushJournal({
+            kind: 'insight',
+            severity: i.severity,
+            title: 'notify.insightOpen',
+            params: i.kind ? { kind: i.kind } : undefined,
+            tag: i.tag,
+            href: `?fp=${encodeURIComponent(i.tag)}`,
+          });
+        }
+      }
       break;
     }
     case 'command':
@@ -148,17 +177,38 @@ function dispatch(msg: WSEvent): void {
         detail: msg.detail,
         updated_at: new Date().toISOString(),
       });
+      // server gates command events to operator+ — journal what arrives
+      if (CMD_TERMINAL.has(msg.status)) {
+        live.pushJournal({
+          kind: 'command',
+          title: 'notify.cmdDone',
+          params: { status: msg.status },
+          tag: msg.tag,
+          href: '/commands',
+        });
+      }
       break;
-    case 'health':
+    case 'health': {
+      // journal edge transitions only — diff against the previous state
+      const prevEdge = live.health?.edge;
       live.setHealth({
         status: 'ok',
         db: 'up',
         mqtt: msg.mqtt,
         edge: msg.edge,
       });
+      if (prevEdge !== undefined && prevEdge !== msg.edge) {
+        live.pushJournal({
+          kind: 'health',
+          title: msg.edge === 'up' ? 'notify.edgeUp' : 'notify.edgeDown',
+          href: '/health',
+        });
+      }
       break;
+    }
     case 'auth_expired':
       live.setWsState('auth_expired');
+      live.pushJournal({ kind: 'auth', title: 'shell.sessionExpired' });
       stopped = true;
       try {
         sock?.close();

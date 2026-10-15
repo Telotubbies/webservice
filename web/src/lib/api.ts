@@ -36,13 +36,13 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 }
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public body: unknown,
-    message?: string,
-  ) {
+  status: number;
+  body: unknown;
+  constructor(status: number, body: unknown, message?: string) {
     super(message ?? `HTTP ${status}`);
     this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
   }
 }
 
@@ -105,6 +105,17 @@ export const api = {
     );
   },
   alarms: () => request<Alarm[]>('/api/alarms'),
+  availability: (name: string, params: { from?: string; to?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.from) q.set('from', params.from);
+    if (params.to) q.set('to', params.to);
+    const qs = q.toString();
+    return request<{
+      name: string; from: string | null; to: string | null;
+      samples: number; good_frac: number | null;
+      uptime: number | null; down_s: number | null;
+    }>(`/api/tags/${encodeURIComponent(name)}/availability${qs ? `?${qs}` : ''}`);
+  },
   insights: (
     params: { state?: string; kind?: string; tag?: string; from?: string; to?: string } = {},
   ) => {
@@ -152,6 +163,16 @@ export interface Invite {
 export interface AuditRow {
   seq: number; at: string; actor: string; action: string;
   target: unknown; detail: unknown; hash: string;
+}
+export interface AdminEdge {
+  id: string; name: string; status: string;
+  last_hb: string | null; clock_ok: boolean | null;
+  buffer_depth: number; adapter: string | null;
+  credential_version: number; needs_rotation: boolean;
+}
+export interface SiteHealth {
+  edges: AdminEdge[];
+  buffer_depth?: number; clock_ok?: boolean; adapter?: string | null;
 }
 export interface RuleInput {
   name: string; tag_id: string; kind: string;
@@ -204,6 +225,10 @@ export const adminApi = {
   },
   /** Audit CSV download — streams through fetch with the session token and
    * hands the caller a Blob for an object-URL anchor. */
+  siteHealth: (org: string, site: string) =>
+    request<SiteHealth>(v2(org, `/sites/${site}/health`)),
+  edges: (org: string, site: string) =>
+    request<V2List<AdminEdge>>(v2(org, `/sites/${site}/edges`)),
   auditCsv: async (org: string, params: { from?: string; to?: string } = {}): Promise<Blob> => {
     const q = new URLSearchParams();
     q.set('format', 'csv');
@@ -215,4 +240,26 @@ export const adminApi = {
     if (!res.ok) throw new ApiError(res.status, null, `HTTP ${res.status}`);
     return res.blob();
   },
+  // Device (edge) lifecycle — doc 17 §5. config:write (admin|owner).
+  // The MQTT secret is returned ONCE by provision/rotate; the server keeps
+  // only its fingerprint, so the UI must show it immediately and never store it.
+  devices: (org: string, site: string) =>
+    request<V2List<Device>>(v2(org, `/sites/${site}/edges`)),
+  provisionDevice: (org: string, site: string, name: string) =>
+    request<{ edge: Device; secret: string }>(v2(org, `/sites/${site}/edges`), {
+      method: 'POST', body: JSON.stringify({ name }),
+    }),
+  rotateDevice: (org: string, site: string, id: string) =>
+    request<{ edge_id: string; credential_version: number; mqtt_username: string; secret: string }>(
+      v2(org, `/sites/${site}/edges/${id}/rotate`), { method: 'POST' }),
+  disableDevice: (org: string, site: string, id: string) =>
+    request<unknown>(v2(org, `/sites/${site}/edges/${id}/disable`), { method: 'POST' }),
 };
+
+/** Edge row as returned by the edges list/provision endpoints (_edge_json). */
+export interface Device {
+  id: string; org_id: string; site_id: string; name: string; status: string;
+  mqtt_username: string; credential_version: number;
+  last_hb_at: string | null; clock_ok: boolean | null; adapter: string | null;
+  needs_rotation: boolean;
+}
