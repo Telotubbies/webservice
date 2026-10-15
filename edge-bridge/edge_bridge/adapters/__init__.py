@@ -11,13 +11,14 @@ import yaml
 from .base import TagAdapter
 from .sim import SimAdapter
 from .modbus import ModbusAdapter
+from .s7 import S7Adapter
 from .multi import MultiAdapter
 
 __all__ = ["MultiAdapter", "make_adapter", "make_source_adapter", "load_tags_config"]
 
 log = logging.getLogger("edge_bridge.adapters")
 
-_REGISTRY = {"sim": SimAdapter, "modbus": ModbusAdapter}
+_REGISTRY = {"sim": SimAdapter, "modbus": ModbusAdapter, "s7": S7Adapter}
 
 
 def load_tags_config(path: str | Path) -> dict:
@@ -83,4 +84,19 @@ def make_source_adapter(source: dict, site: str, now=None) -> TagAdapter:
                 "min": t.get("min"), "max": t.get("max"),
             }
         return ModbusAdapter(site, cfg, now=now)
-    raise ValueError(f"unknown source protocol {protocol!r} (choices: modbus, sim)")
+    if protocol == "s7":
+        cfg = {k: conn[k] for k in ("host", "rack", "slot", "timeout_ms", "port")
+               if k in conn}
+        cfg["tags"] = {}
+        for t in tags:
+            addr = t.get("address")
+            if not isinstance(addr, dict):
+                raise ValueError(f"s7 tag {t.get('path')!r}: address must be an object")
+            cfg["tags"][key(t)] = {
+                "address": addr,
+                "scale": t.get("scale", 1.0), "offset": t.get("offset", 0.0),
+                "writable": bool(t.get("writable", False)),
+                "min": t.get("min"), "max": t.get("max"),
+            }
+        return S7Adapter(site, cfg, now=now)
+    raise ValueError(f"unknown source protocol {protocol!r} (choices: modbus, s7, sim)")

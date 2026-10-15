@@ -2,3 +2,6 @@ paho-mqtt==2.1.0
 PyYAML==6.0.2
 # ADAPTER=modbus (Factory I/O, PLC)
 pymodbus==3.8.3
+
+# protocol=s7 (Siemens PLC)
+python-snap7==2.0.2
