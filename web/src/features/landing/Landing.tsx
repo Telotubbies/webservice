@@ -1,402 +1,268 @@
-// Landing — runtime-extracted Hex design system (web/DESIGN.md) carrying
-// vissointan content: mono ticker marquee, centered-logo nav, corner-tick
-// gradient buttons, gradient display headline over faint arc line-art,
-// protocol marquee, bright product visuals on dark canvas, quote band,
-// glyph-starfield "built" band, template grid, column footer.
-// Marketing skin only — the console inside stays dd-light.
+// Landing — Context Studio clone (hex.tech/product/context-studio).
+// Ticker marquee, centered-logo bordered nav, announcement pill, gradient
+// display headline + loop video, isometric workflow cards, capability
+// diagram, radial feature cards, observability dashboard, quote band,
+// 2x2 management grid, two-up testimonials, CTA, FAQ accordion, footer.
+// Dual theme preserved: paper by day / ink by night (Thai clock).
 
 import { useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { signIn } from '../../app/session';
 import { api, setSessionToken } from '../../lib/api';
-import { LANGS, setLang } from '../../lib/i18n';
 import { authConfig } from '../auth/oidc';
-import { Icon, type IconName } from '../../shared/ui/Icon';
 import './landing.css';
 
-const TICKS = ['tick1', 'tick2', 'tick3', 'tick4', 'tick5'] as const;
-const PROTOCOLS = ['MODBUS TCP', 'OPC UA', 'MQTT / TLS 1.3', 'SPARKPLUG B', 'OIDC SSO', 'WEBSOCKET', 'POSTGRESQL RLS', 'REST + WS API'];
-const SPEC_KEYS = ['specIngest', 'specRealtime', 'specControl', 'specAuth', 'specAudit'] as const;
+/* ---------- extracted Hex icons (data-icon set, 15×15) ------------------ */
+const I = {
+  semanticModels: 'M13 1.00001C13.5523 1.00001 14 1.44773 14 2.00001L14 13C14 13.5523 13.5523 14 13 14L2 14C1.44771 14 0.999999 13.5523 0.999999 13L1 2C1 1.44772 1.44772 1 2 1L13 1.00001ZM2 13L5 13L5 2L2 2L2 13ZM6 13L13 13L13 8.00001L6 8L6 13ZM10.5 10C10.7761 10 11 10.2239 11 10.5C11 10.7761 10.7761 11 10.5 11L7.5 11C7.22386 11 7 10.7761 7 10.5C7 10.2239 7.22386 10 7.5 10L10.5 10ZM6 7L13 7.00001L13 2.00001L6 2L6 7ZM10.5 4.00001C10.7761 4.00001 11 4.22387 11 4.50001C11 4.77615 10.7761 5.00001 10.5 5.00001L7.5 5.00001C7.22386 5 7 4.77614 7 4.5C7 4.22386 7.22386 4.00001 7.5 4.00001L10.5 4.00001Z',
+  notebook:
+    'M13 7H2V12.5C2 12.7761 2.22386 13 2.5 13H12.5C12.7761 13 13 12.7761 13 12.5V7ZM13 2.5C13 2.22386 12.7761 2 12.5 2H2.5C2.22386 2 2 2.22386 2 2.5V6H13V2.5ZM14 12.5C14 13.3284 13.3284 14 12.5 14H2.5C1.67157 14 1 13.3284 1 12.5V2.5C1 1.67157 1.67157 1 2.5 1H12.5C13.3284 1 14 1.67157 14 2.5V12.5Z',
+  notebookFill: 'M2 13C2 13.5523 2.44772 14 3 14H12C12.5523 14 13 13.5523 13 13V6.5H8H2V13Z',
+  threads:
+    'M12 1C13.6569 1 15 2.34315 15 4V7C15 8.60511 13.7394 9.91579 12.1543 9.99609L12 10H11V11C11 12.6051 9.73945 13.9158 8.1543 13.9961L8 14H3L2.8457 13.9961C1.26055 13.9158 0 12.6051 0 11V8C0 6.34315 1.34315 5 3 5H4V4C4 2.34315 5.34315 1 7 1H12ZM3 6C1.89543 6 1 6.89543 1 8V11C1 12.1046 1.89543 13 3 13H8C9.10457 13 10 12.1046 10 11V10H7L6.8457 9.99609C5.26055 9.91579 4 8.60511 4 7V6H3ZM5 7C5 8.10457 5.89543 9 7 9H10V8C10 6.89543 9.10457 6 8 6H5V7ZM7 2C5.89543 2 5 2.89543 5 4V5H8C9.65685 5 11 6.34315 11 8V9H12C13.1046 9 14 8.10457 14 7V4C14 2.89543 13.1046 2 12 2H7Z',
+  apps:
+    'M8 8H2V12.3846C2 12.682 2.318 13 2.61538 13H8V8ZM13 2.5C13 2.20262 12.682 2 12.3846 2H2.61538C2.318 2 2 2.318 2 2.61538V7H13V2.5ZM9 13H12.3846C12.682 13 13 12.682 13 12.3846V8H9V13ZM14 12.3846C14 13.2768 13.2768 14 12.3846 14H2.61538C1.72323 14 1 13.2768 1 12.3846V2.61538C1 1.72323 1.72323 1 2.61538 1H12.3846C13.2768 1 14 1.72323 14 2.61538V12.3846Z',
+  appsFill: 'M8.0006 8.00011V11.2309V13H12.5C12.8395 13 13.1148 12.736 13.1148 12.4103V8.00011H8.0006Z',
+  cli: 'M14 13H5V12H14V13ZM6.53027 6.64648L2.17676 11L1.46973 10.293L5.11621 6.64648L1.46973 3L2.17676 2.29297L6.53027 6.64648Z',
+  chevron: 'M4.50001 5.79289L7.50001 8.79289L10.5 5.79289L11.2071 6.5L7.50001 10.2071L3.79291 6.5L4.50001 5.79289Z',
+  arrowR:
+    'M6.14645 5.14645L5.79289 5.5L6.5 6.20711L6.85355 5.85355L6.14645 5.14645ZM8.5 3.5L8.85355 3.85355L9.20711 3.5L8.85355 3.14645L8.5 3.5ZM6.85355 1.14645L6.5 0.792893L5.79289 1.5L6.14645 1.85355L6.85355 1.14645ZM6.85355 5.85355L8.85355 3.85355L8.14645 3.14645L6.14645 5.14645L6.85355 5.85355ZM8.85355 3.14645L6.85355 1.14645L6.14645 1.85355L8.14645 3.85355L8.85355 3.14645ZM8.5 3H0V4H8.5V3Z',
+};
 
-/** template cards — tpl1..6 copy + which line-art thumb each carries */
-const TPLS: { k: string; art: 'flow' | 'mimic' | 'topic' | 'alarm' | 'cmd' | 'insight' }[] = [
-  { k: 'tpl1', art: 'flow' }, { k: 'tpl2', art: 'mimic' }, { k: 'tpl3', art: 'topic' },
-  { k: 'tpl4', art: 'alarm' }, { k: 'tpl5', art: 'cmd' }, { k: 'tpl6', art: 'insight' },
-];
-
-/** nav mega-menu model — i18n keys, anchors, icon glyphs (cf. Hex NavMenu) */
-type DdItem = { k: string; icon: IconName; href: string };
-type DdGroup = { eyebrow: string; items: DdItem[] };
-const NAV_MENUS: { id: string; label: string; groups: DdGroup[]; promo: string }[] = [
-  {
-    id: 'console', label: 'landing.navConsole', promo: 'landing.ddPromo',
-    groups: [
-      {
-        eyebrow: 'landing.navConsole',
-        items: [
-          { k: 'ddLive', icon: 'activity', href: '#caps' },
-          { k: 'ddFlow', icon: 'waves', href: '#flow' },
-          { k: 'ddGuard', icon: 'shield', href: '#guard' },
-          { k: 'ddInsight', icon: 'sparkle', href: '#insight' },
-        ],
-      },
-      {
-        eyebrow: 'landing.navOps',
-        items: [
-          { k: 'ddAlarms', icon: 'alarm', href: '#guard' },
-          { k: 'ddCmds', icon: 'commands', href: '#guard' },
-          { k: 'ddTopics', icon: 'tag', href: '#spec' },
-          { k: 'ddEdge', icon: 'plant', href: '#flow' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'resources', label: 'landing.navResources', promo: 'landing.ddPromo',
-    groups: [
-      {
-        eyebrow: 'landing.navResources',
-        items: [
-          { k: 'ddSpec', icon: 'layers', href: '#spec' },
-          { k: 'ddTemplates', icon: 'copy', href: '#templates' },
-          { k: 'ddHealth', icon: 'health', href: '#caps' },
-        ],
-      },
-      {
-        eyebrow: 'landing.navAccess',
-        items: [
-          { k: 'ddSignin', icon: 'user', href: '#enter' },
-          { k: 'ddAuth', icon: 'lock', href: '#spec' },
-          { k: 'ddAudit', icon: 'eye', href: '#insight' },
-        ],
-      },
-    ],
-  },
-];
-const BADGES = ['badge1', 'badge2', 'badge3', 'badge4', 'badge5', 'badge6'] as const;
-
-/** signature Hex-style button: gradient hairline + corner ticks on hover +
- *  orbiting dots at each side edge */
-function Corner({ children }: { children?: React.ReactNode }) {
+function HxIcon({ d, size = 15, className = '' }: { d: string; size?: number; className?: string }) {
   return (
-    <>
-      <span className="hx-corners" aria-hidden><i /><i /><i /><i /></span>
-      <span className="hx-btn-label">{children}</span>
-      <span className="hx-orbs" aria-hidden><i /><i /></span>
-    </>
+    <svg className={className} height={size} viewBox="0 0 15 15" width={size} aria-hidden>
+      <path clipRule="evenodd" d={d} fill="currentColor" fillRule="evenodd" />
+    </svg>
   );
 }
+
+/* ---------- copy --------------------------------------------------------- */
+const TICKER = [
+  { e: '📊', b: 'AI analytics use case:', t: 'how LangChain migrated from legacy BI and enabled 100% of their team to self-serve data' },
+  { e: '🤯', b: 'Generative data apps:', t: 'Gorgeous, interactive dashboards and apps you can build with just a prompt' },
+  { e: '📖', b: 'State of Data Teams 2026', t: 'discover key findings from our survey of 800+ data leaders' },
+  { e: '🙏', b: "It's just \"Hex\"!", t: 'Not "HEX" or "Hex dot tech" — a note from our team' },
+];
+
+const NAV_DROPS: { id: string; label: string; items: { t: string; d: string }[] }[] = [
+  {
+    id: 'platform', label: 'Platform',
+    items: [
+      { t: 'Agentic notebooks', d: 'Powerful, deep-dive analysis with AI by your side' },
+      { t: 'Conversational analytics', d: 'Ask and explore with governed self-serve' },
+      { t: 'Context Studio', d: 'Build trusted context for every answer' },
+      { t: 'Data apps', d: 'Build and share interactive data apps' },
+      { t: 'Hex CLI', d: 'Control your analytics from the terminal' },
+      { t: 'Integrations', d: 'Out-of-the-box connections across your stack' },
+    ],
+  },
+  {
+    id: 'solutions', label: 'Solutions',
+    items: [
+      { t: 'Data leader', d: 'Focus your team on the work that matters' },
+      { t: 'Product', d: 'Build your product on trusted data' },
+      { t: 'Marketing', d: 'Turn scattered spend into clear signal' },
+      { t: 'Sales', d: 'Clear pipeline. Confident forecasts' },
+      { t: 'Customer success', d: 'Proactive answers for every account' },
+    ],
+  },
+  {
+    id: 'resources', label: 'Resources',
+    items: [
+      { t: 'Docs', d: 'Resources and product guides' },
+      { t: 'Changelog', d: 'Product updates' },
+      { t: 'Blog', d: 'From data teams to data teams' },
+      { t: 'Guides', d: 'Learn how to do more with data, together' },
+      { t: 'Events', d: 'Learn and connect with peers' },
+      { t: 'Customer stories', d: 'Empowering the best data teams' },
+    ],
+  },
+];
+
+const WORKFLOWS = [
+  {
+    id: 'unified-context', title: 'Unified context',
+    body: 'Activate logic from dbt, Git repos, and docs, then build on it in Hex or throughout your stack.',
+    img: '/cs/iso-unified.svg', tint: 'jade',
+  },
+  {
+    id: 'observable-everywhere', title: 'Observable everywhere',
+    body: 'Track and audit any answer no matter where questions are asked: Hex, Slack, MCP, CLI.',
+    img: '/cs/iso-observe.svg', tint: 'citrine',
+  },
+  {
+    id: 'improves-with-use', title: 'Improves with use',
+    body: 'Hex learns from every interaction, sharpening context and improving accuracy on the fly.',
+    img: '/cs/iso-audit.svg', tint: 'amethyst',
+  },
+];
+
+const CAPS = [
+  { icon: 'notebook', label: 'Notebook', pop: 'AI-powered assistance directly into your Hex projects. Write and edit code, ask questions, and get answers all in one place.' },
+  { icon: 'threads', label: 'Threads', pop: 'Ask natural language questions and get AI-powered insights based on semantic models and warehouse tables' },
+  { icon: 'semanticModels', label: 'Workbench', pop: 'Write and edit semantic resources using natural language. Describe the model you want and let the agent generate or update it.' },
+  { icon: 'apps', label: 'Apps', pop: 'Build and share interactive data apps powered by governed context' },
+  { icon: 'cli', label: 'CLI', pop: 'Manage context, review suggestions, and run evals from the terminal' },
+] as const;
+
+const UC_CARDS = [
+  {
+    h: 'Activate existing logic',
+    p: 'Markdown, code, table metadata. Hex ingests and understands it for trusted answers without exhaustive modeling.',
+    link: 'Explore context management', img: '/cs/illustration-guides.png',
+  },
+  {
+    h: 'Build from anywhere',
+    p: 'Layer in new logic in Hex, dbt, or your warehouse. Hex keeps it synced and versioned, without locking you into one tool.',
+    link: 'Explore semantic models', img: '/cs/illustration-workbench.png',
+  },
+];
+
+const IWU_CARDS = [
+  {
+    h: 'Fixes find you',
+    p: 'The Review Agent analyzes interactions for you to find context gaps and suggest fixes.',
+    img: '/cs/illustration-ui-suggestions.png',
+  },
+  {
+    h: 'Every change, evaluated',
+    p: 'Improve context with evidence, not instinct. Test changes with evals, ship what passes and catch what breaks.',
+    img: '/cs/illustration-ui-eval-detail.png',
+  },
+  {
+    h: 'Your work is context',
+    p: 'The logic and queries behind every published app are reusable context for future questions.',
+    img: '/cs/illustration-ui-work-is-context.png',
+  },
+];
+
+const MGR_CARDS = [
+  {
+    h: 'Pull knowledge from your tools',
+    p: 'Connect Notion, Linear, or any MCP server to bring tickets, wikis, and more into Hex, so answers capture what your team knows.',
+    img: '/cs/illustration-pull-knowledge.png',
+  },
+  {
+    h: 'Manage context from the terminal',
+    p: 'Use the Hex CLI to version context from Git, pull agent suggestions into PRs, and run evals before shipping changes.',
+    img: '/cs/illustration-hex-cli-suggestions.png',
+  },
+  {
+    h: 'Bring your semantic models',
+    p: 'Sync semantic models from dbt MetricFlow, Cube, or Snowflake. Definitions stay versioned in your stack while Hex stays in sync.',
+    img: '/cs/illustration-open-standards.png',
+  },
+  {
+    h: 'Model only what you need',
+    p: 'Go off-road in the Hex notebook for flexible exploration, without turning every one-off idea into permanent logic.',
+    img: '/cs/illustration-notebook.png',
+  },
+];
+
+const FAQS = [
+  {
+    q: 'What can I actually use as context? Can I connect existing sources?',
+    a: "Almost anything you already have, and you don't have to set it all up first. Context in Hex layers in over time instead of arriving as one big modeling project. Start with what exists, add more as you go:",
+    li: [
+      'Table metadata: column names, types, and descriptions the agent reads to understand your schema without you modeling every dimension first.',
+      'Endorsed tables: mark certain tables as the canonical, trusted source, and the agent prefers them when several tables could answer a question.',
+      'Reference repositories: connect a Git repo so the agent can read your code to clarify things like metric logic and table structures.',
+      "Connected apps via MCP: pull context from Notion, Linear, and any MCP server, so answers reflect what's in your tickets, docs, and planning notes, not just your data.",
+      'Guides: markdown files about your data and business. A workspace context file is read in every conversation, while a guide library holds topic-specific files the agent pulls in only when relevant.',
+      'Semantic models: governed metric and dimension definitions, synced from dbt MetricFlow, Cube, or Snowflake — or built directly in Hex.',
+      'Published work: apps, notebooks, and dashboards your team has already built feed the agent real, proven logic.',
+    ],
+  },
+  {
+    q: 'Do I have to build my context in Hex? Or can it be synced in?',
+    a: 'No, you can build and manage context inside or outside of Hex. Where you centralize your source of truth is up to you. Context is intentionally set up to let you move it between Hex and wherever else you manage it:',
+    li: [
+      'Guides can live as .md files in a repo and sync to Hex automatically with a GitHub Action, so the repo stays the source of truth.',
+      'Sync in semantic models from dbt MetricFlow, Cube, or Snowflake Semantic Views, and the definitions stay versioned in your stack.',
+      "You can author guides and semantic models directly in Hex too. Either way, your context stays portable, so you're never locked in and never rebuilding logic if your stack changes.",
+    ],
+  },
+  {
+    q: 'How does Hex decide which context to use? Can I see what Hex used as context?',
+    a: "The Hex agent is built to pull the right context when it's relevant, whether that's markdown, code, yaml, metadata, or anything else. It uses indicators like the descriptions of guides and repos to judge relevance.",
+    li2: "For every interaction, you can audit the agent's reasoning and the context it used from Context Studio. If the agent is unsure or missing something, it raises a warning. Admins and Managers can review individual conversations, common topics, warnings, and see which context sources shaped a response.",
+  },
+  {
+    q: 'Do I need to build semantic models for accurate and consistent answers?',
+    a: 'Not necessarily. Semantic models are one way to give the agent context around specific metrics or definitions, but they are inherently rigid and time intensive to maintain. In Hex, build them where a shared, locked definition matters, and skip them where a guide or an endorsed table is sufficient guidance for the agent to answer a question.',
+    li: [
+      "Where models earn their keep: a metric like ARR that has to be calculated the same way every time, everywhere it's asked.",
+      "Where they don't: nuances about your business, like when your fiscal year starts or what a specific product term means inside your company. No need to build that into a model when it can be captured quickly in a markdown doc.",
+      'If you do choose to build semantic models, you can sync them from dbt MetricFlow, Cube, or Snowflake, or build them directly in Hex.',
+    ],
+  },
+  {
+    q: 'How much work is it to maintain context as our business changes?',
+    a: "Context drifts as your business evolves, definitions change, and new domains emerge. Hex's Context Engine is intentionally built to catch and fix these gaps for you instead of manually sifting through every conversation to maintain yourself.",
+    li: [
+      'The Review Agent watches real interactions and flags where context is missing or thin, so you\u2019re not auditing every answer yourself.',
+      'Repeated warnings roll into concrete suggestions, so high-impact improvements come to you already scoped.',
+      'Your published work compounds: every app and dashboard published feeds the agent, so a lot of context accrues as a byproduct of normal work, not as separate upkeep.',
+    ],
+    li2: 'The system gets sharper the more your team uses it. Every question asked and answer published makes the next answer better, so accuracy compounds over time instead of decaying. You stay in control of what changes; the agent just makes sure the work keeps building.',
+  },
+];
+
+const FOOT_COLS = [
+  { h: 'Platform', links: ['AI and agents', 'Agentic notebooks', 'Conversational analytics', 'Context Studio', 'Data apps', 'Hex CLI', 'Business intelligence', 'Exploratory analysis', 'Embedded analytics', 'Integrations', 'Changelog'] },
+  { h: 'Resources', links: ['Pricing', 'Switching to Hex', 'Enterprise', 'Docs', 'Blog', 'Events', 'Templates', 'Compare', 'Trust Center', 'Status'] },
+  { h: 'Company', links: ['About', 'Careers', 'Customers', 'Solutions', 'Media kit', 'Newsroom'] },
+  { h: 'Connect', links: ['Request a demo', 'Technical support', 'Contact us', 'LinkedIn', 'X (Twitter)', 'YouTube'] },
+];
+
+/* ---------- primitives ---------------------------------------------------- */
+/** signature Hex button — gradient hairline border + corner ticks */
 function HxBtn({ children, variant, className = '', ...rest }:
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'lg' | 'ghost' }) {
   return (
-    <button {...rest} className={`hx-btn ${variant ? `hx-btn-${variant}` : ''} ${className}`}>
-      <Corner>{children}</Corner>
+    <button {...rest} className={`cs-btn ${variant ? `cs-btn-${variant}` : ''} ${className}`}>
+      <span className="cs-corners" aria-hidden><i /><i /><i /><i /></span>
+      <span className="cs-btn-label">{children}</span>
     </button>
   );
 }
 function HxLink({ children, variant, className = '', ...rest }:
   React.AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: 'lg' | 'ghost' | 'sm' }) {
   return (
-    <a {...rest} className={`hx-btn ${variant ? `hx-btn-${variant}` : ''} ${className}`}>
-      <Corner>{children}</Corner>
+    <a {...rest} className={`cs-btn ${variant ? `cs-btn-${variant}` : ''} ${className}`}>
+      <span className="cs-corners" aria-hidden><i /><i /><i /><i /></span>
+      <span className="cs-btn-label">{children}</span>
     </a>
   );
 }
 
-function Spark({ color = '#f5c0c0' }: { color?: string }) {
-  return (
-    <svg viewBox="0 0 126 40" preserveAspectRatio="none" aria-hidden>
-      <polyline points="0,30 14,26 28,32 42,22 56,26 70,18 84,24 98,14 112,20 126,10"
-        fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** faint arc line-art + glyph starfield behind the hero (cf. Hex hero bg) */
-function HeroArt() {
-  return (
-    <svg className="hx-heroart" viewBox="0 0 1440 760" fill="none" aria-hidden>
-      {/* large arcs rising off the top edge */}
-      <circle cx="1210" cy="-40" r="330" stroke="#3a3138" strokeWidth="1" />
-      <circle cx="1210" cy="-40" r="255" stroke="#3a3138" strokeWidth="1" opacity=".6" />
-      <circle cx="180" cy="760" r="290" stroke="#3a3138" strokeWidth="1" />
-      <circle cx="180" cy="760" r="215" stroke="#3a3138" strokeWidth="1" opacity=".6" />
-      {/* tiny rect glyphs scattered — Hex's notebook-icon starfield */}
-      {[
-        [95, 180], [240, 90], [420, 150], [1120, 200], [1290, 120],
-        [80, 460], [1350, 430], [300, 620], [1140, 620], [660, 120],
-      ].map(([x, y]) => (
-        <g key={`${x}${y}`} stroke="#4a3f47" strokeWidth="1" opacity=".55">
-          <rect x={x} y={y} width="16" height="12" rx="1" />
-          <line x1={x + 3} y1={y + 4} x2={x + 13} y2={y + 4} />
-          <line x1={x + 3} y1={y + 8} x2={x + 10} y2={y + 8} />
-        </g>
-      ))}
-      {/* small cross ticks */}
-      {[[520, 60], [930, 80], [140, 300], [1330, 300], [760, 690]].map(([x, y]) => (
-        <path key={`c${x}${y}`} d={`M${x} ${y}h10M${x + 5} ${y - 5}v10`} stroke="#4a3f47" strokeWidth="1" opacity=".5" />
-      ))}
-      {/* voronoi constellation — thin polygon mesh + nodes (cf. VoronoiWrapper) */}
-      <g stroke="#332b33" strokeWidth="1" opacity=".7">
-        <path d="M40 640 L200 520 L380 560 L300 700 L120 720 Z" />
-        <path d="M200 520 L420 430 L380 560" />
-        <path d="M420 430 L620 480 L380 560" />
-        <path d="M620 480 L820 410 L900 560 L620 480" />
-        <path d="M900 560 L1100 500 L1240 620 L1040 690 Z" />
-        <path d="M1100 500 L1290 430 L1400 520 L1240 620" />
-        <path d="M980 90 L1150 160 L1290 90" />
-        <path d="M1150 160 L1330 240 L1420 140" />
-        <path d="M60 90 L190 160 L320 110 L260 240 L110 260 Z" />
-        <path d="M190 160 L360 240 L260 240" />
-      </g>
-      <g fill="#4a3f47">
-        {[[200, 520], [420, 430], [620, 480], [900, 560], [1100, 500], [1290, 430], [190, 160], [1150, 160], [380, 560]].map(([x, y]) => (
-          <circle key={`n${x}${y}`} cx={x} cy={y} r="2.4" />
-        ))}
-      </g>
-    </svg>
-  );
-}
-
-/** nav mega-menu — hover/focus opens a panel anchored to its trigger:
- *  grouped glyph items + eyebrow labels + promo card. Open/close are
- *  intent-delayed at the call site so the pointer can travel the bridge. */
-function NavDrop({ menu, open, align, onOpen, onClose, t }: {
-  menu: (typeof NAV_MENUS)[number]; open: boolean; align?: 'start' | 'end';
-  onOpen: () => void; onClose: () => void;
-  t: (k: string) => string;
+/** nav mega-menu dropdown */
+function NavDrop({ menu, open, onOpen, onClose }: {
+  menu: (typeof NAV_DROPS)[number]; open: boolean; onOpen: () => void; onClose: () => void;
 }) {
   return (
-    <div className={`hx-dd${align === 'end' ? ' hx-dd--end' : ''}`}
-      onMouseEnter={onOpen} onMouseLeave={onClose}
+    <div className="cs-dd" onMouseEnter={onOpen} onMouseLeave={onClose}
       onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
-      <button type="button" className={`hx-navlink hx-dd-btn${open ? ' is-open' : ''}`}
+      <button type="button" className={`cs-navlink cs-dd-btn${open ? ' is-open' : ''}`}
         aria-expanded={open} aria-haspopup="true"
         onClick={() => (open ? onClose() : onOpen())} onFocus={onOpen}>
-        {t(menu.label)}
-        <Icon name="chevron-down" size={12} className="hx-dd-chev" />
+        {menu.label}<HxIcon d={I.chevron} size={11} className="cs-dd-chev" />
       </button>
       {open && (
-        <div className="hx-dd-panel" role="menu">
-          <div className="hx-dd-cols">
-            {menu.groups.map((g) => (
-              <div key={g.eyebrow} className="hx-dd-col">
-                <div className="hx-dd-eyebrow mono">{t(g.eyebrow)}</div>
-                {g.items.map((it) => (
-                  <a key={it.k} href={it.href} className="hx-dd-item" role="menuitem" onClick={onClose}>
-                    <span className="hx-dd-icon"><Icon name={it.icon} size={15} /></span>
-                    <span><b>{t(`landing.${it.k}`)}</b><small>{t(`landing.${it.k}D`)}</small></span>
-                  </a>
-                ))}
-              </div>
-            ))}
-          </div>
-          <a href="#enter" className="hx-dd-promo" onClick={onClose}>
-            <span className="hx-dd-icon"><Icon name="play" size={15} /></span>
-            <span><b>{t(menu.promo)}</b><small>{t(`${menu.promo}D`)}</small></span>
-            <span className="hx-dd-go mono">{t('landing.ddPromoCta')} →</span>
-          </a>
+        <div className="cs-dd-panel" role="menu">
+          {menu.items.map((it) => (
+            <a key={it.t} href="#" className="cs-dd-item" role="menuitem" onClick={(e) => { e.preventDefault(); onClose(); }}>
+              <span><b>{it.t}</b><small>{it.d}</small></span>
+            </a>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-/** BRIGHT overlapping code cells — Hex's white screenshot panels */
-function HarmonyCells() {
-  return (
-    <div className="hx-cells">
-      <div className="hx-cell hx-cell-a">
-        <div className="hx-cell-bar">
-          <i /><i /><i /><span>MQTT publish — edge</span>
-          <b className="hx-cell-run"><Icon name="play" size={10} /></b>
-        </div>
-        <pre>{`pub "v2/acme/plant1/edge01/metrics"
-    qos=1 retain=false
-
-{ "belt_mm_s": 1.42,
-  "quality": "GOOD",
-  "ts": 1739800201.204 }`}</pre>
-        <div className="hx-cell-out">✓ delivered — 8 ms</div>
-      </div>
-      <div className="hx-cell hx-cell-b">
-        <div className="hx-cell-bar">
-          <i /><i /><i /><span>WebSocket /ws — console</span>
-          <b className="hx-cell-run"><Icon name="play" size={10} /></b>
-        </div>
-        <pre>{`{ "op": "telemetry",
-  "seq": 40912,
-  "topic": "v2/acme/plant1/…",`}<i className="hx-caret" /></pre>
-        {/* floating autocomplete — like Hex's typeahead menu in-cell */}
-        <div className="hx-ac">
-          <div className="hx-ac-item is-sel"><b>topic</b><span>v2/acme/plant1/edge01/metrics</span></div>
-          <div className="hx-ac-item"><b>tag</b><span>belt_mm_s · FLOAT</span></div>
-          <div className="hx-ac-item"><b>tag</b><span>belt_temp_c · FLOAT</span></div>
-        </div>
-        <pre>{`  "v": 1.42, "q": "GOOD" }`}</pre>
-        <div className="hx-cell-out">✓ streamed ≤ 2 s end-to-end</div>
-      </div>
-    </div>
-  );
-}
-
-/** bright alarm/command card */
-function GuardCard() {
-  return (
-    <div className="hx-guard">
-      <div className="hx-alarm">
-        <span className="hx-sev hx-sev-maj">MAJOR</span>
-        <div><b>BIN-01 level high</b><span>plant1 · line1 · 14:02:11</span></div>
-        <i className="hx-ack">ACK</i>
-      </div>
-      <div className="hx-alarm">
-        <span className="hx-sev hx-sev-min">minor</span>
-        <div><b>Belt drift +0.4%</b><span>insight · drift detector</span></div>
-        <i className="hx-ack">ACK</i>
-      </div>
-      <div className="hx-cmd">
-        <div className="hx-cmd-line mono">$ set belt_speed → <b>1.60 m/s</b></div>
-        <div className="hx-cmd-steps" aria-hidden>
-          {['issued', 'sent', 'acked', 'done'].map((s) => <i key={s}>{s}</i>)}
-        </div>
-        <div className="hx-cmd-confirm mono">type <b>CONFIRM</b> to write — PLC may still refuse</div>
-      </div>
-    </div>
-  );
-}
-
-/** DAG panel — edge → broker → api → console; bright mini-cells ride the
- *  arcs like Hex's "Intelligent execution" (cells + dotted connectors) */
-function DagPanel() {
-  const arcs = [
-    'M60 60 C 170 60, 170 150, 260 150', 'M60 240 C 170 240, 170 150, 260 150',
-    'M260 150 C 340 150, 340 150, 460 90', 'M260 150 C 340 150, 340 210, 460 210',
-  ];
-  const cells = [
-    { x: 4, y: 8, t: 'edge bridge', b: 'modbus read\nbatch 40 tags' },
-    { x: 4, y: 68, t: 'plc · line1', b: 'holding regs\n40001–40040' },
-    { x: 40, y: 38, t: 'mqtt · tls 8883', b: 'v2/acme/plant1/\n  edge01/metrics' },
-    { x: 76, y: 12, t: 'rest api', b: 'GET /api/tags\n  → history' },
-    { x: 76, y: 62, t: 'ws console', b: '{op:"telemetry"\n v:1.42 q:GOOD}' },
-  ];
-  return (
-    <div className="hx-dag">
-      <svg viewBox="0 0 520 300" fill="none" aria-hidden>
-        {arcs.map((d) => <path key={d} d={d} stroke="#3a3138" strokeWidth="1" strokeDasharray="3 5" />)}
-        {arcs.map((d) => <path key={`p${d}`} d={d} className="hx-dag-pulse" stroke="#f5c0c0" strokeWidth="1.5" strokeDasharray="6 140" />)}
-        {[['60', '60'], ['60', '240'], ['260', '150'], ['460', '90'], ['460', '210']].map(([x, y]) => (
-          <circle key={`${x}${y}`} cx={x} cy={y} r="5" stroke="#f5c0c0" opacity=".6" />
-        ))}
-      </svg>
-      {cells.map((c) => (
-        <div key={c.t} className="hx-dcell" style={{ left: `${c.x}%`, top: `${c.y}%` }}>
-          <div className="hx-dcell-t mono">{c.t}</div>
-          <pre className="mono">{c.b}</pre>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** bright live-console mock for section 1 */
-function LivePanel() {
-  const { t } = useTranslation();
-  return (
-    <div className="hx-live">
-      <div className="hx-live-bar"><i /><i /><i /><span>plant1 / line1 — live</span><b className="mono">RUNNING</b></div>
-      <div className="hx-live-grid">
-        <div className="hx-live-metric"><span>Belt speed</span><b>1.42 m/s</b><Spark /></div>
-        <div className="hx-live-metric"><span>Belt temp</span><b>61.3 °C</b><Spark color="#ad8eb6" /></div>
-        <div className="hx-live-metric"><span>Bin level</span><b>72 %</b>
-          <div className="hx-bar"><i style={{ width: '72%' }} /></div>
-        </div>
-      </div>
-      <div className="hx-live-row"><span className="dot ok" /> Conveyor RUN · quality GOOD · 14:02:11</div>
-      {/* floating big-number card — cf. Hex's "520 MTD Customers" overlay */}
-      <div className="hx-bignum">
-        <b>99.2</b>
-        <span className="mono">OEE % — line1</span>
-        <em>↑ 4.1% {t('landing.vsYesterday')}</em>
-      </div>
-    </div>
-  );
-}
-
-/** repeated glyph tile for the "built" band — one notebook glyph tiled
- *  via SVG pattern (cf. Hex's 102-icon field) */
-function GlyphField() {
-  return (
-    <svg className="hx-glyphfield" aria-hidden>
-      <defs>
-        <pattern id="hx-glyph" width="88" height="88" patternUnits="userSpaceOnUse">
-          <g stroke="#4a3f47" strokeWidth="1" fill="none" opacity=".8">
-            <rect x="36" y="38" width="16" height="12" rx="1" />
-            <line x1="39" y1="42" x2="49" y2="42" />
-            <line x1="39" y1="46" x2="46" y2="46" />
-          </g>
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill="url(#hx-glyph)" />
-    </svg>
-  );
-}
-
-/** pennant badge for the "rated" card — chevron flag shape */
-function Pennant({ label }: { label: string }) {
-  return (
-    <div className="hx-pennant">
-      <svg viewBox="0 0 96 108" aria-hidden>
-        <path d="M8 4 h80 v88 l-40 -18 -40 18 Z" fill="#1d1d29" stroke="#3a3138" />
-        <path d="M8 4 h80 v88 l-40 -18 -40 18 Z" fill="none" stroke="#f5c0c0" strokeOpacity=".35" />
-        <circle cx="48" cy="34" r="9" fill="none" stroke="#f5c0c0" />
-        <path d="M44 34 l3 3 6-6" fill="none" stroke="#f5c0c0" strokeWidth="1.5" />
-        <text x="48" y="60" textAnchor="middle" fontSize="8.5" fill="#e3b2b3"
-          fontFamily="IBM Plex Sans, sans-serif" fontWeight="600">{label}</text>
-        <path d="M30 70 h36" stroke="#3a3138" />
-      </svg>
-    </div>
-  );
-}
-
-/** line-art thumbnails for the template cards */
-function Thumb({ art }: { art: string }) {
-  const s = { stroke: '#f5c0c0', strokeWidth: 1.4, fill: 'none' };
-  return (
-    <div className="hx-thumb" aria-hidden>
-      <svg viewBox="0 0 220 120">
-        {art === 'flow' && <>
-          <rect x="20" y="30" width="50" height="30" rx="2" {...s} /><rect x="150" y="60" width="50" height="30" rx="2" {...s} />
-          <path d="M70 45 C 110 45, 110 75, 150 75" {...s} /><circle cx="70" cy="45" r="3" {...s} /><circle cx="150" cy="75" r="3" {...s} />
-        </>}
-        {art === 'mimic' && <>
-          <path d="M20 90 L70 90 L85 60 L130 60 L145 90 L200 90" {...s} />
-          <circle cx="85" cy="60" r="8" {...s} /><circle cx="130" cy="60" r="8" {...s} />
-          <path d="M30 40 h40 M30 30 h25" {...s} opacity=".5" />
-        </>}
-        {art === 'topic' && <>
-          {[0, 1, 2, 3].map((i) => <path key={i} d={`M25 ${35 + i * 20} h${[170, 120, 145, 100][i]}`} {...s} opacity={i === 0 ? 1 : .45} />)}
-          <circle cx="195" cy="35" r="4" {...s} />
-        </>}
-        {art === 'alarm' && <>
-          <path d="M110 25 L135 70 H85 Z" {...s} /><path d="M110 40 v12 M110 58 v2" {...s} />
-          <path d="M30 30 h30 M30 42 h20 M160 80 h30 M165 92 h20" {...s} opacity=".45" />
-        </>}
-        {art === 'cmd' && <>
-          <rect x="30" y="35" width="160" height="50" rx="2" {...s} />
-          <path d="M45 55 l10 8 -10 8" {...s} /><path d="M70 70 h40" {...s} opacity=".6" />
-          <path d="M150 48 h28 M150 60 h20" {...s} opacity=".4" />
-        </>}
-        {art === 'insight' && <>
-          <path d="M25 95 L60 70 L90 80 L120 45 L150 55 L195 25" {...s} />
-          <circle cx="120" cy="45" r="4" {...s} /><path d="M25 95 h170" {...s} opacity=".3" />
-        </>}
-      </svg>
-    </div>
-  );
-}
-
-/** theme by the Thai clock — paper (light) 06:00–18:00 ICT, ink (dark) at night */
+/** theme by the Thai clock — paper 06:00–18:00 ICT, ink at night */
 function thaiNight(): boolean {
   const h = Number(new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false,
@@ -405,7 +271,6 @@ function thaiNight(): boolean {
 }
 
 export function Landing() {
-  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const cfg = authConfig();
   const [token, setToken] = useState('');
@@ -413,7 +278,7 @@ export function Landing() {
   const [failed, setFailed] = useState(false);
   const [menu, setMenu] = useState(false);
   const [dd, setDd] = useState<string | null>(null);
-  /** hover intent — pointer can cross the gap to the panel before it closes */
+  const [faq, setFaq] = useState<number | null>(null);
   const ddTimer = useRef<number | undefined>(undefined);
   const openDd = (k: string) => { window.clearTimeout(ddTimer.current); setDd(k); };
   const closeDd = () => {
@@ -428,22 +293,21 @@ export function Landing() {
     return () => window.clearInterval(id);
   }, []);
 
-  /* scroll reveal — opacity/translate only, IO-driven, one observer */
+  /* scroll reveal — one IO, opacity/translate only */
   useEffect(() => {
     const els = Array.from(document.querySelectorAll('[data-reveal]'));
     if (!('IntersectionObserver' in window)) {
-      els.forEach((el) => el.classList.add('hx-in'));
+      els.forEach((el) => el.classList.add('cs-in'));
       return;
     }
     const io = new IntersectionObserver((ents) => {
-      ents.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('hx-in'); io.unobserve(e.target); } });
-    }, { threshold: 0.15 });
+      ents.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('cs-in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
   }, []);
 
-  /** validate the token against /api/me BEFORE the real sign-in — staging the
-   *  token keeps this component mounted so the error state can render */
+  /** validate token against /api/me before sign-in (unchanged auth flow) */
   const enter = async () => {
     const tok = token.trim();
     if (!tok || busy) return;
@@ -461,300 +325,354 @@ export function Landing() {
     }
   };
 
-  const secIcon = (n: IconName) => (
-    <span className="hx-secicon"><Icon name={n} size={15} /></span>
-  );
-
   return (
     <div className={`landing-root${dark ? ' hx-dark' : ''}`}>
-      <div className="hx-noise" aria-hidden />
-      <div className="hx-rail hx-rail-l" aria-hidden />
-      <div className="hx-rail hx-rail-r" aria-hidden />
+      <div className="cs-noise" aria-hidden />
+      <div className="cs-rail cs-rail-l" aria-hidden />
+      <div className="cs-rail cs-rail-r" aria-hidden />
 
-      {/* announcement ticker — mono marquee */}
-      <div className="hx-ticker" aria-hidden>
-        <div className="hx-ticker-track">
+      {/* ---------- announcement ticker ---------- */}
+      <div className="cs-ticker cs-marks" role="group" aria-label="Announcements">
+        <i className="m-bl" aria-hidden /><i className="m-br" aria-hidden />
+        <div className="cs-ticker-track">
           {[0, 1].map((n) => (
-            <span key={n} className="hx-ticker-set">
-              {TICKS.map((k) => <span key={k} className="hx-tick">{t(`landing.${k}`)}</span>)}
-            </span>
+            <div key={n} className="cs-ticker-set" aria-hidden={n === 1}>
+              {TICKER.map((it) => (
+                <a key={it.b} href="#" className="cs-tick" onClick={(e) => e.preventDefault()}>
+                  <span>{it.e}</span>&nbsp;<b>{it.b}</b>&nbsp;{it.t}
+                  <i className="cs-tick-arrow"><HxIcon d={I.arrowR} size={9} /></i>
+                </a>
+              ))}
+            </div>
           ))}
         </div>
       </div>
 
-      {/* centered-logo nav — menus left | brand | menus + auth right */}
-      <nav className="hx-nav">
-        <div className="hx-nav-l">
-          <NavDrop menu={NAV_MENUS[0]} open={dd === 'console'}
-            onOpen={() => openDd('console')} onClose={closeDd} t={t} />
-          <a href="#guard">{t('landing.navControl')}</a>
-          <a href="#insight">{t('landing.navInsight')}</a>
+      {/* ---------- nav — bordered bar, centered logo ---------- */}
+      <nav className="cs-nav">
+        <div className="cs-nav-l">
+          <NavDrop menu={NAV_DROPS[0]} open={dd === 'platform'} onOpen={() => openDd('platform')} onClose={closeDd} />
+          <NavDrop menu={NAV_DROPS[1]} open={dd === 'solutions'} onOpen={() => openDd('solutions')} onClose={closeDd} />
+          <a href="#" onClick={(e) => e.preventDefault()} className="cs-navlink">Enterprise</a>
         </div>
-        <Link to="/" className="hx-logo">
-          <span className="hx-logo-mark"><img src="/logo-192.png" alt="" /></span>
-          <b>vissointan</b>
-        </Link>
-        <div className="hx-nav-r">
-          <NavDrop menu={NAV_MENUS[1]} open={dd === 'resources'} align="end"
-            onOpen={() => openDd('resources')} onClose={closeDd} t={t} />
-          <a href="#spec" className="hx-navlink">{t('landing.navSpec')}</a>
-          <span className="hx-lang" role="group" aria-label={t('shell.language')}>
-            {LANGS.map((l) => (
-              <button key={l} type="button" aria-pressed={i18n.language === l} onClick={() => setLang(l)}>
-                {l.toUpperCase()}
-              </button>
-            ))}
-          </span>
-          <Link to="/signin" className="hx-login">{t('shell.signIn')}</Link>
-          <HxLink href="#enter" variant="sm" className="hx-nav-cta">{t('landing.ctaEnter')}</HxLink>
-          <button className="hx-burger" aria-label="Menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+        <Link to="/" className="cs-logo">HEX</Link>
+        <div className="cs-nav-r">
+          <NavDrop menu={NAV_DROPS[2]} open={dd === 'resources'} onOpen={() => openDd('resources')} onClose={closeDd} />
+          <a href="#" onClick={(e) => e.preventDefault()} className="cs-navlink">Pricing</a>
+          <Link to="/signin" className="cs-login">Log In</Link>
+          <HxLink href="#enter" variant="sm" className="cs-nav-cta">Get started</HxLink>
+          <button className="cs-burger" aria-label="Menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>
             <span /><span />
           </button>
         </div>
       </nav>
 
-      {/* mobile full-screen overlay — burger morphs to X-in-circle; grouped
-          eyebrow sections, glyph + label + trailing chevron (cf. MobileNav) */}
+      {/* mobile overlay nav */}
       {menu && (
-        <div className="hx-mnav" role="dialog" aria-modal="true">
-          <div className="hx-mnav-head">
-            <span className="hx-logo"><span className="hx-logo-mark"><img src="/logo-192.png" alt="" /></span><b>vissointan</b></span>
-            <button className="hx-burger is-x" aria-label="Close" onClick={() => setMenu(false)}>
-              <Icon name="x" size={16} />
-            </button>
+        <div className="cs-mnav" role="dialog" aria-modal="true">
+          <div className="cs-mnav-head">
+            <span className="cs-logo">HEX</span>
+            <button className="cs-burger is-x" aria-label="Close" onClick={() => setMenu(false)}>✕</button>
           </div>
-          <div className="hx-mnav-scroll">
-            {NAV_MENUS.map((m) => m.groups.map((g) => (
-              <div key={g.eyebrow} className="hx-mnav-group">
-                <div className="hx-dd-eyebrow mono">{t(g.eyebrow)}</div>
-                {g.items.map((it) => (
-                  <a key={it.k} href={it.href} className="hx-mnav-item" onClick={() => setMenu(false)}>
-                    <Icon name={it.icon} size={17} />
-                    <span>{t(`landing.${it.k}`)}</span>
-                    <Icon name="chevron" size={15} className="hx-mnav-go" />
+          <div className="cs-mnav-scroll">
+            {NAV_DROPS.map((m) => (
+              <div key={m.id} className="cs-mnav-group">
+                <div className="cs-dd-eyebrow">{m.label}</div>
+                {m.items.map((it) => (
+                  <a key={it.t} href="#" className="cs-mnav-item" onClick={(e) => { e.preventDefault(); setMenu(false); }}>
+                    <span>{it.t}</span>
                   </a>
                 ))}
               </div>
-            )))}
-            <div className="hx-mnav-group">
-              <a href="#spec" className="hx-mnav-item" onClick={() => setMenu(false)}>
-                <Icon name="layers" size={17} /><span>{t('landing.navSpec')}</span>
-                <Icon name="chevron" size={15} className="hx-mnav-go" />
-              </a>
-              <Link to="/signin" className="hx-mnav-item" onClick={() => setMenu(false)}>
-                <Icon name="user" size={17} /><span>{t('shell.signIn')}</span>
-                <Icon name="chevron" size={15} className="hx-mnav-go" />
-              </Link>
-            </div>
-            <div className="hx-mnav-foot">
-              <span className="hx-lang" role="group" aria-label={t('shell.language')}>
-                {LANGS.map((l) => (
-                  <button key={l} type="button" aria-pressed={i18n.language === l}
-                    onClick={() => { setLang(l); setMenu(false); }}>
-                    {l.toUpperCase()}
-                  </button>
-                ))}
-              </span>
+            ))}
+            <div className="cs-mnav-group">
+              <Link to="/signin" className="cs-mnav-item" onClick={() => setMenu(false)}><span>Log In</span></Link>
+              <a href="#enter" className="cs-mnav-item" onClick={() => setMenu(false)}><span>Get started</span></a>
             </div>
           </div>
         </div>
       )}
 
-      <header className="hx-hero">
-        <HeroArt />
-        <a href="#spec" className="hx-pill" data-reveal>
-          <span className="hx-pill-shine" aria-hidden />
-          <Icon name="layers" size={13} />
-          {t('landing.badge')}
-          <b>{t('landing.badgeLink')} →</b>
-        </a>
-
-        <h1 className="hx-h1" data-reveal>
-          {t('landing.headlineA')} <em className="hx-serif">{t('landing.headlineB')}</em>
-        </h1>
-        <p className="hx-sub" data-reveal>{t('landing.sub')}</p>
-
-        <form className="hx-form" id="enter" data-reveal
-          onSubmit={(e) => { e.preventDefault(); void enter(); }}>
-          <input
-            value={token}
-            onChange={(e) => { setToken(e.target.value); setFailed(false); }}
-            placeholder={cfg?.dev_tokens ? t('auth.demoHint') : t('auth.token')}
-            aria-label={t('auth.token')}
-            autoComplete="off" spellCheck={false}
-          />
-          <HxBtn type="submit" variant="lg" disabled={!token.trim() || busy}>
-            {busy ? t('auth.signingIn') : `${t('landing.ctaEnter')} →`}
-          </HxBtn>
-        </form>
-        <Link to="/signin" className="hx-sso mono">{t('landing.ctaSso')} →</Link>
-        {failed && (
-          <div className="notice notice-error mt-3" role="alert" style={{ display: 'inline-flex' }}>
-            <Icon name="warn" size={16} /> {t('auth.badToken')}
+      {/* ---------- hero ---------- */}
+      <header className="cs-hero">
+        <div className="cs-hero-dots" aria-hidden />
+        <div className="cs-hero-grid">
+          <div className="cs-hero-copy">
+            <a href="#" className="cs-pill" onClick={(e) => e.preventDefault()} data-reveal>
+              <span className="cs-pill-inner">
+                <i className="cs-pill-icon"><HxIcon d={I.semanticModels} size={15} /></i>
+                Context Studio
+              </span>
+              <span className="cs-pill-link">Read the announcement<HxIcon d={I.arrowR} size={10} /></span>
+            </a>
+            <h1 className="cs-h1" data-reveal>
+              Accuracy that improves<br />
+              <em>with every answer</em>
+            </h1>
+            <p className="cs-hero-sub" data-reveal>
+              Skip the months-long modeling project. Hex’s{' '}
+              <span className="cs-chip"><i className="cs-chip-i"><HxIcon d={I.semanticModels} size={11} /></i>Context Studio</span>{' '}
+              activates the logic you already have and learns from every{' '}
+              <span className="cs-chip"><i className="cs-chip-i"><HxIcon d={I.threads} size={11} /></i>answer</span>.
+            </p>
+            <div className="cs-hero-cta" data-reveal>
+              <HxLink href="#enter" variant="lg">Request a demo</HxLink>
+              <HxLink href="#purpose" variant="ghost" className="cs-btn-lg">Learn more</HxLink>
+            </div>
           </div>
-        )}
-
-        {/* trusted-by strip — centered label + static wordmark row
-            (cf. Hex's 8-logo row under hero CTAs) */}
-        <div className="hx-trusted" data-reveal>
-          <p className="mono">{t('landing.trusted')}</p>
-          <div className="hx-trusted-row">
-            {PROTOCOLS.map((p) => <i key={p}>{p}</i>)}
+          <div className="cs-hero-media" data-reveal>
+            <div className="cs-video-wrap">
+              <video className="cs-video" autoPlay muted loop playsInline
+                preload="auto" poster="/cs/hero-poster.jpg"
+                src="/cs/hero-video.mp4" />
+              <span className="cs-play" aria-hidden>
+                <svg height="17" viewBox="0 0 15 17" width="15">
+                  <path d="M12.7007 7.50366C13.5359 7.9859 13.5887 9.14654 12.8579 9.71362L12.7007 9.81909L2.84131 15.5115C1.95038 16.0254 0.837402 15.3819 0.837402 14.3533L0.837402 2.96948C0.837402 2.00499 1.81587 1.37891 2.67236 1.72827L2.84131 1.81128L12.7007 7.50366Z" fill="currentColor" />
+                </svg>
+              </span>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* §1 live telemetry — bright console panel */}
-      <section className="hx-section" data-acc id="caps">
-        <div className="hx-split">
-          <div className="hx-copy" data-reveal>
-            {secIcon('activity')}
-            <h2 className="hx-h2">{t('landing.sec1Title')}</h2>
-            <p className="hx-body">{t('landing.sec1Body')}</p>
-            <HxLink href="#spec" variant="ghost">{t('landing.learnMore')}</HxLink>
-          </div>
-          <div className="hx-visual" data-reveal aria-hidden><LivePanel /></div>
+      {/* ---------- trusted-by strip — bracketed label, logo grid ---------- */}
+      <section className="cs-trust cs-marks" data-reveal>
+        <i className="m-tl" aria-hidden /><i className="m-tr" aria-hidden />
+        <i className="m-bl" aria-hidden /><i className="m-br" aria-hidden />
+        <p className="cs-trust-label mono">
+          <i className="cs-cap cs-cap-l" aria-hidden />
+          Trusted by leading data companies
+          <i className="cs-cap cs-cap-r" aria-hidden />
+        </p>
+        <div className="cs-trust-row">
+          <img src="/cs/logo-notion.svg" alt="Notion" />
+          <img src="/cs/logo-wb.svg" alt="Weights &amp; Biases" />
+          <img src="/cs/zoe-logo.svg" alt="Zoe" />
+          <span className="cs-trust-wm">LangChain</span>
+          <span className="cs-trust-wm">Ramp</span>
+          <span className="cs-trust-wm">dbt Labs</span>
         </div>
       </section>
 
-      {/* §2 edge → console harmony — bright overlapping cells */}
-      <section className="hx-section" data-acc id="flow">
-        <div className="hx-split hx-split-rev">
-          <div className="hx-copy" data-reveal>
-            {secIcon('waves')}
-            <h2 className="hx-h2">{t('landing.sec2Title')}</h2>
-            <p className="hx-body">{t('landing.sec2Body')}</p>
-            <HxLink href="#spec" variant="ghost">{t('landing.learnMore')}</HxLink>
+      {/* ---------- purpose-built / workflow cards ---------- */}
+      <section className="cs-sec" id="purpose">
+        <h2 className="cs-h2" data-reveal>The fastest way to sharpen agents on your data</h2>
+        <div className="cs-wf">
+          <div className="cs-wf-hrule" aria-hidden><i /><i className="cs-plus" /><i /></div>
+          <div className="cs-wf-grid">
+            {WORKFLOWS.map((w) => (
+              <a key={w.id} href={`#${w.id}`} className={`cs-wf-card cs-tint-${w.tint}`} data-reveal>
+                <div className="cs-wf-art">
+                  <div className="cs-wf-noise" aria-hidden />
+                  <img src={w.img} alt="" loading="lazy" />
+                </div>
+                <div className="cs-wf-cap">
+                  <h3>{w.title}</h3>
+                  <p>{w.body}</p>
+                </div>
+              </a>
+            ))}
           </div>
-          <div className="hx-visual" data-reveal aria-hidden><HarmonyCells /></div>
+          {/* capability diagram — dashed box, mono chip, icon row */}
+          <div className="cs-caps" data-reveal>
+            <div className="cs-caps-chip mono">Improve agent accuracy</div>
+            <div className="cs-caps-line" aria-hidden />
+            <div className="cs-caps-row">
+              {CAPS.map((cp) => (
+                <div key={cp.label} className="cs-cap">
+                  <div className="cs-cap-pop">{cp.pop}</div>
+                  <HxIcon d={I[cp.icon as keyof typeof I]} size={15} />
+                  <span className="mono">{cp.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* quote band — logo/name left | hairline divider | big quote right */}
-      <blockquote className="hx-quote" data-reveal>
-        <div className="hx-quote-side">
-          <span className="hx-logo-mark"><img src="/logo-192.png" alt="" /></span>
-          <b>vissointan</b>
-          <span className="mono">{t('landing.quoteSrc')}</span>
+      {/* ---------- unified context ---------- */}
+      <section className="cs-sec" id="unified-context">
+        <h2 className="cs-h2" data-reveal>Unified context</h2>
+        <p className="cs-sub2" data-reveal>
+          Hex turns definitions and logic into trusted business context for agents
+          to reason from, wherever they’re working.
+        </p>
+        <div className="cs-duo">
+          {UC_CARDS.map((c) => (
+            <div key={c.h} className="cs-bigcard" data-reveal>
+              <div className="cs-bigcard-txt">
+                <h3>{c.h}</h3>
+                <p>{c.p}</p>
+                <a href="#" onClick={(e) => e.preventDefault()} className="cs-linkbox">{c.link}</a>
+              </div>
+              <img src={c.img} alt="" loading="lazy" />
+            </div>
+          ))}
         </div>
-        <i className="hx-quote-div" aria-hidden />
-        <p>{t('landing.quote')}</p>
+      </section>
+
+      {/* ---------- observable everywhere ---------- */}
+      <section className="cs-sec" id="observable-everywhere">
+        <h2 className="cs-h2" data-reveal>Observable everywhere</h2>
+        <p className="cs-sub2" data-reveal>
+          Questions get asked everywhere: Slack, Claude, Cursor. Hex gives you
+          visibility into every answer, and a way to keep improving it.
+        </p>
+        <div className="cs-obs" data-reveal>
+          <div className="cs-obs-call cs-obs-l">
+            <i aria-hidden />
+            <h4>Trends surfaced automatically</h4>
+            <p>Track agent adoption across all of Hex surfaces. See question domains that are growing, trending, or newly emerging with Topics.</p>
+          </div>
+          <div className="cs-obs-dash">
+            <img src="/cs/obs-dashboard.png" alt="Agent observability dashboard" loading="lazy" />
+          </div>
+          <div className="cs-obs-call cs-obs-r">
+            <i aria-hidden />
+            <h4>The agent suggests improvements</h4>
+            <p>Warnings surface agent confusion, missing context, or user doubt. The Review Agent tells you exactly what to fix.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- improves with use ---------- */}
+      <section className="cs-sec" id="improves-with-use">
+        <h2 className="cs-h2" data-reveal>Improves with use</h2>
+        <p className="cs-sub2" data-reveal>
+          Hex learns from every question asked and every answer published, so
+          you’re always ahead of drift — without the maintenance treadmill.
+        </p>
+        <div className="cs-trio">
+          {IWU_CARDS.map((c) => (
+            <div key={c.h} className="cs-iwucard" data-reveal>
+              <div className="cs-iwu-art"><img src={c.img} alt="" loading="lazy" /></div>
+              <h3>{c.h}</h3>
+              <p>{c.p}</p>
+              <a href="#" onClick={(e) => e.preventDefault()} className="cs-linkbox">Learn more</a>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ---------- full-width quote ---------- */}
+      <blockquote className="cs-quote" data-reveal>
+        <div className="cs-quote-side">
+          <img src="/cs/zoe-logo.svg" alt="Zoe" className="cs-quote-logo" />
+          <b>Craig W.</b>
+          <span className="mono">Staff Data Engineer, Zoe</span>
+        </div>
+        <p className="cs-quote-text">
+          “Context Studio gives us the confidence to roll out agents on our data.
+          It’s something I check every day — <b>seeing context gaps and suggested
+          improvements surfaced automatically</b> provides a practical way for us
+          to bring trusted AI self-service to the business.”
+        </p>
       </blockquote>
 
-      {/* §3 guarded control — bright alarm card */}
-      <section className="hx-section" data-acc id="guard">
-        <div className="hx-split">
-          <div className="hx-copy" data-reveal>
-            {secIcon('alarm')}
-            <h2 className="hx-h2">{t('landing.sec3Title')}</h2>
-            <p className="hx-body">{t('landing.sec3Body')}</p>
-            <HxLink href="#spec" variant="ghost">{t('landing.learnMore')}</HxLink>
-          </div>
-          <div className="hx-visual" data-reveal aria-hidden><GuardCard /></div>
-        </div>
-      </section>
-
-      {/* §4 insight DAG — line-art pulse diagram */}
-      <section className="hx-section" data-acc id="insight">
-        <div className="hx-split hx-split-rev">
-          <div className="hx-copy" data-reveal>
-            {secIcon('sparkle')}
-            <h2 className="hx-h2">{t('landing.sec4Title')}</h2>
-            <p className="hx-body">{t('landing.sec4Body')}</p>
-            <HxLink href="#spec" variant="ghost">{t('landing.learnMore')}</HxLink>
-          </div>
-          <div className="hx-visual" data-reveal aria-hidden><DagPanel /></div>
-        </div>
-      </section>
-
-      {/* big centered band — tiled glyph field behind (cf. Built-for-teams) */}
-      <section className="hx-band" data-reveal>
-        <GlyphField />
-        <h2 className="hx-h1 hx-band-h">{t('landing.builtTitle')}</h2>
-        <p className="hx-sub hx-band-sub">{t('landing.builtBody')}</p>
-        <HxLink href="#enter" variant="lg">{t('landing.ctaEnter')}</HxLink>
-      </section>
-
-      {/* testimonial pair — pennant badges card + quote card */}
-      <section className="hx-section hx-testi">
-        <div className="hx-testi-grid" data-reveal>
-          <div className="hx-testi-card hx-badges">
-            <div className="hx-pennant-grid">
-              {BADGES.map((b) => <Pennant key={b} label={t(`landing.${b}`)} />)}
-            </div>
-            <h3>{t('landing.usersLove')}</h3>
-            <p>{t('landing.usersLoveSub')}</p>
-          </div>
-          <div className="hx-testi-card hx-tcard">
-            <b className="hx-tcard-logo mono">vissointan</b>
-            <p className="hx-tcard-q">{t('landing.testiQuote')}</p>
-            <div className="hx-tcard-who">
-              <span className="hx-avatar" aria-hidden>{t('landing.testiInitial')}</span>
-              <span><b>{t('landing.testiName')}</b><small>{t('landing.testiRole')}</small></span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* template grid — thumbnail cards */}
-      <section className="hx-section" data-acc id="templates">
-        <div className="hx-copy hx-copy-center" data-reveal>
-          <h2 className="hx-h2">{t('landing.capsTitle')}</h2>
-        </div>
-        <div className="hx-grid">
-          {TPLS.map((c) => (
-            <div key={c.k} className="hx-card" data-reveal>
-              <Thumb art={c.art} />
-              <h3>{t(`landing.${c.k}`)}</h3>
-              <p>{t(`landing.${c.k}Body`)}</p>
+      {/* ---------- build and manage ---------- */}
+      <section className="cs-sec" id="manage">
+        <h2 className="cs-h2" data-reveal>Build and manage context on your terms</h2>
+        <p className="cs-sub2" data-reveal>
+          Context curation in Hex is intentionally flexible, so it can adapt to
+          the way your team already works — not the other way around.
+        </p>
+        <div className="cs-quad">
+          {MGR_CARDS.map((c) => (
+            <div key={c.h} className="cs-mgrcard" data-reveal>
+              <div className="cs-mgr-txt">
+                <h3>{c.h}</h3>
+                <p>{c.p}</p>
+              </div>
+              <div className="cs-mgr-art"><img src={c.img} alt="" loading="lazy" /></div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* spec contract */}
-      <section className="hx-section" data-acc id="spec">
-        <div className="hx-copy hx-copy-center" data-reveal>
-          <h2 className="hx-h2">{t('landing.specTitle')}</h2>
+      {/* ---------- two-up testimonials ---------- */}
+      <section className="cs-testi" data-reveal>
+        <div className="cs-testi-cell">
+          <img src="/cs/logo-notion.svg" alt="" className="cs-testi-logo" />
+          <p>“Development and deployment is so speedy. <b>Seeing my semantic model changes immediately rendered in Hex was a joy.</b>”</p>
+          <div><b>Peter R.</b><span className="mono">Data Engineer at Notion</span></div>
         </div>
-        <dl className="hx-spec" data-reveal>
-          {SPEC_KEYS.map((k) => (
-            <div key={k} className="hx-spec-row">
-              <dt>{t(`landing.${k}`)}</dt>
-              <dd>{t(`landing.${k}V`)}</dd>
-            </div>
-          ))}
-          <div className="hx-spec-row">
-            <dt>{t('landing.specTopic')}</dt>
-            <dd><b>{'v2/{org}/{site}/{edge}/…'}</b> — {t('landing.uns')}</dd>
-          </div>
-        </dl>
+        <div className="cs-testi-cell">
+          <img src="/cs/logo-wb.svg" alt="Weights & Biases" className="cs-testi-logo" />
+          <p>“Hex made setting up a connection to MetricFlow a breeze! <b>The intuitive click-and-drag UI empowers our stakeholders to perform self-serve analysis.</b>”</p>
+          <div><b>Mercedes W.</b><span className="mono">Data Scientist at Weights &amp; Biases</span></div>
+        </div>
       </section>
 
-      {/* column footer */}
-      <footer className="hx-foot">
-        <div className="hx-foot-grid">
-          <div className="hx-foot-brand">
-            <span className="hx-logo"><span className="hx-logo-mark"><img src="/logo-192.png" alt="" /></span><b>vissointan</b></span>
-            <span className="mono">{t('landing.footMade')} · v0.2</span>
+      {/* ---------- CTA ---------- */}
+      <section className="cs-cta" id="enter">
+        <div className="cs-cta-box" data-reveal>
+          <h2 className="cs-h2">Bring speed &amp; trust together in Hex</h2>
+          <p className="cs-sub2">Get in touch with us to see a demo or find out which plan is right for you.</p>
+          <HxLink href="#enter" variant="lg">Contact Sales</HxLink>
+          {/* working sign-in — the landing doubles as the token wall */}
+          <form className="cs-token"
+            onSubmit={(e) => { e.preventDefault(); void enter(); }}>
+            <input
+              value={token}
+              onChange={(e) => { setToken(e.target.value); setFailed(false); }}
+              placeholder={cfg?.dev_tokens ? 'demo-operator · demo-viewer' : 'Access token'}
+              aria-label="Access token" autoComplete="off" spellCheck={false}
+            />
+            <HxBtn type="submit" disabled={!token.trim() || busy}>
+              {busy ? 'Signing in…' : 'Enter'}
+            </HxBtn>
+          </form>
+          {failed && <p className="cs-token-err" role="alert">That token didn’t work — check it and try again.</p>}
+        </div>
+      </section>
+
+      {/* ---------- FAQ ---------- */}
+      <section className="cs-sec cs-faq" id="faq">
+        <h2 className="cs-h2" data-reveal>FAQ</h2>
+        <div className="cs-faq-list" data-reveal>
+          {FAQS.map((f, i) => (
+            <div key={f.q} className={`cs-faq-item${faq === i ? ' is-open' : ''}`}>
+              <h3>
+                <button type="button" aria-expanded={faq === i}
+                  onClick={() => setFaq(faq === i ? null : i)}>
+                  <span>{f.q}</span>
+                  <HxIcon d={I.chevron} size={15} className="cs-faq-chev" />
+                </button>
+              </h3>
+              {faq === i && (
+                <div className="cs-faq-a">
+                  <p>{f.a}</p>
+                  {f.li && <ul>{f.li.map((l) => <li key={l}>{l}</li>)}</ul>}
+                  {f.li2 && <p>{f.li2}</p>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="cs-faq-more">Can’t find your answer here? <a href="#enter">Get in touch.</a></p>
+      </section>
+
+      {/* ---------- footer ---------- */}
+      <footer className="cs-foot">
+        <div className="cs-foot-inner">
+          <div className="cs-foot-brand">
+            <span className="cs-logo">HEX</span>
+            <span className="cs-foot-made mono">Made with 💜 on 🌎</span>
           </div>
-          <div className="hx-foot-col">
-            <h4 className="mono">{t('landing.footPlatform')}</h4>
-            <a href="#caps">{t('landing.footLive')}</a>
-            <a href="#caps">{t('landing.footAlarms')}</a>
-            <a href="#caps">{t('landing.footCommands')}</a>
-          </div>
-          <div className="hx-foot-col">
-            <h4 className="mono">{t('landing.footResources')}</h4>
-            <a href="#spec">{t('landing.footSpec')}</a>
-            <a href="#flow">{t('landing.footApi')}</a>
-            <a href="#spec">{t('landing.footTopics')}</a>
-          </div>
-          <div className="hx-foot-col">
-            <h4 className="mono">{t('landing.footConnect')}</h4>
-            <Link to="/signin">{t('landing.footSignin')}</Link>
-            <a href="#enter">{t('landing.ctaEnter')}</a>
-            <span>{t('landing.langNote')}</span>
+          {FOOT_COLS.map((c) => (
+            <div key={c.h} className="cs-foot-col">
+              <h4 className="mono">{c.h}</h4>
+              {c.links.map((l) => <a key={l} href="#" onClick={(e) => e.preventDefault()}>{l}</a>)}
+            </div>
+          ))}
+        </div>
+        <div className="cs-foot-bottom">
+          <span>© 2026 Hex Technologies Inc.</span>
+          <div>
+            <a href="#" onClick={(e) => e.preventDefault()}>Privacy policy</a>
+            <a href="#" onClick={(e) => e.preventDefault()}>Terms &amp; conditions</a>
+            <a href="#" onClick={(e) => e.preventDefault()}>Modern slavery statement</a>
+            <a href="#" onClick={(e) => e.preventDefault()}>Opt out of tracking</a>
           </div>
         </div>
       </footer>
