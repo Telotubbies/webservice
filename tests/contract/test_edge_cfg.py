@@ -80,10 +80,10 @@ def test_connect_requests_cfg(tmp_path):
 def test_stale_cfg_ignored(tmp_path):
     cfg, holder, bridge, cl = make(tmp_path)
     cl.handle(msg(5, [sim_source(paths=("a/b/c/x",))]))
-    n = len(bridge.pub)
-    cl.handle(msg(5, [sim_source(paths=("a/b/c/y",))]))
     cl.handle(msg(4, [sim_source(paths=("a/b/c/y",))]))
-    assert len(bridge.pub) == n
+    assert len(bridge.pub) == 1  # only the v5 ack
+    cl.handle(msg(5, [sim_source(paths=("a/b/c/y",))]))  # equal: re-ack, no apply
+    assert len(acks(bridge)) == 2
     assert set(holder.get().tag_map()) == {"plant1.a.b.c.x"}
 
 
@@ -170,3 +170,20 @@ def test_command_write_routes_through_holder(tmp_path):
     handler.handle_message(m)
     resp = [p for t, p in bridge.pub if "cmd-resp" in t][-1]
     assert resp["status"] == "acknowledged"
+
+
+def test_failed_source_keeps_last_good_spec_in_cache(tmp_path):
+    cfg, holder, bridge, cl = make(tmp_path)
+    cl.handle(msg(1, [sim_source("s1", ("a/b/c/x",))]))
+    cl.handle(msg(2, [sim_source("s1", ("a/b/c/y",), protocol="nope")]))
+    holder2 = AdapterHolder(make_adapter("sim", "plant1", {}), poll_ms=1000)
+    cl2 = CfgClient(cfg, holder2, FakeBridge(), "plant1")
+    assert cl2.load_cached() is True
+    assert set(holder2.get().tag_map()) == {"plant1.a.b.c.x"}
+
+
+def test_equal_version_resends_ack(tmp_path):
+    cfg, holder, bridge, cl = make(tmp_path)
+    cl.handle(msg(3, [sim_source()]))
+    cl.handle(msg(3, [sim_source()]))
+    assert len(acks(bridge)) == 2 and acks(bridge)[0] == acks(bridge)[1]

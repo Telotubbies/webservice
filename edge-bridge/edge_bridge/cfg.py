@@ -82,6 +82,8 @@ class CfgClient:
         self._default_poll_ms = holder.poll_ms
         self._lock = threading.Lock()
         self._sources: dict[str, TagAdapter] = {}   # applied per-source adapters
+        self._specs: dict[str, dict] = {}           # last good spec per source id
+        self._last_ack: dict | None = None
         self.version: int | None = None
 
     # -- connection -------------------------------------------------------------
@@ -109,13 +111,18 @@ class CfgClient:
             log.warning("ignored malformed cfg payload")
             return
         with self._lock:
+            if version == self.version and self._last_ack is not None:
+                self._bridge.publish_json(self._cfg.cfg_ack_topic, self._last_ack)
+                log.info("re-sent ack for cfg version=%s", version)
+                return
             if version <= (self.version if self.version is not None else 0):
                 log.info("ignored cfg version=%s (applied=%s)", version, self.version)
                 return
             errors = self._apply(version, sources)
-            self._persist({"version": version, "sources": sources})
-        self._bridge.publish_json(self._cfg.cfg_ack_topic, {
-            "version": version, "ok": not errors, "errors": errors})
+            self._persist({"version": version, "sources": self._effective(sources, errors)})
+            self._last_ack = {"version": version, "ok": not errors, "errors": errors}
+            ack = self._last_ack
+        self._bridge.publish_json(self._cfg.cfg_ack_topic, ack)
 
     # -- cache ------------------------------------------------------------------
 
@@ -138,6 +145,20 @@ class CfgClient:
         if errors:
             log.warning("cached cfg applied with errors: %s", errors)
         return True
+
+    def _effective(self, sources: list, errors: list[dict]) -> list:
+        """Sources as actually running: a failed source is replaced by its
+        last good spec (or dropped), so a restart does not lose its tags."""
+        failed = {e["source_id"] for e in errors}
+        out = []
+        for s in sources:
+            sid = str(s.get("id")) if isinstance(s, dict) else None
+            if sid in failed:
+                if sid in self._specs:
+                    out.append(self._specs[sid])
+            else:
+                out.append(s)
+        return out
 
     def _persist(self, doc: dict) -> None:
         d = Path(self._cfg.state_dir)
@@ -199,6 +220,12 @@ class CfgClient:
                 if new.get(sid) is not ad:
                     _close(ad)
         self._sources = new
+        failed = {e["source_id"] for e in errors}
+        for s_ in sources:
+            sid = str(s_.get("id")) if isinstance(s_, dict) else None
+            if sid in new and sid not in failed:
+                self._specs[sid] = s_
+        self._specs = {k: v for k, v in self._specs.items() if k in new}
         self.version = version
         log.info("cfg applied version=%d sources=%d errors=%d poll_ms=%d",
                  version, len(new), len(errors), poll_ms,

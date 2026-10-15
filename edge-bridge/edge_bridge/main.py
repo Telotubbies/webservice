@@ -36,7 +36,7 @@ def _poll_loop(stop: threading.Event, cfg: Config, holder: AdapterHolder,
     next_tick = time.monotonic()  # monotonic: immune to NTP slew (SDLC §6.6)
     while not stop.is_set():
         adapter = holder.get()  # re-read: a cfg push may have swapped it
-        period = holder.poll_ms / 1000.0
+        period = max(holder.poll_ms, 100) / 1000.0  # floor matches backend CHECK
         try:
             values = adapter.read_all()
             health["read_failures"] = 0
@@ -126,12 +126,12 @@ def main() -> int:
     log.info(
         "edge-bridge starting org=%s site=%s edge=%s adapter=%s poll_ms=%d "
         "mqtt=%s:%d tls=%s clock_skew_ms=%s clock_ok=%s tags=%d",
-        cfg.org_id, cfg.site_id, cfg.edge_id, adapter.name, cfg.poll_ms,
+        cfg.org_id, cfg.site_id, cfg.edge_id, adapter.name, holder.poll_ms,
         cfg.mqtt_host, cfg.mqtt_port, bool(cfg.mqtt_ca_file),
         cfg.clock_skew_ms, clock.clock_ok,
         len(adapter.tag_map()),
         extra={"fields": {"event": "startup", "adapter": adapter.name,
-                          "poll_ms": cfg.poll_ms, "site": cfg.site_id,
+                          "poll_ms": holder.poll_ms, "site": cfg.site_id,
                           "edge_id": cfg.edge_id}},
     )
 

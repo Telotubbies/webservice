@@ -107,6 +107,7 @@ class ModbusAdapter(TagAdapter):
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._lock = threading.Lock()
         self._client = None
+        self._closed = False
         self._tags = {
             (t if t.startswith(f"{site}.") else f"{site}.{t}"): meta
             for t, meta in (cfg.get("tags") or {}).items()
@@ -121,6 +122,8 @@ class ModbusAdapter(TagAdapter):
         if ModbusTcpClient is None:
             return None
         with self._lock:
+            if self._closed:  # never reopen after close()
+                return None
             if self._client is None:
                 self._client = ModbusTcpClient(
                     self._cfg.get("host", "127.0.0.1"),
@@ -210,6 +213,7 @@ class ModbusAdapter(TagAdapter):
 
     def close(self) -> None:
         with self._lock:
+            self._closed = True
             if self._client is not None:
                 try:
                     self._client.close()
