@@ -2,7 +2,7 @@
 // dark flyout per group, 44px topbar (search / live / bell / user), alarm
 // banner under the bar. Nav model shared with the palette via ./nav.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
 import { NAV, type NavGroup, type NavItem, type NavSection } from './nav';
@@ -349,7 +349,7 @@ function FlyoutAction({ action, onNavigate }: { action: { to: string; key: strin
       to={action.to} onClick={onNavigate}
       className="group/act relative -ml-px flex h-[30px] items-center border-l border-transparent pl-3.5 pr-2 text-[14px] text-white/70 outline-none motion-safe:transition-colors hover:bg-white/[0.06] hover:text-nav-flyout-hi focus-visible:bg-white/[0.06] focus-visible:text-nav-flyout-hi"
     >
-      <DdIcon name="plus" size={11} aria-hidden className="absolute -left-[6px] top-1/2 -translate-y-1/2 bg-[#3a3f49] py-px text-nav-flyout-hi" />
+      <DdIcon name="plus" size={11} aria-hidden className="absolute -left-[6px] top-1/2 -translate-y-1/2 bg-[#3a3f49] py-px text-[#1e90ff]" />
       <span className="truncate">{t(action.key)}</span>
     </Link>
   );
@@ -407,11 +407,21 @@ function SideRow({ group, openId, setOpenId }: {
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const open_ = (e: React.SyntheticEvent) => {
     const r = e.currentTarget.getBoundingClientRect();
-    setAnchor({ x: r.right, y: Math.min(r.top, window.innerHeight - 440) });
-    /* y = row top, so the panel's top edge lines up with the highlighted row */
+    setAnchor({ x: r.right, y: r.top });
+    /* y = row top, so the panel's top edge lines up with the highlighted row;
+       the layout effect below clamps it by the panel's *measured* height */
     setOpenId(group.group);
   };
   const close = () => setOpenId((id) => id === group.group ? null : id);
+  const panelRef = useRef<HTMLDivElement>(null);
+  /* near the bottom, shift up just enough to fit — never detach from the row
+     (a fixed 440px guess left short panels floating far above their row) */
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!open || !anchor || !el) return;
+    const top = Math.max(8, Math.min(anchor.y, window.innerHeight - el.offsetHeight - 8));
+    el.style.top = `${top}px`;
+  }, [open, anchor]);
   return (
     <div className="relative" onMouseEnter={open_} onMouseLeave={close}>
       <button
@@ -436,7 +446,7 @@ function SideRow({ group, openId, setOpenId }: {
       {open && anchor && (
         /* flush against the row (no gap) and the same colour as the open row,
            so row + panel read as one connected tab */
-        <div className="fixed z-50" style={{ left: anchor.x - 1, top: anchor.y }}>
+        <div ref={panelRef} className="fixed z-50" style={{ left: anchor.x - 1, top: anchor.y }}>
           <div className="flyout-in w-[400px] rounded-r-md border border-l-0 border-white/10 bg-topbar bg-[linear-gradient(rgb(255_255_255/0.1),rgb(255_255_255/0.1))] pb-2 shadow-flyout">
             {/* group title — larger than the rail label so the panel reads as its own surface */}
             <p className="px-4 pb-1 pt-3 text-[17px] font-bold leading-6 text-white">{t(group.group)}</p>
@@ -500,8 +510,11 @@ export function Shell() {
           </span>
         </NavLink>
         <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-2">
-          {groups.map((g) => (
-            <SideRow key={g.group} group={g} openId={openId} setOpenId={setOpenId} />
+          {groups.map((g, i) => (
+            <Fragment key={g.group}>
+              {i > 0 && groups[i - 1].cluster !== g.cluster && <hr className="mx-2.5 my-1.5 border-0 border-t border-white/15" aria-hidden />}
+              <SideRow group={g} openId={openId} setOpenId={setOpenId} />
+            </Fragment>
           ))}
         </div>
         {/* footer — invite / support / help with labels (dd bottom rail) */}
@@ -553,8 +566,11 @@ export function Shell() {
           </button>
         </div>
         <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-2">
-          {groups.map((g) => (
-            <DrawerGroup key={g.group} group={g} onNavigate={() => setNavOpen(false)} />
+          {groups.map((g, i) => (
+            <Fragment key={g.group}>
+              {i > 0 && groups[i - 1].cluster !== g.cluster && <hr className="mx-2.5 my-1.5 border-0 border-t border-white/15" aria-hidden />}
+              <DrawerGroup group={g} onNavigate={() => setNavOpen(false)} />
+            </Fragment>
           ))}
         </div>
       </aside>

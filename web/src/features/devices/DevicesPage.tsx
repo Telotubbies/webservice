@@ -19,6 +19,7 @@ import { FacetGroup, ProductHeader, facetOptions, toggleIn } from '../../shared/
 import { actionError, CAUTION_TEXT_CLASS, deviceState, isAbnormal, matchDevice, OK_TEXT_CLASS, STATE_STYLE, type DeviceState } from './devices';
 import { DeviceDetail, StatePill, type DeviceRow } from './DeviceDetail';
 import { SecretReveal } from './SecretReveal';
+import { DEVICE_TABS } from './tabs';
 
 const STATES: DeviceState[] = ['online', 'stale', 'offline', 'never', 'disabled'];
 const DEFAULT_OFF = ['disabled'];
@@ -31,7 +32,7 @@ export function DevicesPage() {
   const { orgId, orgRole } = useAdminOrg();
   const { site } = useAdminSite(orgId);
   const admin = canAdmin(orgRole ?? 'none');
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(() => params.get('q') ?? '');
   const [offState, setOffState] = useState<Set<string>>(new Set(DEFAULT_OFF));
   const [offAdapter, setOffAdapter] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState<{ kind: 'rotate' | 'disable'; device: Device } | null>(null);
@@ -111,7 +112,7 @@ export function DevicesPage() {
 
   return (
     <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="server" title={t('dev.product')} tabs={[{ to: '/infrastructure', label: t('dev.tabDevices'), end: true }]}
+      <ProductHeader icon="server" title={t('dev.product')} tabs={DEVICE_TABS(t)}
         actions={admin
           ? <Link to="/infrastructure/add" className="btn btn-sm whitespace-nowrap"><Plus size={14} aria-hidden /> {t('dev.add')}</Link>
           : <span className="hidden text-[11px] text-ink-46 md:inline">{t('dev.needAdmin')}</span>} />

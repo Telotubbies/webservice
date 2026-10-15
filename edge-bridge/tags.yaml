@@ -44,35 +44,35 @@ sim:
       behavior: random_walk      # slow random walk 0..1 (vision stub)
 
 # ---------------------------------------------------------------------------
-# modbus:                          # uncomment for ADAPTER=modbus (requires pymodbus)
-#   host: 127.0.0.1                # Factory I/O / OpenPLC / PLC address
-#   port: 502
-#   unit_id: 1
-#   request_timeout_ms: 2000       # >= 3x normal device response (field rule)
-#   tags:
-#     sort.line1.motor1.running:
-#       address: "%QX0.0"          # or plain int; bit refs decode as 8*byte+bit
-#       type: coil                 # coil | discrete_input | holding_register | input_register
-#       writable: true
-#     sort.line1.motor1.speed_sp:
-#       address: "%QW2"
-#       type: holding_register
-#       writable: true
-#       scale: 0.1                 # raw register units -> engineering units
-#       min: 0.0
-#       max: 60.0
-#     sort.line1.conv1.speed_mps:
-#       address: "%IW4"
-#       type: input_register
-#       scale: 0.01
-#     sort.line1.conv1.temp_c:
-#       address: "%IW6"
-#       type: input_register
-#       scale: 0.1
-#     sort.line1.bin1.level_pct:
-#       address: "%IW8"
-#       type: input_register
-#     sort.vision.cam1.gravel_ratio:
-#       address: "%IW10"
-#       type: input_register
-#       scale: 0.001
+modbus:                          # used only when ADAPTER=modbus (Factory I/O / PLC); host = MODBUS_HOST env
+  host: 127.0.0.1                # Factory I/O / OpenPLC / PLC address
+  port: 502
+  unit_id: 1
+  request_timeout_ms: 2000       # >= 3x normal device response (field rule)
+  tags:
+    sort.line1.motor1.running:
+      address: "%QX0.0"          # or plain int; bit refs decode as 8*byte+bit
+      type: coil                 # coil | discrete_input | holding_register | input_register
+      writable: true
+    sort.line1.motor1.speed_sp:
+      address: "%QW2"
+      type: holding_register
+      writable: true
+      scale: 0.1                 # raw register units -> engineering units
+      min: 0.0
+      max: 60.0
+    sort.line1.conv1.speed_mps:
+      address: "%IW4"
+      type: input_register
+      scale: 0.01
+    sort.line1.conv1.temp_c:
+      address: "%IW6"
+      type: input_register
+      scale: 0.1
+    sort.line1.bin1.level_pct:
+      address: "%IW8"
+      type: input_register
+    sort.vision.cam1.gravel_ratio:
+      address: "%IW10"
+      type: input_register
+      scale: 0.001

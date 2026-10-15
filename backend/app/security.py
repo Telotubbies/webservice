@@ -31,19 +31,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import time
 import urllib.request
 import dataclasses
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import UUID
 
 import jwt as pyjwt
 
 from . import config
 from .auth import Principal, dev_principal
-from .db.context import global_tx, user_tx
+from .db.context import global_tx, key_tx, user_tx
 
 log = logging.getLogger("backend.security")
 
@@ -52,6 +54,7 @@ ALLOWED_ALGS = ("RS256",)
 LEEWAY_S = 30.0
 BACKCHANNEL_EVENT = "http://schemas.openid.net/event/backchannel-logout"
 AUTHZ_CHANNEL = "wds_authz"
+API_KEY_PREFIX = "wds_sk_"
 
 
 class AuthError(Exception):
@@ -224,6 +227,8 @@ class Security:
     # ------------------------------------------------------------- authenticate
     async def authenticate(self, token: str | None) -> Principal:
         """Bearer token -> Principal. Raises AuthError (401)."""
+        if token and token.startswith(API_KEY_PREFIX):
+            return await self._api_key_principal(token)
         if token:
             if config.APP_ENV == "dev":
                 # Dev-token path exists ONLY in dev (ADR-12 §10); a dev token
@@ -264,6 +269,41 @@ class Security:
             claims = await self.verifier.verify(token)
             return await self._authorize(claims)
         raise AuthError()
+
+    async def _api_key_principal(self, token: str) -> Principal:
+        """Service-account key -> Principal. Looked up by sha256 on every call,
+        so revoking a key (or disabling its service user) is immediate."""
+        h = hashlib.sha256(token.encode()).hexdigest()
+        try:
+            async with key_tx(self.pools.app, h) as conn:
+                k = await conn.fetchrow(
+                    "SELECT id, org_id, user_id, name, expires_at, revoked_at, last_used_at"
+                    " FROM api_keys WHERE key_hash=$1", h)
+                if k is None or k["revoked_at"] is not None:
+                    raise AuthError()
+                if k["expires_at"] is not None and k["expires_at"] <= datetime.now(timezone.utc):
+                    raise AuthError("api key expired")
+                await conn.execute("SELECT set_config('app.user_id', $1, true)", str(k["user_id"]))
+                u = await conn.fetchrow("SELECT sub, disabled_at FROM users WHERE id=$1", k["user_id"])
+                m = await conn.fetchrow(
+                    "SELECT role FROM memberships WHERE user_id=$1 AND org_id=$2",
+                    k["user_id"], k["org_id"])
+                if u is None or u["disabled_at"] is not None or m is None:
+                    raise AuthError()
+                last = k["last_used_at"]
+                if last is None or (datetime.now(timezone.utc) - last).total_seconds() > 60:
+                    await conn.execute("UPDATE api_keys SET last_used_at=now() WHERE key_hash=$1", h)
+        except AuthError:
+            raise
+        except Exception:  # noqa: BLE001 - authz store down must not open the gate
+            log.exception("api key lookup failed - failing closed")
+            raise AuthError("authorization store unavailable") from None
+        org_id, role = k["org_id"], m["role"]
+        return Principal(
+            user=k["name"], role=role if org_id == config.V1_ORG_ID else Principal.ROLE_NONE,
+            kind="apikey", sub=u["sub"], user_id=k["user_id"],
+            org_roles=((org_id, role),),
+            exp=k["expires_at"].timestamp() if k["expires_at"] else 0.0)
 
     async def _authorize(self, claims: dict) -> Principal:
         sub, sid = claims["sub"], claims["sid"]

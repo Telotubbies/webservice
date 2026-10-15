@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import ReactGridLayout, { useContainerWidth, verticalCompactor, type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
-import { Check, Copy, GripVertical, LayoutDashboard, Pencil, Plus, RotateCcw, Search, Star, Trash2 } from 'lucide-react';
+import { Check, Copy, GripVertical, LayoutDashboard, Maximize2, Pencil, Plus, RotateCcw, Search, Star, Trash2, X } from 'lucide-react';
 import { EmptyState, Notice } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
 import { Confirm } from '../../shared/ui/Confirm';
@@ -15,6 +15,7 @@ import { ProductHeader } from '../../shared/ui/Product';
 import { dashboardApi } from '../../lib/api';
 import { useAdminOrg } from '../admin/admin';
 import { WidgetBody } from './widgets';
+import { DASH_TEMPLATES } from './templates';
 import { WidgetEditor, autoTitle } from './WidgetEditor';
 import {
   loadDashboards, makeWidget, newId, resetDashboard, saveDashboards,
@@ -85,7 +86,7 @@ export function DashboardsPage() {
   const navigate = useNavigate();
   const { list, commit } = useDashboards();
   const [q, setQ] = useState('');
-  const [preset, setPreset] = useState<'all' | 'custom' | 'builtin' | 'starred' | 'shared'>('all');
+  const [preset, setPreset] = useState<'all' | 'custom' | 'builtin' | 'starred' | 'shared' | 'templates'>('all');
   const [stars, setStars] = useState(readStars);
   const toggleStar = (id: string) => setStars((s) => {
     const n = new Set(s);
@@ -103,6 +104,15 @@ export function DashboardsPage() {
     navigate(`/dashboards/${d.id}?edit=1`);
   };
 
+  const applyTemplate = (tpl: (typeof DASH_TEMPLATES)[number]) => {
+    const d: Dashboard = {
+      id: newId(), title: t(`dash.tpl_${tpl.id}`), description: t(`dash.tpl_${tpl.id}_d`), preset: 'custom',
+      author: 'you', updatedAt: new Date().toISOString(), range: tpl.range, widgets: tpl.build(),
+    };
+    commit([...list, d]);
+    navigate(`/dashboards/${d.id}`);
+  };
+
   // "+ New dashboard" in the nav flyout lands here with ?new=1
   const [sp] = useSearchParams();
   const autoNew = useRef(false);
@@ -112,11 +122,12 @@ export function DashboardsPage() {
   }, [sp]);
 
   const shown = list
-    .filter((d) => preset === 'all' || (preset === 'starred' ? stars.has(d.id) : preset === 'shared' ? d.preset === 'custom' && d.author !== 'you' : d.preset === preset))
+    .filter((d) => preset === 'all' || preset === 'templates' || (preset === 'starred' ? stars.has(d.id) : preset === 'shared' ? d.preset === 'custom' && d.author !== 'you' : d.preset === preset))
     .filter((d) => d.title.toLowerCase().includes(q.toLowerCase()));
   const presets = [
     ['all', t('dash.presetAll')], ['custom', t('dash.presetCustom')],
     ['builtin', t('dash.presetBuiltin')], ['shared', t('dash.presetShared')], ['starred', t('dash.presetStarred')],
+    ['templates', t('dash.presetTemplates')],
   ] as const;
 
   return (
@@ -144,7 +155,21 @@ export function DashboardsPage() {
 
         <section className="min-w-0 flex-1">
           <h2 className="mb-2 text-[18px] font-semibold">{presets.find(([k]) => k === preset)?.[1]}</h2>
-          <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+          {preset === 'templates' && (
+            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {DASH_TEMPLATES.map((tpl) => (
+                <li key={tpl.id} className="flex flex-col rounded-[5px] border border-line bg-white p-4 shadow-card">
+                  <h3 className="flex items-center gap-2 text-[14px] font-semibold"><LayoutDashboard size={15} aria-hidden className="text-ink-46" />{t(`dash.tpl_${tpl.id}`)}</h3>
+                  <p className="mt-1 flex-1 text-[12px] text-ink-68">{t(`dash.tpl_${tpl.id}_d`)}</p>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-[11px] text-ink-46">{t('dash.tplWidgets', { count: tpl.build().length })}</span>
+                    <button type="button" className="btn btn-sm" onClick={() => applyTemplate(tpl)}>{t('dash.useTemplate')}</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {preset !== 'templates' && <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
             <div className="border-b border-line px-3 py-2 text-[12px] text-ink-68">{t('dash.count', { count: shown.length })}</div>
             {shown.length === 0 ? <EmptyState title={t('dash.empty')} icon="search" /> : (
               <table className="w-full border-collapse text-[13px]">
@@ -175,7 +200,7 @@ export function DashboardsPage() {
                 </tbody>
               </table>
             )}
-          </div>
+          </div>}
         </section>
       </div>
     </div>
@@ -193,6 +218,7 @@ export function DashboardViewPage() {
   const dash = list.find((d) => d.id === id);
   const [edit, setEdit] = useState(() => new URLSearchParams(location.search).get('edit') === '1');
   const [editing, setEditing] = useState<Widget | null>(null);
+  const [full, setFull] = useState<Widget | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { width, containerRef, mounted } = useContainerWidth();
 
@@ -291,6 +317,7 @@ export function DashboardViewPage() {
                   <header className="flex h-8 shrink-0 items-center gap-1 border-b border-line pl-2 pr-1">
                     {edit && <span className="widget-drag grid h-6 w-5 cursor-move place-items-center text-ink-46" aria-hidden><GripVertical size={14} /></span>}
                     <h3 className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink">{w.title || autoTitle(w)}</h3>
+                    <IconBtn label={t('dash.fullscreen')} onClick={() => setFull(w)}><Maximize2 size={13} /></IconBtn>
                     {edit && (
                       <>
                         <IconBtn label={t('dash.editWidgetNamed', { name: w.title || autoTitle(w) })} onClick={() => setEditing(w)}><Pencil size={13} /></IconBtn>
@@ -307,6 +334,7 @@ export function DashboardViewPage() {
         )}
       </div>
 
+      {full && <FullWidget w={full} range={dash.range} onClose={() => setFull(null)} />}
       {editing && <WidgetEditor initial={editing} range={dash.range} onSave={saveWidget} onClose={() => setEditing(null)} />}
       {confirmDelete && (
         <Confirm
@@ -316,6 +344,27 @@ export function DashboardViewPage() {
         />
       )}
     </div>
+  );
+}
+
+/** Datadog-style full-screen view of one widget; Esc / backdrop click closes. */
+function FullWidget({ w, range, onClose }: { w: Widget; range: RangeKey; onClose: () => void }) {
+  const { t } = useTranslation();
+  const dlg = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dlg.current?.showModal(); }, []);
+  const title = w.title || autoTitle(w);
+  return (
+    <dialog ref={dlg} onClose={onClose} aria-label={title}
+      onClick={(e) => { if (e.target === dlg.current) dlg.current?.close(); }}
+      className="m-auto h-[88vh] w-[min(1400px,96vw)] max-w-none rounded-[6px] border border-line p-0 shadow-pop backdrop:bg-black/40">
+      <div className="flex h-full flex-col">
+        <header className="flex h-11 items-center border-b border-line px-4">
+          <h2 className="flex-1 truncate text-[14px] font-semibold">{title}</h2>
+          <button type="button" className="grid h-8 w-8 place-items-center rounded hover:bg-subtle" aria-label={t('common.close')} onClick={() => dlg.current?.close()}><X size={16} /></button>
+        </header>
+        <div className="min-h-0 flex-1 p-4"><WidgetBody w={w} range={range} /></div>
+      </div>
+    </dialog>
   );
 }
 

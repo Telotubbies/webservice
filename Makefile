@@ -2,6 +2,8 @@
 COMPOSE := docker compose -f docker-compose.yml
 COMPOSE_TEST := docker compose -f docker-compose.yml -f docker-compose.test.yml
 PY ?= $(or $(wildcard $(CURDIR)/.venv/Scripts/python.exe),$(wildcard $(CURDIR)/.venv/bin/python),python3)
+# host port of the backend; this box reserves 8000, so honour BACKEND_PORT from .env
+BACKEND_PORT ?= $(or $(shell sed -n "s/^BACKEND_PORT=//p" .env 2>/dev/null),8000)
 SQLITE ?= backend/data/app.db
 # Windows default codepage (cp874) breaks read_text() in tests
 export PYTHONUTF8 := 1
@@ -133,20 +135,20 @@ seed-dev: ## provision Keycloak test users + org memberships (APP_ENV=dev only)
 	$(COMPOSE) exec -T backend python -m app.seed_oidc
 
 test-integration: ## integration tests against the running stack (TLS :8883, v2 topics)
-	cd tests && BASE_URL=http://localhost:8000 MQTT_HOST=localhost MQTT_PORT=8883 \
+	cd tests && BASE_URL=http://localhost:$(BACKEND_PORT) MQTT_HOST=localhost MQTT_PORT=8883 \
 	  MQTT_CA_FILE=../infra/certs/ca.crt \
 	  WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
 	  $(PY) -m pytest -m integration
 
 test-security: ## security verification sweep (v4 T13): BOLA/auth-bypass/RBAC/429/headers/WS/infra (needs up-test)
-	cd tests && BASE_URL=http://localhost:8000 WEB_URL=http://localhost:5173 \
+	cd tests && BASE_URL=http://localhost:$(BACKEND_PORT) WEB_URL=http://localhost:5173 \
 	  KC_URL=http://localhost:8080 MQTT_HOST=localhost MQTT_PORT=8883 \
 	  MQTT_CA_FILE=../infra/certs/ca.crt \
 	  WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
 	  $(PY) -m pytest security -s
 
 test-perf: ## performance harness (v4 T13): history p95, WS fan-out, insight eval, bundle gz, LCP (needs up-test)
-	cd tests && BASE_URL=http://localhost:8000 WEB_URL=http://localhost:5173 \
+	cd tests && BASE_URL=http://localhost:$(BACKEND_PORT) WEB_URL=http://localhost:5173 \
 	  MQTT_HOST=localhost MQTT_PORT=8883 MQTT_CA_FILE=../infra/certs/ca.crt \
 	  PLAYWRIGHT_PATH=$${PLAYWRIGHT_PATH:-/home/supawich/Desktop/adas/hmi/web/node_modules/playwright/index.mjs} \
 	  $(PY) -m pytest perf -s

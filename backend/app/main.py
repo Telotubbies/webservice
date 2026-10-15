@@ -25,6 +25,7 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
+from typing import Literal
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -34,9 +35,9 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import config
+from . import config, inference
 from .alarms import (
     AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener,
 )
@@ -58,7 +59,7 @@ from .observability import (
 from .ratelimit import RateLimiter
 from .registry import Registry
 from .security import (
-    AuthError, ForbiddenError, Security, authz_listener, authz_sweep,
+    API_KEY_PREFIX, AuthError, ForbiddenError, Security, authz_listener, authz_sweep,
 )
 from .seed import seed
 from .ws import (
@@ -1258,11 +1259,12 @@ async def v2_list_alarm_rules(org: str, site: str, request: Request,
     async with org_tx(request, org_id) as tc:
         rows = await tc.fetch(
             "SELECT id, tag_id, name, kind, threshold, stale_s, deadband,"
-            " severity, enabled FROM alarm_rules WHERE tag_id IN"
+            " severity, window_s, enabled FROM alarm_rules WHERE tag_id IN"
             " (SELECT id FROM tags WHERE site_id=$1) ORDER BY name", site_id)
     return {"items": [{"id": str(r["id"]), "tag_id": str(r["tag_id"]),
                        "name": r["name"], "kind": r["kind"],
                        "threshold": r["threshold"], "stale_s": r["stale_s"],
+                       "window_s": r["window_s"],
                        "deadband": r["deadband"], "severity": r["severity"],
                        "enabled": r["enabled"]} for r in rows],
             "next_cursor": None}
@@ -1571,9 +1573,11 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
 # ---------------------------------------------------------------------------
 MEMBER_ROLES = frozenset({"owner", "admin", "operator", "viewer"})
 INVITABLE_ROLES = frozenset({"admin", "operator", "viewer"})  # schema CHECK
-RULE_KINDS = frozenset({"hi", "hihi", "lo", "lolo", "stale"})
+RULE_KINDS = frozenset({"hi", "hihi", "lo", "lolo", "stale", "roc", "anomaly", "forecast"})
+TREND_RULE_KINDS = frozenset({"roc", "anomaly", "forecast"})
 RULE_SEVERITIES = frozenset({"info", "warning", "critical"})
 INVITE_TTL_D = 7
+API_KEY_MAX = 100
 MEMBER_LIST_MAX = 5000  # T10-review F9 — same bound as the audit export
 
 
@@ -1583,6 +1587,7 @@ class AlarmRuleIn(BaseModel):
     kind: str
     threshold: float | None = None
     stale_s: int | None = None
+    window_s: int | None = None
     deadband: float = Field(default=0, ge=0)
     severity: str
     enabled: bool = True
@@ -1593,6 +1598,7 @@ class AlarmRulePatch(BaseModel):
     kind: str | None = None
     threshold: float | None = None
     stale_s: int | None = None
+    window_s: int | None = None
     deadband: float | None = Field(default=None, ge=0)
     severity: str | None = None
     enabled: bool | None = None
@@ -1623,7 +1629,7 @@ class InviteAcceptIn(BaseModel):
 
 
 def _validate_rule(kind: str, threshold, stale_s, severity: str,
-                   deadband: float) -> None:
+                   deadband: float, window_s=None) -> None:
     """Mirror the alarm_rules CHECK constraints in request terms (400, not a
     500 from a violated CHECK)."""
     if kind not in RULE_KINDS:
@@ -1637,12 +1643,15 @@ def _validate_rule(kind: str, threshold, stale_s, severity: str,
             raise HTTPException(400, "invalid_request: stale rule needs stale_s 5..86400")
     elif threshold is None:
         raise HTTPException(400, "invalid_request: threshold rule needs a threshold")
+    elif kind in TREND_RULE_KINDS and (window_s is None or not (30 <= window_s <= 86400)):
+        raise HTTPException(400, "invalid_request: trend rule needs window_s 30..86400")
 
 
 def _rule_json(r) -> dict:
     return {"id": str(r["id"]), "tag_id": str(r["tag_id"]), "name": r["name"],
             "kind": r["kind"], "threshold": r["threshold"],
-            "stale_s": r["stale_s"], "deadband": r["deadband"],
+            "stale_s": r["stale_s"], "window_s": r["window_s"],
+            "deadband": r["deadband"],
             "severity": r["severity"], "enabled": r["enabled"]}
 
 
@@ -1654,7 +1663,7 @@ def _row_to_rule(row, org_id: UUID) -> Rule:
 
 
 _RULE_COLS = ("id, tag_id, name, kind, threshold, stale_s, deadband,"
-              " severity, enabled")
+              " severity, window_s, enabled")
 
 
 async def _rule_or_404(tc, rule_id: str, site_id: UUID):
@@ -1682,16 +1691,17 @@ async def v2_create_alarm_rule(org: str, site: str, body: AlarmRuleIn,
     await _site_or_404(st(request).pools, org_id, site_id)
     tag = await _v2_tag_or_404(request, org_id, site_id, body.tag_id)
     _validate_rule(body.kind, body.threshold, body.stale_s,
-                   body.severity, body.deadband)
+                   body.severity, body.deadband, body.window_s)
     await _mutation_gate(request, p.user_id)
     async with org_tx(request, org_id, p.user_id) as tc:
         try:
             row = await tc.fetchrow(
                 "INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold,"
-                " stale_s, deadband, severity, enabled)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING " + _RULE_COLS,
+                " stale_s, deadband, severity, window_s, enabled)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING " + _RULE_COLS,
                 org_id, tag.id, body.name, body.kind, body.threshold,
-                body.stale_s, body.deadband, body.severity, body.enabled)
+                body.stale_s, body.deadband, body.severity, body.window_s,
+                body.enabled)
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "alarm rule name already exists on this tag")
         await audit.append(tc, f"user:{p.user_id}", "alarm_rule.created",
@@ -1718,20 +1728,21 @@ async def v2_patch_alarm_rule(org: str, site: str, rule_id: str,
             "kind": changes.get("kind", cur["kind"]),
             "threshold": changes.get("threshold", cur["threshold"]),
             "stale_s": changes.get("stale_s", cur["stale_s"]),
+            "window_s": changes.get("window_s", cur["window_s"]),
             "deadband": changes.get("deadband", cur["deadband"]),
             "severity": changes.get("severity", cur["severity"]),
             "enabled": changes.get("enabled", cur["enabled"]),
         }
         _validate_rule(merged["kind"], merged["threshold"], merged["stale_s"],
-                       merged["severity"], merged["deadband"])
+                       merged["severity"], merged["deadband"], merged["window_s"])
         try:
             row = await tc.fetchrow(
                 "UPDATE alarm_rules SET name=$2, kind=$3, threshold=$4, stale_s=$5,"
-                " deadband=$6, severity=$7, enabled=$8 WHERE id=$1"
+                " deadband=$6, severity=$7, enabled=$8, window_s=$9 WHERE id=$1"
                 " RETURNING " + _RULE_COLS,
                 cur["id"], merged["name"], merged["kind"], merged["threshold"],
                 merged["stale_s"], merged["deadband"], merged["severity"],
-                merged["enabled"])
+                merged["enabled"], merged["window_s"])
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "alarm rule name already exists on this tag")
         if merged["enabled"] is False:
@@ -1869,6 +1880,418 @@ async def v2_delete_dashboard(org: str, dash_id: str, request: Request,
 
 
 # ---------------------------------------------------------------------------
+# Notebooks — markdown notes. Same access shape as dashboards: members read
+# shared + their own; operators+ create; author or admin/owner edits/deletes.
+# ---------------------------------------------------------------------------
+class NotebookIn(BaseModel):
+    id: UUID | None = None
+    title: str = Field(min_length=1, max_length=120)
+    body: str = Field(default="", max_length=100_000)
+    shared: bool = True
+    # optimistic concurrency: the updated_at the editor loaded; stale -> 409
+    base_updated_at: datetime | None = None
+
+
+_NB_COLS = "id, author_id, title, body, shared, updated_at"
+
+
+def _nb_json(r, me: UUID) -> dict:
+    return {"id": str(r["id"]), "title": r["title"], "body": r["body"],
+            "shared": r["shared"], "mine": r["author_id"] == me,
+            "updated_at": iso_z(r["updated_at"])}
+
+
+@app.get("/api/v1/orgs/{org}/notebooks")
+async def v2_list_notebooks(org: str, request: Request,
+                            p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        rows = await tc.fetch(
+            f"SELECT {_NB_COLS} FROM notebooks"
+            " WHERE shared OR author_id=$1 ORDER BY updated_at DESC LIMIT 500", p.user_id)
+    return {"notebooks": [_nb_json(r, p.user_id) for r in rows]}
+
+
+@app.post("/api/v1/orgs/{org}/notebooks", status_code=201)
+async def v2_create_notebook(org: str, body: NotebookIn, request: Request,
+                             p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        row = await tc.fetchrow(
+            "INSERT INTO notebooks(id, org_id, author_id, title, body, shared)"
+            f" VALUES (COALESCE($6, gen_random_uuid()),$1,$2,$3,$4,$5) RETURNING {_NB_COLS}",
+            org_id, p.user_id, body.title, body.body, body.shared, body.id)
+        await audit.append(tc, f"user:{p.user_id}", "notebook.created",
+                           {"notebook_id": str(row["id"])}, {"title": body.title})
+    return {"notebook": _nb_json(row, p.user_id)}
+
+
+async def _nb_writable(tc, nb_id: str, p: Principal, org_id: UUID):
+    row = await tc.fetchrow(
+        f"SELECT {_NB_COLS} FROM notebooks WHERE id=$1 AND (shared OR author_id=$2)",
+        _uuid_or_404(nb_id, "notebook"), p.user_id)
+    if row is None:
+        raise HTTPException(404, "notebook not found")
+    if row["author_id"] != p.user_id and _effective_org_roles(p)[org_id] not in CONFIG_ROLES:
+        raise ForbiddenError("only the author or an admin can change this notebook")
+    return row
+
+
+@app.put("/api/v1/orgs/{org}/notebooks/{nb_id}")
+async def v2_update_notebook(org: str, nb_id: str, body: NotebookIn, request: Request,
+                             p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        cur = await _nb_writable(tc, nb_id, p, org_id)
+        # wire timestamps are ms-precision; the column is µs
+        if body.base_updated_at is not None and                 cur["updated_at"].replace(microsecond=cur["updated_at"].microsecond // 1000 * 1000)                 != body.base_updated_at:
+            raise HTTPException(409, "notebook changed since you opened it")
+        row = await tc.fetchrow(
+            "UPDATE notebooks SET title=$2, body=$3, shared=$4, updated_at=now()"
+            f" WHERE id=$1 RETURNING {_NB_COLS}", cur["id"], body.title, body.body, body.shared)
+        await audit.append(tc, f"user:{p.user_id}", "notebook.updated",
+                           {"notebook_id": str(cur["id"])}, {"title": body.title})
+    return {"notebook": _nb_json(row, p.user_id)}
+
+
+@app.delete("/api/v1/orgs/{org}/notebooks/{nb_id}", status_code=204)
+async def v2_delete_notebook(org: str, nb_id: str, request: Request,
+                             p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        cur = await _nb_writable(tc, nb_id, p, org_id)
+        await tc.execute("DELETE FROM notebooks WHERE id=$1", cur["id"])
+        await audit.append(tc, f"user:{p.user_id}", "notebook.deleted",
+                           {"notebook_id": str(cur["id"])}, {"title": cur["title"]})
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Downtimes — maintenance windows that mute alarm raising (alarms._raise reads
+# them). Any member reads; operators+ schedule / end / delete.
+# ---------------------------------------------------------------------------
+class DowntimeIn(BaseModel):
+    rule_id: UUID | None = None  # None = every rule in the org
+    description: str = Field(default="", max_length=500)
+    starts_at: datetime
+    ends_at: datetime
+    recurring: bool = False
+
+    @model_validator(mode="after")
+    def _window(self):
+        if self.ends_at <= self.starts_at:
+            raise ValueError("ends_at must be after starts_at")
+        if self.recurring and self.ends_at - self.starts_at > timedelta(days=7):
+            raise ValueError("a weekly recurring window must be 7 days or shorter")
+        return self
+
+
+_DT_SELECT = (
+    "SELECT d.id, d.rule_id, r.name AS rule, d.description, d.starts_at, d.ends_at,"
+    " d.recurring, d.created_by FROM downtimes d"
+    " LEFT JOIN alarm_rules r ON r.org_id=d.org_id AND r.id=d.rule_id")
+
+
+def _dt_json(r, me: UUID) -> dict:
+    return {"id": str(r["id"]), "rule_id": str(r["rule_id"]) if r["rule_id"] else None,
+            "rule": r["rule"], "description": r["description"], "recurring": r["recurring"],
+            "starts_at": iso_z(r["starts_at"]), "ends_at": iso_z(r["ends_at"]),
+            "mine": r["created_by"] == me}  # no email: member identities are admin-only
+
+
+@app.get("/api/v1/orgs/{org}/downtimes")
+async def v2_list_downtimes(org: str, request: Request,
+                            p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        rows = await tc.fetch(_DT_SELECT + " ORDER BY d.starts_at DESC LIMIT 500")
+        rules = await tc.fetch("SELECT id, name FROM alarm_rules ORDER BY name")  # schedule-dialog picker
+    return {"downtimes": [_dt_json(r, p.user_id) for r in rows],
+            "rules": [{"id": str(r["id"]), "name": r["name"]} for r in rules]}
+
+
+@app.post("/api/v1/orgs/{org}/downtimes", status_code=201)
+async def v2_create_downtime(org: str, body: DowntimeIn, request: Request,
+                             p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        try:
+            async with tc.conn.transaction():
+                did = await tc.fetchval(
+                    "INSERT INTO downtimes(org_id, rule_id, description, starts_at, ends_at,"
+                    " recurring, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+                    org_id, body.rule_id, body.description, body.starts_at, body.ends_at,
+                    body.recurring, p.user_id)
+        except asyncpg.ForeignKeyViolationError:  # composite FK: rule not in this org
+            raise HTTPException(404, "rule not found")
+        await audit.append(tc, f"user:{p.user_id}", "downtime.created",
+                           {"downtime_id": str(did)},
+                           {"rule_id": str(body.rule_id) if body.rule_id else None})
+        row = await tc.fetchrow(_DT_SELECT + " WHERE d.id=$1", did)
+    return {"downtime": _dt_json(row, p.user_id)}
+
+
+@app.post("/api/v1/orgs/{org}/downtimes/{dt_id}/end")
+async def v2_end_downtime(org: str, dt_id: str, request: Request,
+                          p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        # clamp: ends_at must stay after starts_at (ending a not-yet-started one = cancel)
+        did = await tc.fetchval(
+            "UPDATE downtimes SET ends_at = GREATEST(now(), starts_at + interval '1 second')"
+            " WHERE id=$1 RETURNING id", _uuid_or_404(dt_id, "downtime"))
+        if did is None:
+            raise HTTPException(404, "downtime not found")
+        await audit.append(tc, f"user:{p.user_id}", "downtime.ended",
+                           {"downtime_id": str(did)}, {})
+        row = await tc.fetchrow(_DT_SELECT + " WHERE d.id=$1", did)
+    return {"downtime": _dt_json(row, p.user_id)}
+
+
+@app.delete("/api/v1/orgs/{org}/downtimes/{dt_id}", status_code=204)
+async def v2_delete_downtime(org: str, dt_id: str, request: Request,
+                             p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        did = await tc.fetchval("DELETE FROM downtimes WHERE id=$1 RETURNING id",
+                                _uuid_or_404(dt_id, "downtime"))
+        if did is None:
+            raise HTTPException(404, "downtime not found")
+        await audit.append(tc, f"user:{p.user_id}", "downtime.deleted",
+                           {"downtime_id": str(did)}, {})
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Teams (admin-managed member groups) + incidents (operators declare / ack /
+# resolve, append-only timeline). Any member reads. Display names only — member
+# emails stay admin-only.
+# ---------------------------------------------------------------------------
+class TeamIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=500)
+
+
+class TeamMembersIn(BaseModel):
+    user_ids: list[UUID] = Field(max_length=200)
+
+
+def _who(r) -> str:
+    return r["display_name"] or str(r["user_id"])[:8]
+
+
+async def _teams_json(tc) -> list[dict]:
+    teams = await tc.fetch("SELECT id, name, description FROM teams ORDER BY lower(name)")
+    mem = await tc.fetch(
+        "SELECT tm.team_id, tm.user_id, u.display_name FROM team_members tm"
+        " JOIN users u ON u.id = tm.user_id ORDER BY u.display_name")
+    return [{"id": str(t["id"]), "name": t["name"], "description": t["description"],
+             "members": [{"user_id": str(m["user_id"]), "name": _who(m)}
+                         for m in mem if m["team_id"] == t["id"]]} for t in teams]
+
+
+@app.get("/api/v1/orgs/{org}/teams")
+async def v2_list_teams(org: str, request: Request, p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        return {"teams": await _teams_json(tc)}
+
+
+@app.post("/api/v1/orgs/{org}/teams", status_code=201)
+async def v2_create_team(org: str, body: TeamIn, request: Request,
+                         p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        try:
+            async with tc.conn.transaction():
+                tid = await tc.fetchval(
+                    "INSERT INTO teams(org_id, name, description) VALUES ($1,$2,$3) RETURNING id",
+                    org_id, body.name.strip(), body.description)
+        except asyncpg.UniqueViolationError:
+            raise HTTPException(409, "a team with this name already exists")
+        await audit.append(tc, f"user:{p.user_id}", "team.created", {"team_id": str(tid)}, {})
+    return {"id": str(tid)}
+
+
+@app.put("/api/v1/orgs/{org}/teams/{team_id}/members")
+async def v2_set_team_members(org: str, team_id: str, body: TeamMembersIn, request: Request,
+                              p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    tid = _uuid_or_404(team_id, "team")
+    async with org_tx(request, org_id, p.user_id) as tc:
+        if await tc.fetchval("SELECT 1 FROM teams WHERE id=$1", tid) is None:
+            raise HTTPException(404, "team not found")
+        try:
+            async with tc.conn.transaction():
+                await tc.execute("DELETE FROM team_members WHERE team_id=$1", tid)
+                for uid in set(body.user_ids):
+                    await tc.execute("INSERT INTO team_members(org_id, team_id, user_id) VALUES ($1,$2,$3)",
+                                     org_id, tid, uid)
+        except asyncpg.ForeignKeyViolationError:  # composite FK: not a member of this org
+            raise HTTPException(404, "member not found")
+        await audit.append(tc, f"user:{p.user_id}", "team.members_set",
+                           {"team_id": str(tid)}, {"count": len(set(body.user_ids))})
+    return {"ok": True}
+
+
+@app.delete("/api/v1/orgs/{org}/teams/{team_id}", status_code=204)
+async def v2_delete_team(org: str, team_id: str, request: Request,
+                         p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        tid = await tc.fetchval("DELETE FROM teams WHERE id=$1 RETURNING id", _uuid_or_404(team_id, "team"))
+        if tid is None:
+            raise HTTPException(404, "team not found")
+        await audit.append(tc, f"user:{p.user_id}", "team.deleted", {"team_id": str(tid)}, {})
+    return Response(status_code=204)
+
+
+class IncidentIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    severity: Literal["info", "warning", "critical"] = "warning"
+    alarm_id: UUID | None = None
+    owner_team_id: UUID | None = None
+
+
+class IncidentStatusIn(BaseModel):
+    status: Literal["acknowledged", "resolved"]
+
+
+class NoteIn(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+_INC_SELECT = (
+    "SELECT i.id, i.title, i.severity, i.status, i.created_at, i.acked_at, i.resolved_at,"
+    " i.alarm_id, i.owner_team_id, t.name AS team, i.created_by FROM incidents i"
+    " LEFT JOIN teams t ON t.org_id=i.org_id AND t.id=i.owner_team_id")
+
+
+def _inc_json(r, me: UUID) -> dict:
+    return {"id": str(r["id"]), "title": r["title"], "severity": r["severity"], "status": r["status"],
+            "created_at": iso_z(r["created_at"]),
+            "acked_at": iso_z(r["acked_at"]) if r["acked_at"] else None,
+            "resolved_at": iso_z(r["resolved_at"]) if r["resolved_at"] else None,
+            "alarm_id": str(r["alarm_id"]) if r["alarm_id"] else None,
+            "team_id": str(r["owner_team_id"]) if r["owner_team_id"] else None,
+            "team": r["team"], "mine": r["created_by"] == me}
+
+
+@app.get("/api/v1/orgs/{org}/incidents")
+async def v2_list_incidents(org: str, request: Request, p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        rows = await tc.fetch(_INC_SELECT + " ORDER BY i.created_at DESC LIMIT 200")
+        teams = await tc.fetch("SELECT id, name FROM teams ORDER BY lower(name)")  # declare-dialog picker
+    return {"incidents": [_inc_json(r, p.user_id) for r in rows],
+            "teams": [{"id": str(t["id"]), "name": t["name"]} for t in teams]}
+
+
+@app.post("/api/v1/orgs/{org}/incidents", status_code=201)
+async def v2_create_incident(org: str, body: IncidentIn, request: Request,
+                             p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        try:
+            async with tc.conn.transaction():
+                iid = await tc.fetchval(
+                    "INSERT INTO incidents(org_id, title, severity, created_by, alarm_id, owner_team_id)"
+                    " VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+                    org_id, body.title.strip(), body.severity, p.user_id, body.alarm_id, body.owner_team_id)
+                await tc.execute(
+                    "INSERT INTO incident_events(org_id, incident_id, kind, author_id) VALUES ($1,$2,'created',$3)",
+                    org_id, iid, p.user_id)
+        except asyncpg.ForeignKeyViolationError:  # composite FK: alarm / team not in this org
+            raise HTTPException(404, "alarm or team not found")
+        await audit.append(tc, f"user:{p.user_id}", "incident.declared", {"incident_id": str(iid)}, {})
+        row = await tc.fetchrow(_INC_SELECT + " WHERE i.id=$1", iid)
+    return {"incident": _inc_json(row, p.user_id)}
+
+
+@app.get("/api/v1/orgs/{org}/incidents/{inc_id}")
+async def v2_get_incident(org: str, inc_id: str, request: Request,
+                          p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        row = await tc.fetchrow(_INC_SELECT + " WHERE i.id=$1", _uuid_or_404(inc_id, "incident"))
+        if row is None:
+            raise HTTPException(404, "incident not found")
+        ev = await tc.fetch(
+            "SELECT e.kind, e.body, e.at, e.author_id AS user_id, u.display_name FROM incident_events e"
+            " LEFT JOIN users u ON u.id = e.author_id WHERE e.incident_id=$1 ORDER BY e.at, e.id", row["id"])
+    return {"incident": _inc_json(row, p.user_id),
+            "events": [{"kind": e["kind"], "body": e["body"], "at": iso_z(e["at"]), "who": _who(e)} for e in ev]}
+
+
+@app.post("/api/v1/orgs/{org}/incidents/{inc_id}/status")
+async def v2_incident_status(org: str, inc_id: str, body: IncidentStatusIn, request: Request,
+                             p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        # active -> acknowledged -> resolved (resolving an active one acks it too)
+        allowed = ["active"] if body.status == "acknowledged" else ["active", "acknowledged"]
+        iid = await tc.fetchval(
+            "UPDATE incidents SET status=$2, acked_at=COALESCE(acked_at, now()),"
+            " resolved_at=CASE WHEN $2='resolved' THEN now() END"
+            " WHERE id=$1 AND status = ANY($3::text[]) RETURNING id",
+            _uuid_or_404(inc_id, "incident"), body.status, allowed)
+        if iid is None:
+            raise HTTPException(409, "incident not found or already past this state")
+        await tc.execute(
+            "INSERT INTO incident_events(org_id, incident_id, kind, author_id, body) VALUES ($1,$2,'status',$3,$4)",
+            org_id, iid, p.user_id, body.status)
+        await audit.append(tc, f"user:{p.user_id}", f"incident.{body.status}", {"incident_id": str(iid)}, {})
+        row = await tc.fetchrow(_INC_SELECT + " WHERE i.id=$1", iid)
+    return {"incident": _inc_json(row, p.user_id)}
+
+
+@app.post("/api/v1/orgs/{org}/incidents/{inc_id}/notes", status_code=201)
+async def v2_incident_note(org: str, inc_id: str, body: NoteIn, request: Request,
+                           p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    iid = _uuid_or_404(inc_id, "incident")
+    async with org_tx(request, org_id, p.user_id) as tc:
+        try:
+            async with tc.conn.transaction():
+                await tc.execute(
+                    "INSERT INTO incident_events(org_id, incident_id, kind, author_id, body) VALUES ($1,$2,'note',$3,$4)",
+                    org_id, iid, p.user_id, body.body.strip())
+        except asyncpg.ForeignKeyViolationError:
+            raise HTTPException(404, "incident not found")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# AI inference — latest predictions from the org's external model server
+# (inference.py). Any member reads; cached, so polling is cheap.
+# ---------------------------------------------------------------------------
+@app.get("/api/v1/orgs/{org}/inference")
+async def v2_inference(org: str, request: Request, p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    if not config.INFERENCE_URL:
+        return {"configured": False}
+    s = st(request)
+    await s.registry.maybe_refresh()
+    async with org_tx(request, org_id, p.user_id) as tc:
+        rows = await tc.fetch("SELECT tag_id, v, q, ts FROM tag_latest")
+    feats = [{"name": s.registry.display_name(t), "v": finite_or_none(r["v"]), "q": r["q"], "ts": iso_z(r["ts"])}
+             for r in rows if (t := s.registry.by_id(r["tag_id"]))]
+    return await inference.latest(org_id, feats)
+
+
+# ---------------------------------------------------------------------------
 # Memberships — member:manage (admin|owner)
 # ---------------------------------------------------------------------------
 def _member_json(r) -> dict:
@@ -1900,6 +2323,7 @@ async def v2_list_members(org: str, request: Request,
         rows = await tc.fetch(
             "SELECT m.user_id, m.role, u.sub, u.display_name, u.email,"
             " u.disabled_at FROM memberships m JOIN users u ON u.id = m.user_id"
+            " WHERE u.sub NOT LIKE 'svc:%'"  # service accounts live under /api-keys
             " ORDER BY u.display_name LIMIT $1", MEMBER_LIST_MAX)
     return {"items": [_member_json(r) for r in rows], "next_cursor": None}
 
@@ -1998,6 +2422,303 @@ async def v2_delete_member(org: str, user_id: str, request: Request,
             "SELECT pg_notify($1, $2)", "wds_authz",
             json.dumps({"type": "membership_changed", "sub": target["sub"]}))
     return {"user_id": str(target["user_id"]), "removed": True}
+
+
+# ---------------------------------------------------------------------------
+# API keys — service accounts for machine callers (config:write). The secret is
+# shown once at creation; only its sha256 is stored. A key authenticates as a
+# service user with an ordinary membership, so role checks apply unchanged.
+# ---------------------------------------------------------------------------
+API_KEY_ROLES = frozenset({"viewer", "operator", "admin"})  # never owner
+
+
+class ApiKeyIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    role: str = "viewer"
+    expires_days: int | None = Field(default=None, ge=1, le=730)
+
+
+def _key_json(r) -> dict:
+    return {"id": str(r["id"]), "name": r["name"], "prefix": r["prefix"],
+            "role": r["role"], "created_at": iso_z(r["created_at"]),
+            "expires_at": iso_z(r["expires_at"]) if r["expires_at"] else None,
+            "last_used_at": iso_z(r["last_used_at"]) if r["last_used_at"] else None,
+            "revoked_at": iso_z(r["revoked_at"]) if r["revoked_at"] else None}
+
+
+def _no_service_accounts(p: Principal) -> None:
+    if p.kind == "apikey":  # a leaked key must not be able to mint more keys
+        raise ForbiddenError("service accounts cannot manage API keys")
+
+
+@app.get("/api/v1/orgs/{org}/api-keys")
+async def v2_list_api_keys(org: str, request: Request,
+                           p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    _no_service_accounts(p)
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT k.id, k.name, k.prefix, k.created_at, k.expires_at,"
+            " k.last_used_at, k.revoked_at, m.role FROM api_keys k"
+            " LEFT JOIN memberships m ON m.user_id = k.user_id"
+            " ORDER BY k.created_at DESC LIMIT 500")
+    return {"items": [_key_json({**dict(r), "role": r["role"] or "none"}) for r in rows],
+            "next_cursor": None}
+
+
+@app.post("/api/v1/orgs/{org}/api-keys", status_code=201)
+async def v2_create_api_key(org: str, body: ApiKeyIn, request: Request,
+                            p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    _no_service_accounts(p)
+    if body.role not in API_KEY_ROLES:
+        raise HTTPException(400, "invalid_request: role")
+    await _mutation_gate(request, p.user_id)
+    secret = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    expires = (utcnow() + timedelta(days=body.expires_days)) if body.expires_days else None
+    async with org_tx(request, org_id, p.user_id) as tc:
+        n = await tc.fetchval("SELECT count(*) FROM api_keys WHERE revoked_at IS NULL")
+        if n >= API_KEY_MAX:
+            raise HTTPException(409, "api key limit reached - revoke an unused key")
+        uid = await tc.fetchval(
+            "INSERT INTO users(sub, display_name) VALUES ($1,$2) RETURNING id",
+            f"svc:{uuid.uuid4()}", body.name)
+        await tc.execute("INSERT INTO memberships(org_id, user_id, role) VALUES ($1,$2,$3)",
+                         org_id, uid, body.role)
+        row = await tc.fetchrow(
+            "INSERT INTO api_keys(org_id, user_id, name, prefix, key_hash, created_by, expires_at)"
+            " VALUES ($1,$2,$3,$4,$5,$6,$7)"
+            " RETURNING id, name, prefix, created_at, expires_at, last_used_at, revoked_at",
+            org_id, uid, body.name, secret[:len(API_KEY_PREFIX) + 6],
+            hashlib.sha256(secret.encode()).hexdigest(), p.user_id, expires)
+        await audit.append(tc, f"user:{p.user_id}", "api_key.created",
+                           {"key_id": str(row["id"])}, {"name": body.name, "role": body.role})
+    return {"key": _key_json({**dict(row), "role": body.role}), "secret": secret}
+
+
+@app.delete("/api/v1/orgs/{org}/api-keys/{key_id}", status_code=204)
+async def v2_revoke_api_key(org: str, key_id: str, request: Request,
+                            p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    _no_service_accounts(p)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        uid = await tc.fetchval(
+            "UPDATE api_keys SET revoked_at = now() WHERE id=$1 AND revoked_at IS NULL"
+            " RETURNING user_id", _uuid_or_404(key_id, "api key"))
+        if uid is None:
+            raise HTTPException(404, "api key not found")
+        await tc.execute("DELETE FROM memberships WHERE user_id=$1", uid)
+        await tc.execute("UPDATE users SET disabled_at = now() WHERE id=$1 AND sub LIKE 'svc:%'", uid)
+        await audit.append(tc, f"user:{p.user_id}", "api_key.revoked", {"key_id": key_id}, {})
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# SLOs — availability targets on one tag, plus correction windows whose samples
+# are left out of the SLI. Any member reads; config:write changes them.
+# ---------------------------------------------------------------------------
+SLO_MAX = 100
+
+
+class SloIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    tag: str                              # display name, e.g. plant1.sort.line1.conv1.temp_c
+    target: float = Field(gt=0, lt=100)
+    warning: float | None = Field(default=None, le=100)
+    description: str = Field(default="", max_length=500)
+
+
+class SloPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    tag: str | None = None
+    target: float | None = Field(default=None, gt=0, lt=100)
+    warning: float | None = Field(default=None, le=100)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class SloCorrectionIn(BaseModel):
+    starts_at: str
+    ends_at: str
+    reason: str = Field(min_length=1, max_length=500)
+
+
+def _org_tag_or_400(request: Request, org_id: UUID, name: str):
+    reg = st(request).registry
+    for t in reg.for_org(org_id):
+        if reg.display_name(t) == name:
+            return t
+    raise HTTPException(400, "invalid_request: tag")
+
+
+def _default_warning(target: float) -> float:
+    return round(target + (100 - target) / 2, 4)
+
+
+def _slo_json(request: Request, r, corrections: list) -> dict:
+    reg = st(request).registry
+    tag = reg.by_id(r["tag_id"])
+    return {"id": str(r["id"]), "name": r["name"], "description": r["description"],
+            "tag": reg.display_name(tag) if tag else None, "tag_id": str(r["tag_id"]),
+            "target": r["target"], "warning": r["warning"],
+            "updated_at": iso_z(r["updated_at"]),
+            "corrections": [{"id": str(c["id"]), "starts_at": iso_z(c["starts_at"]),
+                             "ends_at": iso_z(c["ends_at"]), "reason": c["reason"]}
+                            for c in corrections if c["slo_id"] == r["id"]]}
+
+
+@app.get("/api/v1/orgs/{org}/slos")
+async def v2_list_slos(org: str, request: Request, p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id) as tc:
+        rows = await tc.fetch("SELECT * FROM slos ORDER BY name LIMIT $1", SLO_MAX)
+        cors = await tc.fetch(
+            "SELECT id, slo_id, starts_at, ends_at, reason FROM slo_corrections"
+            " ORDER BY starts_at DESC LIMIT 2000")
+    return {"items": [_slo_json(request, r, cors) for r in rows], "next_cursor": None}
+
+
+@app.get("/api/v1/orgs/{org}/slos/status")
+async def v2_slo_status(org: str, request: Request, days: int = Query(30, ge=1, le=90),
+                        p: Principal = Depends(require_user)):
+    """Per-SLO SLI over the window with correction windows excluded. Only as
+    deep as tag_history retention, so `covered_s` says what was really read."""
+    org_id = _v2_org(org, p)
+    to = utcnow()
+    t_from = to - timedelta(days=days)
+    out = []
+    async with org_tx(request, org_id) as tc:
+        slos = await tc.fetch("SELECT id, tag_id FROM slos ORDER BY name LIMIT $1", SLO_MAX)
+        for s in slos:
+            row = await tc.fetchrow(
+                "SELECT count(*) AS n, count(*) FILTER (WHERE q='good') AS good,"
+                " min(ts) AS first FROM tag_history h WHERE h.tag_id=$1 AND h.ts >= $2 AND h.ts <= $3"
+                " AND NOT EXISTS (SELECT 1 FROM slo_corrections c WHERE c.slo_id=$4"
+                "   AND h.ts >= c.starts_at AND h.ts <= c.ends_at)",
+                s["tag_id"], t_from, to, s["id"])
+            excluded = await tc.fetchval(
+                "SELECT count(*) FROM tag_history h WHERE h.tag_id=$1 AND h.ts >= $2 AND h.ts <= $3"
+                " AND EXISTS (SELECT 1 FROM slo_corrections c WHERE c.slo_id=$4"
+                "   AND h.ts >= c.starts_at AND h.ts <= c.ends_at)",
+                s["tag_id"], t_from, to, s["id"])
+            n = row["n"]
+            out.append({"id": str(s["id"]), "samples": n, "excluded": excluded,
+                        "sli": (row["good"] / n * 100) if n else None,
+                        "covered_s": round((to - row["first"]).total_seconds()) if n else 0})
+    return {"days": days, "items": out}
+
+
+@app.post("/api/v1/orgs/{org}/slos", status_code=201)
+async def v2_create_slo(org: str, body: SloIn, request: Request,
+                        p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    tag = _org_tag_or_400(request, org_id, body.tag)
+    warning = body.warning if body.warning is not None else _default_warning(body.target)
+    if warning < body.target:
+        raise HTTPException(400, "invalid_request: warning must be >= target")
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        if await tc.fetchval("SELECT count(*) FROM slos") >= SLO_MAX:
+            raise HTTPException(409, "slo limit reached")
+        try:
+            row = await tc.fetchrow(
+                "INSERT INTO slos(org_id, tag_id, name, description, target, warning, created_by)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+                org_id, tag.id, body.name, body.description, body.target, warning, p.user_id)
+        except asyncpg.UniqueViolationError:
+            raise HTTPException(409, "an SLO with this name already exists") from None
+        await audit.append(tc, f"user:{p.user_id}", "slo.created",
+                           {"slo_id": str(row["id"])}, {"name": body.name, "target": body.target})
+    return {"slo": _slo_json(request, row, [])}
+
+
+@app.patch("/api/v1/orgs/{org}/slos/{slo_id}")
+async def v2_patch_slo(org: str, slo_id: str, body: SloPatch, request: Request,
+                       p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    changes = body.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(400, "invalid_request: empty patch")
+    sid = _uuid_or_404(slo_id, "slo")
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        cur = await tc.fetchrow("SELECT * FROM slos WHERE id=$1", sid)
+        if cur is None:
+            raise HTTPException(404, "slo not found")
+        tag_id = _org_tag_or_400(request, org_id, changes["tag"]).id if changes.get("tag") else cur["tag_id"]
+        target = changes.get("target", cur["target"])
+        warning = changes.get("warning")
+        if warning is None:  # keep the old warning unless it would now sit below the target
+            warning = cur["warning"] if "target" not in changes or cur["warning"] >= target else _default_warning(target)
+        if warning < target:
+            raise HTTPException(400, "invalid_request: warning must be >= target")
+        try:
+            row = await tc.fetchrow(
+                "UPDATE slos SET name=$2, description=$3, tag_id=$4, target=$5, warning=$6,"
+                " updated_at=now() WHERE id=$1 RETURNING *",
+                sid, changes.get("name", cur["name"]), changes.get("description", cur["description"]),
+                tag_id, target, warning)
+        except asyncpg.UniqueViolationError:
+            raise HTTPException(409, "an SLO with this name already exists") from None
+        cors = await tc.fetch("SELECT id, slo_id, starts_at, ends_at, reason FROM slo_corrections"
+                              " WHERE slo_id=$1 ORDER BY starts_at DESC", sid)
+        await audit.append(tc, f"user:{p.user_id}", "slo.updated", {"slo_id": slo_id},
+                           {k: v for k, v in changes.items() if k != "description"})
+    return {"slo": _slo_json(request, row, cors)}
+
+
+@app.delete("/api/v1/orgs/{org}/slos/{slo_id}", status_code=204)
+async def v2_delete_slo(org: str, slo_id: str, request: Request,
+                        p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        gone = await tc.fetchval("DELETE FROM slos WHERE id=$1 RETURNING id", _uuid_or_404(slo_id, "slo"))
+        if gone is None:
+            raise HTTPException(404, "slo not found")
+        await audit.append(tc, f"user:{p.user_id}", "slo.deleted", {"slo_id": slo_id}, {})
+    return Response(status_code=204)
+
+
+@app.post("/api/v1/orgs/{org}/slos/{slo_id}/corrections", status_code=201)
+async def v2_add_slo_correction(org: str, slo_id: str, body: SloCorrectionIn, request: Request,
+                                p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    try:
+        starts, ends = parse_ts(body.starts_at), parse_ts(body.ends_at)
+    except ValueError:
+        raise HTTPException(400, "invalid_request: timestamps") from None
+    if ends <= starts or ends - starts > timedelta(days=30):
+        raise HTTPException(400, "invalid_request: window must be 0..30 days")
+    sid = _uuid_or_404(slo_id, "slo")
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        if await tc.fetchval("SELECT 1 FROM slos WHERE id=$1", sid) is None:
+            raise HTTPException(404, "slo not found")
+        row = await tc.fetchrow(
+            "INSERT INTO slo_corrections(org_id, slo_id, starts_at, ends_at, reason, created_by)"
+            " VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, starts_at, ends_at, reason",
+            org_id, sid, starts, ends, body.reason, p.user_id)
+        await audit.append(tc, f"user:{p.user_id}", "slo.correction_added",
+                           {"slo_id": slo_id, "correction_id": str(row["id"])}, {"reason": body.reason})
+    return {"correction": {"id": str(row["id"]), "starts_at": iso_z(row["starts_at"]),
+                           "ends_at": iso_z(row["ends_at"]), "reason": row["reason"]}}
+
+
+@app.delete("/api/v1/orgs/{org}/slos/{slo_id}/corrections/{cid}", status_code=204)
+async def v2_delete_slo_correction(org: str, slo_id: str, cid: str, request: Request,
+                                   p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        gone = await tc.fetchval(
+            "DELETE FROM slo_corrections WHERE id=$1 AND slo_id=$2 RETURNING id",
+            _uuid_or_404(cid, "correction"), _uuid_or_404(slo_id, "slo"))
+        if gone is None:
+            raise HTTPException(404, "correction not found")
+        await audit.append(tc, f"user:{p.user_id}", "slo.correction_removed",
+                           {"slo_id": slo_id, "correction_id": cid}, {})
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

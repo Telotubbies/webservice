@@ -36,4 +36,8 @@ def make_adapter(name: str, site: str, tags_config: dict,
             f"unknown adapter {name!r} (choices: {sorted(_REGISTRY)})")
     if name == "sim":
         return cls(site, tags_config.get("sim", {}).get("tags"), now=now)
-    return cls(site, tags_config.get(name, {}), now=now)
+    cfg = dict(tags_config.get(name, {}))
+    if name == "modbus":  # container -> Factory I/O on the Docker host: no yaml edit needed
+        cfg["host"] = os.getenv("MODBUS_HOST", cfg.get("host", "127.0.0.1"))
+        cfg["port"] = int(os.getenv("MODBUS_PORT", cfg.get("port", 502)))
+    return cls(site, cfg, now=now)

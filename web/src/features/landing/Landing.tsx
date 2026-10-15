@@ -1,8 +1,8 @@
-// Landing — Context Studio clone (hex.tech/product/context-studio).
-// Ticker marquee, centered-logo bordered nav, announcement pill, gradient
-// display headline + loop video, isometric workflow cards, capability
-// diagram, radial feature cards, observability dashboard, quote band,
-// 2x2 management grid, two-up testimonials, CTA, FAQ accordion, footer.
+// Landing — vissointan marketing page on the hex.tech homepage layout
+// (fall-2026 design). Maroon ticker, bordered nav with mega-menus, centered
+// hero with serif-italic line + pill chips, open-stack wall with hover cards,
+// alternating feature rows with real console screenshots, ethos pair,
+// testimonials, use cases, built-for grid, integrations, CTA, FAQ, footer.
 // Dual theme preserved: paper by day / ink by night (Thai clock).
 
 import { useEffect, useRef, useState } from 'react';
@@ -17,16 +17,16 @@ const I = {
   semanticModels: 'M13 1.00001C13.5523 1.00001 14 1.44773 14 2.00001L14 13C14 13.5523 13.5523 14 13 14L2 14C1.44771 14 0.999999 13.5523 0.999999 13L1 2C1 1.44772 1.44772 1 2 1L13 1.00001ZM2 13L5 13L5 2L2 2L2 13ZM6 13L13 13L13 8.00001L6 8L6 13ZM10.5 10C10.7761 10 11 10.2239 11 10.5C11 10.7761 10.7761 11 10.5 11L7.5 11C7.22386 11 7 10.7761 7 10.5C7 10.2239 7.22386 10 7.5 10L10.5 10ZM6 7L13 7.00001L13 2.00001L6 2L6 7ZM10.5 4.00001C10.7761 4.00001 11 4.22387 11 4.50001C11 4.77615 10.7761 5.00001 10.5 5.00001L7.5 5.00001C7.22386 5 7 4.77614 7 4.5C7 4.22386 7.22386 4.00001 7.5 4.00001L10.5 4.00001Z',
   notebook:
     'M13 7H2V12.5C2 12.7761 2.22386 13 2.5 13H12.5C12.7761 13 13 12.7761 13 12.5V7ZM13 2.5C13 2.22386 12.7761 2 12.5 2H2.5C2.22386 2 2 2.22386 2 2.5V6H13V2.5ZM14 12.5C14 13.3284 13.3284 14 12.5 14H2.5C1.67157 14 1 13.3284 1 12.5V2.5C1 1.67157 1.67157 1 2.5 1H12.5C13.3284 1 14 1.67157 14 2.5V12.5Z',
-  notebookFill: 'M2 13C2 13.5523 2.44772 14 3 14H12C12.5523 14 13 13.5523 13 13V6.5H8H2V13Z',
   threads:
     'M12 1C13.6569 1 15 2.34315 15 4V7C15 8.60511 13.7394 9.91579 12.1543 9.99609L12 10H11V11C11 12.6051 9.73945 13.9158 8.1543 13.9961L8 14H3L2.8457 13.9961C1.26055 13.9158 0 12.6051 0 11V8C0 6.34315 1.34315 5 3 5H4V4C4 2.34315 5.34315 1 7 1H12ZM3 6C1.89543 6 1 6.89543 1 8V11C1 12.1046 1.89543 13 3 13H8C9.10457 13 10 12.1046 10 11V10H7L6.8457 9.99609C5.26055 9.91579 4 8.60511 4 7V6H3ZM5 7C5 8.10457 5.89543 9 7 9H10V8C10 6.89543 9.10457 6 8 6H5V7ZM7 2C5.89543 2 5 2.89543 5 4V5H8C9.65685 5 11 6.34315 11 8V9H12C13.1046 9 14 8.10457 14 7V4C14 2.89543 13.1046 2 12 2H7Z',
   apps:
-    'M8 8H2V12.3846C2 12.682 2.318 13 2.61538 13H8V8ZM13 2.5C13 2.20262 12.682 2 12.3846 2H2.61538C2.318 2 2 2.318 2 2.61538V7H13V2.5ZM9 13H12.3846C12.682 13 13 12.682 13 12.3846V8H9V13ZM14 12.3846C14 13.2768 13.2768 14 12.3846 14H2.61538C1.72323 14 1 13.2768 1 12.3846V2.61538C1 1.72323 1.72323 1 2.61538 1H12.3846C13.2768 1 14 1.72323 14 2.61538V12.3846Z',
-  appsFill: 'M8.0006 8.00011V11.2309V13H12.5C12.8395 13 13.1148 12.736 13.1148 12.4103V8.00011H8.0006Z',
+    'M8 8H2V12.3846C2 12.682 2.318 13 2.61538 13H8V8ZM13 2.5C13 2.20262 12.682 2 12.3846 2H2.61538C2.318 2 2 2.318 2 2.61538V7H13V8ZM9 13H12.3846C12.682 13 13 12.682 13 12.3846V8H9V13ZM14 12.3846C14 13.2768 13.2768 14 12.3846 14H2.61538C1.72323 14 1 13.2768 1 12.3846V2.61538C1 1.72323 1.72323 1 2.61538 1H12.3846C13.2768 1 14 1.72323 14 2.61538V12.3846Z',
   cli: 'M14 13H5V12H14V13ZM6.53027 6.64648L2.17676 11L1.46973 10.293L5.11621 6.64648L1.46973 3L2.17676 2.29297L6.53027 6.64648Z',
   chevron: 'M4.50001 5.79289L7.50001 8.79289L10.5 5.79289L11.2071 6.5L7.50001 10.2071L3.79291 6.5L4.50001 5.79289Z',
   arrowR:
     'M6.14645 5.14645L5.79289 5.5L6.5 6.20711L6.85355 5.85355L6.14645 5.14645ZM8.5 3.5L8.85355 3.85355L9.20711 3.5L8.85355 3.14645L8.5 3.5ZM6.85355 1.14645L6.5 0.792893L5.79289 1.5L6.14645 1.85355L6.85355 1.14645ZM6.85355 5.85355L8.85355 3.85355L8.14645 3.14645L6.14645 5.14645L6.85355 5.85355ZM8.85355 3.14645L6.85355 1.14645L6.14645 1.85355L8.14645 3.85355L8.85355 3.14645ZM8.5 3H0V4H8.5V3Z',
+  arrowTR:
+    'M11.4986 3.49866L11.9992 3.49866L11.9985 2.99873L11.4986 2.99803L11.4986 3.49866ZM10.9979 3.49866L10.9972 9L11.9985 9L11.9992 3.49866L10.9979 3.49866ZM11.4986 2.99803L5.99941 2.99888V4.00014L11.4986 3.99929L11.4986 2.99803ZM11.145 3.14511L2.30618 11.9839L3.01328 12.691L11.8521 3.85221L11.145 3.14511Z',
 };
 
 function HxIcon({ d, size = 15, className = '' }: { d: string; size?: number; className?: string }) {
@@ -37,175 +37,253 @@ function HxIcon({ d, size = 15, className = '' }: { d: string; size?: number; cl
   );
 }
 
+/* red pixel-star sparkle that sits beside the hero h1 */
+function Sparkle() {
+  return (
+    <svg className="hx-sparkle" width="51" height="52" viewBox="0 0 51 52" fill="none" aria-hidden>
+      <path fill="currentColor" d="M51 52h-4v-4h4zm-4-4h-4v-4h4zm-4-4h-4v-4h4zm-4-4h-4v-4h4zm12-16v4H35v-4zm-35-8h-4v-4h4zm12 0h-4V0h4zm11 0h-4v-4h4zm-27-4H8V8h4zm31 0h-4V8h4zM8 8H4V4h4zm39 0h-4V4h4zM4 4H0V0h4zm47 0h-4V0h4z" />
+    </svg>
+  );
+}
+
 /* ---------- copy --------------------------------------------------------- */
 const TICKER = [
-  { e: '📊', b: 'AI analytics use case:', t: 'how LangChain migrated from legacy BI and enabled 100% of their team to self-serve data' },
-  { e: '🤯', b: 'Generative data apps:', t: 'Gorgeous, interactive dashboards and apps you can build with just a prompt' },
-  { e: '📖', b: 'State of Data Teams 2026', t: 'discover key findings from our survey of 800+ data leaders' },
-  { e: '🙏', b: "It's just \"Hex\"!", t: 'Not "HEX" or "Hex dot tech" — a note from our team' },
+  { e: '🏭', b: 'v6 console:', t: 'a Datadog-grade ops surface for the sorting line — overview, twin, alarms, SLOs' },
+  { e: '�', b: 'Assistant AI:', t: 'insights propose, operators approve — plug in a model with INFERENCE_URL' },
+  { e: '�', b: 'Modbus adapter:', t: 'point edge1 at a real PLC or Factory I/O — the simulator ships in the box' },
+  { e: '�', b: 'Zero-trust edge:', t: 'MQTT over TLS with per-identity dynsec ACLs' },
 ];
 
 const NAV_DROPS: { id: string; label: string; items: { t: string; d: string }[] }[] = [
   {
     id: 'platform', label: 'Platform',
     items: [
-      { t: 'Agentic notebooks', d: 'Powerful, deep-dive analysis with AI by your side' },
-      { t: 'Conversational analytics', d: 'Ask and explore with governed self-serve' },
-      { t: 'Context Studio', d: 'Build trusted context for every answer' },
-      { t: 'Data apps', d: 'Build and share interactive data apps' },
+      { t: 'Agentic notebooks', d: 'Powerful, deep-dive analysis without the silos' },
+      { t: 'Conversational analytics', d: 'Ask and explore data in plain language' },
+      { t: 'Context Studio', d: 'Build trust in data with semantic models and AI governance' },
+      { t: 'Data apps', d: 'Build and share interactive dashboards and reporting' },
       { t: 'Hex CLI', d: 'Control your analytics from the terminal' },
-      { t: 'Integrations', d: 'Out-of-the-box connections across your stack' },
     ],
   },
   {
     id: 'solutions', label: 'Solutions',
     items: [
-      { t: 'Data leader', d: 'Focus your team on the work that matters' },
-      { t: 'Product', d: 'Build your product on trusted data' },
-      { t: 'Marketing', d: 'Turn scattered spend into clear signal' },
-      { t: 'Sales', d: 'Clear pipeline. Confident forecasts' },
-      { t: 'Customer success', d: 'Proactive answers for every account' },
+      { t: 'Exploratory analysis', d: 'Go from quick question to deep analysis to data app in one place' },
+      { t: 'Business intelligence', d: 'Governed self-serve and dashboards for the entire org' },
+      { t: 'Embedded analytics', d: 'Ship secure, customer-facing data experiences' },
+      { t: 'Integrations', d: 'Out-of-the-box connections and flexible APIs' },
+      { t: 'AI & agents', d: 'Agentic workflows to empower your entire team' },
+      { t: 'Explore all solutions', d: 'One connected system — infinite data answers' },
     ],
   },
   {
     id: 'resources', label: 'Resources',
     items: [
+      { t: 'Switching to Hex', d: 'A guide to getting started on agentic analytics' },
+      { t: 'Templates', d: 'Jumpstart with pre-built projects' },
       { t: 'Docs', d: 'Resources and product guides' },
       { t: 'Changelog', d: 'Product updates' },
       { t: 'Blog', d: 'From data teams to data teams' },
       { t: 'Guides', d: 'Learn how to do more with data, together' },
       { t: 'Events', d: 'Learn and connect with peers' },
       { t: 'Customer stories', d: 'Empowering the best data teams' },
+      { t: 'Partners', d: 'Learn more about our partnerships' },
     ],
   },
 ];
 
-const WORKFLOWS = [
+/* trusted-by wall — real logo SVGs + per-logo hover stories */
+type Logo = { src: string; alt: string; story?: { q: string; by: string } };
+const LOGOS: Logo[] = [
+  { src: '/home/logo-reddit.svg', alt: 'Reddit' },
   {
-    id: 'unified-context', title: 'Unified context',
-    body: 'Activate logic from dbt, Git repos, and docs, then build on it in Hex or throughout your stack.',
-    img: '/cs/iso-unified.svg', tint: 'jade',
+    src: '/home/logo-notion.svg', alt: 'Notion',
+    story: { q: '“Our vision for Notion’s data team is that anyone, regardless of technical proficiency, is comfortable using data to answer their own questions — and Hex enables that.”', by: 'Aks Nemana, Data Scientist & Abhishek Modi, AI Software Engineer' },
+  },
+  { src: '/home/logo-sierra.svg', alt: 'Sierra' },
+  { src: '/home/logo-anthropic.svg', alt: 'Anthropic' },
+  { src: '/home/logo-lovable.svg', alt: 'Lovable' },
+  {
+    src: '/home/logo-ramp.svg', alt: 'Ramp',
+    story: { q: '“We like to embed Hex dashboards where teams work.”', by: 'Ian Macomber, Head of Data and Analytics Engineering' },
+  },
+  { src: '/home/logo-rivian.svg', alt: 'Rivian' },
+  {
+    src: '/home/logo-figma.svg', alt: 'Figma',
+    story: { q: '“With Hex’s Notebook Agent, I never have to build another chart again? What a dream come true.”', by: 'Rie McGiwer, AI Insights Researcher and Molly Jane Nicholas, Senior Researcher' },
+  },
+  { src: '/home/logo-brex.svg', alt: 'Brex' },
+  { src: '/home/logo-cursor.svg', alt: 'Cursor' },
+  { src: '/home/logo-aws.svg', alt: 'AWS' },
+  { src: '/home/logo-sedgwick.svg', alt: 'Sedgwick' },
+  {
+    src: '/home/logo-stubhub.svg', alt: 'StubHub',
+    story: { q: '“Hex has helped us empower business analysts to explore and dig into data on their own”', by: 'Meghana Reddy, Head of Data' },
   },
   {
-    id: 'observable-everywhere', title: 'Observable everywhere',
-    body: 'Track and audit any answer no matter where questions are asked: Hex, Slack, MCP, CLI.',
-    img: '/cs/iso-observe.svg', tint: 'citrine',
+    src: '/home/logo-mercor.svg', alt: 'Mercor',
+    story: { q: '“Hex’s Notebook Agent’s ability to build reports increases our operational speed — days into hours, which for our business, is millions of dollars.”', by: 'Dhaval Patel, Account Lead' },
+  },
+  { src: '/home/logo-thinking-machines.svg', alt: 'Thinking Machines' },
+  { src: '/home/logo-surge.svg', alt: 'Surge AI' },
+  {
+    src: '/home/logo-neo.svg', alt: 'Neo',
+    story: { q: '“Hex’s Slack integration unlocked silos of data, in governed ways, increasing trusted answers and insights.”', by: 'Brandon Rochon, VP of Data & Analytics and David Adair, Group Product Manager for Cards and Lending' },
   },
   {
-    id: 'improves-with-use', title: 'Improves with use',
-    body: 'Hex learns from every interaction, sharpening context and improving accuracy on the fly.',
-    img: '/cs/iso-audit.svg', tint: 'amethyst',
-  },
-];
-
-const CAPS = [
-  { icon: 'notebook', label: 'Notebook', pop: 'AI-powered assistance directly into your Hex projects. Write and edit code, ask questions, and get answers all in one place.' },
-  { icon: 'threads', label: 'Threads', pop: 'Ask natural language questions and get AI-powered insights based on semantic models and warehouse tables' },
-  { icon: 'semanticModels', label: 'Workbench', pop: 'Write and edit semantic resources using natural language. Describe the model you want and let the agent generate or update it.' },
-  { icon: 'apps', label: 'Apps', pop: 'Build and share interactive data apps powered by governed context' },
-  { icon: 'cli', label: 'CLI', pop: 'Manage context, review suggestions, and run evals from the terminal' },
-] as const;
-
-const UC_CARDS = [
-  {
-    h: 'Activate existing logic',
-    p: 'Markdown, code, table metadata. Hex ingests and understands it for trusted answers without exhaustive modeling.',
-    link: 'Explore context management', img: '/cs/illustration-guides.png',
-  },
-  {
-    h: 'Build from anywhere',
-    p: 'Layer in new logic in Hex, dbt, or your warehouse. Hex keeps it synced and versioned, without locking you into one tool.',
-    link: 'Explore semantic models', img: '/cs/illustration-workbench.png',
-  },
-];
-
-const IWU_CARDS = [
-  {
-    h: 'Fixes find you',
-    p: 'The Review Agent analyzes interactions for you to find context gaps and suggest fixes.',
-    img: '/cs/illustration-ui-suggestions.png',
-  },
-  {
-    h: 'Every change, evaluated',
-    p: 'Improve context with evidence, not instinct. Test changes with evals, ship what passes and catch what breaks.',
-    img: '/cs/illustration-ui-eval-detail.png',
-  },
-  {
-    h: 'Your work is context',
-    p: 'The logic and queries behind every published app are reusable context for future questions.',
-    img: '/cs/illustration-ui-work-is-context.png',
+    src: '/home/logo-chime.svg', alt: 'Chime',
+    story: { q: '“Hex’s Context Studio and Evals give us the visibility needed to manage our context at scale.”', by: 'Jordan Farrer, Director of Data Science & Analytics' },
   },
 ];
 
-const MGR_CARDS = [
+/* the agent-logo stack beside "Ask a question" */
+const AGENT_LOGOS = [
+  '/home/icon-chatgpt.svg', '/home/icon-claude.svg', '/home/icon-slack.svg',
+  '/home/icon-cli.svg', '/home/icon-mcp.svg',
+];
+
+/* alternating feature rows */
+type FeatureRow = {
+  id: string; icon: string; title: string; cta: string;
+  quote: string; who: string; logo?: string;
+  img: string; imgAlt: string; flip?: boolean;
+};
+const ROWS: FeatureRow[] = [
   {
-    h: 'Pull knowledge from your tools',
-    p: 'Connect Notion, Linear, or any MCP server to bring tickets, wikis, and more into Hex, so answers capture what your team knows.',
-    img: '/cs/illustration-pull-knowledge.png',
+    id: 'ask', icon: 'threads',
+    title: 'Ask a question, get a trusted answer',
+    cta: 'Explore self-serve insights',
+    quote: '“The ability to use Hex in any way we choose is valuable because now we can connect into Hex via my favorite dev tools.”',
+    who: 'Nithin Bose', logo: '/home/logo-langchain.svg',
+    img: '/home/mock-cluster.png', imgAlt: 'Chat with the Hex Agent notebook, plus Claude, Slack and CLI cards',
   },
   {
-    h: 'Manage context from the terminal',
-    p: 'Use the Hex CLI to version context from Git, pull agent suggestions into PRs, and run evals before shipping changes.',
-    img: '/cs/illustration-hex-cli-suggestions.png',
+    id: 'context', icon: 'semanticModels', flip: true,
+    title: 'Ground every answer in your organization’s context',
+    cta: 'Explore the Context Engine',
+    quote: '“It’s something I check every day — seeing context gaps and suggested improvements surfaced automatically provides a practical way for us to bring trusted AI self-service to the business.”',
+    who: 'Craig W.', logo: '/cs/zoe-logo.svg',
+    img: '/home/orbit.png', imgAlt: 'Compounding context cycle — build apps and ask questions, auto-detect gaps, sharpen the context',
   },
   {
-    h: 'Bring your semantic models',
-    p: 'Sync semantic models from dbt MetricFlow, Cube, or Snowflake. Definitions stay versioned in your stack while Hex stays in sync.',
-    img: '/cs/illustration-open-standards.png',
+    id: 'apps', icon: 'apps',
+    title: 'Share insights with generative dashboards and data apps',
+    cta: 'Explore AI app building',
+    quote: '“With Hex’s Notebook Agent, I never have to build another chart again? What a dream come true.”',
+    who: 'Molly Jane Nicholas', logo: '/home/logo-figma.svg',
+    img: '', imgAlt: '',
   },
   {
-    h: 'Model only what you need',
-    p: 'Go off-road in the Hex notebook for flexible exploration, without turning every one-off idea into permanent logic.',
-    img: '/cs/illustration-notebook.png',
+    id: 'evals', icon: 'cli', flip: true,
+    title: 'See what people are asking, and whether the answers are right',
+    cta: 'Explore the Context Studio',
+    quote: '“We have so many people and products that our context is never stagnant. Even when we launch a new data domain for the first time, it’s already stale the next day. Hex’s Context Studio gives us the visibility needed to manage our context at scale.”',
+    who: 'Jordan Farrer', logo: '/home/logo-chime.svg',
+    img: '/home/evals.png', imgAlt: 'Context Studio observability dashboard with an Evals run window',
   },
+];
+
+/* ethos pair */
+const ETHOS = [
+  {
+    tag: 'Flexible by design', tagCls: 'gold',
+    img: '/home/ethos-token-spend.png',
+    h: 'Work with any data, any AI model, and any context, so you aren’t locked in',
+    body: 'Your AI bill is getting big — but you don’t know who is spending how much on what things, and whether they’re actually valuable.',
+    lead: 'Hex helps you get control of this:',
+    list: [
+      'Model choice, including open source models',
+      'Thread-level observability into token spend, so you can see who is spending what on which projects',
+      'Eval sweeps that let you dial in the price / quality frontier across models',
+    ],
+    cta: 'Explore how Hex keeps you flexible',
+  },
+  {
+    tag: 'Control without compromise', tagCls: 'blue',
+    img: '/home/ethos-trust.png',
+    h: 'Secure your data, with enterprise-grade permissions and trust',
+    body: 'Hex is built so organizations can open up access without giving up control.',
+    body2: 'Bring AI and data work onto a platform backed by enterprise-grade security, governance, organization controls, and visibility into how your data is being used.',
+    body3: 'The infrastructure stays rigorous so the people using it don’t have to think about it.',
+    cta: 'Explore Trust Center',
+  },
+];
+
+const TESTIS = [
+  {
+    logo: '/home/logo-mercor.svg', alt: 'Mercor',
+    q: '“If we didn’t have Hex, we might’ve left more than $100M on the table. That might even be an underestimate.”',
+    who: 'Dhaval P.', role: 'Account Lead',
+  },
+  {
+    logo: '/home/logo-algolia.svg', alt: 'Algolia',
+    q: '“AI can do almost everything for you in Hex. I use it to scaffold entire apps and help me debug SQL queries. It makes me 10x faster.”',
+    who: 'Tom C.', role: 'Principal Engineer',
+  },
+];
+
+const USE_CASES = [
+  {
+    t: 'Migrate from traditional BI to modern AI-powered self-serve',
+    d: 'Move beyond static dashboards and give teams trusted, AI-powered access to the data they need while keeping your data team in control of the foundation.',
+    ic: 'sparkle',
+  },
+  {
+    t: 'Build a Context Layer for AI on data',
+    d: 'Bring business logic, definitions, models, and institutional knowledge together so agents can reason from shared, trusted context and improve as that context grows.',
+    ic: 'layers',
+  },
+  {
+    t: 'Make chat apps work with data',
+    d: 'Let teams work from Claude, Codex, Cursor, or wherever they’re most productive while Hex provides a consistent layer of trusted data and organizational context underneath.',
+    ic: 'chat',
+  },
+];
+
+const STORIES = [
+  { logo: '/home/logo-notion.svg', alt: 'Notion', h: 'One place for insights', p: 'Notion made Hex the one place for everyone, from data science to CX and sales, to make decisions with data.' },
+  { logo: '/home/logo-mercor.svg', alt: 'Mercor', h: 'Scaling self-serve AI analytics', p: 'Mercor democratizes analysis across their org with Notebook Agent.' },
+  { logo: '/home/logo-figma.svg', alt: 'Figma', h: 'Lowering barriers to insight', p: 'Figma’s team focuses on strategy over syntax using Hex’s AI agents.' },
+  { logo: '/home/logo-neo.svg', alt: 'Neo', h: 'Breaking data silos', p: 'Neo drives insights right where they work using Threads and Slack integration.' },
+];
+
+const INTS = [
+  { img: '/home/int-warehouse.png', alt: 'Built for the warehouse — Snowflake, BigQuery, Databricks connections' },
+  { img: '/home/int-dbt.png', alt: 'dbt metadata, docs, & metrics' },
+  { img: '/home/int-oauth.png', alt: 'Connect to your warehouse with oAuth' },
+  { img: '/home/int-git.png', alt: 'Git it together — export to GitHub or GitLab' },
+  { img: '/home/int-orch.png', alt: 'Orchestration — Airflow, Dagster, Prefect' },
+  { img: '/home/int-api.png', alt: 'Hex API' },
 ];
 
 const FAQS = [
   {
-    q: 'What can I actually use as context? Can I connect existing sources?',
-    a: "Almost anything you already have, and you don't have to set it all up first. Context in Hex layers in over time instead of arriving as one big modeling project. Start with what exists, add more as you go:",
-    li: [
-      'Table metadata: column names, types, and descriptions the agent reads to understand your schema without you modeling every dimension first.',
-      'Endorsed tables: mark certain tables as the canonical, trusted source, and the agent prefers them when several tables could answer a question.',
-      'Reference repositories: connect a Git repo so the agent can read your code to clarify things like metric logic and table structures.',
-      "Connected apps via MCP: pull context from Notion, Linear, and any MCP server, so answers reflect what's in your tickets, docs, and planning notes, not just your data.",
-      'Guides: markdown files about your data and business. A workspace context file is read in every conversation, while a guide library holds topic-specific files the agent pulls in only when relevant.',
-      'Semantic models: governed metric and dimension definitions, synced from dbt MetricFlow, Cube, or Snowflake — or built directly in Hex.',
-      'Published work: apps, notebooks, and dashboards your team has already built feed the agent real, proven logic.',
-    ],
+    q: 'What is Hex?',
+    a: 'Hex is the AI Analytics Platform where trust meets insight: a single, connected workspace where data practitioners run deep analysis, business users ask questions in plain language, and everyone collaborates on the same data. A shared context engine ensures every AI-generated insight is accurate and consistent.',
   },
   {
-    q: 'Do I have to build my context in Hex? Or can it be synced in?',
-    a: 'No, you can build and manage context inside or outside of Hex. Where you centralize your source of truth is up to you. Context is intentionally set up to let you move it between Hex and wherever else you manage it:',
-    li: [
-      'Guides can live as .md files in a repo and sync to Hex automatically with a GitHub Action, so the repo stays the source of truth.',
-      'Sync in semantic models from dbt MetricFlow, Cube, or Snowflake Semantic Views, and the definitions stay versioned in your stack.',
-      "You can author guides and semantic models directly in Hex too. Either way, your context stays portable, so you're never locked in and never rebuilding logic if your stack changes.",
-    ],
+    q: 'Who uses Hex?',
+    a: 'Hex allows anyone to get answers from data with AI. Whether you’re a member of the data team running code-based experiments or a business user looking to self-serve a one-off question, Hex provides tailored AI-workflows for you to find answers from data, faster.',
   },
   {
-    q: 'How does Hex decide which context to use? Can I see what Hex used as context?',
-    a: "The Hex agent is built to pull the right context when it's relevant, whether that's markdown, code, yaml, metadata, or anything else. It uses indicators like the descriptions of guides and repos to judge relevance.",
-    li2: "For every interaction, you can audit the agent's reasoning and the context it used from Context Studio. If the agent is unsure or missing something, it raises a warning. Admins and Managers can review individual conversations, common topics, warnings, and see which context sources shaped a response.",
+    q: 'Why do data teams switch to Hex?',
+    a: 'Data teams switch to Hex because it gives them one connected, AI-native workspace for everything they do with data. Deep analysis, one-off questions, and critical business dashboards all happen on the same trusted context. Instead of juggling separate notebooks, BI tools, and ad-hoc Slack requests, Hex brings data work & AI together in one place.',
   },
   {
-    q: 'Do I need to build semantic models for accurate and consistent answers?',
-    a: 'Not necessarily. Semantic models are one way to give the agent context around specific metrics or definitions, but they are inherently rigid and time intensive to maintain. In Hex, build them where a shared, locked definition matters, and skip them where a guide or an endorsed table is sufficient guidance for the agent to answer a question.',
-    li: [
-      "Where models earn their keep: a metric like ARR that has to be calculated the same way every time, everywhere it's asked.",
-      "Where they don't: nuances about your business, like when your fiscal year starts or what a specific product term means inside your company. No need to build that into a model when it can be captured quickly in a markdown doc.",
-      'If you do choose to build semantic models, you can sync them from dbt MetricFlow, Cube, or Snowflake, or build them directly in Hex.',
-    ],
+    q: 'Can business users access data without knowing SQL or Python?',
+    a: 'Yes. Hex lets anyone ask questions in plain language in Hex, Slack, or via MCP and get AI-generated analysis backed by your actual data, metrics, and business rules. No SQL, no Python, no ticket to the data team. And when a question needs deeper investigation, a data practitioner can jump directly into the same workflow without switching context.',
   },
   {
-    q: 'How much work is it to maintain context as our business changes?',
-    a: "Context drifts as your business evolves, definitions change, and new domains emerge. Hex's Context Engine is intentionally built to catch and fix these gaps for you instead of manually sifting through every conversation to maintain yourself.",
-    li: [
-      'The Review Agent watches real interactions and flags where context is missing or thin, so you\u2019re not auditing every answer yourself.',
-      'Repeated warnings roll into concrete suggestions, so high-impact improvements come to you already scoped.',
-      'Your published work compounds: every app and dashboard published feeds the agent, so a lot of context accrues as a byproduct of normal work, not as separate upkeep.',
-    ],
-    li2: 'The system gets sharper the more your team uses it. Every question asked and answer published makes the next answer better, so accuracy compounds over time instead of decaying. You stay in control of what changes; the agent just makes sure the work keeps building.',
+    q: 'How does Hex ensure AI answers are accurate and trustworthy?',
+    a: 'Hex’s context engine combines database descriptions, semantic models, business rules, and analytical logic into one curated layer that powers every AI answer. Data teams can observe what’s being asked, catch inconsistencies, and continuously improve context over time. The result: business users get answers they can act on, and data teams maintain visibility and control over every insight.',
+  },
+  {
+    q: 'How is Hex different from just using ChatGPT, Claude, Codex, or any other AI assistant?',
+    a: 'ChatGPT, Claude, Codex, and other AI assistants can generate answers. Hex helps teams build more trustworthy, repeatable AI-powered analysis by grounding it in the organization’s data, business context, and definitions. Context Studio makes it easier to inspect and improve that context, while built-in evals let teams test changes before production and measure their impact on agent accuracy.',
+  },
+  {
+    q: 'How is Hex different than point solution analytics tools?',
+    a: 'Hex enables you to bring all your business’s critical data context into one workspace. Solution-specific analytics platforms exacerbate tool sprawl and siloed workflows between teams, while creating governance gaps leading to poor decisions and thrash.',
   },
 ];
 
@@ -262,6 +340,31 @@ function NavDrop({ menu, open, onOpen, onClose }: {
   );
 }
 
+/** bordered link-button used inside feature rows */
+function LinkBox({ children }: { children: React.ReactNode }) {
+  return (
+    <a href="#enter" className="cs-linkbox" onClick={(e) => e.preventDefault()}>
+      {children}
+    </a>
+  );
+}
+
+/** inline quote under a feature row — hollow-circle quote mark + text + byline */
+function RowQuote({ q, who, logo }: { q: string; who: string; logo?: string }) {
+  return (
+    <figure className="cs-rquote">
+      <i className="cs-rquote-mark" aria-hidden>
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M6.5 4C4.5 4.6 3 6.4 3 8.7V11h4V7.5H4.9c0-1.2.7-2.1 1.9-2.6L6.5 4Zm6 0c-2 .6-3.5 2.4-3.5 4.7V11h4V7.5h-2.1c0-1.2.7-2.1 1.9-2.6L12.5 4Z" fill="currentColor" /></svg>
+      </i>
+      <blockquote>{q}</blockquote>
+      <figcaption>
+        <b>{who}</b>
+        {logo && <img src={logo} alt="" className="cs-rquote-logo" />}
+      </figcaption>
+    </figure>
+  );
+}
+
 /** theme by the Thai clock — paper 06:00–18:00 ICT, ink at night */
 function thaiNight(): boolean {
   const h = Number(new Intl.DateTimeFormat('en-GB', {
@@ -290,6 +393,17 @@ export function Landing() {
   const [dark, setDark] = useState(thaiNight);
   useEffect(() => {
     const id = window.setInterval(() => setDark(thaiNight()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  /* footer clock (ICT) — the homepage's segment display */
+  const [clock, setClock] = useState('');
+  useEffect(() => {
+    const f = () => setClock(new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).format(new Date()));
+    f();
+    const id = window.setInterval(f, 1000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -393,49 +507,40 @@ export function Landing() {
         </div>
       )}
 
-      {/* ---------- hero ---------- */}
-      <header className="cs-hero">
-        <div className="cs-hero-dots" aria-hidden />
-        <div className="cs-hero-grid">
-          <div className="cs-hero-copy">
-            <a href="#" className="cs-pill" onClick={(e) => e.preventDefault()} data-reveal>
-              <span className="cs-pill-inner">
-                <i className="cs-pill-icon"><HxIcon d={I.semanticModels} size={15} /></i>
-                Context Studio
-              </span>
-              <span className="cs-pill-link">Read the announcement<HxIcon d={I.arrowR} size={10} /></span>
-            </a>
-            <h1 className="cs-h1" data-reveal>
-              Accuracy that improves<br />
-              <em>with every answer</em>
-            </h1>
-            <p className="cs-hero-sub" data-reveal>
-              Skip the months-long modeling project. Hex’s{' '}
-              <span className="cs-chip"><i className="cs-chip-i"><HxIcon d={I.semanticModels} size={11} /></i>Context Studio</span>{' '}
-              activates the logic you already have and learns from every{' '}
-              <span className="cs-chip"><i className="cs-chip-i"><HxIcon d={I.threads} size={11} /></i>answer</span>.
-            </p>
-            <div className="cs-hero-cta" data-reveal>
-              <HxLink href="#enter" variant="lg">Request a demo</HxLink>
-              <HxLink href="#purpose" variant="ghost" className="cs-btn-lg">Learn more</HxLink>
-            </div>
-          </div>
-          <div className="cs-hero-media" data-reveal>
-            <div className="cs-video-wrap">
-              <video className="cs-video" autoPlay muted loop playsInline
-                preload="auto" poster="/cs/hero-poster.jpg"
-                src="/cs/hero-video.mp4" />
-              <span className="cs-play" aria-hidden>
-                <svg height="17" viewBox="0 0 15 17" width="15">
-                  <path d="M12.7007 7.50366C13.5359 7.9859 13.5887 9.14654 12.8579 9.71362L12.7007 9.81909L2.84131 15.5115C1.95038 16.0254 0.837402 15.3819 0.837402 14.3533L0.837402 2.96948C0.837402 2.00499 1.81587 1.37891 2.67236 1.72827L2.84131 1.81128L12.7007 7.50366Z" fill="currentColor" />
-                </svg>
-              </span>
-            </div>
+      {/* ---------- hero — centered, cartesian paper grid ---------- */}
+      <header className="hx-hero">
+        <div className="hx-hero-bg" aria-hidden>
+          <div className="hx-hero-grid-bg" />
+          <div className="hx-hero-fade" />
+        </div>
+        <div className="hx-hero-inner">
+          <h1 className="hx-h1" data-reveal>
+            <Sparkle />
+            The Analytics platform<br />
+            <em>for humans and agents</em>
+          </h1>
+          <p className="hx-hero-sub" data-reveal>
+            Rethinking{' '}
+            <a href="#" className="hx-chip" onClick={(e) => e.preventDefault()}>
+              <i className="hx-chip-spot c-teal"><HxIcon d={I.notebook} size={12} /></i>BI
+            </a>{' '}
+            <a href="#" className="hx-chip" onClick={(e) => e.preventDefault()}>
+              <i className="hx-chip-spot c-rose"><HxIcon d={I.threads} size={12} /></i>Conversational analytics
+            </a>{' '}
+            and{' '}
+            <a href="#" className="hx-chip" onClick={(e) => e.preventDefault()}>
+              <i className="hx-chip-spot c-blue"><HxIcon d={I.semanticModels} size={12} /></i>Context management
+            </a>{' '}
+            for the agentic era.
+          </p>
+          <div className="hx-hero-cta" data-reveal>
+            <HxLink href="#enter">Get started for free</HxLink>
+            <HxLink href="#enter" variant="ghost">Request a demo</HxLink>
           </div>
         </div>
       </header>
 
-      {/* ---------- trusted-by strip — bracketed label, logo grid ---------- */}
+      {/* ---------- trusted-by wall ---------- */}
       <section className="cs-trust cs-marks" data-reveal>
         <i className="m-tl" aria-hidden /><i className="m-tr" aria-hidden />
         <i className="m-bl" aria-hidden /><i className="m-br" aria-hidden />
@@ -444,146 +549,88 @@ export function Landing() {
           Trusted by leading data companies
           <i className="cs-cap cs-cap-r" aria-hidden />
         </p>
-        <div className="cs-trust-row">
-          <img src="/cs/logo-notion.svg" alt="Notion" />
-          <img src="/cs/logo-wb.svg" alt="Weights &amp; Biases" />
-          <img src="/cs/zoe-logo.svg" alt="Zoe" />
-          <span className="cs-trust-wm">LangChain</span>
-          <span className="cs-trust-wm">Ramp</span>
-          <span className="cs-trust-wm">dbt Labs</span>
-        </div>
-      </section>
-
-      {/* ---------- purpose-built / workflow cards ---------- */}
-      <section className="cs-sec" id="purpose">
-        <h2 className="cs-h2" data-reveal>The fastest way to sharpen agents on your data</h2>
-        <div className="cs-wf">
-          <div className="cs-wf-hrule" aria-hidden><i /><i className="cs-plus" /><i /></div>
-          <div className="cs-wf-grid">
-            {WORKFLOWS.map((w) => (
-              <a key={w.id} href={`#${w.id}`} className={`cs-wf-card cs-tint-${w.tint}`} data-reveal>
-                <div className="cs-wf-art">
-                  <div className="cs-wf-noise" aria-hidden />
-                  <img src={w.img} alt="" loading="lazy" />
+        <div className="hx-logo-wall">
+          {LOGOS.map((l) => (
+            <div key={l.alt} className={`hx-logo-cell${l.story ? ' has-story' : ''}`}>
+              {l.story && <i className="hx-story-dot" aria-hidden />}
+              <img src={l.src} alt={l.alt} loading="lazy" />
+              {l.story && (
+                <div className="hx-story" role="tooltip">
+                  <p>{l.story.q}</p>
+                  <span className="mono">{l.story.by}</span>
                 </div>
-                <div className="cs-wf-cap">
-                  <h3>{w.title}</h3>
-                  <p>{w.body}</p>
-                </div>
-              </a>
-            ))}
-          </div>
-          {/* capability diagram — dashed box, mono chip, icon row */}
-          <div className="cs-caps" data-reveal>
-            <div className="cs-caps-chip mono">Improve agent accuracy</div>
-            <div className="cs-caps-line" aria-hidden />
-            <div className="cs-caps-row">
-              {CAPS.map((cp) => (
-                <div key={cp.label} className="cs-cap">
-                  <div className="cs-cap-pop">{cp.pop}</div>
-                  <HxIcon d={I[cp.icon as keyof typeof I]} size={15} />
-                  <span className="mono">{cp.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ---------- unified context ---------- */}
-      <section className="cs-sec" id="unified-context">
-        <h2 className="cs-h2" data-reveal>Unified context</h2>
-        <p className="cs-sub2" data-reveal>
-          Hex turns definitions and logic into trusted business context for agents
-          to reason from, wherever they’re working.
-        </p>
-        <div className="cs-duo">
-          {UC_CARDS.map((c) => (
-            <div key={c.h} className="cs-bigcard" data-reveal>
-              <div className="cs-bigcard-txt">
-                <h3>{c.h}</h3>
-                <p>{c.p}</p>
-                <a href="#" onClick={(e) => e.preventDefault()} className="cs-linkbox">{c.link}</a>
-              </div>
-              <img src={c.img} alt="" loading="lazy" />
+              )}
             </div>
           ))}
         </div>
       </section>
 
-      {/* ---------- observable everywhere ---------- */}
-      <section className="cs-sec" id="observable-everywhere">
-        <h2 className="cs-h2" data-reveal>Observable everywhere</h2>
+      {/* ---------- a different approach ---------- */}
+      <section className="cs-sec hx-approach" id="approach">
+        <img src="/home/connector.svg" className="hx-connector" alt="" aria-hidden />
+        <div className="hx-float hx-f1" aria-hidden><img src="/home/icon-claude.svg" alt="" /></div>
+        <div className="hx-float hx-f2" aria-hidden><img src="/home/icon-slack.svg" alt="" /></div>
+        <div className="hx-float hx-f3" aria-hidden><img src="/home/icon-chatgpt.svg" alt="" /></div>
+        <div className="hx-float hx-f4 mono" aria-hidden>?</div>
+        <h2 className="cs-h2" data-reveal>A different approach to Analytics and BI</h2>
         <p className="cs-sub2" data-reveal>
-          Questions get asked everywhere: Slack, Claude, Cursor. Hex gives you
-          visibility into every answer, and a way to keep improving it.
+          BI tools, chat apps, and vibe-coding only give you inconsistent answers
+          and poor user experience. Hex is built with a full suite of tools to
+          unlock your team’s curiosity while maintaining trust and governance.
         </p>
-        <div className="cs-obs" data-reveal>
-          <div className="cs-obs-call cs-obs-l">
-            <i aria-hidden />
-            <h4>Trends surfaced automatically</h4>
-            <p>Track agent adoption across all of Hex surfaces. See question domains that are growing, trending, or newly emerging with Topics.</p>
-          </div>
-          <div className="cs-obs-dash">
-            <img src="/cs/obs-dashboard.png" alt="Agent observability dashboard" loading="lazy" />
-          </div>
-          <div className="cs-obs-call cs-obs-r">
-            <i aria-hidden />
-            <h4>The agent suggests improvements</h4>
-            <p>Warnings surface agent confusion, missing context, or user doubt. The Review Agent tells you exactly what to fix.</p>
-          </div>
-        </div>
       </section>
 
-      {/* ---------- improves with use ---------- */}
-      <section className="cs-sec" id="improves-with-use">
-        <h2 className="cs-h2" data-reveal>Improves with use</h2>
-        <p className="cs-sub2" data-reveal>
-          Hex learns from every question asked and every answer published, so
-          you’re always ahead of drift — without the maintenance treadmill.
-        </p>
-        <div className="cs-trio">
-          {IWU_CARDS.map((c) => (
-            <div key={c.h} className="cs-iwucard" data-reveal>
-              <div className="cs-iwu-art"><img src={c.img} alt="" loading="lazy" /></div>
+      {/* ---------- feature rows ---------- */}
+      <section className="hx-rows">
+        {ROWS.map((r) => (
+          <div key={r.id} className={`hx-row${r.flip ? ' is-flip' : ''}`} data-reveal>
+            <div className="hx-row-copy">
+              <i className="hx-row-icon" aria-hidden>
+                <HxIcon d={I[r.icon as keyof typeof I]} size={26} />
+              </i>
+              {r.id === 'ask' && (
+                <div className="hx-agent-stack" aria-hidden>
+                  {AGENT_LOGOS.map((s) => <img key={s} src={s} alt="" />)}
+                </div>
+              )}
+              <h3>{r.title}</h3>
+              <LinkBox>{r.cta}</LinkBox>
+              <RowQuote q={r.quote} who={r.who} logo={r.logo} />
+            </div>
+            <div className="hx-row-art">
+              {r.id === 'apps' ? (
+                <div className="hx-appcards">
+                  <img src="/home/card-market.png" alt="Market explorer app" loading="lazy" />
+                  <img src="/home/card-revenue.png" alt="NexaCorp revenue report app" loading="lazy" />
+                  <img src="/home/card-pricing.png" alt="Pricing forecast app" loading="lazy" />
+                  <img src="/home/card-nexacorp.png" alt="Priority-account board app" loading="lazy" />
+                </div>
+              ) : (
+                <img src={r.img} alt={r.imgAlt} loading="lazy" />
+              )}
+            </div>
+          </div>
+        ))}
+      </section>
+
+      {/* ---------- ethos pair ---------- */}
+      <section className="cs-sec hx-ethos" id="ethos">
+        <div className="hx-ethos-grid">
+          {ETHOS.map((c) => (
+            <div key={c.tag} className="hx-ethos-card" data-reveal>
+              <span className={`hx-tag mono hx-tag-${c.tagCls}`}>{c.tag}</span>
+              <div className="hx-ethos-art"><img src={c.img} alt="" loading="lazy" /></div>
               <h3>{c.h}</h3>
-              <p>{c.p}</p>
-              <a href="#" onClick={(e) => e.preventDefault()} className="cs-linkbox">Learn more</a>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ---------- full-width quote ---------- */}
-      <blockquote className="cs-quote" data-reveal>
-        <div className="cs-quote-side">
-          <img src="/cs/zoe-logo.svg" alt="Zoe" className="cs-quote-logo" />
-          <b>Craig W.</b>
-          <span className="mono">Staff Data Engineer, Zoe</span>
-        </div>
-        <p className="cs-quote-text">
-          “Context Studio gives us the confidence to roll out agents on our data.
-          It’s something I check every day — <b>seeing context gaps and suggested
-          improvements surfaced automatically</b> provides a practical way for us
-          to bring trusted AI self-service to the business.”
-        </p>
-      </blockquote>
-
-      {/* ---------- build and manage ---------- */}
-      <section className="cs-sec" id="manage">
-        <h2 className="cs-h2" data-reveal>Build and manage context on your terms</h2>
-        <p className="cs-sub2" data-reveal>
-          Context curation in Hex is intentionally flexible, so it can adapt to
-          the way your team already works — not the other way around.
-        </p>
-        <div className="cs-quad">
-          {MGR_CARDS.map((c) => (
-            <div key={c.h} className="cs-mgrcard" data-reveal>
-              <div className="cs-mgr-txt">
-                <h3>{c.h}</h3>
-                <p>{c.p}</p>
-              </div>
-              <div className="cs-mgr-art"><img src={c.img} alt="" loading="lazy" /></div>
+              <p>{c.body}</p>
+              {'lead' in c && c.lead && <p>{c.lead}</p>}
+              {'list' in c && c.list && (
+                <ul>
+                  {c.list.map((li) => <li key={li}>{li}</li>)}
+                </ul>
+              )}
+              {'body2' in c && c.body2 && <p>{c.body2}</p>}
+              {'body3' in c && c.body3 && <p>{c.body3}</p>}
+              <LinkBox>{c.cta}</LinkBox>
             </div>
           ))}
         </div>
@@ -591,38 +638,122 @@ export function Landing() {
 
       {/* ---------- two-up testimonials ---------- */}
       <section className="cs-testi" data-reveal>
-        <div className="cs-testi-cell">
-          <img src="/cs/logo-notion.svg" alt="" className="cs-testi-logo" />
-          <p>“Development and deployment is so speedy. <b>Seeing my semantic model changes immediately rendered in Hex was a joy.</b>”</p>
-          <div><b>Peter R.</b><span className="mono">Data Engineer at Notion</span></div>
-        </div>
-        <div className="cs-testi-cell">
-          <img src="/cs/logo-wb.svg" alt="Weights & Biases" className="cs-testi-logo" />
-          <p>“Hex made setting up a connection to MetricFlow a breeze! <b>The intuitive click-and-drag UI empowers our stakeholders to perform self-serve analysis.</b>”</p>
-          <div><b>Mercedes W.</b><span className="mono">Data Scientist at Weights &amp; Biases</span></div>
+        {TESTIS.map((t) => (
+          <div key={t.alt} className="cs-testi-cell">
+            <img src={t.logo} alt={t.alt} className="cs-testi-logo" />
+            <p>{t.q}</p>
+            <div><b>{t.who}</b><span className="mono">{t.role}</span></div>
+          </div>
+        ))}
+      </section>
+
+      {/* ---------- use cases ---------- */}
+      <section className="cs-sec hx-uc" id="use-cases">
+        <div className="hx-uc-inner" data-reveal>
+          <div className="hx-uc-head">
+            <h2 className="hx-uc-h2"><span>Use cases</span><em>Get the most out of Hex</em></h2>
+          </div>
+          <div className="hx-uc-rows">
+          {USE_CASES.map((u) => (
+            <a key={u.t} href="#" className="hx-uc-row" onClick={(e) => e.preventDefault()}>
+              <i className={`hx-uc-ic hx-ic-${u.ic}`} aria-hidden>
+                {u.ic === 'sparkle' && <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 1l1.8 5.2L17 4.5l-3.4 4.5L18 11l-5.4 1 2 5.5-4.6-3.6L6 17.5l1.4-5.5L2 10l5.4-.8L10 1z" fill="currentColor" opacity=".9" /></svg>}
+                {u.ic === 'layers' && <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2l8 4-8 4-8-4 8-4zM3 10.5l7 3.5 7-3.5M3 14l7 3.5L17 14" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>}
+                {u.ic === 'chat' && <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 4h14v10H9l-4 3.5V14H3V4z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><circle cx="7" cy="9" r="1" fill="currentColor" /><circle cx="10.5" cy="9" r="1" fill="currentColor" /><circle cx="14" cy="9" r="1" fill="currentColor" /></svg>}
+              </i>
+              <div className="hx-uc-txt">
+                <h3>{u.t}</h3>
+                <p>{u.d}</p>
+              </div>
+              <HxIcon d={I.arrowTR} size={15} className="hx-uc-arrow" />
+            </a>
+          ))}
+          </div>
         </div>
       </section>
 
-      {/* ---------- CTA ---------- */}
-      <section className="cs-cta" id="enter">
-        <div className="cs-cta-box" data-reveal>
-          <h2 className="cs-h2">Bring speed &amp; trust together in Hex</h2>
-          <p className="cs-sub2">Get in touch with us to see a demo or find out which plan is right for you.</p>
-          <HxLink href="#enter" variant="lg">Contact Sales</HxLink>
-          {/* working sign-in — the landing doubles as the token wall */}
-          <form className="cs-token"
-            onSubmit={(e) => { e.preventDefault(); void enter(); }}>
-            <input
-              value={token}
-              onChange={(e) => { setToken(e.target.value); setFailed(false); }}
-              placeholder={cfg?.dev_tokens ? 'demo-operator · demo-viewer' : 'Access token'}
-              aria-label="Access token" autoComplete="off" spellCheck={false}
-            />
-            <HxBtn type="submit" disabled={!token.trim() || busy}>
-              {busy ? 'Signing in…' : 'Enter'}
-            </HxBtn>
-          </form>
-          {failed && <p className="cs-token-err" role="alert">That token didn’t work — check it and try again.</p>}
+      {/* ---------- loved by ---------- */}
+      <section className="cs-sec hx-loved" id="customers">
+        <h2 className="cs-h2" data-reveal>
+          <em>Loved</em> by the<br />best data teams
+        </h2>
+        <p className="cs-sub2" data-reveal>Hex helps companies of all sizes do more with their data.</p>
+        <div className="hx-loved-frame cs-marks" data-reveal>
+          <i className="m-tl" aria-hidden /><i className="m-tr" aria-hidden />
+          <i className="m-bl" aria-hidden /><i className="m-br" aria-hidden />
+          <div className="hx-stories">
+            {STORIES.map((s) => (
+              <a key={s.alt} href="#" className="hx-story-col" onClick={(e) => e.preventDefault()}>
+                <img src={s.logo} alt={s.alt} className="hx-story-logo" />
+                <h4>{s.h}</h4>
+                <p>{s.p}</p>
+                <span className="hx-readmore">Read more<HxIcon d={I.arrowR} size={10} /></span>
+              </a>
+            ))}
+          </div>
+          <div className="hx-loved-foot">
+            <div className="hx-g2">
+              <h3>Users love Hex</h3>
+              <img src="/home/g2-awards.svg" alt="Three G2 badges received by Hex for High Performer, Best Support, and Momentum Leader" loading="lazy" />
+              <p>Rated on G2 as an industry leader based on customer reviews. <a href="#" onClick={(e) => e.preventDefault()}>Check them out<HxIcon d={I.arrowR} size={10} /></a></p>
+            </div>
+            <blockquote className="hx-nquote">
+              <img src="/home/logo-notion.svg" alt="Notion" className="hx-nquote-logo" />
+              <svg className="hx-nquote-mark" width="60" height="40" viewBox="0 0 60 40" fill="none" aria-hidden><text x="0" y="38" fontSize="52" fill="currentColor" fontFamily="Georgia,serif">”</text></svg>
+              <p>“Our vision for Notion’s data team is that anyone, regardless of technical proficiency, is comfortable using data to answer their own questions — and Hex enables that.”</p>
+              <footer>
+                <img src="/home/headshot-abhishek.jpg" alt="" className="hx-nquote-face" />
+                <div><b>Abhishek Modi</b><span className="mono">Software Engineer at Notion</span></div>
+              </footer>
+            </blockquote>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- integrations ---------- */}
+      <section className="cs-sec hx-int" id="integrations">
+        <h2 className="cs-h2" data-reveal>
+          <em>Instant integration</em><br />with the whole stack
+        </h2>
+        <p className="cs-sub2" data-reveal>Out-of-the-box connections and flexible APIs make setup a breeze.</p>
+        <div className="hx-int-grid">
+          {INTS.map((c) => (
+            <a key={c.img} href="#" className="hx-int-card" onClick={(e) => e.preventDefault()} data-reveal>
+              <img src={c.img} alt={c.alt} loading="lazy" />
+            </a>
+          ))}
+        </div>
+      </section>
+
+      {/* ---------- getting started + token wall ---------- */}
+      <section className="hx-start" id="enter">
+        <div className="hx-start-row" data-reveal>
+          <div className="hx-start-l">
+            <h3>Getting started is easy.</h3>
+            <p>Connect Hex to your data warehouse and do more with it immediately.</p>
+            <div className="hx-start-btns">
+              <HxLink href="#enter">Get started for free</HxLink>
+              <HxLink href="#enter" variant="ghost">Talk to us</HxLink>
+            </div>
+            {/* working sign-in — the landing doubles as the token wall */}
+            <form className="cs-token"
+              onSubmit={(e) => { e.preventDefault(); void enter(); }}>
+              <input
+                value={token}
+                onChange={(e) => { setToken(e.target.value); setFailed(false); }}
+                placeholder={cfg?.dev_tokens ? 'demo-operator · demo-viewer' : 'Access token'}
+                aria-label="Access token" autoComplete="off" spellCheck={false}
+              />
+              <HxBtn type="submit" disabled={!token.trim() || busy}>
+                {busy ? 'Signing in…' : 'Enter'}
+              </HxBtn>
+            </form>
+            {failed && <p className="cs-token-err" role="alert">That token didn’t work — check it and try again.</p>}
+          </div>
+          <div className="hx-start-r">
+            <p>Check out all of our plans to fit your team or organization.</p>
+            <HxLink href="#" variant="ghost" onClick={(e) => e.preventDefault()}>See our plans</HxLink>
+          </div>
         </div>
       </section>
 
@@ -642,8 +773,6 @@ export function Landing() {
               {faq === i && (
                 <div className="cs-faq-a">
                   <p>{f.a}</p>
-                  {f.li && <ul>{f.li.map((l) => <li key={l}>{l}</li>)}</ul>}
-                  {f.li2 && <p>{f.li2}</p>}
                 </div>
               )}
             </div>
@@ -656,8 +785,9 @@ export function Landing() {
       <footer className="cs-foot">
         <div className="cs-foot-inner">
           <div className="cs-foot-brand">
-            <span className="cs-logo">HEX</span>
+            <span className="cs-logo">HEX<sup>®</sup></span>
             <span className="cs-foot-made mono">Made with 💜 on 🌎</span>
+            <span className="hx-clock mono" aria-label="Bangkok time">{clock} ICT</span>
           </div>
           {FOOT_COLS.map((c) => (
             <div key={c.h} className="cs-foot-col">

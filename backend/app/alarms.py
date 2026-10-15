@@ -7,6 +7,9 @@ Safety invariants (tests/INVARIANTS.md):
          it can neither "resolve" a critical alarm nor raise a new one.
 Rule kinds: hi/hihi (v > threshold), lo/lolo (v < threshold) with deadband on
 clear; stale (no fresh good sample for stale_s) evaluated by a periodic sweep.
+Trend kinds (window_s lookback over tag_history, `threshold` is the trip level):
+roc (|change| over the window), anomaly (z-score vs the window baseline),
+forecast (linear fit projected window_s ahead). They clear at threshold-deadband.
 One open (active|acked) alarm per rule is enforced by a partial unique index.
 """
 
@@ -15,6 +18,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -42,6 +47,44 @@ class Rule:
     stale_s: int | None
     deadband: float
     severity: str
+    window_s: int | None = None
+
+
+TREND_KINDS = ("roc", "anomaly", "forecast")
+TREND_MIN_SAMPLES = 8       # a baseline of fewer points says nothing
+TREND_EVAL_EVERY_S = 5.0    # per-rule throttle: one history read per 5 s, not per sample
+TREND_MAX_ROWS = 5000
+
+
+def trend_score(kind: str, samples: list[tuple[float, float]], now_t: float,
+                window_s: int) -> float | None:
+    """samples = [(t_seconds, v)] oldest->newest, the newest being the live
+    sample. Returns the quantity compared against `threshold`, or None when
+    the window is too thin / degenerate to judge (never trips on no data)."""
+    if len(samples) < TREND_MIN_SAMPLES:
+        return None
+    t0, v0 = samples[0]
+    t1, v1 = samples[-1]
+    if kind == "roc":
+        return abs(v1 - v0)
+    ys = [v for _, v in samples]
+    if kind == "anomaly":
+        base = ys[:-1]
+        mean = sum(base) / len(base)
+        sd = math.sqrt(sum((y - mean) ** 2 for y in base) / len(base))
+        if sd < 1e-9:
+            return None  # flat baseline: any wobble would be infinite sigma
+        return abs(v1 - mean) / sd
+    if kind == "forecast":
+        xs = [t - now_t for t, _ in samples]
+        mx = sum(xs) / len(xs)
+        my = sum(ys) / len(ys)
+        sxx = sum((x - mx) ** 2 for x in xs)
+        if sxx < 1e-9:
+            return None
+        slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
+        return my + slope * (window_s - mx)  # value at now + window_s
+    return None
 
 
 def triggered(rule: Rule, v: float) -> bool:
@@ -50,6 +93,14 @@ def triggered(rule: Rule, v: float) -> bool:
     if rule.kind in ("lo", "lolo"):
         return v < rule.threshold
     return False
+
+
+def trend_triggered(rule: Rule, score: float) -> bool:
+    return score > rule.threshold
+
+
+def trend_cleared(rule: Rule, score: float) -> bool:
+    return score <= rule.threshold - rule.deadband
 
 
 def cleared(rule: Rule, v: float) -> bool:
@@ -79,9 +130,10 @@ class AlarmEngine:
         self.ws = ws
         self.registry = registry
         self._rules: dict[UUID, list[Rule]] = {}
+        self._trend_at: dict[UUID, float] = {}  # rule id -> monotonic of last eval
         # v4 T8 — engine counters, exported by /metrics + /api/system/health
         self.counters = {"alarms_raised": 0, "alarms_cleared": 0,
-                         "alarms_acked": 0}
+                         "alarms_acked": 0, "alarms_muted": 0}
 
     async def load_rules(self) -> None:
         """Every org's enabled rules (v4 T9): the system role enumerates live
@@ -91,7 +143,7 @@ class AlarmEngine:
             async with tenant_tx(self.pools.system, org_id) as tc:
                 rows = await tc.fetch(
                     "SELECT id, tag_id, name, kind, threshold, stale_s,"
-                    " deadband, severity FROM alarm_rules WHERE enabled")
+                    " deadband, severity, window_s FROM alarm_rules WHERE enabled")
             for r in rows:
                 by_tag.setdefault(r["tag_id"], []).append(
                     Rule(org_id=org_id, **dict(r)))
@@ -115,10 +167,37 @@ class AlarmEngine:
                 continue
             if not numeric:
                 continue
+            if rule.kind in TREND_KINDS:
+                await self._evaluate_trend(tc, rule, float(v), ts, open_row)
+                continue
             if open_row is None and triggered(rule, float(v)):
                 await self._raise(tc, rule, ts)
             elif open_row is not None and cleared(rule, float(v)):
                 await self._clear(tc, open_row["id"], rule)
+
+    async def _evaluate_trend(self, tc: TenantConn, rule: Rule, v: float,
+                              ts: datetime, open_row) -> None:
+        now_m = time.monotonic()
+        if now_m - self._trend_at.get(rule.id, -1e9) < TREND_EVAL_EVERY_S:
+            return
+        self._trend_at[rule.id] = now_m
+        rows = await tc.fetch(
+            "SELECT extract(epoch FROM ts) AS t, v FROM tag_history WHERE tag_id=$1"
+            " AND q='good' AND ts > $2 AND ts < $3 ORDER BY ts DESC LIMIT $4",
+            rule.tag_id, ts - timedelta(seconds=rule.window_s), ts, TREND_MAX_ROWS)
+        samples = []
+        for r in reversed(rows):
+            x = r["v"]
+            if isinstance(x, (int, float)) and not isinstance(x, bool):
+                samples.append((float(r["t"]), float(x)))
+        samples.append((ts.timestamp(), v))
+        score = trend_score(rule.kind, samples, ts.timestamp(), rule.window_s)
+        if score is None:
+            return
+        if open_row is None and trend_triggered(rule, score):
+            await self._raise(tc, rule, ts)
+        elif open_row is not None and trend_cleared(rule, score):
+            await self._clear(tc, open_row["id"], rule)
 
     async def sweep_stale(self) -> None:
         """Raise `stale` rules whose tag has no fresh good sample within
@@ -143,7 +222,19 @@ class AlarmEngine:
                     if not exists:
                         await self._raise(tc, rule, now)
 
+    async def _muted(self, tc: TenantConn, rule: Rule, ts: datetime) -> bool:
+        """A maintenance window covers this rule (or every rule) at `ts`; a
+        recurring one repeats weekly from starts_at."""
+        return bool(await tc.fetchval(
+            "SELECT 1 FROM downtimes WHERE (rule_id IS NULL OR rule_id=$1) AND ("
+            "($2 >= starts_at AND $2 < ends_at) OR (recurring AND $2 >= starts_at"
+            " AND mod(extract(epoch FROM $2 - starts_at), 604800)"
+            "     < extract(epoch FROM ends_at - starts_at))) LIMIT 1", rule.id, ts))
+
     async def _raise(self, tc: TenantConn, rule: Rule, ts: datetime) -> None:
+        if await self._muted(tc, rule, ts):
+            self.counters["alarms_muted"] += 1
+            return
         try:
             async with tc.conn.transaction():  # savepoint: losing the race is fine
                 aid = await tc.fetchval(

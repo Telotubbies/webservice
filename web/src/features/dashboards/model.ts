@@ -2,7 +2,11 @@
 // localStorage is the offline cache; custom boards sync to the org's backend
 // store (see useDashboards) so they are shared across machines.
 
-export type VizKind = 'timeseries' | 'value' | 'toplist' | 'alarms' | 'note';
+export type VizKind =
+  | 'timeseries' | 'stat' | 'value' | 'gauge' | 'bargauge'
+  | 'stateline' | 'histogram' | 'table'
+  | 'toplist' | 'pie' | 'alarms' | 'note'
+  | 'change' | 'slo' | 'monitors';
 export type Agg = 'last' | 'avg' | 'min' | 'max';
 export type RangeKey = '15m' | '1h' | '4h' | '24h';
 export const RANGE_MIN: Record<RangeKey, number> = { '15m': 15, '1h': 60, '4h': 240, '24h': 1440 };
@@ -47,7 +51,12 @@ export interface Dashboard {
 export const newId = () => crypto.randomUUID(); // dashboards use it as the server row id
 
 export function makeWidget(kind: VizKind, over: Partial<Widget> = {}): Widget {
-  const size: Record<VizKind, [number, number]> = { timeseries: [6, 3], value: [3, 2], toplist: [4, 3], alarms: [6, 3], note: [3, 2] };
+  const size: Record<VizKind, [number, number]> = {
+    timeseries: [6, 3], stat: [3, 2], value: [3, 2], gauge: [4, 3], bargauge: [6, 2],
+    stateline: [6, 2], histogram: [4, 3], table: [6, 3],
+    toplist: [4, 3], pie: [4, 3], alarms: [6, 3], note: [3, 2],
+    change: [3, 2], slo: [4, 2], monitors: [4, 2],
+  };
   return {
     // y is set by the caller (bottom of the board); not Infinity — JSON turns it into null
     id: newId(), kind, title: '', x: 0, y: 0, w: size[kind][0], h: size[kind][1],

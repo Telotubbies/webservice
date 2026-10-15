@@ -86,6 +86,18 @@ async def invite_tx(pool: asyncpg.Pool, token_hash: str) -> AsyncIterator[asyncp
 
 
 @asynccontextmanager
+async def key_tx(pool: asyncpg.Pool, key_hash: str) -> AsyncIterator[asyncpg.Connection]:
+    """Transaction that may read exactly the api_keys row matching `key_hash`.
+    The caller sets app.user_id once it knows whose key it is."""
+    if not (isinstance(key_hash, str) and len(key_hash) == 64):
+        raise ValueError("key_hash must be a sha256 hex digest")
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT set_config('app.key_hash', $1, true)", key_hash)
+            yield conn
+
+
+@asynccontextmanager
 async def global_tx(pool: asyncpg.Pool) -> AsyncIterator[asyncpg.Connection]:
     """No tenant context: only global tables (users, revoked_sessions) and the
     wds_system pre-context lookups are visible. Tenant tables return 0 rows."""
