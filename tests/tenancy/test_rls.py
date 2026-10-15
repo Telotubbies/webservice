@@ -23,7 +23,7 @@ def test_no_context_no_rows(two_orgs):
         conn = await asyncpg.connect(APP_DSN)
         try:
             for t in ("organizations", "sites", "edges", "tags", "commands",
-                      "insights", "audit_log"):
+                      "insights", "audit_log", "dashboards"):
                 assert await conn.fetchval(f"SELECT count(*) FROM {t}") == 0, t
             with pytest.raises(asyncpg.InsufficientPrivilegeError):  # RLS WITH CHECK
                 await conn.execute("INSERT INTO organizations(id, name) VALUES ($1,'x')",

@@ -908,6 +908,41 @@ async def tag_history(
     return [{"v": finite_or_none(r["v"]), "q": r["q"], "ts": iso_z(r["ts"])} for r in rows]
 
 
+@app.get("/api/tags/{name:path}/availability")
+async def tag_availability(
+    name: str,
+    request: Request,
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = Query(None),
+    p: Principal = Depends(require_principal),
+):
+    """Share of samples with quality 'good' in the window (SLO SLI).
+    Only as deep as tag_history retention (HISTORY_MAX_AGE_S)."""
+    tag = st(request).registry.by_v1_name(name)
+    try:
+        t_from = parse_ts(from_) if from_ else None
+        t_to = parse_ts(to) if to else utcnow()
+    except ValueError:
+        raise HTTPException(400, "invalid_request") from None
+    out = {"name": name, "from": iso_z(t_from) if t_from else None, "to": iso_z(t_to),
+           "samples": 0, "good_frac": None, "uptime": None, "down_s": None}
+    if tag is None:
+        return out
+    async with v1_tx(request) as tc:
+        row = await tc.fetchrow(
+            "SELECT count(*) AS n, count(*) FILTER (WHERE q='good') AS good,"
+            " min(ts) AS first FROM tag_history WHERE tag_id=$1"
+            " AND ($2::timestamptz IS NULL OR ts >= $2) AND ts <= $3",
+            tag.id, t_from, t_to)
+    if row["n"]:
+        frac = row["good"] / row["n"]
+        # window actually covered: retention may be shorter than the request
+        start = max(t_from, row["first"]) if t_from else row["first"]
+        out.update(samples=row["n"], good_frac=frac, uptime=frac,
+                   down_s=round((1 - frac) * (t_to - start).total_seconds(), 1))
+    return out
+
+
 async def _mutation_gate(request: Request, uid: UUID) -> None:
     """Per-user write budget (v4 T4): mutations other than POST /api/commands,
     which carries its own stricter per-tag bucket in CommandManager.issue."""
@@ -1731,6 +1766,105 @@ async def v2_delete_alarm_rule(org: str, site: str, rule_id: str,
                            {"name": cur["name"]})
         await tc.execute("SELECT pg_notify($1, $2)",
                          RULES_NOTIFY_CHANNEL, str(org_id))
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Dashboards — saved boards (FR-26). Any member reads shared boards + their own;
+# operators+ create; the author or an admin/owner edits and deletes.
+# ---------------------------------------------------------------------------
+DASH_BODY_MAX = 256_000  # bytes of JSON; a board is tens of widgets
+
+
+class DashboardIn(BaseModel):
+    id: UUID | None = None  # client-minted so the editor can create offline-first
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    shared: bool = True
+    body: dict = Field(default_factory=dict)
+
+    @field_validator("body")
+    @classmethod
+    def _bounded(cls, v: dict) -> dict:
+        if len(json.dumps(v)) > DASH_BODY_MAX:
+            raise ValueError("body too large")
+        return v
+
+
+_DASH_COLS = "id, author_id, title, description, shared, body, updated_at"
+
+
+def _dash_json(r, me: UUID) -> dict:
+    body = r["body"] if isinstance(r["body"], dict) else json.loads(r["body"])
+    return {"id": str(r["id"]), "title": r["title"], "description": r["description"],
+            "shared": r["shared"], "mine": r["author_id"] == me, "body": body,
+            "updated_at": iso_z(r["updated_at"])}
+
+
+@app.get("/api/v1/orgs/{org}/dashboards")
+async def v2_list_dashboards(org: str, request: Request,
+                             p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        rows = await tc.fetch(
+            f"SELECT {_DASH_COLS} FROM dashboards"
+            " WHERE shared OR author_id=$1 ORDER BY updated_at DESC", p.user_id)
+    return {"dashboards": [_dash_json(r, p.user_id) for r in rows]}
+
+
+@app.post("/api/v1/orgs/{org}/dashboards", status_code=201)
+async def v2_create_dashboard(org: str, body: DashboardIn, request: Request,
+                              p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        row = await tc.fetchrow(
+            "INSERT INTO dashboards(id, org_id, author_id, title, description, shared, body)"
+            f" VALUES (COALESCE($7, gen_random_uuid()),$1,$2,$3,$4,$5,$6::jsonb) RETURNING {_DASH_COLS}",
+            org_id, p.user_id, body.title, body.description, body.shared,
+            json.dumps(body.body), body.id)
+        await audit.append(tc, f"user:{p.user_id}", "dashboard.created",
+                           {"dashboard_id": str(row["id"])}, {"title": body.title})
+    return {"dashboard": _dash_json(row, p.user_id)}
+
+
+async def _dash_writable(tc, org: str, dash_id: str, p: Principal, org_id: UUID):
+    row = await tc.fetchrow(
+        f"SELECT {_DASH_COLS} FROM dashboards WHERE id=$1 AND (shared OR author_id=$2)",
+        _uuid_or_404(dash_id, "dashboard"), p.user_id)
+    if row is None:
+        raise HTTPException(404, "dashboard not found")
+    if row["author_id"] != p.user_id and _effective_org_roles(p)[org_id] not in CONFIG_ROLES:
+        raise ForbiddenError("only the author or an admin can change this dashboard")
+    return row
+
+
+@app.put("/api/v1/orgs/{org}/dashboards/{dash_id}")
+async def v2_update_dashboard(org: str, dash_id: str, body: DashboardIn,
+                              request: Request, p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        cur = await _dash_writable(tc, org, dash_id, p, org_id)
+        row = await tc.fetchrow(
+            "UPDATE dashboards SET title=$2, description=$3, shared=$4, body=$5::jsonb,"
+            f" updated_at=now() WHERE id=$1 RETURNING {_DASH_COLS}",
+            cur["id"], body.title, body.description, body.shared, json.dumps(body.body))
+        await audit.append(tc, f"user:{p.user_id}", "dashboard.updated",
+                           {"dashboard_id": str(cur["id"])}, {"title": body.title})
+    return {"dashboard": _dash_json(row, p.user_id)}
+
+
+@app.delete("/api/v1/orgs/{org}/dashboards/{dash_id}", status_code=204)
+async def v2_delete_dashboard(org: str, dash_id: str, request: Request,
+                              p: Principal = Depends(require_user)):
+    org_id = _v2_org(org, p, need=_OPERATE)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        cur = await _dash_writable(tc, org, dash_id, p, org_id)
+        await tc.execute("DELETE FROM dashboards WHERE id=$1", cur["id"])
+        await audit.append(tc, f"user:{p.user_id}", "dashboard.deleted",
+                           {"dashboard_id": str(cur["id"])}, {"title": cur["title"]})
     return Response(status_code=204)
 
 
