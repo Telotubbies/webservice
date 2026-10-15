@@ -1,5 +1,10 @@
 @import "tailwindcss";
 @import "./dd-theme.css";
+/* weights main.tsx doesn't load: 500 (.btn, font-medium) and Thai 500/700
+   (font-bold rail/brand) — without them the browser fakes or drops weight */
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans-thai/500.css";
+@import "@fontsource/ibm-plex-sans-thai/700.css";
 
 body {
   margin: 0;
@@ -8,6 +13,8 @@ body {
   font-family: var(--font-sans);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
+  /* tabular figures everywhere: live values must not jitter as digits change */
+  font-variant-numeric: tabular-nums;
 }
 
 #root {
@@ -21,29 +28,58 @@ body {
   height: 28px; padding: 0 12px; border-radius: 4px;
   font-size: 13px; font-weight: 500; border: 1px solid transparent;
   background: var(--color-blue); color: #fff; cursor: pointer;
+  white-space: nowrap; /* a wrapped Thai label would overflow the fixed 28px height */
 }
-.btn:hover { background: #005aa5; }
+.btn:hover { background: var(--color-blue-hover); }
+.btn:focus-visible { outline-offset: 2px; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn-sm { height: 24px; padding: 0 8px; font-size: 12px; border-radius: 3px; }
-.btn-ghost { background: transparent; color: var(--color-ink); border-color: #c8cdd5; }
+.btn-ghost { background: transparent; color: var(--color-ink); border-color: var(--color-control-line); }
 .btn-ghost:hover { border-color: var(--color-blue); color: var(--color-blue); background: transparent; }
-.btn-danger { background: #d24f57; }
-.btn-danger:hover { background: #b83d44; }
+.btn-danger { background: var(--color-danger-bright); }
+.btn-danger:hover { background: var(--color-danger); }
+.btn:disabled:hover { background: var(--color-blue); }
+.btn-ghost:disabled:hover { background: transparent; border-color: var(--color-control-line); color: var(--color-ink); }
+.btn-danger:disabled:hover { background: var(--color-danger-bright); }
+/* icon-only square button — always pair with aria-label */
+.btn-icon { width: 28px; padding: 0; justify-content: center; }
+.btn-sm.btn-icon { width: 24px; }
 
 /* Inputs */
 /* in the components layer so padding utilities (e.g. pl-7 for a leading icon) win */
 @layer components {
   .input {
     height: 28px; padding: 0 8px; border-radius: 4px;
-    border: 1px solid #c8cdd5; background: #fff; color: var(--color-ink);
+    border: 1px solid var(--color-control-line); background: var(--color-paper); color: var(--color-ink);
     font-size: 13px; min-width: 0;
   }
+  .input::placeholder { color: var(--color-ink-46); }
+  .input:disabled { background: var(--color-subtle); color: var(--color-ink-46); cursor: not-allowed; }
+  .input[aria-invalid='true'] { border-color: var(--color-danger); }
+
+  /* small section/column label — 11px caps in Latin; Thai has no case and
+     letter-spacing pulls its stacked vowels/tone marks apart, so :lang(th)
+     drops both and bumps a pixel for legibility */
+  .overline {
+    font-size: 11px; font-weight: 600; line-height: 1.3; color: var(--color-ink-68);
+    text-transform: uppercase; letter-spacing: .06em;
+  }
+  :lang(th) .overline { text-transform: none; letter-spacing: 0; font-size: 12px; }
 }
-.input:focus { outline: 2px solid rgba(0,107,194,.35); border-color: var(--color-blue); }
+.input:focus { outline: 2px solid color-mix(in srgb, var(--color-blue) 35%, transparent); border-color: var(--color-blue); }
 :focus-visible { outline: 2px solid var(--color-blue); outline-offset: 1px; }
+/* dark chrome (rail, topbar, flyouts, drawer): the blue ring is 2.5:1 on
+   #292e39 — swap to a light ring so keyboard focus stays visible */
+.chrome :focus-visible { outline-color: var(--color-focus-dark); }
+/* the palette input is the only control in its row and always focused —
+   the row itself is the focus indicator */
+.palette-input:focus-visible { outline: none; }
 .input.num { font-family: var(--font-mono); }
 .field { display: flex; flex-direction: column; gap: 4px; }
-.field-label { font-size: 11px; font-weight: 600; color: #5d6670; text-transform: uppercase; letter-spacing: .04em; }
+.field-label { font-size: 11px; font-weight: 600; color: var(--color-ink-muted); text-transform: uppercase; letter-spacing: .04em; }
+:lang(th) .field-label { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.field-error { font-size: 12px; color: var(--color-danger); }
+.field-hint { font-size: 12px; color: var(--color-ink-46); }
 
 /* Severity / state / quality — colour + label, never colour alone */
 .sev, .alarm-state, .state, .qmark {
@@ -51,59 +87,100 @@ body {
   height: 20px; padding: 0 8px; border-radius: 4px;
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-.sev-critical, .alarm-state.is-active { background: #fdecec; color: #b83d44; }
-.sev-warning, .alarm-state.is-acked  { background: #fff4e0; color: #b5740a; }
-.sev-info, .alarm-state.is-cleared   { background: #eef1f4; color: #5d6670; }
+.sev-critical, .alarm-state.is-active { background: var(--color-danger-soft); color: var(--color-danger); }
+.sev-warning, .alarm-state.is-acked  { background: var(--color-caution-soft); color: var(--color-caution-ink); }
+.sev-info, .alarm-state.is-cleared   { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
 .sev-critical::before { content: '▲'; font-size: 9px; }
 .sev-warning::before  { content: '◆'; font-size: 9px; }
 .sev-info::before     { content: '●'; font-size: 9px; }
-.state-running { background: #e6f5ee; color: #1c9a67; }
-.state-stopped { background: #eef1f4; color: #5d6670; }
-.state-stale   { background: #fff4e0; color: #b5740a; }
-.state-unknown { background: #eef1f4; color: #828ba4; }
+.state-running { background: var(--color-ok-soft); color: var(--color-ok-ink); }
+.state-stopped { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
+.state-stale   { background: var(--color-caution-soft); color: var(--color-caution-ink); }
+.state-unknown { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
 .qmark { border-radius: 3px; border: 1px dashed currentColor; background: transparent; }
-.qmark[data-q='bad'] { color: #b83d44; }
-.qmark[data-q='uncertain'] { color: #b5740a; }
-.qmark[data-q='stale'] { color: #828ba4; }
+.qmark[data-q='bad'] { color: var(--color-danger); }
+.qmark[data-q='uncertain'] { color: var(--color-caution-ink); }
+.qmark[data-q='stale'] { color: var(--color-ink-muted); }
+
+/* Demo / simulated data — honest labelling (design §7). Blue + dashed, never
+   amber/red: simulated is not abnormal (ISA-101 keeps those for alarms). */
+.demo-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 18px; padding: 0 6px; border-radius: 3px;
+  border: 1px dashed currentColor; color: var(--color-blue-hover);
+  font-size: 11px; font-weight: 600; white-space: nowrap; line-height: 1;
+}
+
+/* Freshness — "updated 4 s ago" that turns into a stale mark when old */
+.freshness { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-ink-46); white-space: nowrap; }
 
 /* Feedback blocks */
 .empty, .error-state {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; padding: 40px 20px; text-align: center; color: #5d6670; font-size: 13px;
+  gap: 8px; padding: 40px 20px; text-align: center; color: var(--color-ink-muted); font-size: 13px;
 }
-.error-state { color: #b83d44; }
+.empty > svg { color: var(--color-ink-35); }
+.empty h3, .error-state h3 { font-size: 14px; font-weight: 600; color: var(--color-ink); margin: 0; }
+.empty p, .error-state p { max-width: 52ch; margin: 0; line-height: 1.5; }
+/* error copy stays readable ink; the icon carries the abnormal colour */
+.error-state > svg { color: var(--color-danger); }
+.empty.is-compact, .error-state.is-compact { padding: 16px 12px; }
 .notice {
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-  border-radius: 4px; background: #e8f1fb; color: #005aa5; font-size: 12.5px;
+  display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px;
+  border-radius: 4px; background: var(--color-blue-soft); color: var(--color-blue-hover); font-size: 12.5px;
+  line-height: 1.45;
 }
-.notice-warn { background: #fff4e0; color: #b5740a; }
-.notice-error { background: #fdecec; color: #b83d44; }
+.notice > svg { flex-shrink: 0; margin-top: 1px; }
+.notice > div { min-width: 0; flex: 1; }
+.notice-warn { background: var(--color-caution-soft); color: var(--color-caution-ink); }
+.notice-error { background: var(--color-danger-soft); color: var(--color-danger); }
+.notice-ok { background: var(--color-ok-soft); color: var(--color-ok-ink); }
+.notice-demo { background: var(--color-blue-soft); color: var(--color-blue-hover); outline: 1px dashed color-mix(in srgb, var(--color-blue) 45%, transparent); outline-offset: -1px; }
+.notice-neutral { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
 .skeleton {
   display: inline-block; border-radius: 4px;
-  background: linear-gradient(90deg, #eef1f4 25%, #e2e6eb 50%, #eef1f4 75%);
+  background: linear-gradient(90deg, var(--color-neutral-soft) 25%, var(--color-skeleton-hi) 50%, var(--color-neutral-soft) 75%);
   background-size: 200% 100%; animation: skel 1.4s infinite;
 }
 @keyframes skel { to { background-position: -200% 0; } }
+.skeleton-stack { display: grid; gap: 10px; }
+.skeleton-panel {
+  display: grid; gap: 12px; padding: 12px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-paper);
+}
+
+/* Page body — standard content padding under the pagebar */
+.page-body { display: flex; flex-direction: column; gap: 16px; padding: 16px; min-width: 0; }
+@media (max-width: 767px) { .page-body { padding: 12px; gap: 12px; } }
+
+/* Skip link — first Tab stop; jumps keyboard users past the rail */
+.skip-link {
+  position: fixed; left: 8px; top: -40px; z-index: 200;
+  padding: 6px 12px; border-radius: 4px; background: var(--color-paper); color: var(--color-blue);
+  font-weight: 600; box-shadow: var(--shadow-pop);
+}
+.skip-link:focus { top: 6px; }
 
 /* Sidebar group flyout — dd nav mega-menu enter animation */
 @keyframes flyout-in {
-  from { opacity: 0; transform: translateX(-6px) scale(0.98); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; clip-path: inset(0 100% 0 0); }
+  to   { opacity: 1; clip-path: inset(0 -20px -20px 0); }
 }
-.flyout-in { animation: flyout-in 0.14s ease-out; transform-origin: left top; }
+.flyout-in { animation: flyout-in 0.16s ease-out; }
 
 /* Segmented control */
-.seg { display: inline-flex; border: 1px solid #c8cdd5; border-radius: 4px; overflow: hidden; }
+.seg { display: inline-flex; border: 1px solid var(--color-control-line); border-radius: 4px; overflow: hidden; }
 .seg button {
-  height: 26px; padding: 0 10px; font-size: 12px; background: #fff; color: #5d6670;
-  border: none; border-right: 1px solid #e2e5ed; cursor: pointer;
+  height: 26px; padding: 0 10px; font-size: 12px; background: var(--color-paper); color: var(--color-ink-muted);
+  border: none; border-right: 1px solid var(--color-line); cursor: pointer; white-space: nowrap;
 }
 .seg button:last-child { border-right: 0; }
+.seg button:hover:not([data-active='true']) { background: var(--color-subtle); color: var(--color-ink); }
 .seg button[data-active='true'] { background: var(--color-blue); color: #fff; }
 
 /* Dialog */
-.dialog { border: 1px solid #e2e5ed; border-radius: 8px; padding: 0; width: min(440px, 92vw); box-shadow: 0 8px 32px rgba(23,25,31,.18); }
-.dialog::backdrop { background: rgba(23,25,31,.45); }
+.dialog { border: 1px solid var(--color-line); border-radius: var(--radius-panel); padding: 0; width: min(440px, 92vw); box-shadow: var(--shadow-flyout); }
+.dialog::backdrop { background: rgb(23 25 31 / .45); }
 .dialog-head { display: flex; gap: 10px; align-items: center; padding: 16px 16px 0; }
 .dialog-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 16px; }
@@ -111,15 +188,47 @@ body {
 /* Sparkline */
 .spark { width: 100%; height: 40px; display: block; }
 .spark-line { fill: none; stroke: var(--color-blue); stroke-width: 1.5; }
-.spark-fill { fill: rgba(0,107,194,.08); stroke: none; }
-.spark-limit { stroke: #d24f57; stroke-width: 1; stroke-dasharray: 4 3; }
+.spark-fill { fill: color-mix(in srgb, var(--color-blue) 8%, transparent); stroke: none; }
+.spark-limit { stroke: var(--color-danger-bright); stroke-width: 1; stroke-dasharray: 4 3; }
 
-/* Live dot in topbar */
-.livedot { width: 8px; height: 8px; border-radius: 50%; }
-.livedot[data-ws='open'] { background: #1c9a67; }
-.livedot[data-ws='connecting'], .livedot[data-ws='reconnecting'] { background: #f99d02; }
-.livedot[data-ws='closed'], .livedot[data-ws='auth_expired'] { background: #d24f57; }
+/* Live dot in topbar — shape changes with state, not only colour (ISA-101):
+   ● live · ◆ reconnecting · ▲ offline/expired */
+.livedot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.livedot[data-ws='open'] { background: var(--color-ok); }
+.livedot[data-ws='connecting'], .livedot[data-ws='reconnecting'] {
+  background: var(--color-warn); border-radius: 1px; transform: rotate(45deg) scale(.85);
+}
+.livedot[data-ws='closed'], .livedot[data-ws='auth_expired'] {
+  background: var(--color-danger-bright); border-radius: 0;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%); width: 10px; height: 9px;
+}
+
+/* Topbar live pill — quiet when live, tinted when the feed is not live so
+   the state reads from across the control room */
+.live-pill[data-ws='connecting'], .live-pill[data-ws='reconnecting'] {
+  background: color-mix(in srgb, var(--color-warn) 22%, var(--color-rail)); border-color: color-mix(in srgb, var(--color-warn) 60%, transparent); color: #fff;
+}
+.live-pill[data-ws='closed'], .live-pill[data-ws='auth_expired'] {
+  background: color-mix(in srgb, var(--color-danger-bright) 30%, var(--color-rail)); border-color: color-mix(in srgb, var(--color-danger-bright) 70%, transparent); color: #fff;
+}
+
+/* Data-link strip under the topbar — shown only while the live feed is down */
+.link-strip {
+  display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 16px;
+  background: var(--color-caution-soft); color: var(--color-caution-ink);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-warn) 45%, transparent);
+  font-size: 12px; font-weight: 600; line-height: 1.35;
+}
+.link-strip[data-ws='closed'], .link-strip[data-ws='auth_expired'] {
+  background: var(--color-danger-soft); color: var(--color-danger);
+  border-bottom-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .skeleton, .flyout-in { animation: none; }
+  /* app chrome + pages only — the landing page owns its own motion rules */
+  .app-shell *, .app-shell *::before, .app-shell *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
 }

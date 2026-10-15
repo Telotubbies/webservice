@@ -1,0 +1,73 @@
+// Copy for the edge fleet table (F22) and the shared edge-state vocabulary
+// reused by Processes / Catalog / Security / Assistant. Namespaced `fleet`
+// so it never overwrites the shared `health.*` keys.
+
+import i18n from '../../lib/i18n';
+
+i18n.addResourceBundle('en', 'translation', { fleet: {
+  title: 'Edge fleet',
+  lede: 'Every edge gateway registered to this site, refreshed every 15 seconds.',
+  colName: 'Edge gateway',
+  colState: 'Status',
+  colHb: 'Last heartbeat',
+  colClock: 'Clock',
+  colBuffer: 'Buffered',
+  colAdapter: 'PLC adapter',
+  colCred: 'Credential',
+  state: {
+    online: 'Online', stale: 'Late', offline: 'Offline', never: 'Never connected', disabled: 'Disabled',
+  },
+  stateHelp: 'Late = no heartbeat for 30 s. Offline = no heartbeat for 5 min.',
+  clockOk: 'In sync',
+  clockBad: 'Drift',
+  clockNone: 'Not reported',
+  bufferNone: 'Not reported',
+  bufferQueued: '{{count}} queued',
+  bufferHigh: '{{count}} queued (backlog)',
+  adapterNone: 'Not reported',
+  credVersion: 'v{{v}}',
+  needsRotation: 'Rotate credential',
+  needsRotationHelp: 'The broker recreated this credential and no one holds the secret. An admin must rotate it in Infrastructure.',
+  noHb: 'never',
+  summary: '{{online}} online · {{late}} late · {{offline}} offline',
+  empty: 'No edge gateways on this site yet',
+  emptyBody: 'Add a device in Infrastructure to connect a PLC to this site.',
+  openInfra: 'Open Infrastructure',
+  healthErr: 'Buffer depth is unavailable right now. The other columns are current.',
+  scopeNone: 'No site found for your organization.',
+  updated: 'Updated {{age}}',
+} }, true, true);
+
+i18n.addResourceBundle('th', 'translation', { fleet: {
+  title: 'กลุ่มเกตเวย์ edge',
+  lede: 'เกตเวย์ edge ทุกตัวที่ลงทะเบียนกับไซต์นี้ อัปเดตทุก 15 วินาที',
+  colName: 'เกตเวย์ edge',
+  colState: 'สถานะ',
+  colHb: 'สัญญาณชีพล่าสุด',
+  colClock: 'นาฬิกา',
+  colBuffer: 'ค้างส่ง',
+  colAdapter: 'ตัวเชื่อม PLC',
+  colCred: 'รหัสเชื่อมต่อ',
+  state: {
+    online: 'ออนไลน์', stale: 'ล่าช้า', offline: 'ออฟไลน์', never: 'ยังไม่เคยเชื่อมต่อ', disabled: 'ปิดใช้งาน',
+  },
+  stateHelp: 'ล่าช้า = ไม่มีสัญญาณชีพ 30 วินาที ออฟไลน์ = ไม่มีสัญญาณชีพ 5 นาที',
+  clockOk: 'ตรงกัน',
+  clockBad: 'คลาดเคลื่อน',
+  clockNone: 'ไม่มีข้อมูล',
+  bufferNone: 'ไม่มีข้อมูล',
+  bufferQueued: 'ค้าง {{count}} รายการ',
+  bufferHigh: 'ค้าง {{count}} รายการ (สะสม)',
+  adapterNone: 'ไม่มีข้อมูล',
+  credVersion: 'v{{v}}',
+  needsRotation: 'ต้องเปลี่ยนรหัส',
+  needsRotationHelp: 'โบรกเกอร์สร้างรหัสนี้ใหม่และไม่มีใครถือรหัสลับ ผู้ดูแลต้องเปลี่ยนรหัสในหน้าโครงสร้างพื้นฐาน',
+  noHb: 'ไม่เคย',
+  summary: 'ออนไลน์ {{online}} · ล่าช้า {{late}} · ออฟไลน์ {{offline}}',
+  empty: 'ไซต์นี้ยังไม่มีเกตเวย์ edge',
+  emptyBody: 'เพิ่มอุปกรณ์ในหน้าโครงสร้างพื้นฐานเพื่อเชื่อม PLC เข้ากับไซต์นี้',
+  openInfra: 'เปิดหน้าโครงสร้างพื้นฐาน',
+  healthErr: 'ตอนนี้ดูจำนวนค้างส่งไม่ได้ คอลัมน์อื่นเป็นข้อมูลปัจจุบัน',
+  scopeNone: 'ไม่พบไซต์ขององค์กรคุณ',
+  updated: 'อัปเดต{{age}}',
+} }, true, true);

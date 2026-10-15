@@ -1,14 +1,19 @@
 // Dashboard model: widget definitions, built-in seeds, and persistence.
-// shortcut: saved in this browser's localStorage — the backend has no
-// dashboard store yet. Move load/save to an API to share dashboards.
+// localStorage is the offline cache; custom boards sync to the org's backend
+// store (see useDashboards) so they are shared across machines.
 
 export type VizKind = 'timeseries' | 'value' | 'toplist' | 'alarms' | 'note';
 export type Agg = 'last' | 'avg' | 'min' | 'max';
 export type RangeKey = '15m' | '1h' | '4h' | '24h';
 export const RANGE_MIN: Record<RangeKey, number> = { '15m': 15, '1h': 60, '4h': 240, '24h': 1440 };
 
-/** Fixed categorical order (dataviz rule: assign in order, never cycle past it). */
-export const SERIES_COLORS = ['#006bc2', '#c159ff', '#1c9a67', '#f99d02', '#5e6dd6', '#00a0a8'];
+/** Fixed categorical order (dataviz rule: assign in order, never cycle past it).
+ *  ISA-101: no red / orange / amber / green — those mean abnormal or running.
+ *  Mirrors SERIES_PALETTE in features/trends/viz.ts (validated order). */
+export const SERIES_COLORS = ['#2a78d6', '#c0479d', '#6250d6', '#0b9a9a', '#1d5a9e', '#9b4fc4'];
+/** Pre-ISA-101 defaults. Widgets saved with these render with the new
+ *  palette (see seriesColor in widgets.tsx); stored JSON is untouched. */
+export const LEGACY_SERIES_COLORS = ['#006bc2', '#c159ff', '#1c9a67', '#f99d02', '#5e6dd6', '#00a0a8'];
 
 export interface Widget {
   id: string;
@@ -36,9 +41,10 @@ export interface Dashboard {
   id: string; title: string; description: string;
   preset: 'builtin' | 'custom'; author: string; updatedAt: string;
   range: RangeKey; widgets: Widget[];
+  shared?: boolean; // custom boards: visible to the whole org (default true)
 }
 
-export const newId = () => Math.random().toString(36).slice(2, 10);
+export const newId = () => crypto.randomUUID(); // dashboards use it as the server row id
 
 export function makeWidget(kind: VizKind, over: Partial<Widget> = {}): Widget {
   const size: Record<VizKind, [number, number]> = { timeseries: [6, 3], value: [3, 2], toplist: [4, 3], alarms: [6, 3], note: [3, 2] };
@@ -63,7 +69,7 @@ const T = {
 const SEEDS: Dashboard[] = [
   {
     id: 'line-1', title: 'Sorting line 1 — overview', description: 'Live state of the gravel sorting line.',
-    preset: 'builtin', author: 'Plant Ops', updatedAt: '2026-10-14T00:00:00Z', range: '1h',
+    preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-14T00:00:00Z', range: '1h',
     widgets: [
       makeWidget('value', { id: 'w1', title: 'Belt speed', tags: [T.speed], decimals: 2, x: 0, y: 0 }),
       makeWidget('value', { id: 'w2', title: 'Belt temperature', tags: [T.temp], warn: 70, crit: 75, x: 3, y: 0 }),
@@ -77,23 +83,26 @@ const SEEDS: Dashboard[] = [
   },
   {
     id: 'vision', title: 'Vision quality', description: 'Camera classification output.',
-    preset: 'builtin', author: 'Plant Ops', updatedAt: '2026-10-14T00:00:00Z', range: '4h',
+    preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-14T00:00:00Z', range: '4h',
     widgets: [
       makeWidget('value', { id: 'v1', title: 'Gravel ratio', tags: [T.gravel], decimals: 0, x: 0, y: 0 }),
-      makeWidget('timeseries', { id: 'v2', title: 'Gravel ratio (0–1)', tags: [T.gravel], decimals: 2, x: 3, y: 0, w: 9 }),
+      makeWidget('timeseries', { id: 'v2', title: 'Gravel ratio (%)', tags: [T.gravel], decimals: 0, x: 3, y: 0, w: 9 }),
       makeWidget('toplist', { id: 'v3', title: 'Alarms by severity', groupBy: 'severity', x: 0, y: 3, w: 4 }),
-      makeWidget('note', { id: 'v4', title: 'How to read this', note: 'Gravel ratio is the share of gravel in the last camera frames. Below 0.4 means the screen is clogging.', x: 4, y: 3, w: 4 }),
+      makeWidget('note', { id: 'v4', title: 'How to read this', note: 'Gravel ratio is the share of gravel in the last camera frames. Below 40 % means the screen is clogging.', x: 4, y: 3, w: 4 }),
     ],
   },
 ];
 
 const KEY = 'wds.dashboards.v1';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function loadDashboards(): Dashboard[] {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      const saved = JSON.parse(raw) as Dashboard[];
+      // boards saved before server sync have short ids; the backend needs UUIDs
+      const saved = (JSON.parse(raw) as Dashboard[]).map((d) =>
+        d.preset === 'custom' && !UUID.test(d.id) ? { ...d, id: newId() } : d);
       // keep built-ins the user never touched in sync with new seeds
       const ids = new Set(saved.map((d) => d.id));
       return [...saved, ...SEEDS.filter((s) => !ids.has(s.id))];

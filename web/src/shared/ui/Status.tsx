@@ -2,6 +2,8 @@
 
 import { useTranslation } from 'react-i18next';
 import type { Quality } from '../../types';
+import { fmtAge } from '../../lib/format';
+import { useNow } from '../../lib/hooks';
 
 export type RunState = 'running' | 'stopped' | 'stale' | 'unknown';
 
@@ -95,6 +97,33 @@ export function QualityMark({ q, stale }: { q?: Quality; stale?: boolean }) {
     <span className={`qmark qmark-${q}`} data-q={q}>
       <span className="text-[9px] leading-none" aria-hidden>{Q_GLYPH[q]}</span>
       {t(`state.${key}`)}
+    </span>
+  );
+}
+
+/** "Updated 4 s ago" for a value/panel — quiet grey while fresh, flips to a
+ *  dashed stale mark (○ + text) once older than `staleAfterMs`, so an old
+ *  value can never pass for a live one (anti-goal: stale shown as live).
+ *  Re-renders itself every second; pass `now` to share a parent's clock. */
+export function Freshness({ ts, staleAfterMs = 30_000, now: nowProp }: {
+  ts: string | undefined; staleAfterMs?: number; now?: number;
+}) {
+  const { t } = useTranslation();
+  const tick = useNow(1000);
+  const now = nowProp ?? tick;
+  if (!ts) return <span className="freshness">{t('state.never')}</span>;
+  const age = now - Date.parse(ts);
+  if (age > staleAfterMs) {
+    return (
+      <span className="qmark" data-q="stale" data-fresh="stale" title={new Date(ts).toLocaleString()}>
+        <span className="text-[9px] leading-none" aria-hidden>{Q_GLYPH.stale}</span>
+        {t('ui.staleFor', { age: fmtAge(ts, now) })}
+      </span>
+    );
+  }
+  return (
+    <span className="freshness" data-fresh="live" title={new Date(ts).toLocaleString()}>
+      {t('state.updated', { age: fmtAge(ts, now) })}
     </span>
   );
 }

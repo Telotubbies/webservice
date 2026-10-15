@@ -13,7 +13,7 @@ export interface NavSection {
   badge?: 'new';
   items: NavItem[];
   secondary?: NavItem[];
-  action?: { to: string; key: string };
+  action?: { to: string; key: string; flag?: string };
 }
 export interface NavGroup {
   group: string; icon: DdIconName; items: NavItem[]; gated?: boolean;
@@ -30,20 +30,32 @@ const ALL_NAV: NavGroup[] = [
     { to: '/line', key: 'nav.line', icon: 'service-map' },
     { to: '/line3d', key: 'nav.line3d', icon: 'building-block' },
     { to: '/notebooks', key: 'nav.notebooks', icon: 'notebook', flag: 'notebooks' },
+  ], sections: [
+    { title: 'nav.secDashboards', items: [
+      { to: '/', key: 'nav.overview', icon: 'home' },
+      { to: '/dashboards', key: 'nav.dashboards', icon: 'dashboard' },
+    ], action: { to: '/dashboards?new=1', key: 'nav.actionNewDashboard' } },
+    { title: 'nav.secNotebooks', items: [
+      { to: '/notebooks', key: 'nav.notebooks', icon: 'notebook', flag: 'notebooks' },
+    ], action: { to: '/notebooks?new=1', key: 'nav.actionNewNotebook', flag: 'notebooks' } },
+    { title: 'nav.secLive', items: [
+      { to: '/line', key: 'nav.line', icon: 'service-map' },
+      { to: '/line3d', key: 'nav.line3d', icon: 'building-block' },
+    ] },
   ] },
   { group: 'nav.monitoring', icon: 'monitor', items: [
     { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
     { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze', flag: 'downtimes' },
-    { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
+    { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve', flag: 'alarmquality' },
     { to: '/slos', key: 'nav.slos', icon: 'status-page' },
-    { to: '/events', key: 'nav.events', icon: 'events' },
+    { to: '/events', key: 'nav.events', icon: 'events', flag: 'events' },
     { to: '/incidents', key: 'nav.incidents', icon: 'incidents', flag: 'incidents' },
     { to: '/activity', key: 'nav.activity', icon: 'bell' },
   ], sections: [
     { title: 'nav.secAlarms', items: [
       { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
       { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze', flag: 'downtimes' },
-      { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
+      { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve', flag: 'alarmquality' },
     ], secondary: [
       { to: '/admin/rules', key: 'nav.adminRules', icon: 'assert-list' },
       { to: '/alarms/settings', key: 'nav.alarmSettings', icon: 'cog', flag: 'alarmsettings' },
@@ -54,7 +66,7 @@ const ALL_NAV: NavGroup[] = [
       { to: '/activity', key: 'nav.activity', icon: 'bell' },
     ] },
     { title: 'nav.secEvents', items: [
-      { to: '/events', key: 'nav.events', icon: 'events' },
+      { to: '/events', key: 'nav.events', icon: 'events', flag: 'events' },
       { to: '/incidents', key: 'nav.incidents', icon: 'incidents', flag: 'incidents' },
     ], secondary: [{ to: '/synthetics', key: 'nav.synthetics', icon: 'multi-heartbeat', flag: 'synthetics' }] },
   ] },
@@ -66,7 +78,7 @@ const ALL_NAV: NavGroup[] = [
   ], action: { to: '/infrastructure/add', key: 'nav.addDevice' } },
   { group: 'nav.metrics', icon: 'metric', items: [
     { to: '/trends', key: 'nav.trends', icon: 'graph-line' },
-    { to: '/metrics', key: 'nav.metricsSummary', icon: 'metric' },
+    { to: '/metrics', key: 'nav.metricsSummary', icon: 'metric', flag: 'metrics' },
     { to: '/tags', key: 'nav.tags', icon: 'list' },
     { to: '/query', key: 'nav.query', icon: 'database', flag: 'query' },
   ] },
@@ -116,5 +128,5 @@ const keep = (xs?: NavItem[]) => xs?.filter((i) => enabled(i.flag));
 export const NAV: NavGroup[] = ALL_NAV.map((g) => ({
   ...g,
   items: keep(g.items)!,
-  sections: g.sections?.map((s) => ({ ...s, items: keep(s.items)!, secondary: keep(s.secondary) })).filter((s) => s.items.length),
+  sections: g.sections?.map((s) => ({ ...s, items: keep(s.items)!, secondary: keep(s.secondary), action: enabled(s.action?.flag) ? s.action : undefined })).filter((s) => s.items.length),
 })).filter((g) => g.items.length);

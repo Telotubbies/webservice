@@ -18,7 +18,8 @@ import { canAdmin, canOperate, useRole } from '../../app/session';
  * viewer/none was wrongly locked out of org B's own admin UI. `loading` lets
  * the pages skeleton instead of flashing "restricted" while /api/me lands. */
 export function useAdminOrg(): {
-  orgId: string | null; meRole: string; orgRole: string | null; loading: boolean;
+  orgId: string | null; orgName: string | null; meRole: string;
+  orgRole: string | null; loading: boolean;
 } {
   const meRole = useRole();
   const q = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
@@ -30,7 +31,7 @@ export function useAdminOrg(): {
   );
   const chosen = sorted[0] ?? null;
   return {
-    orgId: chosen?.org_id ?? null, meRole,
+    orgId: chosen?.org_id ?? null, orgName: chosen?.org_name ?? null, meRole,
     orgRole: chosen?.role ?? null, loading: q.isLoading,
   };
 }

@@ -10,6 +10,7 @@ import { canOperate, useRole } from '../../app/session';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { ErrorState } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
+import { EdgeFleetTable } from './EdgeFleetTable';
 
 function tone(up: boolean | undefined) {
   return up === undefined ? 'text-ink-35' : up ? 'text-[var(--color-ok)]' : 'text-[var(--color-danger-bright)]';
@@ -95,6 +96,9 @@ export function HealthPage() {
           </Card>
         </div>
       )}
+
+      {/* F22 — edge fleet inventory (member-read v2, safe for every role) */}
+      <div className="px-4 pb-4"><EdgeFleetTable /></div>
     </>
   );
 }

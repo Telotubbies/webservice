@@ -1,5 +1,7 @@
-// AdminNav — dd org-settings pattern: in-content left panel with uppercase
-// section headers and blue-fill active row. Shared by all /admin/* pages.
+// AdminNav — dd org-settings pattern: in-content left panel with section
+// headers and blue-fill active row. Shared by all /admin/* pages.
+// Below md it becomes a horizontally scrolling row of 44 px tabs (390 px
+// phones), and NavLink supplies aria-current="page" on the active item.
 
 import { NavLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -20,20 +22,25 @@ const SECTIONS: { headKey: string; items: { to: string; key: string; icon: DdIco
 ];
 
 export function AdminNav() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // letter-spacing/uppercase splits Thai combining marks — Latin only
+  const overline = i18n.language === 'th' ? '' : 'uppercase tracking-wide';
   return (
-    <nav aria-label={t('nav.admin')} className="w-48 shrink-0 border-r border-line pr-0">
+    <nav
+      aria-label={t('nav.admin')}
+      className="-mx-4 flex shrink-0 gap-1 overflow-x-auto border-b border-line px-4 pb-2 md:mx-0 md:block md:w-48 md:overflow-visible md:border-b-0 md:border-r md:px-0 md:pb-0"
+    >
       {SECTIONS.map((s) => (
-        <div key={s.headKey} className="mb-3">
-          <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-46">{t(s.headKey)}</p>
+        <div key={s.headKey} className="contents md:mb-3 md:block">
+          <p className={`hidden px-3 pb-1 pt-2 text-[11px] font-semibold leading-snug text-ink-68 md:block ${overline}`}>{t(s.headKey)}</p>
           {s.items.map((i) => (
             <NavLink
               key={i.to}
               to={i.to}
               end={i.to === '/admin'}
               className={({ isActive }) =>
-                `flex h-[34px] items-center gap-2 rounded px-4 text-[13px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue ${
-                  isActive ? 'bg-blue text-white' : 'text-ink-68 hover:bg-subtle hover:text-ink'
+                `flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded px-3 text-[13px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue md:h-[34px] md:px-4 ${
+                  isActive ? 'bg-blue font-semibold text-white' : 'text-ink-68 hover:bg-subtle hover:text-ink'
                 }`
               }
             >

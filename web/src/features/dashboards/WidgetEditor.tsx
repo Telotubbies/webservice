@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Bell, ChartBarBig, ChartLine, Hash, StickyNote, X, type LucideIcon } from 'lucide-react';
 import { api } from '../../lib/api';
 import { SIGNALS } from '../../lib/plant';
-import { WidgetBody } from './widgets';
+import { WidgetBody, seriesColor } from './widgets';
 import { SERIES_COLORS, type Agg, type RangeKey, type VizKind, type Widget } from './model';
 
 const KINDS: { kind: VizKind; icon: LucideIcon }[] = [
@@ -200,7 +200,7 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
                       <div className="mt-1 flex flex-wrap gap-3">
                         {w.tags.map((tag, i) => (
                           <label key={tag} className="flex items-center gap-1.5 text-[12px]">
-                            <input type="color" className="h-7 w-9 cursor-pointer rounded border border-line" value={w.colors[i] ?? SERIES_COLORS[i]}
+                            <input type="color" className="h-7 w-9 cursor-pointer rounded border border-line" value={seriesColor(w, i)}
                               onChange={(e) => set({ colors: w.colors.map((c, j) => (j === i ? e.target.value : c)) })}
                               aria-label={t('dash.colorFor', { tag: tag.split('.').slice(-2).join('.') })} />
                             <span className="font-mono">{tag.split('.').slice(-2).join('.')}</span>

@@ -1,18 +1,82 @@
-// Sticky page bar — dd pattern: 44px, title left, actions right, hairline under.
+// Sticky page bar — dd pattern: 44px, [back] icon + title [status] + tabs +
+// lede, actions right, hairline under. ONE header for every page:
+// ProductHeader (Product.tsx) renders through this too.
+// Below md the bar wraps: title + actions on row 1, tabs scroll on row 2,
+// the title truncates instead of breaking the 44px row.
 
 import type { ReactNode } from 'react';
+import { NavLink } from 'react-router';
+import { useTranslation } from 'react-i18next';
+import { DdIcon } from './DdIcon';
+import type { DdIconName } from './ddicons';
 
-export function PageBar({ title, lede, actions }: {
-  title: string; lede?: string; actions?: ReactNode;
-}) {
+export interface PageTab {
+  to: string; label: string; end?: boolean;
+  /** optional count chip, e.g. active alarms */
+  count?: number;
+}
+
+export interface PageBarProps {
+  title: string;
+  /** one-line context, hidden below md */
+  lede?: string;
+  /** right-aligned controls (time range, primary button…) */
+  actions?: ReactNode;
+  /** product icon left of the title (same name set as the rail) */
+  icon?: DdIconName;
+  /** route tabs; active tab follows the URL */
+  tabs?: PageTab[];
+  /** detail pages: link back to the list (keeps the operator oriented) */
+  back?: { to: string; label?: string };
+  /** inline status next to the title, e.g. <StatePill/> or <Freshness/> */
+  status?: ReactNode;
+}
+
+export function PageBar({ title, lede, actions, icon, tabs, back, status }: PageBarProps) {
+  const { t } = useTranslation();
   return (
-    <div className="sticky top-9 z-10 flex h-11 items-center gap-3 border-b border-line bg-white/90 px-4 backdrop-blur">
-      <h1 className="text-[15px] font-semibold text-ink">{title}</h1>
-      {lede && <span className="hidden text-[12px] text-ink-46 md:block">{lede}</span>}
-      <div className="flex-1" />
-      {actions}
+    <div className="pagebar sticky top-9 z-10 flex min-h-11 flex-wrap items-center gap-x-3 border-b border-line bg-paper px-4 md:flex-nowrap">
+      <div className="flex h-11 min-w-0 flex-1 items-center gap-2 md:flex-initial">
+        {back && (
+          <NavLink to={back.to} className="btn btn-ghost btn-sm btn-icon shrink-0" aria-label={back.label ?? t('ui.back')} title={back.label ?? t('ui.back')}>
+            <DdIcon name="caret-left" size={14} />
+          </NavLink>
+        )}
+        {icon && <DdIcon name={icon} size={16} className="shrink-0 text-ink-68" />}
+        <h1 className="truncate text-[15px] font-semibold text-ink" title={title}>{title}</h1>
+        {status && <span className="flex shrink-0 items-center">{status}</span>}
+      </div>
+      {tabs && tabs.length > 0 && (
+        <nav
+          className="order-last -mx-4 flex h-10 w-[calc(100%+2rem)] overflow-x-auto border-t border-line px-2 md:order-none md:mx-0 md:ml-2 md:h-11 md:w-auto md:self-stretch md:border-0 md:px-0"
+          aria-label={title}
+        >
+          {tabs.map((tb) => (
+            <NavLink
+              key={tb.to} to={tb.to} end={tb.end}
+              className={({ isActive }) => `flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
+                isActive ? 'border-blue font-semibold text-ink' : 'border-transparent text-ink-68 hover:text-blue'
+              }`}
+            >
+              {tb.label}
+              {tb.count != null && (
+                <span className="rounded-[3px] bg-neutral-soft px-1 text-[11px] font-semibold text-ink-muted">{tb.count}</span>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      )}
+      {lede && <span className="hidden min-w-0 truncate text-[12px] text-ink-46 md:block">{lede}</span>}
+      <div className="hidden flex-1 md:block" />
+      {actions && <div className="flex min-w-0 shrink-0 items-center gap-2">{actions}</div>}
     </div>
   );
+}
+
+/** Standard content area under the PageBar: 16px padding (12px mobile),
+ *  16px vertical rhythm between sections. */
+export function PageBody({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`page-body ${className}`}>{children}</div>;
 }
 
 export function Card({ title, actions, children, pad = true }: {
@@ -40,7 +104,7 @@ export function Table({ head, children }: { head: ReactNode[]; children: ReactNo
         <tr className="border-b border-line text-left">
           {head.map((h, i) => (
             /* dd measured: overline header 11px / 1.8px tracking / uppercase */
-            <th key={i} scope="col" className="h-7 px-3 text-[11px] font-semibold uppercase tracking-[1.8px] text-ink-68">
+            <th key={i} scope="col" className="overline h-7 px-3">
               {h}
             </th>
           ))}

@@ -196,9 +196,9 @@ export default function App() {
             <Route path="infrastructure" element={page(DevicesPage)} />
             <Route path="infrastructure/add" element={page(AddDeviceWizard)} />
             <Route path="settings" element={page(SettingsPage)} />
-            <Route path="alarms/quality" element={page(AlarmQualityPage)} />
+            {enabled('alarmquality') && <Route path="alarms/quality" element={page(AlarmQualityPage)} />}
             {enabled('alarmsettings') && <Route path="alarms/settings" element={page(AlarmSettingsPage)} />}
-            <Route path="events" element={page(EventsPage)} />
+            {enabled('events') && <Route path="events" element={page(EventsPage)} />}
             {enabled('incidents') && <Route path="incidents" element={page(IncidentsPage)} />}
             {enabled('notebooks') && <Route path="notebooks" element={page(NotebooksPage)} />}
             {enabled('notebooks') && <Route path="notebooks/:id" element={page(NotebookViewPage)} />}
@@ -211,7 +211,7 @@ export default function App() {
             {enabled('synthetics') && <Route path="synthetics" element={page(SyntheticsPage)} />}
             {enabled('security') && <Route path="security" element={page(SecurityPage)} />}
             {enabled('sessions') && <Route path="sessions" element={page(SessionsPage)} />}
-            <Route path="metrics" element={page(MetricsSummaryPage)} />
+            {enabled('metrics') && <Route path="metrics" element={page(MetricsSummaryPage)} />}
             {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

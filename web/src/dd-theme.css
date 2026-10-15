@@ -45,10 +45,32 @@
   --color-ok-soft:      #e6f5ee;
   --color-caution:      #b5740a;
   --color-caution-soft: #fff4dc;
+  /* text-on-tint variants — the base hues above fail 4.5:1 as 11px text on
+     their -soft fills; use these for pill/notice text (WCAG AA, readable
+     from a control-room chair) */
+  --color-ok-ink:       #12744c;
+  --color-caution-ink:  #8a5600;
+  --color-ink-muted:    #5d6670;                /* muted text on tints (≥5:1 on neutral-soft) */
+
+  /* ---- app-system additions (tokens for values that were hard-coded) ---- */
+  --color-blue-hover:   #005aa5;                /* primary button hover, info text */
+  --color-blue-soft:    #e8f1fb;                /* info / demo notice fill */
+  --color-neutral-soft: #eef1f4;                /* neutral pill fill, skeleton base */
+  --color-skeleton-hi:  #e2e6eb;                /* skeleton shimmer highlight */
+  --color-control-line: #c8cdd5;                /* button-ghost / input / seg border */
+  --color-nav-hover:    #0953bf;                /* rail + flyout item hover */
+  --color-nav-action:   #0d62c9;                /* flyout "+ action" row */
+  --color-nav-badge:    #b372f0;                /* NEW badge on dark chrome */
+  --color-nav-flyout-hi: #a9c7ff;               /* flyout item under pointer (AA on --color-topbar) */
+  --color-focus-dark:   #8cc8ff;                /* focus ring on dark chrome (≥3:1 on rail) */
 
   /* ---- typography ---- */
-  --font-sans: "NotoSans", "Lucida Grande", "Lucida Sans Unicode", sans-serif;
-  --font-mono: "Roboto Mono", Menlo, "Liberation Mono", Courier, monospace;
+  /* IBM Plex (bundled via @fontsource — CSP allows self-hosted fonts only).
+     Latin resolves to Plex Sans; Thai code points fall through to Plex Sans
+     Thai (same skeleton, matched x-height) before any OS Thai face, so a
+     mixed TH/EN label never renders in two unrelated typefaces. */
+  --font-sans: "IBM Plex Sans", "IBM Plex Sans Thai", "Leelawadee UI", "Noto Sans Thai", system-ui, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "IBM Plex Sans Thai", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
   --text-2xs: 10px;   /* rare, badges */
   --text-xs:  11px;   /* pills, overline (uppercase) */

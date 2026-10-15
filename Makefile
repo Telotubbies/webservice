@@ -1,13 +1,15 @@
 # webservice — one command surface. `make` with no target lists them.
 COMPOSE := docker compose -f docker-compose.yml
 COMPOSE_TEST := docker compose -f docker-compose.yml -f docker-compose.test.yml
-PY ?= python3
+PY ?= $(or $(wildcard $(CURDIR)/.venv/Scripts/python.exe),$(wildcard $(CURDIR)/.venv/bin/python),python3)
 SQLITE ?= backend/data/app.db
+# Windows default codepage (cp874) breaks read_text() in tests
+export PYTHONUTF8 := 1
 DB_TEST_ENV := WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
   WDS_TEST_SYSTEM_DSN=postgresql://wds_system:$${WDS_SYSTEM_PASSWORD:-system-dev-pass}@127.0.0.1:5433/wds \
   WDS_TEST_SUPER_DSN=postgresql://postgres:$${POSTGRES_SUPERUSER_PASSWORD:-postgres-dev-pass}@127.0.0.1:5433/wds
 
-.PHONY: help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev idp backup restore migrate-sqlite
+.PHONY: psql help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev idp backup restore migrate-sqlite
 
 help: ## show this
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -124,7 +126,7 @@ migrate-sqlite: ## one-time v1 SQLite→Postgres import (doc 18 §3): make migra
 	$(PY) scripts/migrate_sqlite_to_pg.py --sqlite "$(SQLITE)" \
 	  $(if $(DRY),--dry-run) $(if $(DSN),--dsn "$(DSN)") $(if $(ORG),--org-id "$(ORG)")
 
-idp: ## sync the Keycloak `google` IdP with GOOGLE_CLIENT_ID/SECRET (removed when unset)
+idp: ## sync the Keycloak `google`/`microsoft` IdPs with *_CLIENT_ID/SECRET (removed when unset)
 	$(COMPOSE) exec -T backend python -m app.provision_idp
 
 seed-dev: ## provision Keycloak test users + org memberships (APP_ENV=dev only)
@@ -156,3 +158,6 @@ uat: ## browser UAT — needs playwright (see tests/README §e2e)
 
 web-build: ## frontend typecheck + production bundle
 	cd web && bun run build
+
+psql: ## psql shell in the dev postgres container (PG_CONTAINER / PG_USER to override)
+	@PG_TTY=1 sh scripts/psql.sh

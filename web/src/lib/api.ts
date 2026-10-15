@@ -183,6 +183,21 @@ export interface RuleInput {
 const v2 = (org: string, path: string) =>
   `/api/v1/orgs/${encodeURIComponent(org)}${path}`;
 
+export interface DashboardRow {
+  id: string; title: string; description: string; shared: boolean; mine: boolean;
+  body: Record<string, unknown>; updated_at: string;
+}
+export type DashboardInput = Pick<DashboardRow, 'title' | 'description' | 'shared' | 'body'> & { id?: string };
+
+export const dashboardApi = {
+  list: (org: string) => request<{ dashboards: DashboardRow[] }>(v2(org, '/dashboards')),
+  create: (org: string, b: DashboardInput) =>
+    request<unknown>(v2(org, '/dashboards'), { method: 'POST', body: JSON.stringify(b) }),
+  update: (org: string, id: string, b: DashboardInput) =>
+    request<unknown>(v2(org, `/dashboards/${id}`), { method: 'PUT', body: JSON.stringify(b) }),
+  remove: (org: string, id: string) => request<void>(v2(org, `/dashboards/${id}`), { method: 'DELETE' }),
+};
+
 export const adminApi = {
   org: (org: string) => request<AdminOrg>(v2(org, '')),
   sites: (org: string) => request<V2List<AdminSite>>(v2(org, '/sites')),
@@ -229,6 +244,13 @@ export const adminApi = {
     request<SiteHealth>(v2(org, `/sites/${site}/health`)),
   edges: (org: string, site: string) =>
     request<V2List<AdminEdge>>(v2(org, `/sites/${site}/edges`)),
+  // v2 command reads — command:read (operator+). Callers MUST role-gate
+  // before fetching (viewer → 403 trips the zero-4xx gate).
+  siteCommands: (org: string, site: string, limit = 50) =>
+    request<V2List<SiteCommand>>(v2(org, `/sites/${site}/commands?limit=${limit}`)),
+  siteCommand: (org: string, site: string, id: string) =>
+    request<{ command: SiteCommand & { events: SiteCommandEvent[] } }>(
+      v2(org, `/sites/${site}/commands/${encodeURIComponent(id)}`)),
   auditCsv: async (org: string, params: { from?: string; to?: string } = {}): Promise<Blob> => {
     const q = new URLSearchParams();
     q.set('format', 'csv');
@@ -262,4 +284,17 @@ export interface Device {
   mqtt_username: string; credential_version: number;
   last_hb_at: string | null; clock_ok: boolean | null; adapter: string | null;
   needs_rotation: boolean;
+}
+
+/** v2 command row (`_v2` shape, commands.py) — status in v2 vocabulary
+ *  (accepted → dispatched → acknowledged | rejected | failed | timeout). */
+export interface SiteCommand {
+  id: string; tag_id: string; value: number | boolean | null; status: string;
+  reason: string | null; ttl_s: number | null; idempotency_key: string | null;
+  issued_at: string; updated_at: string;
+  actor: { user_id: string | null; display_name: string | null } | null;
+  version: number;
+}
+export interface SiteCommandEvent {
+  from: string | null; to: string; actor: string; reason: string | null; at: string;
 }

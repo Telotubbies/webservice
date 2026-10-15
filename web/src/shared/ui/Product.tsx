@@ -3,33 +3,15 @@
 // collapsible facet group with checkbox + count rows.
 
 import type { ReactNode } from 'react';
-import { NavLink } from 'react-router';
-import { DdIcon } from './DdIcon';
 import type { DdIconName } from './ddicons';
+import { PageBar, type PageBarProps, type PageTab } from './Page';
 
-export function ProductHeader({ icon, title, tabs, actions }: {
-  icon: DdIconName; title: string; tabs?: { to: string; label: string; end?: boolean }[]; actions?: ReactNode;
-}) {
-  return (
-    <div className="sticky top-9 z-10 flex h-11 items-center gap-1 border-b border-line bg-white px-4">
-      <DdIcon name={icon} size={16} />
-      <h1 className="mr-4 ml-1.5 text-[15px] font-semibold">{title}</h1>
-      {tabs && (
-        <nav className="flex self-stretch" aria-label={title}>
-          {tabs.map((tb) => (
-            <NavLink
-              key={tb.to} to={tb.to} end={tb.end}
-              className={({ isActive }) => `flex items-center border-b-2 px-3 text-[13px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
-                isActive ? 'border-blue font-semibold text-ink' : 'border-transparent text-ink-68 hover:text-blue'
-              }`}
-            >{tb.label}</NavLink>
-          ))}
-        </nav>
-      )}
-      <span className="flex-1" />
-      {actions}
-    </div>
-  );
+/** Explorer-page header. Kept for existing call sites — it is PageBar with a
+ *  required icon, so every page shares one header layout. */
+export function ProductHeader({ icon, title, tabs, actions, lede, status, back }: {
+  icon: DdIconName; title: string; tabs?: PageTab[]; actions?: ReactNode;
+} & Pick<PageBarProps, 'lede' | 'status' | 'back'>) {
+  return <PageBar icon={icon} title={title} tabs={tabs} actions={actions} lede={lede} status={status} back={back} />;
 }
 
 export interface FacetOption { value: string; label: string; count: number }

@@ -2,9 +2,9 @@
 // edit mode: drag by the widget header, resize from the corner, add / edit /
 // duplicate / delete widgets through the widget editor.
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import ReactGridLayout, { useContainerWidth, verticalCompactor, type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import { Check, Copy, GripVertical, LayoutDashboard, Pencil, Plus, RotateCcw, Search, Star, Trash2 } from 'lucide-react';
@@ -12,6 +12,8 @@ import { EmptyState, Notice } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
 import { Confirm } from '../../shared/ui/Confirm';
 import { ProductHeader } from '../../shared/ui/Product';
+import { dashboardApi } from '../../lib/api';
+import { useAdminOrg } from '../admin/admin';
 import { WidgetBody } from './widgets';
 import { WidgetEditor, autoTitle } from './WidgetEditor';
 import {
@@ -24,14 +26,57 @@ function readStars(): Set<string> {
   try { return new Set(JSON.parse(localStorage.getItem(STAR_KEY) ?? '[]')); } catch { return new Set(); }
 }
 
-/** One store for both pages: state + persist-on-change. */
+const toRow = (d: Dashboard) => ({
+  id: d.id, title: d.title, description: d.description, shared: d.shared ?? true,
+  body: { range: d.range, widgets: d.widgets },
+});
+
+/** One store for both pages: local cache + sync of custom boards to the org.
+ *  Server boards replace local custom ones on load; local-only ones are pushed. */
 function useDashboards() {
+  const { orgId, orgRole } = useAdminOrg();
+  const canWrite = orgRole !== null && orgRole !== 'viewer';
   const [list, setList] = useState<Dashboard[]>(loadDashboards);
   const [saveFailed, setSaveFailed] = useState(false);
+  const known = useRef(new Set<string>()); // ids that exist server-side
+  const fail = () => setSaveFailed(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let live = true;
+    dashboardApi.list(orgId).then(({ dashboards }) => {
+      if (!live) return;
+      dashboards.forEach((r) => known.current.add(r.id));
+      setList((cur) => {
+        const server = dashboards.map((r): Dashboard => ({
+          id: r.id, title: r.title, description: r.description, preset: 'custom',
+          author: r.mine ? 'you' : '', shared: r.shared, updatedAt: r.updated_at,
+          range: (r.body.range as RangeKey) ?? '1h', widgets: (r.body.widgets as Widget[]) ?? [],
+        }));
+        const ids = new Set(server.map((d) => d.id));
+        const localOnly = cur.filter((d) => d.preset === 'custom' && !ids.has(d.id));
+        if (canWrite) localOnly.forEach((d) => dashboardApi.create(orgId, toRow(d)).then(() => known.current.add(d.id)).catch(fail));
+        return [...cur.filter((d) => d.preset === 'builtin'), ...server, ...localOnly];
+      });
+    }).catch(() => { /* offline or no access: keep the local cache */ });
+    return () => { live = false; };
+  }, [orgId, canWrite]);
+
   const commit = useCallback((next: Dashboard[]) => {
+    const prev = new Map(list.map((d) => [d.id, d]));
     setList(next);
     setSaveFailed(!saveDashboards(next));
-  }, []);
+    if (!orgId || !canWrite) return;
+    for (const d of next) {
+      if (d.preset !== 'custom' || prev.get(d.id) === d) continue;
+      (known.current.has(d.id) ? dashboardApi.update(orgId, d.id, toRow(d)) : dashboardApi.create(orgId, toRow(d)))
+        .then(() => known.current.add(d.id)).catch(fail);
+    }
+    const kept = new Set(next.map((d) => d.id));
+    for (const d of list) {
+      if (d.preset === 'custom' && !kept.has(d.id) && known.current.delete(d.id)) dashboardApi.remove(orgId, d.id).catch(fail);
+    }
+  }, [list, orgId, canWrite]);
   return { list, commit, saveFailed };
 }
 
@@ -40,7 +85,7 @@ export function DashboardsPage() {
   const navigate = useNavigate();
   const { list, commit } = useDashboards();
   const [q, setQ] = useState('');
-  const [preset, setPreset] = useState<'all' | 'custom' | 'builtin' | 'starred'>('all');
+  const [preset, setPreset] = useState<'all' | 'custom' | 'builtin' | 'starred' | 'shared'>('all');
   const [stars, setStars] = useState(readStars);
   const toggleStar = (id: string) => setStars((s) => {
     const n = new Set(s);
@@ -58,12 +103,20 @@ export function DashboardsPage() {
     navigate(`/dashboards/${d.id}?edit=1`);
   };
 
+  // "+ New dashboard" in the nav flyout lands here with ?new=1
+  const [sp] = useSearchParams();
+  const autoNew = useRef(false);
+  useEffect(() => {
+    if (sp.get('new') === '1' && !autoNew.current) { autoNew.current = true; create(); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp]);
+
   const shown = list
-    .filter((d) => preset === 'all' || (preset === 'starred' ? stars.has(d.id) : d.preset === preset))
+    .filter((d) => preset === 'all' || (preset === 'starred' ? stars.has(d.id) : preset === 'shared' ? d.preset === 'custom' && d.author !== 'you' : d.preset === preset))
     .filter((d) => d.title.toLowerCase().includes(q.toLowerCase()));
   const presets = [
     ['all', t('dash.presetAll')], ['custom', t('dash.presetCustom')],
-    ['builtin', t('dash.presetBuiltin')], ['starred', t('dash.presetStarred')],
+    ['builtin', t('dash.presetBuiltin')], ['shared', t('dash.presetShared')], ['starred', t('dash.presetStarred')],
   ] as const;
 
   return (
@@ -183,6 +236,12 @@ export function DashboardViewPage() {
                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => { const s = resetDashboard(dash.id); if (s) update({ widgets: s.widgets, range: s.range }); }}>
                     <RotateCcw size={14} aria-hidden /> {t('dash.reset')}
                   </button>
+                )}
+                {dash.preset === 'custom' && (
+                  <label className="flex items-center gap-1.5 text-[12px] text-ink-68">
+                    <input type="checkbox" checked={dash.shared ?? true} onChange={(e) => update({ shared: e.target.checked })} />
+                    {t('dash.shareOrg')}
+                  </label>
                 )}
                 {dash.preset === 'custom' && (
                   <button type="button" className="btn btn-sm btn-ghost text-[var(--color-danger)]" onClick={() => setConfirmDelete(true)}><Trash2 size={14} aria-hidden /> {t('dash.delete')}</button>
