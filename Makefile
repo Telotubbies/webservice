@@ -17,7 +17,7 @@ help: ## show this
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
-secrets: ## generate identity secrets incl. pg/keycloak files (infra/secrets — gitignored)
+secrets: ## generate identity secrets incl. pg/keycloak files and data_source_key (infra/secrets — gitignored)
 	./infra/gen-secrets.sh
 
 secrets-check: ## fail if any infra/secrets file still holds a documented dev default (required for APP_ENV=prod)
