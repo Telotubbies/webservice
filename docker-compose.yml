@@ -191,6 +191,7 @@ services:
       DYNSEC_ADMIN_PASSWORD_FILE: /run/secrets/svc_dynsec_admin_pw
       SVC_BACKEND_PW_FILE: /run/secrets/svc_backend_pw
       EDGE_BOOTSTRAP_PW_FILE: /run/secrets/edge_bootstrap_pw
+      DATA_SOURCE_KEY_FILE: /run/secrets/data_source_key
       SITE: plant1
       <<: *pg-dsns
       APP_ENV: "${APP_ENV:-dev}"
@@ -248,6 +249,7 @@ services:
       - wds_system_pw
       - kc_admin_pw
       - kc_demo_pw
+      - data_source_key
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -324,6 +326,8 @@ secrets:
     file: ${SECRETS_DIR:-./infra/secrets}/kc_admin_pw
   kc_demo_pw:
     file: ${SECRETS_DIR:-./infra/secrets}/kc_demo_pw
+  data_source_key:
+    file: ${SECRETS_DIR:-./infra/secrets}/data_source_key
 
 # Pinned subnet (unused-by-default range) so `web`'s fixed address above is
 # deterministic — backend TRUSTED_PROXIES names it for X-Real-IP trust

@@ -49,6 +49,7 @@ from .dynsec import (
 )
 from .insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
+from .datasources.routes import router as datasources_router, tags_notify_listener
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
@@ -523,6 +524,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(authz_sweep(st.auth, config.AUTHZ_SWEEP_S)),
         # alarm_rules_changed NOTIFY -> rule reload without restart (v4 T10)
         asyncio.create_task(rules_notify_listener(st.alarms)),
+        # wds_tags NOTIFY -> registry refresh on data-source/tag CRUD (spec 5.6)
+        asyncio.create_task(tags_notify_listener(st.registry, st.pools)),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
                                        "site": config.V1_SITE_CODE})
@@ -1560,6 +1563,11 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
             await st(request).dynsec.disable_client(username)
     await st(request).registry.refresh()
     return {"edge_id": str(eid), "status": "disabled"}
+
+
+# data sources + tags CRUD (spec 5.2) — handlers resolve auth helpers from this
+# module lazily, so including here (after the helpers exist) is safe.
+app.include_router(datasources_router)
 
 
 # ---------------------------------------------------------------------------
