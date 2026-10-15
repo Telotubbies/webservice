@@ -39,3 +39,4 @@ deploy/garage/garage.toml
 # Datadog captures: design reference only, do not ship (ref/datadog/SOURCES.md)
 ref/
 *.tmp
+.chrome-clone/
