@@ -88,4 +88,14 @@ docker compose -f deploy/garage/docker-compose.yml up -d && ./deploy/garage/init
 | 2026-10-15 | `feature/design` | G4 feature flag | ✅ มีอยู่แล้ว ตรวจโค้ดครบทุกหน้า demo |
 | 2026-10-15 | `feature/design` | design-system audit: เพิ่ม token สถานะ (`--color-danger/ok/caution` + soft) แทน hex ใน TSX | ✅ hex 170 → 101 (ที่เหลือเป็น SVG/chart attribute) |
 | 2026-10-15 | `feature/design` | commit งานค้าง 4 ก้อน (docs, ops, web, หน้า demo ที่ untracked) | ✅ working tree สะอาด |
-| ค้าง | — | G6 UAT · G7 bootstrap E2E · G8 Google · ตรวจหน้าจอ/มือถือ/contrast | ⏳ ช่วง test ท้ายแผน |
+| 2026-10-15 | `feature/design` | clean-up: helper `page()` แทน `RouteBoundary+Suspense` 40 จุด · `VITE_FEATURES` เป็น build arg · env inventory (`.env.example`, `.env.prod.example` ใหม่) · ruff fix 3 จุด | ✅ tsc/oxlint/build ผ่าน · `compose config` dev+prod ผ่าน (commit 1968e43) |
+| ค้าง | — | G6 · G7 · G8 · ตรวจ UI หลังเปลี่ยนไอคอน | ⏳ ย้ายไป §8 ช่วงทดสอบ |
+
+## 8. ช่วงทดสอบ (ท้ายแผน)
+
+| # | งาน | เกณฑ์ผ่าน |
+|---|---|---|
+| G6 | ปรับจำนวนเมนูที่คาดใน `tests/e2e/uat.mjs:128` ให้ตรงกับ `nav.ts` (เมื่อปิด flag demo) | UAT เขียว |
+| G7 | bootstrap E2E บน prod-test: ล็อกอิน → none → `app.bootstrap` → owner | owner เข้าใช้งานได้ |
+| G8 | Google sign-in กับบัญชีจริง (ต้องมี OAuth client) | ล็อกอิน Google สำเร็จ |
+| UI | ตรวจด้วยตาหลังเปลี่ยนไอคอน lucide (rail, เมนู, มือถือ, contrast) | ไม่มีไอคอนหาย/ผิดความหมาย |
