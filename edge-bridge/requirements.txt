@@ -8,3 +8,6 @@ python-snap7==2.0.2
 
 # protocol=opcua
 asyncua==1.1.5
+
+# at-rest sealing of the cfg cache (enrollment state_key)
+cryptography==44.0.2

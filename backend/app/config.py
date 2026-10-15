@@ -17,6 +17,10 @@ MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD") or None
 MQTT_PASSWORD_FILE = os.environ.get("MQTT_PASSWORD_FILE") or None
 # CA bundle for the TLS listener (self-signed dev CA from `make certs`).
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE") or None
+# what an enrolling gateway is told to dial (spec 5.1); host defaults to the
+# hostname the enroll request arrived on
+PUBLIC_MQTT_HOST = os.environ.get("PUBLIC_MQTT_HOST") or None
+PUBLIC_MQTT_PORT = int(os.environ.get("PUBLIC_MQTT_PORT", "8883"))
 
 
 def _read_secret(path: str | None) -> str | None:
@@ -98,7 +102,9 @@ RATE_COMMANDS_PER_TAG = int(os.environ.get("RATE_COMMANDS_PER_TAG", "5"))   # pe
 RATE_COMMANDS_WINDOW_S = float(os.environ.get("RATE_COMMANDS_WINDOW_S", "10"))
 RATE_MUTATIONS_PER_USER = int(os.environ.get("RATE_MUTATIONS_PER_USER", "60"))  # per window, per user
 RATE_MUTATIONS_WINDOW_S = float(os.environ.get("RATE_MUTATIONS_WINDOW_S", "60"))
-RATE_LOGOUT_PER_IP = int(os.environ.get("RATE_LOGOUT_PER_IP", "10"))
+RATE_ENROLL_PER_IP = int(os.environ.get("RATE_ENROLL_PER_IP", "10"))
+RATE_ENROLL_WINDOW_S = float(os.environ.get("RATE_ENROLL_WINDOW_S", "60"))
+RATE_LOGOUT_PER_IP =int(os.environ.get("RATE_LOGOUT_PER_IP", "10"))
 RATE_LOGOUT_WINDOW_S = float(os.environ.get("RATE_LOGOUT_WINDOW_S", "60"))
 RATE_WS_PER_IP = int(os.environ.get("RATE_WS_PER_IP", "20"))                # concurrent /ws sockets per client IP
 

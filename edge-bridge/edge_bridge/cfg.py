@@ -14,12 +14,15 @@ and keeps its previous adapter (if any); the others still apply.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
 import tempfile
 import threading
 from pathlib import Path
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .adapters import MultiAdapter, make_source_adapter
 from .adapters.base import TagAdapter
@@ -30,13 +33,36 @@ log = logging.getLogger("edge_bridge.cfg")
 CACHE_NAME = "cfg.json"
 
 
-def _seal(data: bytes) -> bytes:
-    """Seam for at-rest encryption of the cache (secrets live in it). Identity for now."""
-    return data
+_MAGIC = b"WDS1"   # sealed-cache marker: magic | 12-byte nonce | AES-GCM ciphertext
 
 
-def _unseal(data: bytes) -> bytes:
-    return data
+def _key_bytes(state_key: str | None) -> bytes | None:
+    if not state_key:
+        return None
+    k = base64.urlsafe_b64decode(state_key + "=" * (-len(state_key) % 4))
+    if len(k) != 32:
+        raise ValueError("state_key must decode to 32 bytes")
+    return k
+
+
+def _seal(data: bytes, state_key: str | None = None) -> bytes:
+    """At-rest encryption of the cache (secrets live in it): AES-GCM under the
+    enrollment state_key; identity when the gateway has none (env bootstrap)."""
+    key = _key_bytes(state_key)
+    if key is None:
+        return data
+    nonce = os.urandom(12)
+    return _MAGIC + nonce + AESGCM(key).encrypt(nonce, data, _MAGIC)
+
+
+def _unseal(data: bytes, state_key: str | None = None) -> bytes:
+    if not data.startswith(_MAGIC):
+        return data   # plaintext cache written before enrollment
+    key = _key_bytes(state_key)
+    if key is None:
+        raise ValueError("cfg cache is sealed but no state_key is available")
+    body = data[len(_MAGIC):]
+    return AESGCM(key).decrypt(body[:12], body[12:], _MAGIC)
 
 
 class AdapterHolder:
@@ -130,7 +156,7 @@ class CfgClient:
         """Apply the cached cfg at startup (no ack — not connected yet)."""
         path = Path(self._cfg.state_dir) / CACHE_NAME
         try:
-            doc = json.loads(_unseal(path.read_bytes()))
+            doc = json.loads(_unseal(path.read_bytes(), self._cfg.state_key))
             version, sources = doc["version"], doc["sources"]
             if isinstance(version, bool) or not isinstance(version, int) \
                     or not isinstance(sources, list):
@@ -167,7 +193,7 @@ class CfgClient:
             fd, tmp = tempfile.mkstemp(dir=d, prefix=".cfg-")
             try:
                 with os.fdopen(fd, "wb") as f:
-                    f.write(_seal(json.dumps(doc).encode()))
+                    f.write(_seal(json.dumps(doc).encode(), self._cfg.state_key))
                     f.flush()
                     os.fsync(f.fileno())
                 try:

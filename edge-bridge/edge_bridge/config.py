@@ -16,7 +16,7 @@ attempt so a rotated credential takes effect at the next reconnect.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -50,9 +50,28 @@ class Config:
     heartbeat_s: float = 5.0          # contract: heartbeat every 5 s
     clock_ok_threshold_ms: float = 500.0
     state_dir: str = "/var/lib/wds-edge"       # applied-cfg cache (cfg.json)
+    state_key: str | None = None               # from enrollment; seals the cfg cache
 
     @classmethod
-    def from_env(cls) -> "Config":
+    def from_env(cls, identity: dict | None = None) -> "Config":
+        """``identity`` (enroll.py's identity.json) wins over env for ids,
+        broker address, credentials and CA."""
+        c = cls._from_env()
+        if not identity:
+            return c
+        return replace(
+            c, org_id=identity["org_id"], site_id=identity["site_id"],
+            edge_id=identity["edge_id"],
+            mqtt_host=identity.get("mqtt_host") or c.mqtt_host,
+            mqtt_port=int(identity.get("mqtt_port") or c.mqtt_port),
+            mqtt_user=identity.get("mqtt_username") or c.mqtt_user,
+            mqtt_password=identity.get("mqtt_password") or c.mqtt_password,
+            mqtt_user_file=None, mqtt_password_file=None,
+            mqtt_ca_file=identity.get("mqtt_ca_file") or c.mqtt_ca_file,
+            state_key=identity.get("state_key") or None)
+
+    @classmethod
+    def _from_env(cls) -> "Config":
         return cls(
             mqtt_host=os.getenv("MQTT_HOST", "localhost"),
             mqtt_port=int(os.getenv("MQTT_PORT", "8883")),

@@ -1,5 +1,5 @@
 // Add device wizard: 1 connection type → 2 details → 3 install (provision
-// call returns the one-time secret) → 4 wait for the first heartbeat.
+// returns a one-time enrollment code, not a secret) → 4 wait for the first heartbeat.
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,25 +13,24 @@ import { canAdmin } from '../../app/session';
 import { useAdminOrg, useAdminSite } from '../admin/admin';
 import { Notice } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
-import { CopyButton, SecretReveal } from './SecretReveal';
+import { CopyButton } from './SecretReveal';
 import { Troubleshoot } from './Troubleshoot';
-import { actionError, dockerRun, downloadText, envFile, OK_TEXT_CLASS, type Adapter } from './devices';
+import { actionError, codeCountdown, dockerRun, downloadText, envFile, OK_TEXT_CLASS, type Adapter } from './devices';
 
-const TYPES: { id: Adapter | 'opcua' | 's7'; icon: LucideIcon; ready: boolean }[] = [
+// every type is configured after enrollment, under Data sources
+const TYPES: { id: Adapter; icon: LucideIcon; ready: boolean }[] = [
   { id: 'modbus', icon: Cable, ready: true },
   { id: 'sim', icon: Cpu, ready: true },
-  { id: 'opcua', icon: Network, ready: false },
-  { id: 's7', icon: Factory, ready: false },
+  { id: 'opcua', icon: Network, ready: true },
+  { id: 's7', icon: Factory, ready: true },
 ];
-const READY = TYPES.filter((x) => x.ready).map((x) => x.id as Adapter);
+const READY = TYPES.filter((x) => x.ready).map((x) => x.id);
 const STEPS = ['type', 'details', 'install', 'verify'] as const;
 /** Programmatic focus target only — the global :focus-visible ring would
  *  otherwise box the heading after every step change. */
 const NO_RING = { outline: 'none' } as const;
 /** After this long without a heartbeat, show the troubleshooting checklist. */
 const SLOW_MS = 90_000;
-/** Bare host name or IPv4 — no scheme, path or port (MQTT_PORT is fixed 8883). */
-const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
 
 export function AddDeviceWizard() {
   const { t } = useTranslation();
@@ -42,12 +41,10 @@ export function AddDeviceWizard() {
   const [step, setStep] = useState(0);
   const [adapter, setAdapter] = useState<Adapter>('modbus');
   const [name, setName] = useState('');
-  const [host, setHost] = useState(() => location.hostname);
-  const [pollMs, setPollMs] = useState(1000);
   const [tried, setTried] = useState(false);
-  const [touched, setTouched] = useState<{ name?: boolean; host?: boolean }>({});
-  const [created, setCreated] = useState<{ edge: Device; secret: string } | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [touched, setTouched] = useState<{ name?: boolean }>({});
+  const [created, setCreated] = useState<{ edge: Device } | null>(null);
+  const [enroll, setEnroll] = useState<{ code: string; expires: string } | null>(null);
   const [verifyFrom, setVerifyFrom] = useState<number | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const focusedKey = useRef('0-false'); // skip the initial mount (and StrictMode's re-run)
@@ -55,7 +52,15 @@ export function AddDeviceWizard() {
 
   const provision = useMutation({
     mutationFn: () => adminApi.provisionDevice(orgId!, site!.id, name.trim()),
-    onSuccess: (r) => { setCreated(r); setStep(2); },
+    onSuccess: (r) => {
+      setCreated({ edge: r.edge });
+      setEnroll({ code: r.enroll_code, expires: r.enroll_expires_at });
+      setStep(2);
+    },
+  });
+  const newCode = useMutation({
+    mutationFn: () => adminApi.newEnrollCode(orgId!, site!.id, created!.edge.id),
+    onSuccess: (r) => setEnroll({ code: r.enroll_code, expires: r.enroll_expires_at }),
   });
   // step 4: poll until the new edge reports a heartbeat
   const live = useQuery({
@@ -75,14 +80,6 @@ export function AddDeviceWizard() {
     if (step !== 1) headingRef.current?.focus(); // step 2 autofocuses its name field instead
   }, [step, connected]);
 
-  // the key exists only in this tab: warn before a reload / tab close loses it
-  useEffect(() => {
-    if (!created || connected) return;
-    const guard = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', guard);
-    return () => window.removeEventListener('beforeunload', guard);
-  }, [created, connected]);
-
   if (orgRole && !canAdmin(orgRole)) {
     return (
       <div className="flex min-h-[calc(100svh-36px)] flex-col">
@@ -94,15 +91,10 @@ export function AddDeviceWizard() {
   }
 
   const nameErr = !name.trim() ? t('dev.errName') : name.trim().length > 80 ? t('dev.errNameLong') : '';
-  const hostErr = HOST_RE.test(host.trim()) ? '' : t('dev.errHost');
-  const hostLocal = /^(localhost|127\.)/.test(host.trim());
   const showNameErr = (tried || touched.name) && !!nameErr;
-  const showHostErr = (tried || touched.host) && !!hostErr;
   const provisionErr = provision.error ? actionError(provision.error, t) : '';
-  const params = created && orgId && site ? {
-    host: host.trim(), orgId, siteId: site.id, edgeId: created.edge.id, username: created.edge.mqtt_username,
-    secret: created.secret, adapter, pollMs, siteCode: site.code || 'plant1',
-  } : null;
+  const params = created && enroll ? { wdsUrl: window.location.origin, code: enroll.code, edgeId: created.edge.id } : null;
+  const countdown = enroll ? codeCountdown(enroll.expires, now) : null;
   const elapsed = verifyFrom ? now - verifyFrom : 0;
 
   // radiogroup roving focus: arrows move between the selectable types
@@ -146,7 +138,7 @@ export function AddDeviceWizard() {
                   return (
                     <button key={id} type="button" role="radio" aria-checked={on} disabled={!ready} tabIndex={on ? 0 : -1}
                       ref={(el) => { typeRefs.current[id] = el; }}
-                      onClick={() => ready && setAdapter(id as Adapter)}
+                      onClick={() => ready && setAdapter(id)}
                       className={`flex min-h-[72px] items-start gap-3 rounded border p-4 text-left focus-visible:outline-2 focus-visible:outline-blue disabled:cursor-not-allowed disabled:bg-subtle ${
                         on ? 'border-blue bg-info-soft ring-1 ring-blue' : 'border-line hover:border-ink-35'}`}>
                       <Ico size={22} className={`shrink-0 ${on ? 'text-blue' : 'text-ink-46'}`} aria-hidden />
@@ -166,7 +158,7 @@ export function AddDeviceWizard() {
           )}
 
           {step === 1 && (
-            <form noValidate onSubmit={(e) => { e.preventDefault(); setTried(true); if (!nameErr && !hostErr && site) provision.mutate(); }}>
+            <form noValidate onSubmit={(e) => { e.preventDefault(); setTried(true); if (!nameErr && site) provision.mutate(); }}>
               <h2 ref={headingRef} tabIndex={-1} style={NO_RING} className="text-[16px] font-semibold">{t('dev.detailsTitle')}</h2>
               <p className="mt-1 text-[13px] text-ink-68">
                 {t('dev.typeChosen', { type: t(`dev.type.${adapter}.name`) })}{' '}
@@ -183,17 +175,6 @@ export function AddDeviceWizard() {
                 <Field id="dv-site" label={t('dev.site')}>
                   <select id="dv-site" className="input h-9 w-full" value={site?.id ?? ''} onChange={(e) => setSiteId(e.target.value)} disabled={sites.length < 2}>
                     {sites.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
-                  </select>
-                </Field>
-                <Field id="dv-host" label={t('dev.broker')} help={hostLocal && !showHostErr ? t('dev.brokerLocal') : t('dev.brokerHelp')} error={showHostErr ? hostErr : ''}
-                  warn={hostLocal && !showHostErr}>
-                  <input id="dv-host" className="input h-9 w-full font-mono" value={host} autoComplete="off" spellCheck={false} inputMode="url"
-                    onChange={(e) => setHost(e.target.value)} onBlur={() => setTouched((x) => ({ ...x, host: true }))}
-                    aria-invalid={showHostErr} aria-describedby={`dv-host-help${showHostErr ? ' dv-host-err' : ''}`} />
-                </Field>
-                <Field id="dv-poll" label={t('dev.pollMs')} help={t('dev.pollHelp')}>
-                  <select id="dv-poll" className="input h-9 w-full" value={pollMs} onChange={(e) => setPollMs(Number(e.target.value))} aria-describedby="dv-poll-help">
-                    {[500, 1000, 2000, 5000].map((n) => <option key={n} value={n}>{n} ms</option>)}
                   </select>
                 </Field>
               </div>
@@ -213,33 +194,36 @@ export function AddDeviceWizard() {
                 <CircleCheck size={16} className="mt-0.5 shrink-0" aria-hidden />{t('dev.createdOk', { name: created.edge.name })}
               </p>
               <ol className="mt-4 space-y-5">
-                <InstallStep n={1} title={t('dev.inst.key')}>
-                  <SecretReveal username={params.username} secret={params.secret} />
+                <InstallStep n={1} title={t('dev.inst.code')}>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <code className={`rounded border border-line bg-subtle px-3 py-2 font-mono text-[22px] font-semibold tracking-[0.12em] ${countdown ? '' : 'text-ink-46 line-through'}`}
+                      aria-label={t('dev.enrollCode')}>{enroll?.code}</code>
+                    {enroll && countdown && <CopyButton text={enroll.code} label={t('dev.copyCode')} />}
+                    {countdown
+                      ? <span className="font-mono text-[13px] text-ink-68" role="timer" aria-live="off">{t('dev.codeLeft', { left: countdown })}</span>
+                      : <span className="flex flex-wrap items-center gap-2">
+                          <span className="text-[13px] font-semibold text-[var(--color-danger)]" role="status"><span aria-hidden>▲ </span>{t('dev.codeExpired')}</span>
+                          <button type="button" className="btn" disabled={newCode.isPending} onClick={() => newCode.mutate()}>
+                            {newCode.isPending ? t('dev.creating') : t('dev.newCode')}
+                          </button>
+                        </span>}
+                  </div>
+                  <p className="mt-2 text-[12px] text-ink-46">{t('dev.codeNote')}</p>
+                  {newCode.error && <div className="mt-2"><Notice tone="error">{actionError(newCode.error, t)}</Notice></div>}
                 </InstallStep>
-                <InstallStep n={2} title={t('dev.inst.cert')}>
-                  <p className="text-[12.5px] text-ink-68">{t('dev.certNote')}</p>
-                </InstallStep>
-                <InstallStep n={3} title={t('dev.inst.env')}>
-                  <Snippet title={t('dev.envFile')} text={envFile(params)} display={envFile({ ...params, secret: '••••••••••••••••' })}
-                    note={t('dev.envMasked')} copyLabel={t('dev.copyEnv')}
-                    extra={<button type="button" className="inline-flex h-8 items-center gap-1 rounded border border-line-hard bg-white px-2.5 text-[12px] font-medium hover:bg-subtle"
-                      onClick={() => downloadText('edge.env', envFile(params))}><Download size={14} aria-hidden /> {t('dev.download')}</button>} />
-                </InstallStep>
-                {adapter === 'modbus' && (
-                  <InstallStep n={4} title={t('dev.inst.tags')}>
-                    <p className="text-[12.5px] text-ink-68">{t('dev.modbusNote')}</p>
-                  </InstallStep>
-                )}
-                <InstallStep n={adapter === 'modbus' ? 5 : 4} title={t('dev.inst.run')}>
+                <InstallStep n={2} title={t('dev.inst.run')}>
                   <Snippet title={t('dev.runCmd')} text={dockerRun(params)} copyLabel={t('dev.copyRun')} />
+                  <div className="mt-3">
+                    <Snippet title={t('dev.envFile')} text={envFile(params)} note={t('dev.envAlt')} copyLabel={t('dev.copyEnv')}
+                      extra={<button type="button" className="inline-flex h-8 items-center gap-1 rounded border border-line-hard bg-white px-2.5 text-[12px] font-medium hover:bg-subtle"
+                        onClick={() => downloadText('edge.env', envFile(params))}><Download size={14} aria-hidden /> {t('dev.download')}</button>} />
+                  </div>
+                </InstallStep>
+                <InstallStep n={3} title={t('dev.inst.sources')}>
+                  <p className="text-[12.5px] text-ink-68">{t(`dev.sourcesNote.${adapter}`)}</p>
                 </InstallStep>
               </ol>
-              <label className="mt-5 flex cursor-pointer items-start gap-2 rounded border border-line px-3 py-2.5 text-[13px]">
-                <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-                <span>{t('dev.ackSaved')}</span>
-              </label>
-              <p className="mt-2 text-[12px] text-ink-46">{t('dev.noBack')}</p>
-              <Footer onNext={goVerify} nextLabel={t('dev.installedNext')} busy={!saved} />
+              <Footer onNext={goVerify} nextLabel={t('dev.installedNext')} />
             </>
           )}
 
@@ -265,7 +249,7 @@ export function AddDeviceWizard() {
                     {t('dev.pollStatus', { elapsed: fmtDuration(new Date(verifyFrom ?? now).toISOString(), now), ago: live.dataUpdatedAt ? fmtAge(new Date(live.dataUpdatedAt).toISOString(), now) : '—' })}
                   </p>
                   {live.isError && <div className="mx-auto mt-3 max-w-[560px] text-left"><Notice tone="warn">{t('dev.pollError')}</Notice></div>}
-                  {elapsed > SLOW_MS && params && <Troubleshoot host={params.host} edgeId={created.edge.id} />}
+                  {elapsed > SLOW_MS && <Troubleshoot host={window.location.hostname} edgeId={created.edge.id} />}
                   <div className="mt-5 flex flex-wrap justify-center gap-2">
                     <button type="button" className="btn btn-ghost" onClick={() => setStep(2)}><ArrowLeft size={14} aria-hidden /> {t('dev.showInstall')}</button>
                     <button type="button" className="btn btn-ghost" onClick={() => navigate(`/infrastructure?device=${created.edge.id}`)}>{t('dev.finishLater')}</button>

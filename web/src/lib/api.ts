@@ -354,9 +354,12 @@ export const adminApi = {
   devices: (org: string, site: string) =>
     request<V2List<Device>>(v2(org, `/sites/${site}/edges`)),
   provisionDevice: (org: string, site: string, name: string) =>
-    request<{ edge: Device; secret: string }>(v2(org, `/sites/${site}/edges`), {
+    request<{ edge: Device; secret: string; enroll_code: string; enroll_expires_at: string }>(v2(org, `/sites/${site}/edges`), {
       method: 'POST', body: JSON.stringify({ name }),
     }),
+  newEnrollCode: (org: string, site: string, id: string) =>
+    request<{ enroll_code: string; enroll_expires_at: string }>(
+      v2(org, `/sites/${site}/edges/${id}/enroll-code`), { method: 'POST' }),
   rotateDevice: (org: string, site: string, id: string) =>
     request<{ edge_id: string; credential_version: number; mqtt_username: string; secret: string }>(
       v2(org, `/sites/${site}/edges/${id}/rotate`), { method: 'POST' }),

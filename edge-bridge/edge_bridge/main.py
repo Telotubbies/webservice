@@ -25,6 +25,7 @@ from .cfg import AdapterHolder, CfgClient
 from .clock import EdgeClock
 from .commands import CommandHandler
 from .config import Config
+from .enroll import EnrollError, enroll_if_needed
 from .logging_setup import setup_logging
 from .mqtt_bridge import MqttBridge
 
@@ -81,7 +82,12 @@ def _heartbeat_loop(stop: threading.Event, cfg: Config, holder: AdapterHolder,
 
 def main() -> int:
     setup_logging()
-    cfg = Config.from_env()
+    try:
+        identity = enroll_if_needed(Config.from_env().state_dir)
+    except EnrollError as exc:
+        log.error("enrollment failed: %s", exc)
+        return 3   # non-zero: the container restart policy retries
+    cfg = Config.from_env(identity)
     if not cfg.org_id or not cfg.site_id or not cfg.edge_id:
         log.error("ORG_ID/SITE_ID/EDGE_ID (uuids) are required — the v2 "
                   "topic namespace has no human names")
