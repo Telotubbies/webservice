@@ -26,7 +26,7 @@ from ..db import audit
 from ..db.context import tenant_tx
 from ..db.util import iso_z
 from . import secretbox
-from .addresses import AddressError, validate_connection
+from .addresses import AddressError, parse_address, validate_connection
 from .taginput import BulkError, TagSpec, build_tag, parse_bulk_csv
 
 log = logging.getLogger("wds.datasources")
@@ -481,6 +481,114 @@ async def delete_tag(org: str, edge: str, source: str, tag: str, request: Reques
 
 
 # ---------------------------------------------------- registry NOTIFY (5.6)
+# ------------------------------------------------- edge ops (test / browse)
+OP_TIMEOUT_S = 10
+
+
+class SourceTestIn(BaseModel):
+    protocol: Literal["sim", "modbus", "s7", "opcua"]
+    connection: dict = Field(default_factory=dict)
+    secrets: dict | None = None
+    tags: list[dict] = Field(default_factory=list, max_length=200)
+
+
+class BrowseIn(BaseModel):
+    node_id: str | None = Field(default=None, max_length=512)
+
+
+def _timeout() -> JSONResponse:
+    return JSONResponse(status_code=504, content={"detail": "edge_timeout"})
+
+
+async def _run_op(request: Request, p, org_id: UUID, edge_id: UUID, op: str,
+                  payload: dict, audit_target: dict, audit_detail: dict):
+    """Resolve the edge, ask it to run `op`, audit. Secrets only travel in
+    `payload`; they are never part of the audit rows or the response."""
+    m = _m()
+    st = m.st(request)
+    async with tenant_tx(st.pools.app, org_id, p.user_id) as tc:
+        e = await _edge_or_404(tc, edge_id, write=True)
+    try:
+        result = await st.commands.request_op(
+            org_id, e["site_id"], edge_id, op, payload, timeout_s=OP_TIMEOUT_S)
+        outcome: JSONResponse | dict = result
+    except TimeoutError:
+        outcome = _timeout()
+        audit_detail = {**audit_detail, "outcome": "edge_timeout"}
+    except RuntimeError as exc:
+        outcome = JSONResponse(status_code=502, content={
+            "detail": "edge_error", "reason": str(exc)[:200]})
+        audit_detail = {**audit_detail, "outcome": "edge_error"}
+    async with tenant_tx(st.pools.app, org_id, p.user_id) as tc:
+        await audit.append(tc, f"user:{p.user_id}", f"source.{op_audit(op)}",
+                           audit_target, audit_detail)
+    return outcome
+
+
+def op_audit(op: str) -> str:
+    return "test" if op == "test_source" else "browse"
+
+
+@router.post("/api/v1/orgs/{org}/edges/{edge}/sources:test")
+async def test_source(org: str, edge: str, body: SourceTestIn, request: Request,
+                      p=Depends(_user)):
+    """Dry-run a DRAFT source on the edge (read-only; never writes to a PLC)."""
+    m = _m()
+    org_id, edge_id, _, _ = _ids(org, edge, p, m._CONFIG)
+    try:
+        conn = validate_connection(body.protocol, body.connection)
+        tags = []
+        for i, t in enumerate(body.tags):
+            ttype = t.get("type") or "float"
+            tags.append({
+                "id": str(t.get("id") or f"draft{i}"),
+                "path": str(t.get("path") or f"draft/t{i}"),
+                "type": ttype,
+                "address": parse_address(body.protocol, t.get("address"), ttype),
+                **{k: t[k] for k in ("scale", "offset", "writable", "min", "max")
+                   if k in t},
+            })
+    except AddressError as e:
+        return _bad_field(e)
+    secrets = body.secrets if isinstance(body.secrets, dict) and body.secrets else None
+    await m._mutation_gate(request, p.user_id)
+    source = {"id": "draft", "protocol": body.protocol, "connection": conn,
+              "secrets": secrets, "poll_ms": 1000, "enabled": True, "tags": tags}
+    return await _run_op(
+        request, p, org_id, edge_id, "test_source", {"source": source},
+        {"edge_id": str(edge_id)},
+        {"protocol": body.protocol, "tag_count": len(tags),
+         "has_secret": secrets is not None})
+
+
+@router.post("/api/v1/orgs/{org}/edges/{edge}/sources/{source}/browse")
+async def browse_source(org: str, edge: str, source: str, body: BrowseIn,
+                        request: Request, p=Depends(_user)):
+    """One-level OPC UA node browse through the edge (stored secrets)."""
+    m = _m()
+    org_id, edge_id, sid, _ = _ids(org, edge, p, m._CONFIG, source)
+    await m._mutation_gate(request, p.user_id)
+    async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
+        await _edge_or_404(tc, edge_id, write=True)
+        s = await _source_or_404(tc, edge_id, sid)
+    if s["protocol"] != "opcua":
+        raise HTTPException(409, "browse_requires_opcua")
+    secrets = None
+    if s["secret_enc"] is not None:
+        try:
+            secrets = secretbox.open_(bytes(s["secret_enc"]))
+        except Exception:  # noqa: BLE001 - never echo crypto details
+            log.exception("source secret could not be opened")
+            raise HTTPException(500, "secret_unreadable") from None
+    draft = {"id": str(sid), "protocol": "opcua", "connection": s["connection"],
+             "secrets": secrets, "poll_ms": s["poll_ms"], "enabled": True, "tags": []}
+    return await _run_op(
+        request, p, org_id, edge_id, "browse",
+        {"source": draft, "node_id": body.node_id},
+        {"source_id": str(sid), "edge_id": str(edge_id)},
+        {"node_id": body.node_id})
+
+
 async def tags_notify_listener(registry, pools) -> None:
     """LISTEN wds_tags on a dedicated system-pool connection; every NOTIFY
     refreshes the registry (coalesced). Reconnects forever; the registry's own

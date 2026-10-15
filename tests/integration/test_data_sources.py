@@ -132,3 +132,21 @@ def test_delete_tag_in_use(admin_api, source):
     finally:
         admin_api.delete(f"/api/v1/orgs/{ORG_ID}/sites/{SITE_ID}/alarm-rules/{rid}")
     assert admin_api.delete(f"{url}/tags/{tag['id']}").status_code == 204
+
+
+def test_test_route_roundtrip(admin_api, viewer_api):
+    """Draft sim source tested through the real edge over MQTT (no DB rows)."""
+    body = {"protocol": "sim", "connection": {}, "tags": [
+        {"path": "l/d/s", "type": "float",
+         "address": {"behavior": "random_walk", "initial": 1.0}}]}
+    assert viewer_api.post(f"{BASE}:test", json=body).status_code == 403
+    bad = admin_api.post(f"{BASE}:test", json={"protocol": "opcua",
+                                               "connection": {"endpoint": "http://x"}})
+    assert bad.status_code == 422, bad.text
+    r = admin_api.post(f"{BASE}:test", json=body)
+    if r.status_code == 504:
+        pytest.skip("edge not connected in this stack")
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["ok"] is True and 1 <= len(out["sample"]) <= 5
+    assert {"path", "v", "q"} <= set(out["sample"][0])

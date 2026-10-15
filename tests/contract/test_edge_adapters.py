@@ -109,7 +109,7 @@ def test_make_source_adapter_modbus_and_unknown():
     ad = make_source_adapter(src, "s1")
     assert list(ad.tag_map()) == ["s1.p.q"] and ad._cfg["port"] == 1502
     with pytest.raises(ValueError):
-        make_source_adapter({"protocol": "opcua", "tags": []}, "s1")
+        make_source_adapter({"protocol": "plc9000", "tags": []}, "s1")
 
 
 class _Stub(TagAdapter):

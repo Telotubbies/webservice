@@ -428,6 +428,9 @@ def _handle_cmd_resp(st: State, msg, org_id: UUID, edge_id: UUID) -> None:
     if cid != msg.topic.rsplit("/", 1)[-1]:
         log.warning("cmd-resp id mismatch — dropped", extra={"topic": msg.topic})
         return
+    # edge ops (test_source/browse) answer here, before any commands-table lookup
+    if st.commands.resolve_op(cid, edge_id, payload):
+        return
     # CONTRACT.v2 §6 names the field `reason`; `detail` tolerated for compat
     asyncio.ensure_future(st.commands.handle_response(
         cid, status, payload.get("reason") or payload.get("detail"),

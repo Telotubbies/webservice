@@ -12,13 +12,15 @@ from .base import TagAdapter
 from .sim import SimAdapter
 from .modbus import ModbusAdapter
 from .s7 import S7Adapter
+from .opcua import OpcUaAdapter
 from .multi import MultiAdapter
 
 __all__ = ["MultiAdapter", "make_adapter", "make_source_adapter", "load_tags_config"]
 
 log = logging.getLogger("edge_bridge.adapters")
 
-_REGISTRY = {"sim": SimAdapter, "modbus": ModbusAdapter, "s7": S7Adapter}
+_REGISTRY = {"sim": SimAdapter, "modbus": ModbusAdapter, "s7": S7Adapter,
+             "opcua": OpcUaAdapter}
 
 
 def load_tags_config(path: str | Path) -> dict:
@@ -99,4 +101,22 @@ def make_source_adapter(source: dict, site: str, now=None) -> TagAdapter:
                 "min": t.get("min"), "max": t.get("max"),
             }
         return S7Adapter(site, cfg, now=now)
-    raise ValueError(f"unknown source protocol {protocol!r} (choices: modbus, s7, sim)")
+    if protocol == "opcua":
+        cfg = {k: conn[k] for k in ("endpoint", "security", "auth", "timeout_ms")
+               if k in conn}
+        secrets = source.get("secrets") or {}
+        cfg["username"] = secrets.get("username")
+        cfg["password"] = secrets.get("password")
+        cfg["tags"] = {}
+        for t in tags:
+            addr = t.get("address")
+            if not isinstance(addr, dict) or not addr.get("node_id"):
+                raise ValueError(f"opcua tag {t.get('path')!r}: address.node_id required")
+            cfg["tags"][key(t)] = {
+                "address": addr,
+                "scale": t.get("scale", 1.0), "offset": t.get("offset", 0.0),
+                "writable": bool(t.get("writable", False)),
+                "min": t.get("min"), "max": t.get("max"),
+            }
+        return OpcUaAdapter(site, cfg, now=now)
+    raise ValueError(f"unknown source protocol {protocol!r} (choices: modbus, opcua, s7, sim)")
