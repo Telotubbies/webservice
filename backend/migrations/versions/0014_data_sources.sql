@@ -73,6 +73,7 @@ CREATE POLICY system_enroll_read ON edge_enrollments FOR SELECT TO wds_system US
 CREATE POLICY system_enroll_use ON edge_enrollments FOR UPDATE TO wds_system USING (true) WITH CHECK (true);
 GRANT SELECT, UPDATE ON edge_enrollments TO wds_system;
 
+-- NOTE: the FORCE lift below is inside this migration's single transaction, so an abort rolls it back.
 -- Data step. wds_owner is not BYPASSRLS, so the backfill must lift FORCE on the
 -- tables it touches (owner is then exempt); restored immediately after.
 ALTER TABLE tags NO FORCE ROW LEVEL SECURITY;

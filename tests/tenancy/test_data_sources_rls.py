@@ -39,7 +39,7 @@ def test_data_sources_isolated_between_orgs(two_orgs):
                 with pytest.raises(asyncpg.ForeignKeyViolationError):   # b's edge under a's org
                     async with tc.conn.transaction():
                         await _source(tc, {**a, "edge": b["edge"]})
-                with pytest.raises(asyncpg.PostgresError):              # wrong org_id -> RLS WITH CHECK
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):      # wrong org_id -> RLS WITH CHECK
                     async with tc.conn.transaction():
                         await tc.execute(
                             "INSERT INTO data_sources(org_id, site_id, edge_id, name, protocol)"
@@ -92,17 +92,32 @@ def test_tag_source_fk_restrict(two_orgs):
 
 
 def test_seeded_tags_have_sim_source():
-    """Backfill contract: any tag with an edge that predates 0014 has a sim
-    source and a behavior address (run against a seeded DB)."""
+    """Backfill contract: every edge-owned tag has a 'Simulator' sim source and a
+    behavior address. Skips (never passes vacuously) on a DB with no such tags.
+    wds_system has no cross-org tags policy, so scan org by org."""
+    from app.db.context import tenant_tx
+
     async def go():
         pools = await make_pools()
         try:
             async with pools.system.acquire() as conn:
-                async with conn.transaction():
-                    n = await conn.fetchval(
-                        "SELECT count(*) FROM tags t WHERE t.edge_id IS NOT NULL"
-                        " AND t.source_id IS NOT NULL AND (t.address->>'behavior') IS NULL")
-                    assert n == 0
+                orgs = [r["id"] for r in await conn.fetch("SELECT id FROM organizations")]
+            owned = orphans = bad = 0
+            for org in orgs:
+                async with tenant_tx(pools.system, org) as tc:
+                    owned += await tc.fetchval("SELECT count(*) FROM tags WHERE edge_id IS NOT NULL")
+                    orphans += await tc.fetchval(
+                        "SELECT count(*) FROM tags WHERE edge_id IS NOT NULL AND source_id IS NULL")
+                    bad += await tc.fetchval(
+                        "SELECT count(*) FROM tags t JOIN data_sources ds"
+                        " ON ds.org_id = t.org_id AND ds.id = t.source_id"
+                        " WHERE t.edge_id IS NOT NULL AND (ds.protocol <> 'sim' OR ds.name <> 'Simulator'"
+                        " OR (t.address->>'behavior') IS NULL)")
+            return owned, orphans, bad
         finally:
             await pools.close()
-    run(go())
+    owned, orphans, bad = run(go())
+    if owned == 0:
+        pytest.skip("no seeded edge-owned tags in this DB")
+    assert orphans == 0
+    assert bad == 0
