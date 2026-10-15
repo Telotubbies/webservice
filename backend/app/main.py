@@ -25,7 +25,7 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import asyncpg
@@ -426,6 +426,28 @@ async def _flush_history(st: State) -> None:
                 " ON CONFLICT (tag_id, ts) DO NOTHING", batch)  # QoS1 replay dedup (I10)
 
 
+async def _prune_history(st: State) -> None:
+    """Drop tag_history older than HISTORY_MAX_AGE_S (G3). Per org so RLS
+    holds; small batches, one tx each, so ingest never waits on a long lock."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=config.HISTORY_MAX_AGE_S)
+    async with st.pools.system.acquire() as conn:
+        orgs = [r["id"] for r in await conn.fetch(
+            "SELECT id FROM organizations WHERE deleted_at IS NULL")]
+    total = 0
+    for org_id in orgs:
+        while True:
+            async with tenant_tx(st.pools.system, org_id) as tc:
+                n = int((await tc.execute(
+                    "DELETE FROM tag_history WHERE ctid = ANY(ARRAY("
+                    "SELECT ctid FROM tag_history WHERE ts < $1 LIMIT $2))",
+                    cutoff, config.HISTORY_PRUNE_BATCH)).split()[-1])
+            total += n
+            if n < config.HISTORY_PRUNE_BATCH:
+                break
+    if total:
+        log.info("tag_history pruned", extra={"rows": total})
+
+
 async def _every(seconds: float, fn, name: str) -> None:
     while True:
         await asyncio.sleep(seconds)
@@ -485,6 +507,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(st.reconciler.run_forever()),
         asyncio.create_task(_every(config.HISTORY_FLUSH_S, lambda: _flush_history(st),
                                    "history flush")),
+        asyncio.create_task(_every(config.HISTORY_PRUNE_S, lambda: _prune_history(st),
+                                   "history prune")),
         asyncio.create_task(_every(config.STALE_RULE_CHECK_S, st.alarms.sweep_stale,
                                    "stale-rule sweep")),
         asyncio.create_task(st.insights.run_forever()),
