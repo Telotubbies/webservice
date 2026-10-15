@@ -20,7 +20,7 @@ export interface SourceInput {
   poll_ms?: number; enabled?: boolean; secrets?: Record<string, unknown> | null;
 }
 export interface TagInput {
-  line: string; device: string; signal: string; address: string; type: 'bool' | 'number';
+  line: string; device: string; signal: string; address: string | Record<string, unknown>; type: 'bool' | 'number';
   unit?: string | null; writable?: boolean; min?: number | null; max?: number | null; scale?: number | null;
 }
 export interface TestResult { ok: boolean; detail?: string; sample?: unknown }
@@ -64,6 +64,8 @@ export const dsApi = {
     call<{ created: number }>(`${edge(org, e)}/sources/${s}/tags:bulk`, { method: 'POST', body: csv }, 'text/csv'),
   test: (org: string, e: string, b: { protocol: Protocol; connection: Record<string, unknown>; secrets?: Record<string, unknown> | null; tags?: unknown[] }) =>
     call<TestResult>(`${edge(org, e)}/sources:test`, json('POST', b)),
+  latest: (org: string, site: string) =>
+    call<{ items: { tag_id: string; v: number | boolean | null; q: string; ts: string }[] }>(`/api/v1/orgs/${encodeURIComponent(org)}/sites/${encodeURIComponent(site)}/tags/latest`),
   browse: (org: string, e: string, s: string, nodeId: string | null) =>
     call<{ items: BrowseItem[] }>(`${edge(org, e)}/sources/${s}/browse`, json('POST', { node_id: nodeId })),
 };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  addressPlaceholder, configState, csvErrorsFromBody, liveKey, opcuaIssues, parseTagCsv,
+  addressPlaceholder, configState, csvErrorsFromBody, opcuaIssues, parseTagCsv,
   remapDashboardTag, splitCsv, tagsToCsv, templatePlan,
 } from './logic';
 import { factoryioSorting } from './templates';
@@ -107,7 +107,6 @@ describe('tag names', () => {
     expect(remapDashboardTag('plant1.sort.line1.motor1.running', 'plant1')).toBe('plant1.sort.motor1.running');
     expect(remapDashboardTag('plant1.sort.vision.cam1.gravel_ratio', 'p2')).toBe('p2.sort.cam1.gravel_ratio');
   });
-  test('liveKey', () => expect(liveKey('plant1', 'sort/motor1/running')).toBe('plant1.sort.motor1.running'));
 });
 
 describe('opcuaIssues', () => {
@@ -147,5 +146,15 @@ describe('browseToDrafts', () => {
     expect(d.map((x) => x.signal)).toEqual(['speed', 'speed_2', 'run']);
     expect(d[2].type).toBe('bool');
     expect(parseTagCsv(tagsToCsv(d)).errors).toEqual([]);
+  });
+});
+
+describe('tsv paste', () => {
+  test('re-serialised rows are comma csv the server accepts', () => {
+    const r = parseTagCsv('line\tdevice\tsignal\taddress\tunit\nA\tB\tC\t40001\tm/s,x\n');
+    expect(r.errors).toEqual([]);
+    const csv = tagsToCsv(r.rows);
+    expect(csv.split('\n')[0]).toBe('line,device,signal,address,type,unit,writable,min,max,scale');
+    expect(splitCsv(csv)[1].cells[5]).toBe('m/s,x');
   });
 });

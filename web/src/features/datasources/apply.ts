@@ -5,17 +5,19 @@ import { adminApi, dashboardApi } from '../../lib/api';
 import { DASH_TEMPLATES } from '../dashboards/templates';
 import { newId } from '../dashboards/model';
 import { dsApi } from './api';
-import { remapDashboardTag, templatePlan, type PlanStep, type SourceTemplate } from './logic';
+import { remapDashboardTag, type PlanStep, type SourceTemplate } from './logic';
 
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed';
 
 export interface ApplyCtx { org: string; siteId: string; siteCode: string; edgeId: string }
 
+/** Source/tags failures stop the run (later steps depend on them); dashboard
+ *  and alarm-rule failures are marked failed and the run continues. */
 export async function applyTemplate(
-  tpl: SourceTemplate, ctx: ApplyCtx,
+  tpl: SourceTemplate, plan: PlanStep[], ctx: ApplyCtx,
   onStep: (i: number, status: StepStatus, err?: unknown) => void,
-): Promise<{ plan: PlanStep[]; failedAt: number | null; error?: unknown }> {
-  const plan = templatePlan(tpl, ctx.siteCode);
+): Promise<{ fatalAt: number | null; failures: { index: number; error: unknown }[] }> {
+  const failures: { index: number; error: unknown }[] = [];
   let sourceId = '';
   let tagIds: Map<string, string> | null = null;
   for (let i = 0; i < plan.length; i++) {
@@ -49,8 +51,9 @@ export async function applyTemplate(
       onStep(i, 'done');
     } catch (error) {
       onStep(i, 'failed', error);
-      return { plan, failedAt: i, error };
+      failures.push({ index: i, error });
+      if (step.kind === 'source' || step.kind === 'tags') return { fatalAt: i, failures };
     }
   }
-  return { plan, failedAt: null };
+  return { fatalAt: null, failures };
 }

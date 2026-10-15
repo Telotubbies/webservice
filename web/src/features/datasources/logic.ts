@@ -189,11 +189,6 @@ export function remapDashboardTag(name: string, siteCode: string): string {
   return p.length === 5 ? [siteCode, p[1], p[3], p[4]].join('.') : name;
 }
 
-/** Live value lookup key: tag display name is `<site>.<path with dots>`. */
-export function liveKey(siteCode: string, path: string): string {
-  return `${siteCode}.${path.replace(/\//g, '.')}`;
-}
-
 /** Row errors from a 422 invalid_csv body, or null when it is another error. */
 export function csvErrorsFromBody(body: unknown): CsvRowError[] | null {
   const b = body as { detail?: string; errors?: CsvRowError[] } | null;

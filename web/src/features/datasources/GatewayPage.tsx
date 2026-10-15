@@ -18,7 +18,7 @@ import { DEVICE_TABS } from '../devices/tabs';
 import { applyTemplate, type StepStatus } from './apply';
 import { dsApi, type DataSource } from './api';
 import { ConfigChip, StateChip } from './DataSourcesPage';
-import { configState, type PlanStep } from './logic';
+import { configState, templatePlan, type PlanStep } from './logic';
 import { SourceWizard } from './SourceWizard';
 import { TagTable } from './TagTable';
 import { factoryioSorting } from './templates';
@@ -38,7 +38,7 @@ export function GatewayPage() {
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
   const [del, setDel] = useState<DataSource | null>(null);
   const [msg, setMsg] = useState('');
-  const [progress, setProgress] = useState<{ plan: PlanStep[]; status: StepStatus[]; error?: string } | null>(null);
+  const [progress, setProgress] = useState<{ plan: PlanStep[]; status: StepStatus[]; errors: string[] } | null>(null);
 
   const edges = useQuery({
     queryKey: ['devices', orgId, site?.id], queryFn: () => adminApi.devices(orgId!, site!.id),
@@ -69,17 +69,21 @@ export function GatewayPage() {
   const runTemplate = async () => {
     if (!orgId || !site) return;
     setApplying(true); setMsg('');
-    const plan: PlanStep[] = [];
-    setProgress({ plan, status: [] });
-    const status: StepStatus[] = [];
-    const res = await applyTemplate(factoryioSorting, { org: orgId, siteId: site.id, siteCode: site.code, edgeId }, (i, s) => {
+    const plan = templatePlan(factoryioSorting, site.code);
+    const status: StepStatus[] = plan.map(() => 'pending');
+    setProgress({ plan, status: [...status], errors: [] });
+    const res = await applyTemplate(factoryioSorting, plan, { org: orgId, siteId: site.id, siteCode: site.code, edgeId }, (i, s) => {
       status[i] = s;
-      setProgress((p) => ({ plan: p?.plan ?? [], status: [...status], error: p?.error }));
+      setProgress((p) => p && { ...p, status: [...status] });
     });
-    setProgress({
-      plan: res.plan, status: res.plan.map((_, i) => status[i] ?? 'pending'),
-      error: res.failedAt == null ? undefined : res.error instanceof ApiError ? `${res.error.status} ${res.error.message}` : String((res.error as Error)?.message ?? res.error),
+    const why = (e: unknown) => e instanceof ApiError ? `${e.status} ${e.message}` : String((e as Error)?.message ?? e);
+    const errors = res.failures.map((f) => {
+      const s = plan[f.index];
+      const label = s.kind === 'source' ? t('ds.stepSource', { name: s.body.name }) : s.kind === 'tags' ? t('ds.stepTags', { count: s.count }) : s.kind === 'dashboard' ? t('ds.stepDashboard') : t('ds.stepRule', { name: s.rule.name });
+      const hint = s.kind === 'tags' ? ` ${t('ds.applyTagsHint')}` : s.kind === 'source' ? ` ${t('ds.applySourceHint')}` : '';
+      return `${label}: ${why(f.error)}.${hint}`;
     });
+    setProgress({ plan, status: [...status], errors });
     setApplying(false);
     refresh();
   };
@@ -115,8 +119,8 @@ export function GatewayPage() {
                       <li key={i} className={progress.status[i] === 'failed' ? 'text-[var(--color-danger)]' : ''}><span aria-hidden className="inline-block w-5">{glyph(progress.status[i] ?? 'pending')}</span>{stepLabel(s)}</li>
                     ))}
                   </ol>
-                  {progress.error && <div className="mt-2"><Notice tone="error">{t('ds.applyFailed', { reason: progress.error })}</Notice></div>}
-                  {!applying && !progress.error && progress.plan.length > 0 && <div className="mt-2"><Notice tone="ok">{t('ds.applyDone')}</Notice></div>}
+                  {progress.errors.map((m, i) => <div key={i} className="mt-2"><Notice tone="error">{t('ds.applyFailed', { reason: m })}</Notice></div>)}
+                  {!applying && progress.errors.length === 0 && progress.plan.length > 0 && <div className="mt-2"><Notice tone="ok">{t('ds.applyDone')}</Notice></div>}
                   {!applying && <button type="button" className="btn btn-sm btn-ghost mt-2" onClick={() => setProgress(null)}>{t('ds.close')}</button>}
                 </section>
               )}
@@ -170,7 +174,7 @@ export function GatewayPage() {
                     </table>
                   </div>
                   {selected?.protocol === 's7' && <div className="mt-3"><Notice tone="warn">{t('ds.s7Notice')}</Notice></div>}
-                  {selected && orgId && <TagTable key={selected.id} orgId={orgId} edgeId={edgeId} source={selected} siteCode={site.code} canEdit={admin} />}
+                  {selected && orgId && <TagTable key={selected.id} orgId={orgId} edgeId={edgeId} source={selected} siteId={site.id} canEdit={admin} />}
                 </>
               )}
             </>

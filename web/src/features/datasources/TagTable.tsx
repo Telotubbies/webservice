@@ -5,12 +5,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2, Upload } from 'lucide-react';
-import { api, ApiError } from '../../lib/api';
+import { ApiError } from '../../lib/api';
 import { Confirm } from '../../shared/ui/Confirm';
 import { EmptyState, ErrorState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
 import { dsApi, fieldError, type DataSource, type SourceTag } from './api';
 import {
-  addressInput, addressPlaceholder, CSV_COLUMNS, csvErrorsFromBody, formatAddress, liveKey, parseTagCsv,
+  addressInput, addressPlaceholder, CSV_COLUMNS, csvErrorsFromBody, formatAddress, parseTagCsv, tagsToCsv,
   type CsvRowError, type TagType,
 } from './logic';
 import { OpcBrowser } from './OpcBrowser';
@@ -24,15 +24,15 @@ const fromTag = (x: SourceTag): Draft => ({
   writable: x.writable, min: x.min == null ? '' : String(x.min), max: x.max == null ? '' : String(x.max), scale: x.scale == null ? '' : String(x.scale),
 });
 
-export function TagTable({ orgId, edgeId, source, siteCode, canEdit }: {
-  orgId: string; edgeId: string; source: DataSource; siteCode: string; canEdit: boolean;
+export function TagTable({ orgId, edgeId, source, siteId, canEdit }: {
+  orgId: string; edgeId: string; source: DataSource; siteId: string; canEdit: boolean;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const key = ['ds-tags', orgId, edgeId, source.id];
   const tags = useQuery({ queryKey: key, queryFn: () => dsApi.tags(orgId, edgeId, source.id), refetchInterval: 10_000 });
-  const live = useQuery({ queryKey: ['tags-latest'], queryFn: api.latestAll, refetchInterval: 3000, retry: false });
-  const liveMap = useMemo(() => new Map((live.data ?? []).map((v) => [v.name, v])), [live.data]);
+  const live = useQuery({ queryKey: ['ds-latest', orgId, siteId], queryFn: () => dsApi.latest(orgId, siteId), refetchInterval: 3000, retry: false });
+  const liveMap = useMemo(() => new Map((live.data?.items ?? []).map((v) => [v.tag_id, v])), [live.data]);
 
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [editing, setEditing] = useState<string | null>(null);
@@ -62,7 +62,7 @@ export function TagTable({ orgId, edgeId, source, siteCode, canEdit }: {
   });
 
   const create = useMutation({
-    mutationFn: () => dsApi.createTag(orgId, edgeId, source.id, { line: draft.line, device: draft.device, signal: draft.signal, ...payload(draft) } as never),
+    mutationFn: () => dsApi.createTag(orgId, edgeId, source.id, { line: draft.line, device: draft.device, signal: draft.signal, ...payload(draft) }),
     onSuccess: () => { setDraft(EMPTY); setFe(null); setMsg(''); refresh(); },
     onError: onErr,
   });
@@ -137,7 +137,7 @@ export function TagTable({ orgId, edgeId, source, siteCode, canEdit }: {
             </thead>
             <tbody>
               {rows.map((x) => {
-                const lv = liveMap.get(liveKey(siteCode, x.path));
+                const lv = liveMap.get(x.id);
                 return editing === x.id ? (
                   <tr key={x.id} className="border-b border-line bg-info-soft">
                     {inputs(true)}
@@ -216,7 +216,7 @@ function CsvDialog({ orgId, edgeId, source, onClose, onDone }: {
     if (local.errors.length) { setErrors(local.errors); return; }
     setErrors([]); setBusy(true);
     try {
-      await dsApi.bulkTags(orgId, edgeId, source.id, text);
+      await dsApi.bulkTags(orgId, edgeId, source.id, tagsToCsv(local.rows));
       onDone();
     } catch (e) {
       const rows = e instanceof ApiError ? csvErrorsFromBody(e.body) : null;
