@@ -53,6 +53,8 @@ from .insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
 from .datasources.publisher import CfgPublisher, parse_cfg_req
 from .datasources.routes import router as datasources_router, tags_notify_listener
+from .vision.cameras import router as cameras_router
+from .vision.videos import router as videos_router
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
@@ -1827,6 +1829,8 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
 # data sources + tags CRUD (spec 5.2) — handlers resolve auth helpers from this
 # module lazily, so including here (after the helpers exist) is safe.
 app.include_router(datasources_router)
+app.include_router(videos_router)
+app.include_router(cameras_router)
 
 
 # ---------------------------------------------------------------------------

@@ -61,6 +61,12 @@ def _load_data_source_key() -> bytes | None:
 
 DATA_SOURCE_KEY = _load_data_source_key()
 
+# --- uploaded demo videos (plan M1-03) ------------------------------------------
+VIDEO_DIR = os.environ.get("VIDEO_DIR", "/data/videos")
+# how a GATEWAY reaches this backend for video downloads (compose: the service name)
+EDGE_MEDIA_BASE_URL = (os.environ.get("EDGE_MEDIA_BASE_URL") or os.environ.get("PUBLIC_URL", "")
+                       or "http://backend:8000").rstrip("/")
+
 # --- dynamic-security admin channel (doc 17 §2/§6) -------------------------
 DYNSEC_ADMIN_USER = os.environ.get("DYNSEC_ADMIN_USER", "svc-dynsec-admin")
 DYNSEC_ADMIN_PASSWORD = _read_secret(

@@ -20,6 +20,7 @@ from uuid import UUID
 from ..db.context import tenant_tx
 from . import secretbox
 from .routes import _TAG_SELECT, CFG_CHANNEL, _tag_json
+from ..vision.cameras import cameras_for_cfg
 
 log = logging.getLogger("wds.cfgpub")
 
@@ -33,7 +34,8 @@ def cfg_topic(org_id, site_id, edge_id, leaf: str = "cfg") -> str:
 
 
 # ------------------------------------------------------------------- pure
-def cfg_payload(version: int, sources: list[dict], tags_by_source: dict[str, list[dict]]) -> dict:
+def cfg_payload(version: int, sources: list[dict], tags_by_source: dict[str, list[dict]],
+                cameras: list[dict] | None = None) -> dict:
     """`sources`: rows as dicts (id, protocol, connection, poll_ms, enabled,
     secrets = opened dict|None). `tags_by_source`: `_tag_json`-shaped dicts."""
     out = []
@@ -50,7 +52,7 @@ def cfg_payload(version: int, sources: list[dict], tags_by_source: dict[str, lis
                 "writable": t["writable"], "min": t["min"], "max": t["max"],
             } for t in tags_by_source.get(sid, [])],
         })
-    return {"version": int(version), "sources": out}
+    return {"version": int(version), "sources": out, "cameras": cameras or []}
 
 
 def parse_cfg_req(raw) -> tuple[bool, int | None]:
@@ -148,7 +150,7 @@ async def build_cfg(pool, org_id: UUID, edge_id: UUID) -> dict:
         d = dict(r)
         d["secrets"] = secretbox.open_(r["secret_enc"]) if r["secret_enc"] else None
         sources.append(d)
-    return cfg_payload(version or 0, sources, by_src)
+    return cfg_payload(version or 0, sources, by_src, cameras)
 
 
 class CfgPublisher:
