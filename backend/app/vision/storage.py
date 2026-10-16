@@ -13,6 +13,7 @@ from uuid import UUID
 from .. import config
 
 MAX_VIDEO_BYTES = 200 * 1024 * 1024
+MAX_MODEL_BYTES = 500 * 1024 * 1024
 
 
 class TooLarge(Exception):
@@ -27,17 +28,28 @@ def key(org_id: UUID, video_id: UUID) -> str:
     return f"videos/{org_id}/{video_id}"
 
 
+def model_path(org_id: UUID, version_id: UUID) -> Path:
+    return Path(config.MODEL_DIR) / str(org_id) / f"{version_id}.onnx"
+
+
+def model_key(org_id: UUID, version_id: UUID) -> str:
+    return f"models/{org_id}/{version_id}.onnx"
+
+
 async def put(org_id: UUID, video_id: UUID, chunks: AsyncIterator[bytes]) -> tuple[int, str]:
-    """Stream `chunks` to disk; return (size, sha256). Past MAX_VIDEO_BYTES the
+    return await put_file(path(org_id, video_id), chunks, MAX_VIDEO_BYTES)
+
+
+async def put_file(p: Path, chunks: AsyncIterator[bytes], max_bytes: int) -> tuple[int, str]:
+    """Stream `chunks` to `p`; return (size, sha256). Past `max_bytes` the
     partial file is removed and TooLarge is raised."""
-    p = path(org_id, video_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     h, size = hashlib.sha256(), 0
     try:
         with open(p, "wb") as f:
             async for c in chunks:
                 size += len(c)
-                if size > MAX_VIDEO_BYTES:
+                if size > max_bytes:
                     raise TooLarge
                 h.update(c)
                 f.write(c)

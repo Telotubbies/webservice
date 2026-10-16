@@ -248,6 +248,8 @@ services:
       - ./edge-bridge/tags.yaml:/config/tags.yaml:ro
       - ./backend/alarm_rules.yaml:/config/alarm_rules.yaml:ro
       - video-data:/data/videos   # uploaded demo videos (plan M1-03)
+      - model-data:/data/models   # ONNX model versions (plan M1-04)
+      - convert-spool:/data/convert   # .pt jobs for the sandboxed converter
       # Dev CA for the TLS listener (infra/gen-certs.sh — `make certs`).
       - ${CERTS_DIR:-./infra/certs}:/mosquitto-certs:ro
     secrets:
@@ -311,6 +313,8 @@ volumes:
   # and rollback path (doc 18 §3). Nothing mounts it read-write any more.
   backend-data:
   video-data:
+  model-data:
+  convert-spool:
 
 # MQTT identity secrets (infra/gen-secrets.sh — `make secrets`). Mounted at
 # /run/secrets/<name>; never in environment, never in `docker inspect`.

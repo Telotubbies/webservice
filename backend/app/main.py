@@ -54,7 +54,9 @@ from .db import audit
 from .datasources.publisher import CfgPublisher, parse_cfg_req
 from .datasources.routes import router as datasources_router, tags_notify_listener
 from .vision import stream as vision_stream
+from .vision import models as vision_models
 from .vision.cameras import router as cameras_router
+from .vision.models import router as models_router
 from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
@@ -618,6 +620,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(tags_notify_listener(st.registry, st.pools)),
         # wds_cfg NOTIFY -> push edge config over MQTT (spec 5.4)
         asyncio.create_task(st.cfgpub.start()),
+        # converter spool -> model versions (plan M1-04)
+        asyncio.create_task(vision_models.ingest_loop(pools)),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
                                        "site": config.V1_SITE_CODE})
@@ -1839,6 +1843,7 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
 app.include_router(datasources_router)
 app.include_router(videos_router)
 app.include_router(cameras_router)
+app.include_router(models_router)
 app.include_router(stream_router)
 
 

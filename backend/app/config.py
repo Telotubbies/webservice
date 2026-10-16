@@ -61,6 +61,10 @@ def _load_data_source_key() -> bytes | None:
 
 DATA_SOURCE_KEY = _load_data_source_key()
 
+# --- vision model files and the converter spool (plan M1-04) -------------------
+MODEL_DIR = os.environ.get("MODEL_DIR", "/data/models")
+CONVERT_SPOOL = os.environ.get("CONVERT_SPOOL", "/data/convert")
+
 # --- uploaded demo videos (plan M1-03) ------------------------------------------
 VIDEO_DIR = os.environ.get("VIDEO_DIR", "/data/videos")
 # how a GATEWAY reaches this backend for video downloads (compose: the service name)
