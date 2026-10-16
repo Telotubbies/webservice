@@ -143,6 +143,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   if (p === '/api/system/health') {
     return send(200, { mqtt: { connected: true }, edge: { last_heartbeat_ts: iso(t - 2000), clock_ok: true }, backend: { uptime_s: Math.round((t - T0) / 1000) + 86400 } });
   }
+  if (p === '/api/v1/consents') return send(200, { given: {}, missing: [], current: true });
   if (p === '/api/tags') return send(200, TAGS);
   if (p === '/api/tags/latest') return send(200, TAGS.map((g) => ({ name: g.name, v: value(g.name, t), q: 'good', ts: iso(t) })));
 
