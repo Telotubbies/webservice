@@ -40,3 +40,7 @@ deploy/garage/garage.toml
 ref/
 *.tmp
 .chrome-clone/
+
+# Claude Code local state + executor ledger
+.claude/
+.superpowers/
