@@ -9,7 +9,7 @@ import { Link } from 'react-router';
 import { refreshSession, signIn, signOut } from '../../app/session';
 import { api, setSessionToken } from '../../lib/api';
 import { setLang } from '../../lib/i18n';
-import { authConfig, signInWithGoogle, signInWithMicrosoft, signInWithSSO } from './oidc';
+import { authConfig, signInWithGoogle, signInWithMicrosoft, signInWithSSO, signUp } from './oidc';
 import { Icon } from '../../shared/ui/Icon';
 import '../landing/landing.css';
 import './auth.css';
@@ -202,7 +202,9 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
         )}
       </main>
 
-      <Link to="/" className="signin-signup">{t('auth.signup')}</Link>
+      {cfg?.oidc
+        ? <button type="button" className="signin-signup" onClick={() => void signUp()}>{t('auth.signup')}</button>
+        : <Link to="/" className="signin-signup">{t('auth.signup')}</Link>}
 
       <footer className="signin-terms">
         {t('auth.termsPre')} <Link to="/">{t('auth.termsT')}</Link> {t('auth.termsAnd')}{' '}

@@ -162,6 +162,11 @@ export function signInWithSSO(): Promise<void> | undefined {
 }
 
 /** kc_idp_hint makes Keycloak skip its chooser and go straight to the IdP. */
+/** Keycloak self-registration (OIDC prompt=create). */
+export function signUp(): Promise<void> | undefined {
+  return mgr?.signinRedirect({ prompt: 'create' });
+}
+
 export function signInWithGoogle(): Promise<void> | undefined {
   return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'google' } });
 }

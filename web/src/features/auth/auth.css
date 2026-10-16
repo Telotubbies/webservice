@@ -129,7 +129,7 @@
 #signin-bad-token { border-color: rgba(217,123,123,.45); color: #e8a9a9; }
 
 /* below-card sign-up link + terms line (pink 12-14px, centered) */
-.signin-signup {
+.signin-signup { background: none; border: none; cursor: pointer; font: inherit;
   position: relative; z-index: 1; margin-top: 26px;
   font-size: 14px; color: var(--hx-pink); text-decoration: underline;
   text-underline-offset: 3px;
