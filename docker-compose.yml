@@ -157,9 +157,13 @@ services:
       SITE_ID: "${V1_SITE_ID:-0199d000-0000-7000-8000-00000000b001}"
       EDGE_ID: "${V1_EDGE_ID:-0199d000-0000-7000-8000-00000000c001}"
       SITE: plant1              # tag-naming site code, not a topic identity
-      ADAPTER: sim
+      ADAPTER: "${EDGE_ADAPTER:-sim}"      # sim | modbus (Factory I/O: see SDLC/factoryio.md)
+      MODBUS_HOST: "${MODBUS_HOST:-host.docker.internal}"
+      MODBUS_PORT: "${MODBUS_PORT:-502}"
       POLL_MS: "1000"
       EDGE_CLOCK_SKEW_MS: "${EDGE_CLOCK_SKEW_MS:-0}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ${CERTS_DIR:-./infra/certs}:/mosquitto-certs:ro
     secrets:
@@ -198,6 +202,9 @@ services:
       RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
       TAGS_CONFIG: /config/tags.yaml
+      # external AI model server (backend/app/inference.py); empty = off
+      INFERENCE_URL: "${INFERENCE_URL:-}"
+      INFERENCE_PERIOD_S: "${INFERENCE_PERIOD_S:-10}"
       ALARM_RULES_CONFIG: /config/alarm_rules.yaml
       # v4 T5 — OIDC (ADR-12). iss is the public web origin (nginx proxies
       # the realm); JWKS is fetched on the compose network. Dev tokens only
