@@ -39,7 +39,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import config, credpush, enroll_codes, inference, orgs as orgs_mod
+from . import (
+    config, consents, credpush, edgelogs, enroll_codes, eventsfeed, inference,
+    notify, onboarding, orgapi, orgguard, orgs as orgs_mod, plans,
+    platform as platform_api, statuspage, tagquery, workers,
+)
 from .alarms import (
     AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener,
 )
@@ -57,6 +61,10 @@ from .vision import stream as vision_stream
 from .vision import models as vision_models
 from .vision.cameras import router as cameras_router
 from .vision.classes import router as classes_router
+from .vision import events as vision_events
+from .vision.events import router as vision_events_router
+from .vision.rules import router as vision_rules_router
+from .vision.external import router as vision_external_router
 from .vision.models import router as models_router
 from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
@@ -65,6 +73,8 @@ from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .mqtt_client import MQTTBridge
+from .oee import router as oee_router, downtime_sweep
+from .reports import router as reports_router, report_sweep
 from .observability import (
     ObservabilityMiddleware, _client_ip, metrics_response, migration_at_head, RUNTIME,
 )
@@ -389,6 +399,17 @@ async def _handle_message(st: State, msg) -> None:
         return await vision_stream.handle_frame(st, msg, edge, parts[6])
     if kind == "vision" and len(parts) == 6 and parts[5] == "stat":
         return await vision_stream.handle_stat(st, msg, edge)
+    if kind == "vision" and len(parts) == 6 and parts[5] == "caps":
+        return await vision_stream.handle_caps(st, msg, edge)
+    if kind == "vision" and len(parts) == 6 and parts[5] == "event":
+        return await vision_events.handle_event(st, msg, edge)
+    if kind == "vision" and len(parts) == 6 and parts[5] == "audit":
+        return await vision_events.handle_audit(st, msg, edge)
+    if kind == "vision" and len(parts) == 6 and parts[5] == "count":
+        return await vision_events.handle_count(st, msg, edge)
+    if kind == "logs" and len(parts) == 5:
+        return await edgelogs.ingest_edge_log(
+            st, org_id, site_id, edge_id, msg.payload)
     if kind == "cmd-resp" and len(parts) == 6:
         return _handle_cmd_resp(st, msg, org_id, edge_id)
     if kind == "tele" and len(parts) >= 6:
@@ -521,28 +542,6 @@ async def _flush_history(st: State) -> None:
                 " ON CONFLICT (tag_id, ts) DO NOTHING", batch)  # QoS1 replay dedup (I10)
 
 
-async def _prune_history(st: State) -> None:
-    """Drop tag_history older than HISTORY_MAX_AGE_S (G3). Per org so RLS
-    holds; small batches, one tx each, so ingest never waits on a long lock."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=config.HISTORY_MAX_AGE_S)
-    async with st.pools.system.acquire() as conn:
-        orgs = [r["id"] for r in await conn.fetch(
-            "SELECT id FROM organizations WHERE deleted_at IS NULL")]
-    total = 0
-    for org_id in orgs:
-        while True:
-            async with tenant_tx(st.pools.system, org_id) as tc:
-                n = int((await tc.execute(
-                    "DELETE FROM tag_history WHERE ctid = ANY(ARRAY("
-                    "SELECT ctid FROM tag_history WHERE ts < $1 LIMIT $2))",
-                    cutoff, config.HISTORY_PRUNE_BATCH)).split()[-1])
-            total += n
-            if n < config.HISTORY_PRUNE_BATCH:
-                break
-    if total:
-        log.info("tag_history pruned", extra={"rows": total})
-
-
 async def _every(seconds: float, fn, name: str) -> None:
     while True:
         await asyncio.sleep(seconds)
@@ -602,8 +601,10 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(st.reconciler.run_forever()),
         asyncio.create_task(_every(config.HISTORY_FLUSH_S, lambda: _flush_history(st),
                                    "history flush")),
-        asyncio.create_task(_every(config.HISTORY_PRUNE_S, lambda: _prune_history(st),
-                                   "history prune")),
+        # per-org plan retention replaces the single global window (6.2)
+        asyncio.create_task(_every(config.HISTORY_PRUNE_S,
+                                   lambda: plans.retention_prune(st.pools),
+                                   "retention prune")),
         asyncio.create_task(_every(config.STALE_RULE_CHECK_S, st.alarms.sweep_stale,
                                    "stale-rule sweep")),
         asyncio.create_task(st.insights.run_forever()),
@@ -623,6 +624,26 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(st.cfgpub.start()),
         # converter spool -> model versions (plan M1-04)
         asyncio.create_task(vision_models.ingest_loop(pools)),
+        # notifications: delivery retries, escalation, shelf expiry, vision alarms
+        asyncio.create_task(_every(config.NOTIFY_POLL_S, lambda: notify.notify_jobs_worker(st),
+                                   "notify jobs")),
+        asyncio.create_task(_every(config.ESCALATE_SWEEP_S, lambda: notify.escalate_sweep(st),
+                                   "escalation sweep")),
+        asyncio.create_task(_every(config.SHELVE_SWEEP_S, lambda: notify.shelve_sweep(st),
+                                   "shelve sweep")),
+        asyncio.create_task(_every(config.VISION_ALARM_SWEEP_S,
+                                   lambda: notify.vision_alarm_sweep(st), "vision alarms")),
+        # generic job runner (exports, webhook delivery) + sweeps
+        asyncio.create_task(_every(config.JOBS_WORKER_S, lambda: workers.job_runner(st),
+                                   "job runner")),
+        asyncio.create_task(_every(config.WEBHOOK_SWEEP_S, lambda: workers.webhook_sweep(st),
+                                   "webhook sweep")),
+        asyncio.create_task(_every(config.EXPORT_SWEEP_S,
+                                   lambda: workers.expired_exports_sweep(st),
+                                   "expired exports")),
+        # production KPIs: stop detection + scheduled reports
+        asyncio.create_task(_every(60, lambda: downtime_sweep(st.pools), "downtime sweep")),
+        asyncio.create_task(_every(60, lambda: report_sweep(st.pools), "report sweep")),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
                                        "site": config.V1_SITE_CODE})
@@ -675,6 +696,31 @@ async def validation_handler(request: Request, exc: RequestValidationError):
                         content={"detail": "invalid_request", "errors": jsonable_encoder(errors)})
 
 
+# Plan-cap triggers (0033: memberships/invites/edges) refuse with
+# RAISE EXCEPTION 'plan_limit:<key>' USING ERRCODE=check_violation — that
+# lands here as a CheckViolationError (RaiseError covers any future plain
+# RAISE with the same convention). Map to the same 402 plans.check_limit
+# emits; anything not 'plan_limit:*' re-raises into a real 500.
+@app.exception_handler(asyncpg.CheckViolationError)
+@app.exception_handler(asyncpg.RaiseError)
+async def plan_limit_handler(request: Request, exc: asyncpg.PostgresError):
+    msg = getattr(exc, "message", None) or str(exc)
+    if msg.startswith("plan_limit:"):
+        key = msg.split(":", 1)[1].split("\n")[0].strip()
+        return JSONResponse(
+            status_code=402,
+            content={"detail": {"error": "plan_limit", "limit": key}})
+    raise exc
+
+
+# Starlette wraps LATER add_middleware calls OUTSIDE earlier ones, so the
+# first registration here is the innermost user middleware.
+# Resulting wrap order (outermost -> innermost):
+#   Observability -> OriginGuard -> CORS -> OrgGuard -> routes.
+# OrgGuard is innermost: its 403/404 rejections still travel back through
+# CORS + observability, so a refused request carries the CORS headers, an
+# X-Request-ID, an access-log line and metrics like any other response.
+app.add_middleware(orgguard.OrgGuardMiddleware)   # suspended/deleted org gate (roadmap 7.1/1.6)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in config.CORS_ORIGIN.split(",")],
@@ -1566,18 +1612,6 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
     org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
     await _site_or_404(st(request).pools, org_id, site_id)
     await _mutation_gate(request, p.user_id)
-    async with tenant_tx(st(request).pools.app, org_id) as tc:
-        cap = await tc.fetchval(
-            "SELECT (plan_limits->>'max_edges')::int FROM organizations"
-            " WHERE id=$1", org_id)
-        # Disabled edges don't consume plan slots — with delete deferred
-        # (doc 17 §8) there is no re-enable path, so disabled is terminal
-        # and counting it would turn the cap into an unrecoverable wall.
-        n_edges = await tc.fetchval(
-            "SELECT count(*) FROM edges WHERE org_id=$1"
-            " AND status<>'disabled'", org_id)
-    if cap is not None and n_edges >= cap:
-        raise HTTPException(403, "plan_limit_exceeded: max_edges")
     eid = uuid.uuid4()
     version = 1
     username = edge_client_name(eid, version)
@@ -1591,6 +1625,12 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
         log.warning("edge provisioning failed at broker", extra={"error": str(exc)})
         return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
     async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        # Plan cap inside the INSERT tx — check_limit's org-row lock
+        # serializes racing provisions (402 plan_limit on a full plan); the
+        # edges_plan_cap trigger (0033) backstops every other insert path.
+        # A cap refusal AFTER the dynsec client exists leaves an orphan the
+        # reconciler disables — same failure posture as a failed INSERT.
+        await plans.check_limit(tc, org_id, "max_edges")
         await tc.execute(
             "INSERT INTO edges(id, org_id, site_id, name, status, mqtt_username,"
             " credential_version, credential_fingerprint)"
@@ -1770,11 +1810,19 @@ async def edge_enroll(request: Request):
     async with global_tx(s.pools.system) as conn:
         row = await conn.fetchrow(
             "SELECT en.id, en.org_id, en.edge_id, en.expires_at, en.used_at,"
-            " e.site_id, e.status FROM edge_enrollments en"
+            " e.site_id, e.status, o.deleted_at AS org_deleted_at"
+            " FROM edge_enrollments en"
             " JOIN edges e ON e.org_id=en.org_id AND e.id=en.edge_id"
+            " JOIN organizations o ON o.id=en.org_id"
             " WHERE en.code_hash=$1", code_hash)
     if row is None:
         raise HTTPException(404, "unknown_code")
+    # Deleted org is terminal — same refusal OrgGuard gives its REST routes.
+    # Suspended orgs are deliberately NOT refused: OrgGuard gates member
+    # writes only, and a suspended org's gateways must stay connectable —
+    # enroll is device provisioning, not member traffic.
+    if row["org_deleted_at"] is not None:
+        raise HTTPException(410, "org_deleted")
     if row["status"] != "active":
         raise HTTPException(410, "edge_disabled")
     if row["used_at"] is not None:
@@ -1847,6 +1895,20 @@ app.include_router(cameras_router)
 app.include_router(models_router)
 app.include_router(classes_router)
 app.include_router(stream_router)
+app.include_router(vision_rules_router)
+app.include_router(vision_events_router)
+app.include_router(vision_external_router)
+app.include_router(notify.router)
+app.include_router(orgapi.router)
+app.include_router(platform_api.router)
+app.include_router(oee_router)
+app.include_router(reports_router)
+app.include_router(consents.router)
+app.include_router(onboarding.router)
+app.include_router(eventsfeed.router)
+app.include_router(tagquery.router)
+app.include_router(edgelogs.router)
+app.include_router(statuspage.router)
 
 
 # ---------------------------------------------------------------------------
@@ -3098,7 +3160,23 @@ async def v2_accept_invite(body: InviteAcceptIn, request: Request,
     if not user["email_verified"] or (user["email"] or "").lower() \
             != invite["email"].lower():
         raise ForbiddenError("invite email does not match your verified email")
+    # Roadmap 8.1 — same gate as orgs.create_org: crossing into a tenant
+    # (the membership insert below) requires current ToS/Privacy consent on
+    # file. consent_self RLS needs the user_tx context (app.user_id).
+    async with user_tx(st(request).pools.app, p.user_id) as conn:
+        if not await consents.has_current_consent(conn, p.user_id):
+            raise HTTPException(403, "consent_required")
     async with tenant_tx(st(request).pools.app, invite["org_id"], p.user_id) as tc:
+        # OrgGuard can't see this global route (no /orgs/{id} path segment),
+        # so the lifecycle check lives here: deleted -> 404 like every other
+        # route into the org; suspended -> 403 (a write it could never use).
+        org = await tc.fetchrow(
+            "SELECT deleted_at, suspended_at FROM organizations WHERE id=$1",
+            invite["org_id"])
+        if org is None or org["deleted_at"] is not None:
+            raise HTTPException(404, "invite not found")
+        if org["suspended_at"] is not None:
+            raise HTTPException(403, "org_suspended")
         # T10-review F2: the single-use claim is the row UPDATE itself —
         # a racing second accept gets UPDATE 0 → 404, not a double-write.
         n = await tc.execute(

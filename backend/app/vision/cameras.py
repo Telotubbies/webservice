@@ -14,7 +14,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import config
+from .. import config, plans
 from ..datasources import secretbox
 from ..datasources.routes import bump_config
 from ..db import audit
@@ -58,8 +58,8 @@ def _check_rtsp(url: str | None) -> str:
     return url
 
 
-def camera_json(r) -> dict:
-    return {
+def camera_json(r, runtime: dict | None = None) -> dict:
+    d = {
         "id": str(r["id"]), "site_id": str(r["site_id"]), "edge_id": str(r["edge_id"]),
         "name": r["name"], "kind": r["kind"], "has_rtsp_url": r["rtsp_url_enc"] is not None,
         "video_id": str(r["video_id"]) if r["video_id"] else None,
@@ -68,6 +68,9 @@ def camera_json(r) -> dict:
         "status_at": iso_z(r["status_at"]) if r["status_at"] else None,
         "created_at": iso_z(r["created_at"]), "updated_at": iso_z(r["updated_at"]),
     }
+    if runtime:
+        d.update(runtime)          # live engine/latency/bench_fps/model_* from the relay
+    return d
 
 
 def camera_cfg(r, *, rtsp_url: str | None, video: dict | None, base_url: str, model: dict | None = None) -> dict:
@@ -95,15 +98,43 @@ async def cameras_for_cfg(tc, edge_id: UUID) -> list[dict]:
             vids[r["video_id"]] = await tc.fetchrow(
                 "SELECT size_bytes, sha256 FROM videos WHERE id=$1", r["video_id"])
     pins = {r["camera_id"]: r for r in await tc.fetch(
-        "SELECT cm.*, v.sha256, v.size_bytes, v.imgsz, v.stride, v.classes, m.task FROM camera_models cm"
+        "SELECT cm.*, v.sha256, v.size_bytes, v.imgsz, v.stride, v.classes, m.task,"
+        " m.kind, m.id AS model_id FROM camera_models cm"
         " JOIN vision_model_versions v ON v.id = cm.model_version_id JOIN vision_models m ON m.id = v.model_id"
         " WHERE cm.camera_id = ANY($1::uuid[])", [r["id"] for r in rows])}
+    # kind='external' models (9.6): the endpoint + opened API key ride the cfg;
+    # the edge POSTs frames to the provider instead of a local model server.
+    ext: dict = {}
+    ext_models = {p["model_id"] for p in pins.values() if p.get("kind") == "external"}
+    if ext_models:
+        for er in await tc.fetch(
+                "SELECT model_id, provider, url, key_enc FROM external_endpoints"
+                " WHERE model_id = ANY($1::uuid[])", list(ext_models)):
+            key = secretbox.open_(er["key_enc"])["key"] if er["key_enc"] else None
+            ext[er["model_id"]] = {"provider": er["provider"], "url": er["url"], "key": key}
     from .classes import model_cfg      # local: classes imports models, which imports this package's siblings
-    return [camera_cfg(
-        r, rtsp_url=secretbox.open_(r["rtsp_url_enc"])["url"] if r["rtsp_url_enc"] else None,
-        video=vids.get(r["video_id"]), base_url=config.EDGE_MEDIA_BASE_URL,
-        model=model_cfg(pins[r["id"]], edge_id, pins[r["id"]]["task"], config.EDGE_MEDIA_BASE_URL)
-        if r["id"] in pins else None) for r in rows]
+    from .rulecfg import gate_for_cfg, rules_for_cfg
+    cam_ids = [r["id"] for r in rows]
+    rules = await rules_for_cfg(tc, cam_ids)
+    # edge command gate (roadmap 9.7): site/org off-switches, cached on the
+    # gateway from the last cfg it applied — same dict on every camera entry
+    gate = None
+    if rows:
+        gate = await gate_for_cfg(tc, rows[0]["site_id"], rows[0]["org_id"])
+    out = []
+    for r in rows:
+        entry = camera_cfg(
+            r, rtsp_url=secretbox.open_(r["rtsp_url_enc"])["url"] if r["rtsp_url_enc"] else None,
+            video=vids.get(r["video_id"]), base_url=config.EDGE_MEDIA_BASE_URL,
+            model=model_cfg(pins[r["id"]], edge_id, pins[r["id"]]["task"], config.EDGE_MEDIA_BASE_URL,
+                            external=ext.get(pins[r["id"]]["model_id"]))
+            if r["id"] in pins else None)
+        if gate is not None:
+            entry["gate"] = gate
+        if rules.get(r["id"]):
+            entry["rules"] = rules[r["id"]]
+        out.append(entry)
+    return out
 
 
 async def _edge_or_404(tc, edge_id: UUID, *, write: bool):
@@ -132,7 +163,8 @@ async def list_cameras(org: str, edge: str, request: Request, p=Depends(_user)):
     async with tenant_tx(_m().st(request).pools.app, org_id) as tc:
         await _edge_or_404(tc, edge_id, write=False)
         rows = await tc.fetch("SELECT * FROM cameras WHERE edge_id=$1 ORDER BY name", edge_id)
-    return {"items": [camera_json(r) for r in rows]}
+    relay = _m().st(request).relay
+    return {"items": [camera_json(r, relay.latest_stat(r["id"])) for r in rows]}
 
 
 @router.post("/api/v1/orgs/{org}/edges/{edge}/cameras", status_code=201)
@@ -147,6 +179,7 @@ async def create_camera(org: str, edge: str, body: CameraIn, request: Request, p
         e = await _edge_or_404(tc, edge_id, write=True)
         if body.kind == "upload":
             await _video_ok(tc, body.video_id, e["site_id"])
+        await plans.check_limit(tc, org_id, "max_cameras")
         try:
             row = await tc.fetchrow(
                 "INSERT INTO cameras(org_id, site_id, edge_id, name, kind, rtsp_url_enc, video_id,"
@@ -159,7 +192,8 @@ async def create_camera(org: str, edge: str, body: CameraIn, request: Request, p
         await audit.append(tc, f"user:{p.user_id}", "camera.created",
                            {"camera_id": str(row["id"]), "edge_id": str(edge_id)},
                            {"name": body.name, "kind": body.kind})
-    return {"camera": camera_json(row), "config_version": ver}
+    return {"camera": camera_json(row, _m().st(request).relay.latest_stat(row["id"])),
+            "config_version": ver}
 
 
 @router.patch("/api/v1/orgs/{org}/edges/{edge}/cameras/{camera}")
@@ -204,7 +238,8 @@ async def patch_camera(org: str, edge: str, camera: str, body: CameraPatch, requ
         ver = await bump_config(tc, edge_id)
         await audit.append(tc, f"user:{p.user_id}", "camera.updated", {"camera_id": str(cam_id)},
                            {"fields": sorted(k for k in ch if k != "rtsp_url") + (["rtsp_url"] if "rtsp_url" in ch else [])})
-    return {"camera": camera_json(row), "config_version": ver}
+    return {"camera": camera_json(row, _m().st(request).relay.latest_stat(cam_id)),
+            "config_version": ver}
 
 
 @router.delete("/api/v1/orgs/{org}/edges/{edge}/cameras/{camera}", status_code=204)

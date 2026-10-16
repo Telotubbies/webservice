@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from .. import plans
 from ..db import audit
 from ..db.context import tenant_tx
 from ..db.util import iso_z
@@ -331,6 +332,7 @@ async def create_tag(org: str, edge: str, source: str, body: TagSpec,
             t = build_tag(src["protocol"], body)
         except AddressError as ex:
             return _bad_field(ex)
+        await plans.check_limit(tc, org_id, "max_tags")
         try:
             tid = await _insert_tag(tc, org_id, e["site_id"], src, t, {})
         except asyncpg.UniqueViolationError:
@@ -374,6 +376,7 @@ async def bulk_tags(org: str, edge: str, source: str, request: Request,
                     {"row": i + 2, "field": "signal",
                      "message": f"tag {t['path']} already exists"}
                     for i, t in enumerate(tags) if t["path"] in taken]})
+        await plans.check_limit(tc, org_id, "max_tags", extra=len(tags))
         cache: dict = {}
         ids = [await _insert_tag(tc, org_id, e["site_id"], src, t, cache) for t in tags]
         ver = await bump_config(tc, edge_id)

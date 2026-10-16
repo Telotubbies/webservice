@@ -26,7 +26,7 @@ from uuid import UUID
 
 import asyncpg
 
-from . import config
+from . import config, jobs
 from .db import audit
 from .db.context import TenantConn, active_org_ids, tenant_tx
 from .db.util import iso_z, utcnow
@@ -48,6 +48,12 @@ class Rule:
     deadband: float
     severity: str
     window_s: int | None = None
+    # §3.2 routing (migration 0027): where a raise/clear notifies
+    notify_channel_ids: tuple = ()
+    notify_team_ids: tuple = ()
+    notify_oncall_team: UUID | None = None
+    notify_min_severity: str = "info"
+    notify_on_clear: bool = False
 
 
 TREND_KINDS = ("roc", "anomaly", "forecast")
@@ -118,10 +124,41 @@ def is_evaluable(q: str, ts: datetime, now: datetime | None = None) -> bool:
 
 ALARM_SQL = """
 SELECT a.id, a.tag_id, a.rule_id, r.name AS rule, a.severity, a.state, a.raised_at,
-       a.acked_at, a.cleared_at, a.version, u.display_name AS acked_by
+       a.acked_at, a.cleared_at, a.version, u.display_name AS acked_by,
+       a.shelved_until, a.assigned_to, au.display_name AS assigned_name
 FROM alarms a JOIN alarm_rules r ON r.id = a.rule_id
 LEFT JOIN users u ON u.id = a.acked_by
+LEFT JOIN users au ON au.id = a.assigned_to
 """
+
+# §3.2 routing: severity rank gate applied when a rule's alarm enqueues a
+# notify_send job — the delivery worker re-checks downtime/shelving at send
+# time, so a rule muted at raise never emits, and a window that opens later
+# still suppresses.
+SEV_RANK = {"info": 0, "warning": 1, "critical": 2}
+
+
+def _rule_wants_notify(rule: Rule, severity: str) -> bool:
+    has_targets = (rule.notify_channel_ids or rule.notify_team_ids
+                   or rule.notify_oncall_team)
+    return bool(has_targets) and SEV_RANK.get(severity, 0) >= SEV_RANK.get(
+        rule.notify_min_severity, 0)
+
+
+async def _enqueue_notify(tc: TenantConn, rule: Rule, alarm_id: UUID,
+                          event: str) -> None:
+    """Insert the notify_send job inside the alarm's own tenant tx — a failed
+    insert rolls back nothing else (the alarm row stands either way)."""
+    await jobs.enqueue(tc.conn, "notify_send", {
+        "org_id": str(tc.org_id), "alarm_id": str(alarm_id),
+        "rule_id": str(rule.id), "episode": str(alarm_id), "event": event,
+        "severity": rule.severity,
+        "targets": {
+            "channel_ids": [str(x) for x in rule.notify_channel_ids],
+            "team_ids": [str(x) for x in rule.notify_team_ids],
+            "oncall_team": str(rule.notify_oncall_team)
+            if rule.notify_oncall_team else None,
+        }}, org_id=tc.org_id)
 
 
 class AlarmEngine:
@@ -143,7 +180,9 @@ class AlarmEngine:
             async with tenant_tx(self.pools.system, org_id) as tc:
                 rows = await tc.fetch(
                     "SELECT id, tag_id, name, kind, threshold, stale_s,"
-                    " deadband, severity, window_s FROM alarm_rules WHERE enabled")
+                    " deadband, severity, window_s, notify_channel_ids,"
+                    " notify_team_ids, notify_oncall_team, notify_min_severity,"
+                    " notify_on_clear FROM alarm_rules WHERE enabled")
             for r in rows:
                 by_tag.setdefault(r["tag_id"], []).append(
                     Rule(org_id=org_id, **dict(r)))
@@ -232,9 +271,12 @@ class AlarmEngine:
             "     < extract(epoch FROM ends_at - starts_at))) LIMIT 1", rule.id, ts))
 
     async def _raise(self, tc: TenantConn, rule: Rule, ts: datetime) -> None:
-        if await self._muted(tc, rule, ts):
-            self.counters["alarms_muted"] += 1
-            return
+        # §3.2: a downtime suppresses NOTIFICATION DELIVERY, not the alarm —
+        # the episode is recorded (console + audit + history) and the send-time
+        # gate in notify.py drops the delivery with a 'suppressed' row. A muted
+        # raise still doesn't enqueue here either (cheaper than a job that
+        # only writes 'suppressed').
+        muted = await self._muted(tc, rule, ts)
         try:
             async with tc.conn.transaction():  # savepoint: losing the race is fine
                 aid = await tc.fetchval(
@@ -244,15 +286,21 @@ class AlarmEngine:
         except asyncpg.UniqueViolationError:
             return
         await audit.append(tc, "alarm-engine", "alarm.raise",
-                           {"alarm_id": str(aid), "tag_id": str(rule.tag_id)}, {"rule": rule.name})
+                           {"alarm_id": str(aid), "tag_id": str(rule.tag_id)},
+                           {"rule": rule.name, "downtime": muted})
         alarm = await self._serialize(tc, aid)
         self.counters["alarms_raised"] += 1
-        log.warning("alarm raised", extra={"alarm_id": str(aid), "rule": rule.name})
+        if muted:
+            self.counters["alarms_muted"] += 1
+        log.warning("alarm raised", extra={"alarm_id": str(aid), "rule": rule.name,
+                                           "downtime": muted})
         # ids ride along for the v2 wire; `tag` keeps the v1 display name
         self.ws.broadcast({"type": "alarm", **alarm,
                            "org_id": str(tc.org_id),
                            "tag_id": str(rule.tag_id)},
                           org_id=tc.org_id)
+        if not muted and _rule_wants_notify(rule, rule.severity):
+            await _enqueue_notify(tc, rule, aid, "raised")
 
     async def _clear(self, tc: TenantConn, alarm_id: UUID, rule: Rule) -> None:
         n = await tc.execute(
@@ -269,6 +317,8 @@ class AlarmEngine:
                            "org_id": str(tc.org_id),
                            "tag_id": str(rule.tag_id)},
                           org_id=tc.org_id)
+        if rule.notify_on_clear and _rule_wants_notify(rule, rule.severity):
+            await _enqueue_notify(tc, rule, alarm_id, "cleared")
 
     # ------------------------------------------------------------ API side
     async def list_alarms(self, tc: TenantConn, state: str | None, severity: str | None,
@@ -341,6 +391,12 @@ class AlarmEngine:
             "acked_by": r["acked_by"],
             "cleared_at": iso_z(r["cleared_at"]) if r["cleared_at"] else None,
             "version": r["version"],
+            "shelved_until": iso_z(r["shelved_until"])
+            if "shelved_until" in r.keys() and r["shelved_until"] else None,
+            "assigned_to": str(r["assigned_to"])
+            if "assigned_to" in r.keys() and r["assigned_to"] else None,
+            "assigned_name": r["assigned_name"]
+            if "assigned_name" in r.keys() else None,
         }
 
     def _v1(self, r) -> dict:
@@ -356,6 +412,12 @@ class AlarmEngine:
             "ts": iso_z(r["raised_at"]),
             "acked_by": r["acked_by"],
             "version": r["version"],
+            "shelved_until": iso_z(r["shelved_until"])
+            if "shelved_until" in r.keys() and r["shelved_until"] else None,
+            "assigned_to": str(r["assigned_to"])
+            if "assigned_to" in r.keys() and r["assigned_to"] else None,
+            "assigned_name": r["assigned_name"]
+            if "assigned_name" in r.keys() else None,
         }
 
 

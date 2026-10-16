@@ -9,6 +9,7 @@ an ONNX through `ingest_conversions`.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
 import os
@@ -21,11 +22,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from .. import config, plans
 from ..db import audit
 from ..db.context import global_tx, tenant_tx
-from ..db.util import iso_z
+from ..db.util import iso_z, utcnow
 from . import spool, storage
 from .inspect import MAX_CLASSES, InspectError, run_inspect
+from .results import clean_test_result
 
 log = logging.getLogger("wds.vision.models")
 router = APIRouter()
@@ -92,6 +95,7 @@ async def create_model(org: str, body: ModelIn, request: Request, p=Depends(_use
     org_id, _, _ = _ids(org, None, p, m._CONFIG)
     await m._mutation_gate(request, p.user_id)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
+        await plans.check_limit(tc, org_id, "max_vision_models")
         try:
             row = await tc.fetchrow(
                 "INSERT INTO vision_models(org_id, name, task, created_by) VALUES ($1,$2,$3,$4) RETURNING *",
@@ -320,6 +324,85 @@ async def delete_version(org: str, model: str, version: str, request: Request, p
             raise HTTPException(404, "version not found")
         await audit.append(tc, f"user:{p.user_id}", "vision.version.deleted", {"version_id": str(vid)}, {})
     _remove_files(org_id, vid)
+
+
+# ---------------------------------------------------------------- test op
+MAX_TEST_IMAGE_BYTES = 5 * 1024 * 1024
+_TEST_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")   # JPEG / PNG
+
+
+@router.post(_V + "/{model}/versions/{version}/test")
+async def test_version(org: str, model: str, version: str, request: Request,
+                       edge: str = "", p=Depends(_user)):
+    """Run one image through a draft|active version on a live edge (plan M1-05 T4).
+    The image is streamed (5 MiB cap), sent to the gateway as base64 over the op
+    channel, and never persisted or logged. The version's download URL is built
+    server-side; the edge never sees a client-supplied URL."""
+    m = _m()
+    org_id, model_id, vid = _ids(org, model, p, m._CONFIG, version)
+    edge_id = m._uuid_or_404(edge, "edge")
+    await m._mutation_gate(request, p.user_id)
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_TEST_IMAGE_BYTES:
+        raise HTTPException(413, "image_too_large")
+    size, buf = 0, bytearray()
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_TEST_IMAGE_BYTES:
+            raise HTTPException(413, "image_too_large")
+        buf += chunk
+    raw = bytes(buf)
+    if not any(raw.startswith(magic) for magic in _TEST_MAGIC):
+        raise HTTPException(422, "invalid_image")
+    pools = m.st(request).pools
+    async with tenant_tx(pools.app, org_id) as tc:
+        mo = await _model_or_404(tc, model_id)
+        v = await tc.fetchrow(
+            "SELECT * FROM vision_model_versions WHERE id=$1 AND model_id=$2", vid, model_id)
+        if v is None:
+            raise HTTPException(404, "version not found")
+        if v["status"] not in ("draft", "active") or not v["classes"]:
+            raise HTTPException(409, "version_not_testable")
+        e = await tc.fetchrow(
+            "SELECT id, site_id, status, last_hb_at FROM edges WHERE id=$1", edge_id)
+        if e is None:
+            raise HTTPException(404, "edge not found")
+    if (e["status"] != "active" or e["last_hb_at"] is None
+            or (utcnow() - e["last_hb_at"]).total_seconds() > config.EDGE_STALE_AFTER_S):
+        raise HTTPException(409, "edge_offline")
+    from .classes import model_cfg      # local: classes imports models
+    block = model_cfg({"model_version_id": vid, "sha256": v["sha256"],
+                       "size_bytes": v["size_bytes"], "imgsz": v["imgsz"], "stride": v["stride"],
+                       "classes": v["classes"], "class_config": {}, "placement": "edge"},
+                      edge_id, mo["task"], config.EDGE_MEDIA_BASE_URL)
+    payload = {"model": block, "image_b64": base64.b64encode(raw).decode()}
+    targets = {"model_id": str(model_id), "version_id": str(vid), "edge_id": str(edge_id)}
+
+    async def audited(outcome: str) -> None:
+        async with tenant_tx(pools.app, org_id, p.user_id) as tc:
+            await audit.append(tc, f"user:{p.user_id}", "vision.model.tested",
+                               targets, {"outcome": outcome})
+    try:
+        res = await m.st(request).commands.request_op(
+            org_id, e["site_id"], edge_id, "model_test", payload, timeout_s=10)
+    except TimeoutError:
+        await audited("edge_timeout")
+        raise HTTPException(504, "edge_timeout") from None
+    except RuntimeError as exc:
+        # reasons may embed model URLs/paths — never audit or return them raw;
+        # only the two known codes are mapped, everything else is generic.
+        reason = str(exc)
+        if reason.endswith("invalid_image"):
+            await audited("invalid_image")
+            raise HTTPException(422, "invalid_image") from None
+        if reason.endswith("timeout"):
+            await audited("edge_timeout")
+            raise HTTPException(504, "edge_timeout") from None
+        await audited("edge_op_failed")
+        return _refusal(502, "edge_op_failed", "edge operation failed")
+    out = clean_test_result(res, list(v["classes"]))
+    await audited("ok")
+    return out
 
 
 # -------------------------------------------------------- converter results

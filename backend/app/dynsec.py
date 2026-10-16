@@ -82,6 +82,14 @@ def edge_acls(org_id, site_id, edge_id) -> list[dict]:
         # plan M1-03: camera frames and health
         {"acltype": "publishClientSend", "topic": f"{p}/vision/frame/+", "allow": True},
         {"acltype": "publishClientSend", "topic": f"{p}/vision/stat", "allow": True},
+        # plan M1-05: gateway capabilities report (exact topic, nothing under it)
+        {"acltype": "publishClientSend", "topic": f"{p}/vision/caps", "allow": True},
+        # roadmap 9.7/9.8: rule events, signed write audits, per-minute counts
+        {"acltype": "publishClientSend", "topic": f"{p}/vision/event", "allow": True},
+        {"acltype": "publishClientSend", "topic": f"{p}/vision/audit", "allow": True},
+        {"acltype": "publishClientSend", "topic": f"{p}/vision/count", "allow": True},
+        # edge log shipper
+        {"acltype": "publishClientSend", "topic": f"{p}/logs", "allow": True},
         # in-band credential rotation for enrolled gateways (backend -> edge)
         {"acltype": "subscribePattern", "topic": f"{p}/cred", "allow": True},
         {"acltype": "publishClientReceive", "topic": f"{p}/cred", "allow": True},
@@ -108,8 +116,19 @@ BACKEND_ACLS = [
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/cfg-ack", "allow": True},
     {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/vision/frame/+", "allow": True},
     {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/vision/stat", "allow": True},
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/vision/caps", "allow": True},
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/vision/frame/+", "allow": True},
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/vision/stat", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/vision/caps", "allow": True},
+    # roadmap 9.7/9.8 vision rule/event channels + log shipper
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/vision/event", "allow": True},
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/vision/audit", "allow": True},
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/vision/count", "allow": True},
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/logs", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/vision/event", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/vision/audit", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/vision/count", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/logs", "allow": True},
 ]
 
 # doc 17 §2 — svc-dynsec-admin is the ONLY $CONTROL identity. The

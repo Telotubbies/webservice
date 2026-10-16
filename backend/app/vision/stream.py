@@ -4,7 +4,9 @@ and the MQTT handlers for vision/frame and vision/stat (plan M1-03 T5)."""
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import math
 import time
 from uuid import UUID
 
@@ -12,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
 from ..db.context import global_tx, tenant_tx
+from ..db.util import iso_z
 from .relay import STREAM_URL_TTL_S, parse_stat, stream_sig, verify_stream_sig
 
 log = logging.getLogger("wds.vision")
@@ -55,16 +58,77 @@ async def handle_frame(st, msg, edge, camera: str) -> None:
 
 async def handle_stat(st, msg, edge) -> None:
     now = time.monotonic()
-    for cid, (status, detail, _fps) in parse_stat(msg.payload).items():
-        if now - _last_stat.get(cid, -1e9) < STAT_MIN_INTERVAL_S:
-            continue
+    for cid, stat in parse_stat(msg.payload).items():
         if not await st.relay.owns(edge.id, cid):
+            continue
+        st.relay.note_stat(cid, stat)          # fresh copy for the console, no DB throttle
+        if now - _last_stat.get(cid, -1e9) < STAT_MIN_INTERVAL_S:
             continue
         _last_stat[cid] = now
         async with tenant_tx(st.pools.system, edge.org_id) as tc:
             await tc.execute(
                 "UPDATE cameras SET status=$2, status_detail=$3, status_at=now() WHERE id=$1",
-                cid, status, detail or None)
+                cid, stat.status, stat.detail or None)
+
+
+CAPS_MAX_BYTES = 64 * 1024
+
+
+def _caps_payload(raw: bytes) -> dict | None:
+    """Validated vision/caps payload. Malformed shapes are ignored (None)."""
+    if len(raw) > CAPS_MAX_BYTES:
+        return None
+    try:
+        doc = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    cores = doc.get("cpu_cores")
+    if isinstance(cores, bool) or not isinstance(cores, int) or not 0 < cores <= 4096:
+        return None
+    ram = doc.get("ram_mb")
+    if ram is not None:
+        if isinstance(ram, bool) or not isinstance(ram, (int, float)):
+            ram = None
+        else:
+            try:
+                ram = float(ram)
+            except OverflowError:                     # absurdly large JSON ints
+                ram = None
+            if ram is not None and (not math.isfinite(ram) or not 0 <= ram <= 2 ** 50):
+                ram = None
+    device = doc.get("device")
+    providers = doc.get("providers") or []
+    loaded_raw = doc.get("loaded") or []
+    if not isinstance(providers, list) or not isinstance(loaded_raw, list):
+        return None                                  # malformed arrays -> drop the report
+    providers = [str(p)[:80] for p in providers[:32] if isinstance(p, str)]
+    loaded = []
+    for v in loaded_raw[:256]:
+        if isinstance(v, str):
+            try:
+                loaded.append(str(UUID(v)))
+            except ValueError:
+                continue
+    return {"cpu_cores": cores, "ram_mb": int(ram) if ram is not None else None,
+            "device": str(device)[:80] if isinstance(device, str) and device else None,
+            "providers": providers, "loaded": loaded}
+
+
+async def handle_caps(st, msg, edge) -> None:
+    caps = _caps_payload(bytes(msg.payload))
+    if caps is None:
+        return
+    async with tenant_tx(st.pools.system, edge.org_id) as tc:
+        await tc.execute(
+            "INSERT INTO edge_capabilities(org_id, edge_id, reported_at, cpu_cores, ram_mb,"
+            " device, providers, loaded) VALUES ($1,$2,now(),$3,$4,$5,$6,$7)"
+            " ON CONFLICT (edge_id) DO UPDATE SET reported_at=now(), cpu_cores=EXCLUDED.cpu_cores,"
+            " ram_mb=EXCLUDED.ram_mb, device=EXCLUDED.device, providers=EXCLUDED.providers,"
+            " loaded=EXCLUDED.loaded",
+            edge.org_id, edge.id, caps["cpu_cores"], caps["ram_mb"], caps["device"],
+            caps["providers"], caps["loaded"])
 
 
 # ------------------------------------------------------------------ routes
@@ -125,3 +189,23 @@ async def stream(org: str, camera: str, exp: int, sig: str, request: Request):
 
     return StreamingResponse(gen(), media_type=f"multipart/x-mixed-replace; boundary={BOUNDARY}",
                              headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/v1/orgs/{org}/edges/{edge}/capabilities")
+async def edge_capabilities(org: str, edge: str, request: Request, p=Depends(_user)):
+    """Last reported gateway capabilities (edge_capabilities row), or null."""
+    m = _m()
+    org_id = m._v2_org(org, p, m._READ)
+    edge_id = m._uuid_or_404(edge, "edge")
+    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
+        if await tc.fetchval("SELECT 1 FROM edges WHERE id=$1", edge_id) is None:
+            raise HTTPException(404, "edge not found")
+        r = await tc.fetchrow(
+            "SELECT reported_at, cpu_cores, ram_mb, device, providers, loaded"
+            " FROM edge_capabilities WHERE edge_id=$1", edge_id)
+    if r is None:
+        return {"capabilities": None}
+    return {"capabilities": {
+        "reported_at": iso_z(r["reported_at"]), "cpu_cores": r["cpu_cores"],
+        "ram_mb": r["ram_mb"], "device": r["device"],
+        "providers": r["providers"], "loaded": r["loaded"]}}

@@ -17,8 +17,10 @@ from pathlib import Path
 
 import yaml
 
+import contextlib
+
 from . import config
-from .db.context import global_tx, tenant_tx
+from .db.context import global_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .dynsec import edge_client_name
 
@@ -102,6 +104,17 @@ async def seed(pools: Pools) -> None:
                 " VALUES ($1,$2,$3,$4,true)"
                 " ON CONFLICT (id) DO UPDATE SET email=excluded.email",
                 uid, f"dev:{token}", token, f"{token}@dev.local")
+    # Roadmap 8.1: dev users carry current-version consent rows so the dev/
+    # test org-create flow isn't blocked (user_tx needed — consent_self RLS;
+    # suppressed when the 0044 table isn't migrated yet).
+    for token, (uid, _role) in DEMO_USERS.items():
+        with contextlib.suppress(Exception):
+            async with user_tx(pools.app, uid) as uconn:
+                for doc, ver in config.CONSENT_VERSION.items():
+                    await uconn.execute(
+                        "INSERT INTO consents(user_id, doc, version)"
+                        " VALUES ($1,$2,$3) ON CONFLICT (user_id, doc) DO NOTHING",
+                        uid, doc, ver)
     async with tenant_tx(pools.app, org) as tc:
         await tc.execute("INSERT INTO organizations(id, name) VALUES ($1,'Demo')"
                          " ON CONFLICT (id) DO NOTHING", org)

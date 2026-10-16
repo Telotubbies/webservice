@@ -87,3 +87,38 @@ class RateLimiter:
                 if now - b.updated > self.idle_ttl_s]
         for k in idle:
             del self._buckets[k]
+
+
+class TieredRateLimiter:
+    """Same bucket semantics as :class:`RateLimiter`, but the capacity is
+    chosen per call — e.g. API-key request budgets differ by the owning
+    org's plan (roadmap §9 5.5, plans.api_rate_per_min).
+
+    One sub-limiter per distinct capacity value. A key always lands on the
+    limiter matching the capacity it was called with, so a plan upgrade
+    simply moves the key onto a fresh (full) bucket — generous on upgrade,
+    never permissive on downgrade.
+    """
+
+    def __init__(self, window_s: float = 60.0,
+                 default_capacity: int = 120, idle_ttl_s: float = 900.0):
+        self.window_s = window_s
+        self.default_capacity = default_capacity
+        self.idle_ttl_s = idle_ttl_s
+        self._tiers: dict[int, RateLimiter] = {}
+
+    def _for(self, capacity: int | None) -> RateLimiter:
+        cap = capacity or self.default_capacity
+        lim = self._tiers.get(cap)
+        if lim is None:
+            lim = RateLimiter(cap, self.window_s, self.idle_ttl_s)
+            self._tiers[cap] = lim
+        return lim
+
+    async def allow(self, key: str, capacity: int | None = None,
+                    cost: float = 1.0) -> bool:
+        return await self._for(capacity).allow(key, cost)
+
+    async def retry_after(self, key: str, capacity: int | None = None,
+                          cost: float = 1.0) -> float:
+        return await self._for(capacity).retry_after(key, cost)

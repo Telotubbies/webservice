@@ -40,6 +40,15 @@ SUBSCRIPTIONS = (
 VISION_SUBSCRIPTIONS = (
     "$share/ingest/v2/+/+/+/vision/frame/+",
     "$share/ingest/v2/+/+/+/vision/stat",
+    "$share/ingest/v2/+/+/+/vision/caps",
+)
+# durable records — signed audit, detection events, counts, edge logs:
+# QoS 1 and NEVER proactively shed (a silent drop loses a signed record).
+VISION_DURABLE_SUBSCRIPTIONS = (
+    "$share/ingest/v2/+/+/+/vision/event",
+    "$share/ingest/v2/+/+/+/vision/audit",
+    "$share/ingest/v2/+/+/+/vision/count",
+    "$share/ingest/v2/+/+/+/logs",
 )
 
 
@@ -108,6 +117,8 @@ class MQTTBridge:
                 client.subscribe(sub, qos=1)
             for sub in VISION_SUBSCRIPTIONS:
                 client.subscribe(sub, qos=0)
+            for sub in VISION_DURABLE_SUBSCRIPTIONS:
+                client.subscribe(sub, qos=1)
             log.info("mqtt connected", extra={"subscribe": ",".join(SUBSCRIPTIONS)})
         else:
             log.warning("mqtt connect refused", extra={"rc": str(reason_code)})
@@ -138,8 +149,8 @@ class MQTTBridge:
             pass  # loop closing
 
     def _enqueue(self, msg) -> None:
-        if "/vision/" in msg.topic and self.queue.qsize() > QUEUE_MAX // 2:
-            self.dropped_msgs += 1      # frames never crowd out telemetry
+        if "/vision/frame/" in msg.topic and self.queue.qsize() > QUEUE_MAX // 2:
+            self.dropped_msgs += 1      # only frames shed — never audit/events/logs
             return
         try:
             self.queue.put_nowait(msg)

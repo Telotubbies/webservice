@@ -97,15 +97,35 @@ def model_sig(edge_id: UUID, version_id: UUID, sha256: str) -> str:
     return hmac.new(key, f"{edge_id}:{version_id}:{sha256}".encode(), hashlib.sha256).hexdigest()
 
 
-def model_cfg(r, edge_id: UUID, task: str, base_url: str) -> dict:
-    """The `model` block of one cfg camera entry. `r` = camera_models row joined with its version."""
+def cloud_sig(edge_id: UUID, camera_id: UUID) -> str:
+    """Signature for the edge -> cloud inference URL (roadmap 9.5 failover)."""
+    key = hashlib.sha256(config.DATA_SOURCE_KEY + b"|edge-cloud-infer").digest()
+    return hmac.new(key, f"{edge_id}:{camera_id}".encode(), hashlib.sha256).hexdigest()
+
+
+def model_cfg(r, edge_id: UUID, task: str, base_url: str, external: dict | None = None,
+              camera_id: UUID | None = None) -> dict:
+    """The `model` block of one cfg camera entry. `r` = camera_models row joined
+    with its version; `external` = opened endpoint block for kind='external'
+    models (roadmap 9.6) — it replaces the model-server download URL."""
     vid = r["model_version_id"]
-    return {
+    cam = camera_id or r.get("camera_id")
+    out = {
         "version_id": str(vid), "sha256": r["sha256"], "size_bytes": r["size_bytes"], "task": task,
         "imgsz": r["imgsz"], "stride": r["stride"], "classes": r["classes"], "class_config": r["class_config"],
         "placement": r["placement"],
         "url": f"{base_url}/api/v1/edge-models/{vid}?edge={edge_id}&sig={model_sig(edge_id, vid, r['sha256'])}",
     }
+    if cam is not None:
+        # signed URL the gateway POSTs sampled JPEGs to when this camera runs
+        # cloud-placed (explicit or Auto failover). Same signature discipline
+        # as the model/video download URLs. Absent on the camera-less
+        # model_test path.
+        out["cloud_url"] = (f"{base_url}/api/v1/edge-cloud-infer/{cam}"
+                            f"?edge={edge_id}&sig={cloud_sig(edge_id, cam)}")
+    if external is not None:
+        out["external"] = external
+    return out
 
 
 # ------------------------------------------------------------------ routes
@@ -351,7 +371,8 @@ async def edge_model(version: str, edge: str, sig: str, request: Request):
     async with global_tx(_m().st(request).pools.system) as conn:
         row = await conn.fetchrow(
             "SELECT org_id, sha256, status FROM vision_model_versions WHERE id=$1", vid)
-    if (row is None or row["sha256"] is None or row["status"] not in ("active", "archived")
+    # draft is allowed: the model-test op downloads pre-activation versions (M1-05 T4)
+    if (row is None or row["sha256"] is None or row["status"] not in ("active", "archived", "draft")
             or not hmac.compare_digest(sig, model_sig(eid, vid, row["sha256"]))):
         raise HTTPException(404, "not found")
     f = storage.model_path(row["org_id"], vid)

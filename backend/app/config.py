@@ -67,6 +67,18 @@ CONVERT_SPOOL = os.environ.get("CONVERT_SPOOL", "/data/convert")
 
 # --- uploaded demo videos (plan M1-03) ------------------------------------------
 VIDEO_DIR = os.environ.get("VIDEO_DIR", "/data/videos")
+# --- owner data exports + lifecycle (roadmap §12 8.2/8.3, §10/11) -----------
+EXPORT_DIR = os.environ.get("EXPORT_DIR", "/data/exports")
+EXPORT_MAX_BYTES = int(os.environ.get("EXPORT_MAX_BYTES", str(512 * 1024 * 1024)))
+EXPORT_TTL_DAYS = float(os.environ.get("EXPORT_TTL_DAYS", "7"))
+EXPORT_HISTORY_DAYS = int(os.environ.get("EXPORT_HISTORY_DAYS", "90"))
+EXPORT_HISTORY_MAX_ROWS = int(os.environ.get("EXPORT_HISTORY_MAX_ROWS", "1000000"))
+ORG_PURGE_AFTER_DAYS = float(os.environ.get("ORG_PURGE_AFTER_DAYS", "30"))
+WEBHOOK_SWEEP_S = float(os.environ.get("WEBHOOK_SWEEP_S", "5"))
+WEBHOOK_BATCH = int(os.environ.get("WEBHOOK_BATCH", "200"))
+WEBHOOK_TIMEOUT_S = float(os.environ.get("WEBHOOK_TIMEOUT_S", "10"))
+EXPORT_SWEEP_S = float(os.environ.get("EXPORT_SWEEP_S", "30"))
+JOBS_WORKER_S = float(os.environ.get("JOBS_WORKER_S", "5"))
 # how a GATEWAY reaches this backend for video downloads (compose: the service name)
 EDGE_MEDIA_BASE_URL = (os.environ.get("EDGE_MEDIA_BASE_URL") or os.environ.get("PUBLIC_URL", "")
                        or "http://backend:8000").rstrip("/")
@@ -301,8 +313,41 @@ def _enforce_prod_env() -> None:
 if APP_ENV not in ("dev", "test"):
     _enforce_prod_env()
 
+# --- outbound notifications (roadmap §7 Phase 3; app/notify.py) ------------
+# Env-level SMTP is the fallback sender when an org has no email channel row;
+# per-org channel config (SMTP overrides, tokens, webhook URLs) lives sealed in
+# notification_channels.secrets_enc and never leaves the API.
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER") or None
+SMTP_PASSWORD = _read_secret(os.environ.get("SMTP_PASSWORD_FILE")) \
+    or os.environ.get("SMTP_PASSWORD") or None
+SMTP_FROM = os.environ.get("SMTP_FROM", "wds-alarms@localhost").strip()
+SMTP_TLS = os.environ.get("SMTP_TLS", "starttls").strip().lower()  # starttls | none
+NOTIFY_HTTP_TIMEOUT_S = float(os.environ.get("NOTIFY_HTTP_TIMEOUT_S", "10"))
+NOTIFY_POLL_S = float(os.environ.get("NOTIFY_POLL_S", "5"))       # job-worker cadence
+NOTIFY_MAX_CHANNELS = int(os.environ.get("NOTIFY_MAX_CHANNELS", "50"))
+# Signed single-use ack links (§3.4): HMAC over alarm_id+jti+expiry, keyed by
+# DATA_SOURCE_KEY like stream_sig/media_sig. Default validity 7 days.
+ACK_TOKEN_TTL_S = float(os.environ.get("ACK_TOKEN_TTL_S", "604800"))
+# Sweeper cadences (scheduled via main.py's _every)
+ESCALATE_SWEEP_S = float(os.environ.get("ESCALATE_SWEEP_S", "30"))
+SHELVE_SWEEP_S = float(os.environ.get("SHELVE_SWEEP_S", "60"))
+VISION_ALARM_SWEEP_S = float(os.environ.get("VISION_ALARM_SWEEP_S", "30"))
+# Built-in vision alarm thresholds (§9.9) — constants, not per-camera config.
+VISION_OFFLINE_AFTER_S = float(os.environ.get("VISION_OFFLINE_AFTER_S", "60"))
+VISION_LATENCY_BUDGET_MS = float(os.environ.get("VISION_LATENCY_BUDGET_MS", "500"))
+VISION_GPU_HOURS_PCT = float(os.environ.get("VISION_GPU_HOURS_PCT", "80"))
+
 # --- external AI inference (inference.py) — empty URL = feature off ---
 INFERENCE_URL = os.environ.get("INFERENCE_URL", "").strip()
 INFERENCE_API_KEY = _read_secret(os.environ.get("INFERENCE_API_KEY_FILE")) or os.environ.get("INFERENCE_API_KEY", "")
 INFERENCE_PERIOD_S = float(os.environ.get("INFERENCE_PERIOD_S", "10"))
 INFERENCE_TIMEOUT_S = float(os.environ.get("INFERENCE_TIMEOUT_S", "5"))
+
+# --- legal consent (roadmap 8.1) — the doc versions a user must have on
+# file before creating an org; bumping a version re-asks every user ---
+CONSENT_VERSION = {
+    "tos": os.environ.get("CONSENT_TOS_VERSION", "2026-10-16"),
+    "privacy": os.environ.get("CONSENT_PRIVACY_VERSION", "2026-10-16"),
+}

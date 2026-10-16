@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import asyncpg
 
+from . import consents
 from .db import audit
 from .db.context import tenant_tx, user_tx
 
@@ -64,8 +65,13 @@ async def create_org(pools, user_id: UUID, *, name: str, slug: str,
 
     async with user_tx(pools.app, user_id) as conn:
         verified = await conn.fetchval("SELECT email_verified FROM users WHERE id=$1", user_id)
+        consented = verified and await consents.has_current_consent(conn, user_id)
     if not verified:
         raise OrgError("email_not_verified", 403)
+    if not consented:
+        # Roadmap 8.1: current ToS/Privacy consent is a precondition for org
+        # access. The client re-asks via POST /api/v1/consents and retries.
+        raise OrgError("consent_required", 403)
 
     org_id = uuid.uuid4()
     try:

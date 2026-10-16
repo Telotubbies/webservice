@@ -46,6 +46,7 @@ import jwt as pyjwt
 from . import config
 from .auth import Principal, dev_principal
 from .db.context import global_tx, key_tx, set_key_user, user_tx
+from .ratelimit import TieredRateLimiter
 
 log = logging.getLogger("backend.security")
 
@@ -209,6 +210,9 @@ class Security:
         self._revoked_sids: dict[str, float] = {}
         self._authz_lock = asyncio.Lock()
         self._ws = ws  # WSManager, for NOTIFY-driven eviction
+        # per-plan API-key request budget (roadmap §9 5.5): capacity comes
+        # from the key's org plan each call — upgrades apply immediately.
+        self.apikey_limiter = TieredRateLimiter(window_s=60.0)
 
     _REVOKED_SIDS_MAX = 10_000
 
@@ -290,6 +294,12 @@ class Security:
                     k["user_id"], k["org_id"])
                 if u is None or u["disabled_at"] is not None or m is None:
                     raise AuthError()
+                # plan-tier request budget — same key_tx read, no extra trip
+                rate = await conn.fetchval(
+                    "SELECT coalesce((o.plan_limits->>'api_rate_per_min')::int,"
+                    " p.api_rate_per_min) FROM organizations o"
+                    " LEFT JOIN plans p ON p.code = o.plan WHERE o.id=$1",
+                    k["org_id"])
                 last = k["last_used_at"]
                 if last is None or (datetime.now(timezone.utc) - last).total_seconds() > 60:
                     await conn.execute("UPDATE api_keys SET last_used_at=now() WHERE key_hash=$1", h)
@@ -299,6 +309,9 @@ class Security:
             log.exception("api key lookup failed - failing closed")
             raise AuthError("authorization store unavailable") from None
         org_id, role = k["org_id"], m["role"]
+        if not await self.apikey_limiter.allow(f"ak:{k['id']}",
+                                               capacity=rate):
+            raise AuthError("api key rate limit exceeded")
         return Principal(
             user=k["name"], role=role if org_id == config.V1_ORG_ID else Principal.ROLE_NONE,
             kind="apikey", sub=u["sub"], user_id=k["user_id"],
