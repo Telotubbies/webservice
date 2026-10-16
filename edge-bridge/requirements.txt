@@ -11,3 +11,7 @@ asyncua==1.1.5
 
 # at-rest sealing of the cfg cache (enrollment state_key)
 cryptography==44.0.2
+
+# camera frame sampling (vision runner)
+opencv-python-headless==4.10.0.84
+numpy==2.1.3

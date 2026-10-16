@@ -99,7 +99,8 @@ def _close(adapter: TagAdapter) -> None:
 
 class CfgClient:
     def __init__(self, cfg: Config, holder: AdapterHolder, bridge, site_code: str,
-                 now=None):
+                 now=None, vision=None):
+        self._vision = vision          # VisionRunner | None (cameras slice of the cfg)
         self._cfg = cfg
         self._holder = holder
         self._bridge = bridge
@@ -150,7 +151,10 @@ class CfgClient:
                 log.info("ignored cfg version=%s (applied=%s)", version, self.version)
                 return
             errors = self._apply(version, sources)
-            self._persist({"version": version, "sources": self._effective(sources, errors)})
+            cameras = doc.get("cameras") if isinstance(doc.get("cameras"), list) else []
+            self._apply_cameras(cameras)
+            self._persist({"version": version, "sources": self._effective(sources, errors),
+                           "cameras": cameras})
             self._last_ack = {"version": version, "ok": not errors, "errors": errors}
             ack = self._last_ack
         self._bridge.publish_json(self._cfg.cfg_ack_topic, ack)
@@ -173,9 +177,19 @@ class CfgClient:
             return False
         with self._lock:
             errors = self._apply(version, sources)
+            cams = doc.get("cameras")
+            self._apply_cameras(cams if isinstance(cams, list) else [])
         if errors:
             log.warning("cached cfg applied with errors: %s", errors)
         return True
+
+    def _apply_cameras(self, cameras: list) -> None:
+        if self._vision is None:
+            return
+        try:
+            self._vision.apply(cameras)
+        except Exception:  # noqa: BLE001 — cameras must never break source config
+            log.exception("camera config rejected")
 
     def _effective(self, sources: list, errors: list[dict]) -> list:
         """Sources as actually running: a failed source is replaced by its

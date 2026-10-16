@@ -127,6 +127,13 @@ class Config:
     def cfg_ack_topic(self) -> str:
         return f"{self.prefix}/cfg-ack"
 
+    def vision_frame_topic(self, camera_id: str) -> str:
+        return f"{self.prefix}/vision/frame/{camera_id}"
+
+    @property
+    def vision_stat_topic(self) -> str:
+        return f"{self.prefix}/vision/stat"
+
     def tele_topic(self, tag_path: str) -> str:
         """tag_path is the site-relative path (area/line/device/signal)."""
         return f"{self.prefix}/tele/{tag_path}"

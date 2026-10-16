@@ -206,6 +206,10 @@ class MqttBridge:
         else:
             log.info("subscribed topic=%s qos=%d", topic, qos)
 
+    def publish_raw(self, topic: str, payload: bytes, qos: int = 0) -> bool:
+        info = self._client.publish(topic, payload, qos=qos)
+        return info.rc == mqtt.MQTT_ERR_SUCCESS
+
     def publish_json(self, topic: str, payload: dict, qos: int = 1) -> bool:
         info = self._client.publish(topic, json.dumps(payload), qos=qos)
         if info.rc != mqtt.MQTT_ERR_SUCCESS:

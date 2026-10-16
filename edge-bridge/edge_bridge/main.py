@@ -29,6 +29,7 @@ from .config import Config
 from .enroll import EnrollError, enroll_if_needed
 from .logging_setup import setup_logging
 from .mqtt_bridge import MqttBridge
+from .vision.runner import VisionRunner
 
 log = logging.getLogger("edge_bridge.main")
 
@@ -115,7 +116,11 @@ def main() -> int:
     )
     holder = AdapterHolder(adapter, cfg.poll_ms)
     handler = CommandHandler(cfg, holder, clock, bridge)
-    cfg_client = CfgClient(cfg, holder, bridge, cfg.site_code, now=clock.now)
+    vision = VisionRunner(
+        publish_frame=lambda cid, jpeg: bridge.publish_raw(cfg.vision_frame_topic(cid), jpeg),
+        publish_stat=lambda doc: bridge.publish_json(cfg.vision_stat_topic, doc, qos=0),
+        state_dir=cfg.state_dir)
+    cfg_client = CfgClient(cfg, holder, bridge, cfg.site_code, now=clock.now, vision=vision)
     # A cached backend cfg wins over tags.yaml; tags.yaml stays the fallback.
     cfg_client.load_cached()
     cred_client = CredClient(cfg, bridge.reconnect) if cfg.enrolled else None
@@ -175,6 +180,7 @@ def main() -> int:
 
     stop.wait()  # main thread idles until SIGTERM/SIGINT
 
+    vision.stop()
     bridge.stop()
     holder.get().close()
     for t in threads:

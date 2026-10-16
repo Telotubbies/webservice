@@ -187,3 +187,38 @@ def test_equal_version_resends_ack(tmp_path):
     cl.handle(msg(3, [sim_source()]))
     cl.handle(msg(3, [sim_source()]))
     assert len(acks(bridge)) == 2 and acks(bridge)[0] == acks(bridge)[1]
+
+
+class FakeVision:
+    def __init__(self, boom=False):
+        self.calls, self.boom = [], boom
+
+    def apply(self, cameras):
+        self.calls.append(cameras)
+        if self.boom:
+            raise RuntimeError("camera config bad")
+
+
+def _cam_msg(version, cameras):
+    return SimpleNamespace(topic="v2/o/s/e/cfg", retain=False,
+                           payload=json.dumps({"version": version, "sources": [sim_source()],
+                                               "cameras": cameras}).encode())
+
+
+def test_cfg_cameras_reach_vision_and_cache(tmp_path):
+    cfg, holder, bridge, _ = make(tmp_path)
+    v = FakeVision()
+    cl = CfgClient(cfg, holder, bridge, "plant1", vision=v)
+    cams = [{"id": "c1", "kind": "rtsp", "rtsp_url": "rtsp://h/s"}]
+    cl.handle(_cam_msg(1, cams))
+    assert v.calls == [cams]
+    v2 = FakeVision()
+    CfgClient(cfg, holder, bridge, "plant1", vision=v2).load_cached()
+    assert v2.calls == [cams]
+
+
+def test_camera_failure_does_not_break_source_cfg(tmp_path):
+    cfg, holder, bridge, _ = make(tmp_path)
+    cl = CfgClient(cfg, holder, bridge, "plant1", vision=FakeVision(boom=True))
+    cl.handle(_cam_msg(1, []))
+    assert acks(bridge) == [{"version": 1, "ok": True, "errors": []}]

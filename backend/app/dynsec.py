@@ -79,6 +79,9 @@ def edge_acls(org_id, site_id, edge_id) -> list[dict]:
         {"acltype": "publishClientReceive", "topic": f"{p}/cfg", "allow": True},
         {"acltype": "publishClientSend", "topic": f"{p}/cfg-req", "allow": True},
         {"acltype": "publishClientSend", "topic": f"{p}/cfg-ack", "allow": True},
+        # plan M1-03: camera frames and health
+        {"acltype": "publishClientSend", "topic": f"{p}/vision/frame/+", "allow": True},
+        {"acltype": "publishClientSend", "topic": f"{p}/vision/stat", "allow": True},
         # in-band credential rotation for enrolled gateways (backend -> edge)
         {"acltype": "subscribePattern", "topic": f"{p}/cred", "allow": True},
         {"acltype": "publishClientReceive", "topic": f"{p}/cred", "allow": True},
@@ -103,6 +106,10 @@ BACKEND_ACLS = [
     {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/cfg-ack", "allow": True},
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/cfg-req", "allow": True},
     {"acltype": "publishClientReceive", "topic": "v2/+/+/+/cfg-ack", "allow": True},
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/vision/frame/+", "allow": True},
+    {"acltype": "subscribePattern", "topic": "$share/ingest/v2/+/+/+/vision/stat", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/vision/frame/+", "allow": True},
+    {"acltype": "publishClientReceive", "topic": "v2/+/+/+/vision/stat", "allow": True},
 ]
 
 # doc 17 §2 — svc-dynsec-admin is the ONLY $CONTROL identity. The
