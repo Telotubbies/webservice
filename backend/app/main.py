@@ -56,6 +56,7 @@ from .datasources.routes import router as datasources_router, tags_notify_listen
 from .vision import stream as vision_stream
 from .vision import models as vision_models
 from .vision.cameras import router as cameras_router
+from .vision.classes import router as classes_router
 from .vision.models import router as models_router
 from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
@@ -1844,6 +1845,7 @@ app.include_router(datasources_router)
 app.include_router(videos_router)
 app.include_router(cameras_router)
 app.include_router(models_router)
+app.include_router(classes_router)
 app.include_router(stream_router)
 
 

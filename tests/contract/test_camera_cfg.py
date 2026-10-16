@@ -46,3 +46,10 @@ def test_cfg_payload_includes_cameras_and_defaults_empty():
     assert cfg_payload(3, [], {})["cameras"] == []
     cams = [{"id": "c1"}]
     assert cfg_payload(3, [], {}, cameras=cams)["cameras"] == cams
+
+
+def test_camera_cfg_carries_model_block_when_pinned():
+    blk = {"version_id": "v", "url": "http://b/x"}
+    c = camera_cfg(_row(), rtsp_url="rtsp://h/s", video=None, base_url="http://b", model=blk)
+    assert c["model"] == blk
+    assert "model" not in camera_cfg(_row(), rtsp_url="rtsp://h/s", video=None, base_url="http://b")

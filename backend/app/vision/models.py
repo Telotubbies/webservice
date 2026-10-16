@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import shutil
 import time
 from uuid import UUID, uuid4
 
@@ -322,6 +323,9 @@ async def delete_version(org: str, model: str, version: str, request: Request, p
 
 
 # -------------------------------------------------------- converter results
+_failures: dict = {}
+
+
 async def ingest_once(pools) -> int:
     """Collect finished conversions and expire stale ones. Returns jobs handled."""
     handled = 0
@@ -337,7 +341,7 @@ async def ingest_once(pools) -> int:
             if doc.get("ok") is True and spool.onnx_path(jid).exists():
                 dest = storage.model_path(org_id, jid)
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(spool.onnx_path(jid), dest)
+                shutil.move(str(spool.onnx_path(jid)), str(dest))   # separate volumes: rename would fail
                 try:
                     info = await asyncio.to_thread(run_inspect, dest)
                     size, sha = dest.stat().st_size, _sha(dest)
@@ -354,6 +358,15 @@ async def ingest_once(pools) -> int:
             handled += 1
         except Exception:  # noqa: BLE001 — one bad job must not stop the loop
             log.exception("conversion ingest failed for %s", jid)
+            _failures[jid] = _failures.get(jid, 0) + 1
+            if _failures[jid] >= 5:       # stop retrying a job that cannot be ingested
+                with contextlib.suppress(Exception):
+                    async with global_tx(pools.system) as conn:
+                        row = await conn.fetchrow("SELECT org_id FROM vision_model_versions WHERE id=$1", jid)
+                    if row:
+                        await _apply(pools, row["org_id"], jid, {"status": "failed", "failure_reason": "could not ingest the converted model"})
+                spool.cleanup(jid)
+                _failures.pop(jid, None)
     return handled
 
 

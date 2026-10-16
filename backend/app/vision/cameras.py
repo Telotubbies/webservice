@@ -70,10 +70,12 @@ def camera_json(r) -> dict:
     }
 
 
-def camera_cfg(r, *, rtsp_url: str | None, video: dict | None, base_url: str) -> dict:
-    """One entry of cfg['cameras']. `video` = {size_bytes, sha256} for upload cameras."""
+def camera_cfg(r, *, rtsp_url: str | None, video: dict | None, base_url: str, model: dict | None = None) -> dict:
+    """One entry of cfg['cameras']. `video` = {size_bytes, sha256} for upload cameras; `model` = the pinned model block."""
     out = {"id": str(r["id"]), "name": r["name"], "kind": r["kind"],
            "fps_sample": r["fps_sample"], "enabled": r["enabled"]}
+    if model is not None:
+        out["model"] = model
     if r["kind"] == "rtsp":
         out["rtsp_url"] = rtsp_url
     else:
@@ -92,9 +94,16 @@ async def cameras_for_cfg(tc, edge_id: UUID) -> list[dict]:
         if r["video_id"]:
             vids[r["video_id"]] = await tc.fetchrow(
                 "SELECT size_bytes, sha256 FROM videos WHERE id=$1", r["video_id"])
+    pins = {r["camera_id"]: r for r in await tc.fetch(
+        "SELECT cm.*, v.sha256, v.size_bytes, v.imgsz, v.stride, v.classes, m.task FROM camera_models cm"
+        " JOIN vision_model_versions v ON v.id = cm.model_version_id JOIN vision_models m ON m.id = v.model_id"
+        " WHERE cm.camera_id = ANY($1::uuid[])", [r["id"] for r in rows])}
+    from .classes import model_cfg      # local: classes imports models, which imports this package's siblings
     return [camera_cfg(
         r, rtsp_url=secretbox.open_(r["rtsp_url_enc"])["url"] if r["rtsp_url_enc"] else None,
-        video=vids.get(r["video_id"]), base_url=config.EDGE_MEDIA_BASE_URL) for r in rows]
+        video=vids.get(r["video_id"]), base_url=config.EDGE_MEDIA_BASE_URL,
+        model=model_cfg(pins[r["id"]], edge_id, pins[r["id"]]["task"], config.EDGE_MEDIA_BASE_URL)
+        if r["id"] in pins else None) for r in rows]
 
 
 async def _edge_or_404(tc, edge_id: UUID, *, write: bool):
