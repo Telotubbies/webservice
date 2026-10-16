@@ -153,12 +153,40 @@ const schedules: Record<string, unknown>[] = [
 
 // NOTE: /teams and /incidents are served by the WP-E fixtures + handlers
 // above (richer status/notes transitions); dd-d's parallel fixtures were
-// dropped at merge so the incident join stays consistent.
-const slos = [
-  { id: 'slo-1', name: 'Sorting line availability', description: 'Belt signal uptime', tag: 'plant1.sort.line1.conv1.speed_mps', tag_id: 't-speed', target: 0.999, warning: 0.9995, updated_at: iso(T0 - 10 * 86400e3), corrections: [] },
+// dropped at merge so the incident join stays consistent. SLO fixtures are
+// the WP-C block below (corrections + audit seed); dd-d's simpler slos set
+// was dropped for the same reason.
+
+/* ----- SLOs (WP-C): contract-shaped fixtures for the /slos surface. ------ */
+// Quality fractions mirror the availability map below so the SLI shown by
+// the list matches what the burndown rebuilds from history.
+const UPTIME: Record<string, number> = { speed_mps: 0.9993, temp_c: 0.9962, level_pct: 0.981, gravel_ratio: 0.9991 };
+const uptimeOf = (name: string) => UPTIME[name.split('.').pop() ?? ''] ?? 0.999;
+/** Deterministic bad-sample patch: (1−uptime) seconds per hour are 'bad'. */
+const qAt = (name: string, t: number) => ((t / 1000) % 3600 < (1 - uptimeOf(name)) * 3600 ? 'bad' : 'good');
+
+interface MockSlo {
+  id: string; name: string; description: string; tag: string | null; tag_id: string;
+  target: number; warning: number; updated_at: string;
+  corrections: { id: string; starts_at: string; ends_at: string; reason: string }[];
+}
+const slos: MockSlo[] = [
+  { id: 'slo-belt', name: 'Conveyor belt availability', description: 'Sorter line belt uptime', tag: 'plant1.sort.line1.conv1.speed_mps', tag_id: 't1', target: 99.9, warning: 99.95, updated_at: iso(T0 - 3 * 86400e3), corrections: [] },
+  { id: 'slo-temp', name: 'Belt temperature telemetry', description: '', tag: 'plant1.sort.line1.conv1.temp_c', tag_id: 't2', target: 99.5, warning: 99.7, updated_at: iso(T0 - 2 * 86400e3), corrections: [] },
+  { id: 'slo-bin', name: 'Bin level sensor uptime', description: 'Downtime during planned calibration is excluded', tag: 'plant1.sort.line1.bin1.level_pct', tag_id: 't3', target: 99.0, warning: 99.5, updated_at: iso(T0 - 86400e3),
+    corrections: [{ id: 'cor-1', starts_at: iso(T0 - 4 * 3600e3), ends_at: iso(T0 - 3 * 3600e3), reason: 'load-cell calibration' }] },
+  { id: 'slo-vision', name: 'Vision camera frames', description: '', tag: 'plant1.sort.vision.cam1.gravel_ratio', tag_id: 't4', target: 99.5, warning: 99.8, updated_at: iso(T0 - 6 * 3600e3), corrections: [] },
 ];
-// status SLI uses the same uptime fixture as /availability so pages agree
-const SLOS_SLI: Record<string, number> = { 'slo-1': 0.9993 };
+
+const auditSeed = [
+  { seq: 101, at: iso(T0 - 26 * 86400e3), actor: 'user:admin', action: 'slo.created', target: { slo_id: 'slo-belt' }, detail: { name: 'Conveyor belt availability', target: 99.9 }, hash: 'a1' },
+  { seq: 102, at: iso(T0 - 26 * 86400e3), actor: 'user:admin', action: 'slo.created', target: { slo_id: 'slo-temp' }, detail: { name: 'Belt temperature telemetry', target: 99.5 }, hash: 'a2' },
+  { seq: 103, at: iso(T0 - 25 * 86400e3), actor: 'user:admin', action: 'slo.created', target: { slo_id: 'slo-bin' }, detail: { name: 'Bin level sensor uptime', target: 99.0 }, hash: 'a3' },
+  { seq: 104, at: iso(T0 - 25 * 86400e3), actor: 'user:admin', action: 'slo.created', target: { slo_id: 'slo-vision' }, detail: { name: 'Vision camera frames', target: 99.5 }, hash: 'a4' },
+  { seq: 105, at: iso(T0 - 9 * 86400e3), actor: 'user:admin', action: 'slo.updated', target: { slo_id: 'slo-temp' }, detail: { target: '99.0 → 99.5' }, hash: 'a5' },
+  { seq: 106, at: iso(T0 - 5 * 86400e3), actor: 'user:admin', action: 'slo.deleted', target: { slo_id: 'slo-legacy-pump' }, detail: { name: 'Legacy pump uptime' }, hash: 'a6' },
+  { seq: 107, at: iso(T0 - 2 * 3600e3), actor: 'user:admin', action: 'slo.correction_added', target: { slo_id: 'slo-bin' }, detail: { reason: 'load-cell calibration' }, hash: 'a7' },
+];
 
 function roleOf(req: IncomingMessage): string | null {
   const m = /Bearer demo-(\w+)/.exec(req.headers.authorization ?? '');
@@ -216,15 +244,14 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     const to = Date.parse(url.searchParams.get('to') ?? '') || t;
     if (tagRoute[2] === 'availability') {
       // per-tag uptime so the SLO page shows OK / warning / breached rows
-      const UPTIME: Record<string, number> = { speed_mps: 0.9993, temp_c: 0.9962, level_pct: 0.981, gravel_ratio: 0.9991 };
-      const uptime = UPTIME[name.split('.').pop() ?? ''] ?? 0.999;
+      const uptime = uptimeOf(name);
       const span = (to - from) / 1000;
       return send(200, { name, from: iso(from), to: iso(to), samples: Math.round(span), good_frac: uptime, uptime, down_s: Math.round(span * (1 - uptime)) });
     }
     const limit = Math.min(5000, Number(url.searchParams.get('limit')) || 720);
     const step = Math.max(1000, (to - from) / limit);
     const rows = [];
-    for (let x = from; x <= to; x += step) rows.push({ v: value(name, x), q: 'good', ts: iso(x) });
+    for (let x = from; x <= to; x += step) rows.push({ v: value(name, x), q: qAt(name, x), ts: iso(x) });
     return send(200, rows);
   }
 
@@ -398,30 +425,72 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       return;
     }
 
-    // SLOs — list + status so the dashboard SloBody renders
-    if (rest === '/slos') {
-      if (req.method === 'POST' && role !== 'viewer') { const b = await body(req); slos.push({ id: `slo-${slos.length + 1}`, updated_at: iso(t), corrections: [], ...b } as never); return send(200, { slo: slos[slos.length - 1] }); }
-      return send(200, list(slos));
-    }
-    const sloStatus = /^\/slos\/status$/.exec(rest);
-    if (sloStatus) {
-      return send(200, { days: Number(url.searchParams.get('days')) || 30, items: slos.map((s) => ({ id: s.id, samples: 86400, excluded: 0, sli: SLOS_SLI[s.id] ?? null, covered_s: 86400 })) });
-    }
-    const sloRow = /^\/slos\/([^/]+)$/.exec(rest);
-    if (sloRow) {
-      const s = slos.find((x) => x.id === sloRow[1]);
-      if (!s) return send(404, { detail: 'unknown slo' });
-      if (req.method === 'PATCH') { Object.assign(s, await body(req)); return send(200, { slo: s }); }
-      if (req.method === 'DELETE') { slos.splice(slos.indexOf(s), 1); return send(200, {}); }
-    }
-
     // teams + incidents served by the WP-E block above (kept single-source)
 
+    if (rest === '/slos' || rest.startsWith('/slos/')) {
+      const m = /^\/slos(\/([^/]+))?(\/corrections(\/([^/]+))?)?$/.exec(rest);
+      const id = m?.[2];
+      const cid = m?.[5];
+      if (rest === '/slos/status' || rest.startsWith('/slos/status')) {
+        const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days')) || 30));
+        const covered = days * 86400;
+        return send(200, { days, items: slos.map((s) => {
+          const excluded = s.corrections.reduce((n, c) => n + Math.max(0, (Date.parse(c.ends_at) - Date.parse(c.starts_at)) / 1000), 0);
+          const up = uptimeOf(s.tag ?? '');
+          return { id: s.id, samples: covered - Math.round(excluded), excluded: Math.round(excluded), sli: +(up * 100).toFixed(3), covered_s: covered };
+        }) });
+      }
+      if (!id && req.method === 'GET') return send(200, list(slos));
+      if (!id && req.method === 'POST') {
+        if (role !== 'admin' && role !== 'owner') return send(403, { detail: 'config:write required' });
+        const b = await body(req);
+        const s: MockSlo = {
+          id: `slo-${slos.length + 1}`, name: String(b.name ?? ''), description: String(b.description ?? ''),
+          tag: (b.tag as string) ?? null, tag_id: 't1',
+          target: Number(b.target ?? 99), warning: Number(b.warning ?? (Number(b.target ?? 99) + (100 - Number(b.target ?? 99)) / 2)),
+          updated_at: iso(t), corrections: [],
+        };
+        if (slos.some((x) => x.name === s.name)) return send(409, { detail: 'name exists' });
+        slos.push(s);
+        return send(201, { slo: s });
+      }
+      const s = slos.find((x) => x.id === id);
+      if (!s) return send(404, { detail: 'unknown slo' });
+      if (cid) { // DELETE correction
+        if (role !== 'admin' && role !== 'owner') return send(403, { detail: 'config:write required' });
+        s.corrections = s.corrections.filter((c) => c.id !== cid);
+        res.statusCode = 204; res.end(); return;
+      }
+      if (m?.[3] && req.method === 'POST') { // add correction
+        if (role !== 'admin' && role !== 'owner') return send(403, { detail: 'config:write required' });
+        const b = await body(req);
+        const c = { id: `cor-${s.corrections.length + 1}`, starts_at: String(b.starts_at), ends_at: String(b.ends_at), reason: String(b.reason ?? '') };
+        s.corrections.push(c); s.updated_at = iso(t);
+        return send(201, { correction: c });
+      }
+      if (req.method === 'PATCH') {
+        if (role !== 'admin' && role !== 'owner') return send(403, { detail: 'config:write required' });
+        const b = await body(req);
+        Object.assign(s, { name: b.name ?? s.name, description: b.description ?? s.description, tag: b.tag ?? s.tag, target: b.target ?? s.target, warning: b.warning ?? s.warning, updated_at: iso(t) });
+        return send(200, { slo: s });
+      }
+      if (req.method === 'DELETE') {
+        if (role !== 'admin' && role !== 'owner') return send(403, { detail: 'config:write required' });
+        slos.splice(slos.indexOf(s), 1);
+        res.statusCode = 204; res.end(); return;
+      }
+      return send(200, s);
+    }
     if (rest.startsWith('/audit')) {
+      const action = url.searchParams.get('action');
       const acts = ['auth.login', 'auth.login', 'auth.login', 'member.updated', 'alarm_rule.created', 'alarm_rule.updated', 'edge.rotated', 'downtime.created', 'tag.updated'];
-      return send(200, list(Array.from({ length: 60 }, (_, i) => ({
-        seq: 60 - i, at: iso(T0 - i * 3 * 3600e3), actor: i % 4 === 0 ? 'user:admin' : 'user:operator', action: acts[i % acts.length], target: {}, detail: {}, hash: `h${i}`,
-      }))));
+      const noise = Array.from({ length: 60 }, (_, i) => ({
+        seq: 200 + i, at: iso(T0 - i * 3 * 3600e3), actor: i % 4 === 0 ? 'user:admin' : 'user:operator', action: acts[i % acts.length], target: {}, detail: {}, hash: `h${i}`,
+      }));
+      const all = [...auditSeed, ...noise];
+      const filtered = action ? all.filter((a) => a.action === action) : all;
+      const limit = Math.min(500, Number(url.searchParams.get('limit')) || 50);
+      return send(200, list(filtered.slice(0, limit)));
     }
     // config surfaces — writes are admin|owner only (mirrors the backend's
     // config:write gate; the mock grants operators no config role)
