@@ -82,7 +82,7 @@ export function detectParts(inp: DetectInput): Candidate[] {
     const big = Math.max(x, y, z) >= 0.07 * F;
     if (!big || n.children.length === 0) return null;
     // long low box -> belt
-    if (horiz >= 0.25 * F && horiz >= 4 * Math.max(wid, y) * 0.8 && y <= 0.14 * F && wid <= 0.1 * F) {
+    if (horiz >= 0.25 * F && horiz >= 4 * Math.max(wid, y) * 0.8 && y >= 0.012 * F && y <= 0.14 * F && wid <= 0.1 * F) {
       return { label: 'Belt conveyor', kind: 'conveyor', nodes: [i], params: { axis: 'auto' }, conf: 'med', reason: 'long low box' };
     }
     // tall slender -> silo / tank
@@ -150,6 +150,18 @@ export function detectParts(inp: DetectInput): Candidate[] {
       label: d ? `Pipe line DN${d}` : 'Pipe line', kind: 'pipe', nodes: idx,
       params: { color: FLUID_BY_DN(d) }, conf: 'med', reason: `${idx.length} pipe pieces`,
     });
+  }
+
+  // a guessed shape that swallows named equipment is a building/structure, not a part
+  const centreIn = (outer: number[], inner: number[]) => {
+    const A = box(outer[0]), B = box(inner[0]);
+    if (!A || !B) return false;
+    return [0, 1, 2].every((k) => (B.min[k] + B.max[k]) / 2 >= A.min[k] && (B.min[k] + B.max[k]) / 2 <= A.max[k]);
+  };
+  const hi = out.filter((c) => c.conf === 'high');
+  for (let k = out.length - 1; k >= 0; k--) {
+    const c = out[k];
+    if (c.conf === 'med' && c.kind !== 'pipe' && hi.some((h) => centreIn(c.nodes, h.nodes))) out.splice(k, 1);
   }
 
   // number duplicates in plant order (left to right, then back to front)
