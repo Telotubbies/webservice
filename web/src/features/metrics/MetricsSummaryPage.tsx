@@ -9,12 +9,14 @@ import { ChevronRight, Search } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { tagQueryApi, type TagStat } from '../../lib/api';
 import { EmptyState, ErrorState, SkeletonRows } from '../../shared/ui/Feedback';
-import { FacetGroup, ProductHeader, facetOptions, toggleIn } from '../../shared/ui/Product';
+import { FacetGroup, facetOptions, toggleIn } from '../../shared/ui/Product';
 import { Freshness } from '../../shared/ui/Status';
 import { usePrimaryScope } from '../admin/admin';
 import { HelpLink } from '../onboarding/HelpLink';
+import { trendLink, useTrendNames } from './util';
 import '../onboarding/i18n';
 import '../misc/i18n';
+import './i18n';
 
 const group = (path: string) => path.split('/').slice(-2, -1)[0] ?? path.split('/')[0];
 const PAGE = 100;
@@ -25,6 +27,7 @@ const fmt = (v: number | null) =>
 export function MetricsSummaryPage() {
   const { t } = useTranslation();
   const { orgId, siteId } = usePrimaryScope();
+  const trendNames = useTrendNames();
   const [q, setQ] = useState('');
   const [offGroup, setOffGroup] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -44,15 +47,14 @@ export function MetricsSummaryPage() {
   const staleCount = items.filter((s) => s.count === 0).length;
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="metric" title={t('nav.metricsSummary')}
-        lede={t('msum.lede', { total: items.length, stale: staleCount })} />
-      <div className="border-b border-line bg-white px-4 py-2">
-        <div className="relative">
+    <>
+      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-white px-4 py-2">
+        <div className="relative min-w-52 flex-1">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" aria-hidden />
           <input className="input w-full pl-7" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }}
             placeholder={t('msum.searchPh')} aria-label={t('msum.searchPh')} />
         </div>
+        <span className="text-[12px] text-ink-46">{t('msum.lede', { total: items.length, stale: staleCount })}</span>
       </div>
       <div className="flex flex-1 gap-4 p-4">
         <aside className="hidden w-[220px] shrink-0 self-start border border-line bg-white md:block">
@@ -86,7 +88,7 @@ export function MetricsSummaryPage() {
               <tbody>
                 {shown.slice(0, limit).map((s) => (
                   <StatRow key={s.tag_id} s={s} isOpen={open.has(s.tag_id)}
-                    onToggle={() => setOpen((o) => toggleIn(o, s.tag_id))} />
+                    onToggle={() => setOpen((o) => toggleIn(o, s.tag_id))} trendHref={trendLink(s.path, trendNames)} />
                 ))}
               </tbody>
             </table>
@@ -99,11 +101,11 @@ export function MetricsSummaryPage() {
           )}
         </section>
       </div>
-    </div>
+    </>
   );
 }
 
-function StatRow({ s, isOpen, onToggle }: { s: TagStat; isOpen: boolean; onToggle: () => void }) {
+function StatRow({ s, isOpen, onToggle, trendHref }: { s: TagStat; isOpen: boolean; onToggle: () => void; trendHref: string }) {
   const { t } = useTranslation();
   return (
     <>
@@ -135,7 +137,7 @@ function StatRow({ s, isOpen, onToggle }: { s: TagStat; isOpen: boolean; onToggl
               count: s.count, min: fmt(s.min), max: fmt(s.max), avg: fmt(s.avg),
               gaps: s.gaps, gap: s.max_gap_s,
             })}{' '}
-            <Link to={`/trends?tags=${encodeURIComponent(s.path)}`} className="text-blue hover:underline">{t('nav.trends')}</Link>
+            <Link to={trendHref} className="text-blue hover:underline">{t('nav.trends')}</Link>
           </td>
         </tr>
       )}

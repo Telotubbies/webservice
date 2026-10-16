@@ -12,7 +12,7 @@
 //   an HTML legend with names + the stats table on Trends.
 
 import { useQuery } from '@tanstack/react-query';
-import type uPlot from 'uplot';
+import uPlot from 'uplot';
 import { api } from '../../lib/api';
 import { normSeverity, type Severity } from '../../shared/ui/Status';
 import type { AlarmRule } from '../../types';
@@ -130,6 +130,8 @@ export interface ChartSpec {
   onZoom?: (fromMs: number, toMs: number) => void;
   /** the x window (epoch ms) — fixed so a short history reads as a gap */
   xRange: [number, number];
+  /** draw series as bars instead of lines (WP-B display toggle) */
+  bars?: boolean;
 }
 
 const AXIS_FONT = '11px "IBM Plex Mono", "Roboto Mono", monospace';
@@ -197,6 +199,9 @@ export function chartOptions(spec: ChartSpec): uPlot.Options {
       ...series.map((s) => ({
         label: s.label,
         stroke: s.color,
+        // bars: the series hue at low alpha — reads as samples, keeps ISA-101
+        fill: spec.bars ? `${s.color}33` : undefined,
+        paths: spec.bars ? uPlot.paths.bars!({ size: [0.7, 80], align: 0 }) : undefined,
         width: s.width ?? 2,
         spanGaps: false, // an outage is a gap, never a flat line
         points: { show: false },

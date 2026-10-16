@@ -175,7 +175,10 @@ export const api = {
 export interface V2List<T> { items: T[]; next_cursor: string | null }
 export interface AdminOrg { id: string; name: string; role: string; created_at: string }
 export interface AdminSite { id: string; name: string; code: string; timezone: string }
-export interface AdminTag { id: string; path: string; name: string; type: string; unit?: string }
+export interface AdminTag {
+  id: string; path: string; name: string; type: string; unit?: string;
+  writable?: boolean; edge_id?: string | null; min?: number; max?: number;
+}
 export interface AdminRule {
   id: string; tag_id: string; name: string; kind: string;
   threshold: number | null; stale_s: number | null; window_s?: number | null; deadband: number;
@@ -316,6 +319,10 @@ export const tagQueryApi = {
   stats: (org: string, site: string, p: { from?: string; to?: string } = {}) =>
     request<{ from: string; to: string; gap_s: number; items: TagStat[] }>(
       v2(org, `/sites/${site}/tag-stats${qs(p as Record<string, string | number | undefined>)}`)),
+  /** v2 bulk latest — one row per tag that has ever reported (member read). */
+  latest: (org: string, site: string) =>
+    request<V2List<{ tag_id: string; v: number | boolean | null; q: string; ts: string }>>(
+      v2(org, `/sites/${site}/tags/latest`)),
 };
 export interface TagStat {
   tag_id: string; path: string; name: string; unit: string | null; type: string;

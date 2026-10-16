@@ -76,6 +76,10 @@ const SecurityApiPage = lazy(() => import('./features/security/ApiProtectionPage
 const SecurityAccessPage = lazy(() => import('./features/security/AccessPage').then((m) => ({ default: m.AccessPage })));
 const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then((m) => ({ default: m.SessionsPage })));
 const MetricsSummaryPage = lazy(() => import('./features/metrics/MetricsSummaryPage').then((m) => ({ default: m.MetricsSummaryPage })));
+const MetricsLayout = lazy(() => import('./features/metrics/MetricsLayout').then((m) => ({ default: m.MetricsLayout })));
+const MetricsOverviewPage = lazy(() => import('./features/metrics/OverviewPage').then((m) => ({ default: m.MetricsOverviewPage })));
+const MetricsVolumePage = lazy(() => import('./features/metrics/VolumePage').then((m) => ({ default: m.MetricsVolumePage })));
+const MetricsSettingsPage = lazy(() => import('./features/metrics/SettingsPage').then((m) => ({ default: m.MetricsSettingsPage })));
 const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })));
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const VisionRulesPage = lazy(() => import('./features/vision/RulesPage').then((m) => ({ default: m.RulesPage })));
@@ -268,7 +272,12 @@ export default function App() {
             <Route path="security/api" element={page(SecurityApiPage)} />
             <Route path="security/access" element={page(SecurityAccessPage)} />
             {enabled('sessions') && <Route path="sessions" element={page(SessionsPage)} />}
-            <Route path="metrics" element={page(MetricsSummaryPage)} />
+            <Route path="metrics" element={page(MetricsLayout)}>
+              <Route index element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><MetricsSummaryPage /></Suspense></RouteBoundary>} />
+              <Route path="overview" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><MetricsOverviewPage /></Suspense></RouteBoundary>} />
+              <Route path="volume" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><MetricsVolumePage /></Suspense></RouteBoundary>} />
+              <Route path="settings" element={<RouteBoundary><Suspense fallback={<PageSkeleton />}><MetricsSettingsPage /></Suspense></RouteBoundary>} />
+            </Route>
             {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
             {/* production KPIs (Phase 5) */}
             <Route path="oee" element={page(OeePage)} />

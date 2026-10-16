@@ -16,18 +16,20 @@ export const RETENTION_MS = 8 * 3600e3;
 export interface TagSeries {
   tag: string;
   pts: Pt[];
+  /** full-resolution samples (pre-decimation) — stats and formulas use this */
+  raw: Pt[];
   /** samples dropped because their quality was not good (rendered as gaps) */
   bad: number;
   /** computed on the full-resolution samples, before decimation */
-  stats: { last: number | null; lastT: number | null; min: number | null; max: number | null; avg: number | null };
+  stats: { last: number | null; lastT: number | null; min: number | null; max: number | null; avg: number | null; sum: number | null };
 }
 
-function statsOf(pts: Pt[]): TagSeries['stats'] {
-  if (!pts.length) return { last: null, lastT: null, min: null, max: null, avg: null };
+export function statsOf(pts: Pt[]): TagSeries['stats'] {
+  if (!pts.length) return { last: null, lastT: null, min: null, max: null, avg: null, sum: null };
   let min = Infinity; let max = -Infinity; let sum = 0;
   for (const p of pts) { if (p.v < min) min = p.v; if (p.v > max) max = p.v; sum += p.v; }
   const l = pts[pts.length - 1];
-  return { last: l.v, lastT: l.t, min, max, avg: sum / pts.length };
+  return { last: l.v, lastT: l.t, min, max, avg: sum / pts.length, sum };
 }
 
 interface Fetched { series: TagSeries[]; truncated: boolean }
@@ -52,7 +54,7 @@ async function fetchTag(tag: string, from: number, to: number): Promise<{ s: Tag
     }
   }
   pts.sort((a, b) => a.t - b.t);
-  return { s: { tag, pts, bad, stats: statsOf(pts) }, truncated: rows.some((c) => c.length >= ROW_CAP) };
+  return { s: { tag, pts, raw: pts, bad, stats: statsOf(pts) }, truncated: rows.some((c) => c.length >= ROW_CAP) };
 }
 
 /**
@@ -97,7 +99,7 @@ export function useSeries(tags: string[], win: { fromMs: number; toMs: number | 
         pts = pts.slice(s);
       }
     }
-    return { tag, pts: decimate(pts), bad: hist?.bad ?? 0, stats: statsOf(pts) };
+    return { tag, pts: decimate(pts), raw: pts, bad: hist?.bad ?? 0, stats: statsOf(pts) };
   });
 
   return {

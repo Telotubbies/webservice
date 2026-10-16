@@ -15,6 +15,31 @@ const TAGS = [
   { name: 'plant1.sort.vision.cam1.gravel_ratio', writable: false, unit: '%' },
 ];
 
+/** v2 tag registry — mirrors the v1 list plus one provisioned-but-silent
+ *  channel so the Metrics pages can show a real "no data" bucket. */
+const V2_TAGS = [
+  ...TAGS.map((g, i) => ({
+    id: `00000000-0000-4000-8000-00000000000${i}`,
+    site_id: 'site-1', edge_id: 'e1',
+    path: g.name.slice('plant1.'.length).replace(/\./g, '/'),
+    name: g.name.split('.').pop() ?? g.name,
+    type: g.name.endsWith('.running') ? 'bool' : 'float',
+    unit: g.unit ?? null, writable: g.writable,
+  })),
+  { id: '00000000-0000-4000-8000-000000000006', site_id: 'site-1', edge_id: 'e2',
+    path: 'sort/line1/conv1/vibration_mms', name: 'vibration_mms', type: 'float',
+    unit: 'mm/s', writable: false },
+];
+
+/** Live qualities for the mock plant: one stale channel (level sensor froze
+ *  a couple of minutes ago) and one uncertain estimate (vision ratio) so the
+ *  metrics surfaces render every quality bucket with real states. */
+function mockLatest(name: string, t: number) {
+  if (name.endsWith('.level_pct')) return { name, v: value(name, t), q: 'good', ts: iso(t - 120e3) };
+  if (name.endsWith('.gravel_ratio')) return { name, v: value(name, t), q: 'uncertain', ts: iso(t) };
+  return { name, v: value(name, t), q: 'good', ts: iso(t) };
+}
+
 /** Smooth deterministic signal per tag at time t (ms). */
 function value(name: string, t: number): number | boolean {
   const s = t / 1000;
@@ -49,6 +74,7 @@ const rules = [
 ];
 
 const commands: Record<string, unknown>[] = [];
+const dashBoards: Record<string, unknown>[] = [];
 
 function roleOf(req: IncomingMessage): string | null {
   const m = /Bearer demo-(\w+)/.exec(req.headers.authorization ?? '');
@@ -80,6 +106,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   if (!role) return send(401, { detail: 'mock: sign in with demo-operator or demo-viewer' });
   const t = now();
 
+  if (p === '/api/v1/consents') return send(200, list([]));
   if (p === '/api/me' || p === '/api/v1/me') {
     const perms = role === 'viewer' ? ['read'] : ['read', 'operate', 'config:write', 'member:manage', 'audit:read'];
     return send(200, {
@@ -92,13 +119,13 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, { mqtt: { connected: true }, edge: { last_heartbeat_ts: iso(t - 2000), clock_ok: true }, backend: { uptime_s: Math.round((t - T0) / 1000) + 86400 } });
   }
   if (p === '/api/tags') return send(200, TAGS);
-  if (p === '/api/tags/latest') return send(200, TAGS.map((g) => ({ name: g.name, v: value(g.name, t), q: 'good', ts: iso(t) })));
+  if (p === '/api/tags/latest') return send(200, TAGS.map((g) => mockLatest(g.name, t)));
 
   const tagRoute = /^\/api\/tags\/(.+)\/(latest|history|availability)$/.exec(p);
   if (tagRoute) {
     const name = decodeURIComponent(tagRoute[1]);
     if (!TAGS.some((g) => g.name === name)) return send(404, { detail: 'unknown tag' });
-    if (tagRoute[2] === 'latest') return send(200, { name, v: value(name, t), q: 'good', ts: iso(t) });
+    if (tagRoute[2] === 'latest') return send(200, mockLatest(name, t));
     const from = Date.parse(url.searchParams.get('from') ?? '') || t - 3600e3;
     const to = Date.parse(url.searchParams.get('to') ?? '') || t;
     if (tagRoute[2] === 'availability') {
@@ -171,6 +198,69 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
         { id: 'e2', org_id: v2[1], site_id: 'site-1', name: 'edge-conveyor-02', status: 'active', mqtt_username: 'edge-2', credential_version: 1, last_hb_at: iso(T0 - 4e3), clock_ok: false, adapter: 'modbus', needs_rotation: true },
         { id: 'e3', org_id: v2[1], site_id: 'site-1', name: 'edge-vision-03', status: 'active', mqtt_username: 'edge-3', credential_version: 2, last_hb_at: iso(T0 - 900e3), clock_ok: true, adapter: 'mqtt', needs_rotation: true },
       ]));
+    }
+    // v2 site-scoped tag surface — registry, bulk latest, stats, history.
+    if (/\/sites\/[^/]+\/tags$/.test(rest)) return send(200, list(V2_TAGS));
+    if (/\/sites\/[^/]+\/tags\/latest$/.test(rest)) {
+      return send(200, list(TAGS.map((g, i) => {
+        const l = mockLatest(g.name, t);
+        return { tag_id: V2_TAGS[i].id, v: l.v, q: l.q, ts: l.ts };
+      })));
+    }
+    if (/\/sites\/[^/]+\/tag-stats$/.test(rest)) {
+      const from = Date.parse(url.searchParams.get('from') ?? '') || t - 3600e3;
+      const to = Date.parse(url.searchParams.get('to') ?? '') || t;
+      const items = TAGS.map((g, i) => {
+        let n = 0, nNum = 0, min = Infinity, max = -Infinity, sum = 0, last: number | boolean = 0, lastTs = from;
+        for (let x = from; x <= to; x += 1000) {
+          const v = value(g.name, x);
+          n++; last = v; lastTs = x;
+          if (typeof v === 'number') { nNum++; sum += v; if (v < min) min = v; if (v > max) max = v; }
+        }
+        const vt = V2_TAGS[i];
+        return {
+          tag_id: vt.id, path: vt.path, name: vt.name, unit: vt.unit, type: vt.type,
+          min: nNum ? min : null, max: nNum ? max : null, avg: nNum ? +(sum / nNum).toFixed(4) : null,
+          count: n, last, last_ts: iso(lastTs), gaps: 0, max_gap_s: 0,
+        };
+      });
+      return send(200, { from: iso(from), to: iso(to), gap_s: 60, items });
+    }
+    const tagHist = /^\/sites\/[^/]+\/tag-history$/.exec(rest);
+    if (tagHist) {
+      const q = url.searchParams.get('tag') ?? '';
+      const vt = V2_TAGS.find((g) => g.id === q || g.path === q);
+      const from = Date.parse(url.searchParams.get('from') ?? '') || t - 3600e3;
+      const to = Date.parse(url.searchParams.get('to') ?? '') || t;
+      if (!vt) return send(404, { detail: 'unknown tag' });
+      const v1name = `plant1.${vt.path.replace(/\//g, '.')}`;
+      const limit = Math.min(5000, Number(url.searchParams.get('limit')) || 720);
+      const step = Math.max(1000, (to - from) / limit);
+      const rows = [];
+      if (TAGS.some((g) => g.name === v1name)) {
+        for (let x = from; x <= to; x += step) rows.push({ v: value(v1name, x), q: 'good', ts: iso(x) });
+      }
+      return send(200, { tag: { id: vt.id, path: vt.path, name: vt.name, unit: vt.unit }, from: iso(from), to: iso(to), agg: url.searchParams.get('agg') ?? 'raw', rows });
+    }
+    // custom dashboards CRUD (shared boards; member-read, operator-write)
+    if (rest === '/dashboards' || /^\/dashboards\/[^/]+$/.test(rest)) {
+      if (req.method === 'GET') return send(200, { dashboards: dashBoards });
+      if (role === 'viewer') return send(403, { detail: 'operator role required' });
+      if (req.method === 'POST') {
+        const b = await body(req);
+        const row = { id: (b.id as string) || `dash-${dashBoards.length + 1}`, title: b.title, description: b.description ?? '', shared: b.shared ?? true, mine: true, body: b.body ?? {}, updated_at: iso(t) };
+        dashBoards.push(row);
+        return send(200, { dashboard: row });
+      }
+      const id = rest.split('/')[2];
+      const ix = dashBoards.findIndex((d) => d.id === id);
+      if (ix < 0) return send(404, { detail: 'unknown dashboard' });
+      if (req.method === 'PUT') {
+        const b = await body(req);
+        dashBoards[ix] = { ...dashBoards[ix], ...b, updated_at: iso(t) };
+        return send(200, { dashboard: dashBoards[ix] });
+      }
+      if (req.method === 'DELETE') { dashBoards.splice(ix, 1); return send(200, {}); }
     }
     if (rest.startsWith('/audit')) {
       const acts = ['auth.login', 'auth.login', 'auth.login', 'member.updated', 'alarm_rule.created', 'alarm_rule.updated', 'edge.rotated', 'downtime.created', 'tag.updated'];

@@ -17,7 +17,7 @@ export interface ChartSeries extends SeriesSpec { pts: Pt[] }
 
 export function TimeChart({
   series, limits = [], unit, xRange, height, fill = false, syncKey, onZoom,
-  yMin, yMax, legend = true, loading, error, onRetry, compact = false,
+  yMin, yMax, legend = true, loading, error, onRetry, compact = false, bars = false,
 }: {
   series: ChartSeries[];
   limits?: Limit[];
@@ -26,6 +26,8 @@ export function TimeChart({
   /** fixed plot height; omit with fill to size to the parent */
   height?: number;
   fill?: boolean;
+  /** draw samples as bars (Trends display toggle) */
+  bars?: boolean;
   syncKey?: string;
   onZoom?: (fromMs: number, toMs: number) => void;
   yMin?: number | null;
@@ -47,12 +49,15 @@ export function TimeChart({
   // structure key: rebuild only when what is drawn changes, not on new data
   const structure = JSON.stringify([
     series.map((s) => [s.key, s.label, s.color, s.unit, s.decimals, s.width]),
-    limits, unit, yMin, yMax, syncKey, i18n.language, height, fill, !!onZoom,
+    limits, unit, yMin, yMax, syncKey, i18n.language, height, fill, bars, !!onZoom,
   ]);
   const data = useMemo(() => joinSeries(series.map((s) => s.pts)), [series]);
   const rangeRef = useRef(xRange);
   rangeRef.current = xRange;
 
+  // deps include loading/error: while those render early (skeleton/notice)
+  // the box div isn't mounted, so a deps set that skips them can leave the
+  // effect permanently early-returned with an empty chart container.
   useEffect(() => {
     const el = box.current;
     if (!el || !hasData) return;
@@ -62,7 +67,7 @@ export function TimeChart({
     });
     const opts = chartOptions({
       ...size(),
-      series, limits, unit, locale: i18n.language, yMin, yMax, syncKey,
+      series, limits, unit, locale: i18n.language, yMin, yMax, syncKey, bars,
       xRange: rangeRef.current,
       onZoom: zoomRef.current ? (a, b) => zoomRef.current?.(a, b) : undefined,
     });
@@ -74,7 +79,7 @@ export function TimeChart({
     ro.observe(el);
     return () => { ro.disconnect(); u.destroy(); plot.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [structure, hasData]);
+  }, [structure, hasData, loading, error]);
 
   useEffect(() => {
     plot.current?.setData(data);

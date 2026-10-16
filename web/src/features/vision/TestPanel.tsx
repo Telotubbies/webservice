@@ -216,7 +216,7 @@ export function TestPanel({ orgId, model, version, admin, onClose }: {
     }
   };
 
-  const useFrame = async () => {
+  const grabFrame = async () => {
     if (!camSel || snapBusy) return;
     // a snapshot replaces whatever an in-flight inference/preview was doing
     seq.current += 1;
@@ -272,7 +272,7 @@ export function TestPanel({ orgId, model, version, admin, onClose }: {
                       onChange={(e) => pickCam(e.target.value)}>
                       {cams.data!.items.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
-                    <button type="button" className="btn btn-sm btn-ghost" disabled={snapBusy} onClick={() => void useFrame()}>
+                    <button type="button" className="btn btn-sm btn-ghost" disabled={snapBusy} onClick={() => void grabFrame()}>
                       {snapBusy ? t('vis.testRunning') : t('vis.testUseFrame')}
                     </button>
                   </div>

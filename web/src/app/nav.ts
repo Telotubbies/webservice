@@ -84,9 +84,12 @@ const ALL_NAV: NavGroup[] = [
     { to: '/infrastructure/profiles', key: 'nav.infraProfiles', icon: 'assert-list' },
     { to: '/health', key: 'nav.health', icon: 'heartbeat' },
   ], action: { to: '/infrastructure/add', key: 'nav.addDevice' } },
-  { cluster: 3, group: 'nav.metrics', icon: 'metric', items: [
+  { cluster: 3, group: 'nav.metrics', icon: 'metric', href: '/metrics', items: [
     { to: '/trends', key: 'nav.trends', icon: 'graph-line' },
     { to: '/metrics', key: 'nav.metricsSummary', icon: 'metric' },
+    { to: '/metrics/overview', key: 'nav.metricsOverview', icon: 'status-page' },
+    { to: '/metrics/volume', key: 'nav.metricsVolume', icon: 'datastreams-monitoring' },
+    { to: '/metrics/settings', key: 'nav.metricsSettings', icon: 'cog' },
     { to: '/tags', key: 'nav.tags', icon: 'list' },
     { to: '/query', key: 'nav.query', icon: 'database' },
   ] },
