@@ -15,6 +15,7 @@ import { DEVICE_TABS } from '../devices/tabs';
 import { AddCameraDialog } from './AddCameraDialog';
 import { camApi, type Camera } from './api';
 import { CameraTile } from './CameraTile';
+import { ModelPanel } from '../vision/ModelPanel';
 import './i18n';
 
 export function CamerasPage() {
@@ -26,6 +27,7 @@ export function CamerasPage() {
   const [picked, setPicked] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [del, setDel] = useState<Camera | null>(null);
+  const [modelFor, setModelFor] = useState<Camera | null>(null);
   const [msg, setMsg] = useState('');
 
   const edges = useQuery({
@@ -81,9 +83,12 @@ export function CamerasPage() {
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {items.map((c) => (
                   <CameraTile key={c.id} orgId={orgId!} cam={c} admin={admin}
-                    onToggle={(x) => toggle.mutate(x)} onDelete={setDel} />
+                    onToggle={(x) => toggle.mutate(x)} onDelete={setDel} onModel={setModelFor} />
                 ))}
               </div>
+            )}
+            {modelFor && orgId && (
+              <ModelPanel orgId={orgId} cam={modelFor} admin={admin} onClose={() => setModelFor(null)} />
             )}
           </>
         )}

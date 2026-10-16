@@ -50,6 +50,7 @@ const NetworkMapPage = lazy(() => import('./features/devices/NetworkMapPage').th
 const ProfilesPage = lazy(() => import('./features/devices/ProfilesPage').then((m) => ({ default: m.ProfilesPage })));
 const AddDeviceWizard = lazy(() => import('./features/devices/AddDeviceWizard').then((m) => ({ default: m.AddDeviceWizard })));
 const DataSourcesPage = lazy(() => import('./features/datasources/DataSourcesPage').then((m) => ({ default: m.DataSourcesPage })));
+const ModelsPage = lazy(() => import('./features/vision/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const CamerasPage = lazy(() => import('./features/cameras/CamerasPage').then((m) => ({ default: m.CamerasPage })));
 const GatewayPage = lazy(() => import('./features/datasources/GatewayPage').then((m) => ({ default: m.GatewayPage })));
 const AlarmQualityPage = lazy(() => import('./features/alarmquality/AlarmQualityPage').then((m) => ({ default: m.AlarmQualityPage })));
@@ -210,6 +211,7 @@ export default function App() {
             <Route path="infrastructure/sources" element={page(DataSourcesPage)} />
             <Route path="infrastructure/sources/:edgeId" element={page(GatewayPage)} />
             <Route path="infrastructure/cameras" element={page(CamerasPage)} />
+            <Route path="infrastructure/models" element={page(ModelsPage)} />
             <Route path="infrastructure/add" element={page(AddDeviceWizard)} />
             <Route path="infrastructure/map" element={page(NetworkMapPage)} />
             <Route path="infrastructure/profiles" element={page(ProfilesPage)} />

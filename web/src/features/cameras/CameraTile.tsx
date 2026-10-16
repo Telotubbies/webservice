@@ -6,11 +6,12 @@ import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
 import { camApi, type Camera } from './api';
 import { streamRefreshMs } from './logic';
+import '../vision/i18n';
 import './i18n';
 
-export function CameraTile({ orgId, cam, admin, onToggle, onDelete }: {
+export function CameraTile({ orgId, cam, admin, onToggle, onDelete, onModel }: {
   orgId: string; cam: Camera; admin: boolean;
-  onToggle: (c: Camera) => void; onDelete: (c: Camera) => void;
+  onToggle: (c: Camera) => void; onDelete: (c: Camera) => void; onModel: (c: Camera) => void;
 }) {
   const { t } = useTranslation();
   const [src, setSrc] = useState<string | null>(null);
@@ -55,16 +56,17 @@ export function CameraTile({ orgId, cam, admin, onToggle, onDelete }: {
           <p className="truncate text-[13px] font-medium">{cam.name}</p>
           <p className={`text-[12px] ${tone}`}>{label}{cam.status === 'error' && cam.status_detail ? ` — ${cam.status_detail}` : ''}</p>
         </div>
-        {admin && (
-          <div className="flex shrink-0 gap-1">
+        <div className="flex shrink-0 gap-1">
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onModel(cam)}>{t('vis.panelTitle')}</button>
+          {admin && (<>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => onToggle(cam)}>
               {cam.enabled ? t('cam.disable') : t('cam.enable')}
             </button>
             <button type="button" className="btn btn-sm btn-ghost" aria-label={`${t('cam.delete')} — ${cam.name}`} onClick={() => onDelete(cam)}>
               <Trash2 size={14} aria-hidden />
             </button>
-          </div>
-        )}
+          </>)}
+        </div>
       </figcaption>
     </figure>
   );

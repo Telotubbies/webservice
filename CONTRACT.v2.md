@@ -212,3 +212,25 @@ REST (all `/api/v1/orgs/{org}/…`; non-member 404; writes need `config:write`, 
 - Edge role ACL adds publish on `vision/frame/+` and `vision/stat` only. The backend ignores a frame whose camera does not belong to the publishing edge.
 - Frames are shed first when the ingest queue is more than half full, so they never delay telemetry.
 - The relay keeps only the newest frame per camera; a slow viewer skips frames. Single backend replica (the shared subscription would otherwise split frames across replicas).
+
+## Vision models (plan M1-04)
+
+REST under `/api/v1/orgs/{org}/vision/models` (non-member 404, writes need `config:write`, audited):
+
+| Route | Notes |
+|---|---|
+| `POST …/models` `{name, task: detect\|segment}` / `GET` / `DELETE …/{id}` | 409 `model_name_exists`, 409 `version_pinned` |
+| `POST …/{id}/versions?filename=x.onnx\|x.pt&notes=` | raw body ≤ 500 MB. `.onnx` is inspected inline → `draft` (422 `{detail: code, message}` on `not_onnx`, `unsupported_output`, `no_classes`, `task_mismatch`; the file is not stored). `.pt` → `processing`, converted in the sandbox → `draft` or `failed` (`failure_reason`) |
+| `GET …/{id}/versions[/{v}]` | poll a `processing` version |
+| `POST …/versions/{v}/classes` `{names}` | only when the file had none; 422 `class_count_mismatch` shows both counts when the export declared one |
+| `POST …/versions/{v}/activate` `{attest: true}` | needs classes; stores who/when; 400 without attestation; 409 `classes_required`/`bad_state` |
+| `POST …/versions/{v}/archive`, `DELETE …/versions/{v}` | archive only when unpinned; delete only draft/failed/archived and unpinned |
+| `GET/POST …/{id}/presets`, `DELETE …/presets/{p}` | named class sets for one model |
+| `GET/PUT/DELETE /api/v1/orgs/{org}/cameras/{camera}/model` | pin an `active` version; `PUT` keeps class settings only where the id keeps its name and returns `diff {added, removed, renamed}`; `placement` `auto\|edge\|cloud` |
+| `PATCH …/cameras/{camera}/classes` `{class_config}` | per class id: `enabled`, `names{en,th}`, `min_score` 0.05–0.95, `colour #rrggbb`, `alert` |
+| `POST …/cameras/{camera}/classes/apply-preset` `{preset_id}` | preset must belong to the pinned model |
+| `GET /api/v1/edge-models/{version}?edge&sig` | gateway download, no session; `sig = HMAC(edge, version, sha256)`; 404 on any failure |
+
+`cfg.cameras[i].model = {version_id, sha256, size_bytes, task, imgsz, stride, classes, class_config, placement, url}`.
+
+**Converter spool** (volume shared with the `model-converter` container, which has no network, a read-only root, tmpfs scratch, 3 GB / 2 CPU / 256 PIDs, no capabilities): in `{id}.pt` + `{id}.json {id, task_hint, queued_at}`; out `{id}.onnx` + `{id}.result.json {ok, error?}`. The `.pt` and the job file are deleted in every case. The backend never opens a `.pt` and never talks to Docker.
