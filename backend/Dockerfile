@@ -11,7 +11,8 @@ COPY app ./app
 COPY alarm_rules.yaml ./alarm_rules.yaml
 
 # Non-root: a compromised process shouldn't own the container filesystem.
-RUN useradd --system --uid 10001 --no-create-home app \n && mkdir -p /data/videos && chown app /data/videos
+RUN useradd --system --uid 10001 --no-create-home app \
+ && mkdir -p /data/videos && chown app /data/videos
 USER app
 
 ENV MQTT_HOST=mosquitto \
