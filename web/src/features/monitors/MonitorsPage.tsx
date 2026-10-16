@@ -7,7 +7,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { NavLink, useNavigate } from 'react-router';
+import { NavLink, useNavigate, useSearchParams } from 'react-router';
 import { api } from '../../lib/api';
 import { live } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
@@ -21,6 +21,8 @@ import { EmptyState, ErrorState, SkeletonRows } from '../../shared/ui/Feedback';
 import { DdIcon } from '../../shared/ui/DdIcon';
 import { Icon } from '../../shared/ui/Icon';
 import { FacetSidebar, passesFacets, toggleFacet, type FacetDef, type FacetSel } from '../../shared/ui/Facets';
+import { SavedViews } from '../../shared/ui/SavedViews';
+import { ExportCsvButton } from '../../shared/ui/ExportCsv';
 import { matchMonitor, monitorRows, STATUS_ORDER, type MonitorRow, type MonStatus } from './monitors';
 import './i18n';
 
@@ -45,6 +47,7 @@ export function useMonitoringTabs(): PageTab[] {
   const { t } = useTranslation();
   return [
     { to: '/monitors', label: t('mon.list'), end: true },
+    { to: '/monitors/templates', label: t('mon.templates'), end: true },
     { to: '/alarms', label: t('mon.triggered'), end: true },
     { to: '/downtimes', label: t('mon.downtimes') },
     { to: '/alarms/quality', label: t('mon.quality') },
@@ -60,8 +63,38 @@ export function MonitorsPage() {
   const { orgRole } = useAdminOrg();
   const tabs = useMonitoringTabs();
   const rules = useQuery({ queryKey: ['alarm-rules'], queryFn: api.alarmRules, staleTime: 60_000 });
-  const [q, setQ] = useState('');
-  const [sel, setSel] = useState<FacetSel>({});
+  // ?q= and ?status= are the shareable state (dd saved-view contract): the
+  // URL round-trips into search + the status facet; the other facets stay
+  // in-memory so the URL doesn't sprawl.
+  const [params, setParams] = useSearchParams();
+  const q = params.get('q') ?? '';
+  const setQ = (v: string) => setParams((prev) => {
+    const next = new URLSearchParams(prev);
+    if (v) next.set('q', v); else next.delete('q');
+    return next;
+  }, { replace: true });
+  const statusSel = useMemo(() => new Set(
+    (params.get('status') ?? '').split(',').filter((s): s is MonStatus => (STATUS_ORDER as string[]).includes(s)),
+  ), [params]);
+  const [sel, setSel] = useState<FacetSel>({}); // non-status facets
+  const merged = useMemo<FacetSel>(() => ({ ...sel, status: statusSel }), [sel, statusSel]);
+  const toggle = (f: string, v: string) => {
+    if (f === 'status') {
+      const next = new Set(statusSel);
+      if (next.has(v as MonStatus)) next.delete(v as MonStatus); else next.add(v as MonStatus);
+      setParams((prev) => {
+        const p = new URLSearchParams(prev);
+        if (next.size) p.set('status', [...next].join(',')); else p.delete('status');
+        return p;
+      }, { replace: true });
+      return;
+    }
+    setSel((s) => toggleFacet(s, f, v));
+  };
+  const clearAll = () => {
+    setSel({});
+    setParams((prev) => { const p = new URLSearchParams(prev); p.delete('status'); return p; }, { replace: true });
+  };
   const [showFilters, setShowFilters] = useState(false); // phones: facets collapse behind a button
 
   const signalLabel = (tag: string) => (SIGNALS[tag] ? t(SIGNALS[tag].labelKey) : tag);
@@ -84,11 +117,11 @@ export function MonitorsPage() {
   const base = useMemo(() => rows.filter((r) => matchMonitor(r, q, signalLabel)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rows, q]);
-  const visible = base.filter((r) => passesFacets(sel, pick(r)));
+  const visible = base.filter((r) => passesFacets(merged, pick(r)));
 
   // counts per facet value ignore that facet's own selection (dd behaviour)
   const count = (facet: string, value: string) =>
-    base.filter((r) => passesFacets(sel, pick(r), facet) && [pick(r)(facet)].flat().includes(value)).length;
+    base.filter((r) => passesFacets(merged, pick(r), facet) && [pick(r)(facet)].flat().includes(value)).length;
   const uniq = (f: string) => [...new Set(rows.map((r) => pick(r)(f) as string))].filter(Boolean).sort();
   const facets: FacetDef[] = [
     { id: 'status', title: t('mon.fStatus'), values: STATUS_ORDER.map((s) => ({
@@ -115,12 +148,35 @@ export function MonitorsPage() {
   };
   const open = (r: MonitorRow) => navigate(`/alarms?q=${encodeURIComponent(r.rule.name)}`);
 
+  const CSV_COLS = [
+    { key: 'status', label: t('mon.colStatus') },
+    { key: 'name', label: t('mon.colName') },
+    { key: 'condition', label: t('mon.colCondition') },
+    { key: 'severity', label: t('mon.colSeverity') },
+    { key: 'area', label: t('mon.colArea') },
+    { key: 'tag', label: 'tag' },
+    { key: 'open', label: 'open' },
+    { key: 'muted', label: 'muted' },
+  ];
+
   return (
     <>
       <PageBar
         icon="monitor" title={t('mon.title')} tabs={tabs}
         actions={(
           <>
+            <SavedViews page="monitors" />
+            <ExportCsvButton
+              name="monitors"
+              columns={CSV_COLS}
+              count={visible.length}
+              rows={() => visible.map((r) => ({
+                status: t(`mon.${r.status}`), name: r.rule.name,
+                condition: `${t(`mon.kind.${r.rule.kind}`, { defaultValue: r.rule.kind })} ${cond(r.rule)}`,
+                severity: r.severity, area: r.area || '', tag: r.rule.tag ?? '',
+                open: r.open, muted: r.muted ? 'yes' : 'no',
+              }))}
+            />
             <NavLink to="/alarms/settings" className="btn btn-ghost btn-sm"><DdIcon name="cog" size={13} /> {t('mon.settings')}</NavLink>
             {canAdmin(orgRole ?? 'none') && (
               <NavLink to="/admin/rules/new" className="btn btn-sm"><DdIcon name="plus" size={12} /> {t('mon.newRule')}</NavLink>
@@ -134,9 +190,9 @@ export function MonitorsPage() {
       <div className="grid md:grid-cols-[248px_minmax(0,1fr)]">
         <FacetSidebar
           className={`border-b border-line bg-white p-3 md:sticky md:top-[80px] md:block md:max-h-[calc(100svh-80px)] md:overflow-y-auto md:border-b-0 md:border-r ${showFilters ? '' : 'hidden'}`}
-          facets={facets} sel={sel}
-          onToggle={(f, v) => setSel((s) => toggleFacet(s, f, v))}
-          onClear={() => setSel({})}
+          facets={facets} sel={merged}
+          onToggle={toggle}
+          onClear={clearAll}
           viewMore={t('mon.viewMore')} clearLabel={t('mon.clear')}
         />
         <PageBody className="min-w-0">

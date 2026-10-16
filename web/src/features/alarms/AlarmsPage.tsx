@@ -3,7 +3,9 @@
 
 import { Fragment, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { NavLink, useNavigate, useSearchParams } from 'react-router';
+import { api } from '../../lib/api';
 import { live, STALE_MS } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
 import { SIGNALS } from '../../lib/plant';
@@ -21,6 +23,7 @@ import { Segmented } from '../../shared/ui/Segmented';
 import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
 import { DdIcon } from '../../shared/ui/DdIcon';
+import { TriggeredOnboarding } from '../monitors/TriggeredOnboarding';
 import type { Alarm } from '../../types';
 
 type StateFilter = 'active' | 'acked' | 'cleared' | 'all';
@@ -141,6 +144,9 @@ export function AlarmsPage() {
   // (v4 T14) — the shim-org useRole() would wrongly hide it from an admin of
   // a non-shim org.
   const { orgRole } = useAdminOrg();
+  // zero-rule / zero-alarm onboarding — the v1 rule list is member-read, so
+  // every role can fetch it; only the admin actions inside stay gated.
+  const ruleCount = useQuery({ queryKey: ['alarm-rules'], queryFn: api.alarmRules, staleTime: 60_000 });
   const operable = canOperate(role);
   const navigate = useNavigate();
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -299,6 +305,9 @@ export function AlarmsPage() {
       </div>
 
       <div className="p-4">
+        {seeded && ruleCount.data && (ruleCount.data.length === 0 || all.length === 0) && (
+          <TriggeredOnboarding ruleCount={ruleCount.data.length} orgRole={orgRole} />
+        )}
         {ws !== 'open' && seeded && (
           <div className="mb-3"><Notice tone="warn">{t('alx.liveLost')}</Notice></div>
         )}

@@ -18,6 +18,7 @@ import { AlarmActions } from './AlarmActions';
 import { useAlarms } from './alarms';
 import { AlarmLifecycle } from './AlarmLifecycle';
 import { AlarmTrend } from './AlarmTrend';
+import { StatusStrip, ThresholdConditions } from './MonitorDetailExtras';
 import { ackAlarm, errText } from './ackAlarm';
 import { useSiteAlarms } from './siteAlarms';
 import './i18n';
@@ -83,8 +84,12 @@ export function AlarmDetailPage() {
   const stale = !!tv && now - Date.parse(tv.ts) > STALE_MS;
   const eq = equipmentOf(alarm.tag);
   const related = all.filter((a) => a.tag === alarm.tag && String(a.id) !== String(alarm.id)).slice(0, 5);
+  // alarm.rule keeps the rule name as it was when the alarm was raised —
+  // exact match first, then a name-prefix match for rules that were renamed
+  // or whose stored string carried the condition ("name > 75").
   const rule = rules.data?.find((r) => r.name === alarm.rule && (!r.tag || r.tag === alarm.tag))
-    ?? rules.data?.find((r) => r.name === alarm.rule);
+    ?? rules.data?.find((r) => r.name === alarm.rule)
+    ?? rules.data?.find((r) => alarm.rule.startsWith(`${r.name} `) && (!r.tag || r.tag === alarm.tag));
   const unit = meta?.unit ?? '';
   const fmtV = (v: number) => `${v.toFixed(meta?.decimals ?? 1)}${unit ? ` ${unit}` : ''}`;
 
@@ -203,11 +208,17 @@ export function AlarmDetailPage() {
                 tag={alarm.tag}
                 raisedAt={alarm.ts}
                 limit={rule?.kind !== 'stale' ? rule?.threshold : null}
+                band={rule ? (rule.kind === 'lo' || rule.kind === 'lolo' ? 'below' : 'above') : null}
                 unit={unit}
                 decimals={meta?.decimals ?? 1}
                 severity={alarm.severity}
               />
+              <div className="mt-3 border-t border-line pt-3">
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-46">{t('mon.det.strip')}</p>
+                <StatusStrip all={all} ruleName={alarm.rule} tag={alarm.tag} raisedAt={alarm.ts} now={now} />
+              </div>
             </Card>
+            <ThresholdConditions rule={rule} rulesPending={rules.isPending} />
           </div>
 
           <aside className="space-y-3">

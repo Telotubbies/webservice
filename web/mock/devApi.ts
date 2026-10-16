@@ -50,6 +50,44 @@ const rules = [
 
 const commands: Record<string, unknown>[] = [];
 
+// ---- v2 fixtures (WP-A: monitor templates, settings sections) — the v1
+// `rules`/`alarms` lists stay the v1 mirror; these carry ids for the
+// org-scoped contract. Mutable so POST/PATCH persist for the session.
+const v2tags = [
+  { id: 'tag-temp', path: 'plant1.sort.line1.conv1.temp_c', name: 'temp_c', type: 'float', unit: '°C' },
+  { id: 'tag-speed', path: 'plant1.sort.line1.conv1.speed_mps', name: 'speed_mps', type: 'float', unit: 'm/s' },
+  { id: 'tag-level', path: 'plant1.sort.line1.bin1.level_pct', name: 'level_pct', type: 'float', unit: '%' },
+  { id: 'tag-ratio', path: 'plant1.sort.vision.cam1.gravel_ratio', name: 'gravel_ratio', type: 'float', unit: '%' },
+  { id: 'tag-run', path: 'plant1.sort.line1.motor1.running', name: 'running', type: 'bool' },
+  { id: 'tag-sp', path: 'plant1.sort.line1.motor1.speed_sp', name: 'speed_sp', type: 'float', unit: 'Hz' },
+];
+const tagPath = (id: string) => v2tags.find((x) => x.id === id)?.path ?? '';
+const pathTag = (path: string) => v2tags.find((x) => x.path === path)?.id ?? '';
+const v2rules: Record<string, unknown>[] = [
+  { id: 'r-1', tag_id: 'tag-temp', name: 'conveyor temp HiHi', kind: 'hihi', threshold: 75, stale_s: null, window_s: null, deadband: 1, severity: 'critical', enabled: true },
+  { id: 'r-2', tag_id: 'tag-level', name: 'bin level Hi', kind: 'hi', threshold: 90, stale_s: null, window_s: null, deadband: 2, severity: 'warning', enabled: true },
+  { id: 'r-3', tag_id: 'tag-ratio', name: 'vision stale', kind: 'stale', threshold: null, stale_s: 30, window_s: null, deadband: 0, severity: 'info', enabled: true },
+  { id: 'r-4', tag_id: 'tag-sp', name: 'motor setpoint drift', kind: 'roc', threshold: 5, stale_s: null, window_s: 600, deadband: 0.5, severity: 'info', enabled: false },
+];
+const v2channels: Record<string, unknown>[] = [
+  { id: 'c-1', name: 'Ops email', type: 'email', team_id: null, enabled: true, has_secrets: false, config: { to: 'ops@demo.local' }, created_at: iso(T0 - 90 * 86400e3) },
+  { id: 'c-2', name: 'LINE night shift', type: 'line', team_id: null, enabled: true, has_secrets: true, config: {}, created_at: iso(T0 - 40 * 86400e3) },
+  { id: 'c-3', name: 'SCADA webhook', type: 'webhook', team_id: null, enabled: false, has_secrets: true, config: { url: 'https://hooks.demo.local/alarm' }, created_at: iso(T0 - 12 * 86400e3) },
+];
+const v2policies: Record<string, unknown>[] = [
+  { id: 'p-1', name: 'Shift escalation', rule_id: null, enabled: true, created_at: iso(T0 - 60 * 86400e3), levels: [
+    { after_minutes: 15, channel_ids: ['c-1'], team_ids: [], oncall_team: null },
+    { after_minutes: 45, channel_ids: ['c-1', 'c-2'], team_ids: [], oncall_team: 'team-night' },
+  ] },
+  { id: 'p-2', name: 'Critical fast path', rule_id: 'r-1', enabled: false, created_at: iso(T0 - 20 * 86400e3), levels: [
+    { after_minutes: 5, channel_ids: ['c-3'], team_ids: [], oncall_team: null },
+  ] },
+];
+const v2downtimes: Record<string, unknown>[] = [
+  { id: 'd-1', rule_id: 'r-3', rule: 'vision stale', description: 'Camera lens cleaning', starts_at: iso(T0 - 3600e3), ends_at: iso(T0 + 3 * 3600e3), recurring: false, mine: true },
+  { id: 'd-2', rule_id: null, rule: null, description: 'Weekly preventive maintenance', starts_at: iso(T0 + 2 * 86400e3), ends_at: iso(T0 + 2 * 86400e3 + 4 * 3600e3), recurring: true, mine: false },
+];
+
 function roleOf(req: IncomingMessage): string | null {
   const m = /Bearer demo-(\w+)/.exec(req.headers.authorization ?? '');
   return m ? (m[1] === 'admin' || m[1] === 'owner' ? m[1] : m[1] === 'viewer' ? 'viewer' : 'operator') : null;
@@ -177,6 +215,108 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       return send(200, list(Array.from({ length: 60 }, (_, i) => ({
         seq: 60 - i, at: iso(T0 - i * 3 * 3600e3), actor: i % 4 === 0 ? 'user:admin' : 'user:operator', action: acts[i % acts.length], target: {}, detail: {}, hash: `h${i}`,
       }))));
+    }
+    // config surfaces — writes are admin|owner only (mirrors the backend's
+    // config:write gate; the mock grants operators no config role)
+    const siteTags = /^\/sites\/[^/]+\/tags$/.exec(rest);
+    if (siteTags) return send(200, list(v2tags));
+    const siteRules = /^\/sites\/[^/]+\/alarm-rules(\/[^/]+)?$/.exec(rest);
+    if (siteRules) {
+      const config = role === 'admin' || role === 'owner';
+      if (req.method !== 'GET' && !config) return send(403, { detail: 'admin role required' });
+      const id = siteRules[1]?.slice(1);
+      if (id) {
+        const r = v2rules.find((x) => x.id === id);
+        if (!r) return send(404, { detail: 'unknown rule' });
+        if (req.method === 'PATCH') {
+          Object.assign(r, await body(req));
+          const v1 = rules.find((x) => x.name === r.name);
+          if (v1) Object.assign(v1, { enabled: r.enabled });
+          return send(200, { rule: r });
+        }
+        if (req.method === 'DELETE') {
+          v2rules.splice(v2rules.indexOf(r), 1);
+          const i = rules.findIndex((x) => x.name === r.name);
+          if (i >= 0) rules.splice(i, 1);
+          return send(200, { deleted: id });
+        }
+        return send(200, { rule: r });
+      }
+      if (req.method === 'POST') {
+        const b = await body(req);
+        if (v2rules.some((x) => x.tag_id === b.tag_id && x.name === b.name)) {
+          return send(409, { detail: 'a rule with this name already exists on that tag' });
+        }
+        const r = {
+          id: `r-${v2rules.length + 1}-${Math.floor(t % 1000)}`,
+          tag_id: String(b.tag_id ?? ''), name: String(b.name ?? 'rule'),
+          kind: String(b.kind ?? 'hi'), threshold: b.threshold ?? null,
+          stale_s: b.stale_s ?? null, window_s: b.window_s ?? null,
+          deadband: Number(b.deadband ?? 0), severity: String(b.severity ?? 'info'),
+          enabled: b.enabled !== false,
+        };
+        v2rules.push(r);
+        rules.push({ tag: tagPath(r.tag_id), name: r.name, kind: r.kind as never, threshold: r.threshold as never, stale_s: r.stale_s as never, deadband: r.deadband, severity: r.severity as never, enabled: r.enabled });
+        return send(200, { rule: r });
+      }
+      return send(200, list(v2rules));
+    }
+    const siteAlarms = /^\/sites\/[^/]+\/alarms$/.exec(rest);
+    if (siteAlarms) {
+      return send(200, list(alarms.map((a) => ({
+        id: String(a.id), tag_id: pathTag(a.tag), rule_id: v2rules.find((r) => r.name === a.rule.split(' >')[0].split(' <')[0])?.id ?? 'r-1',
+        rule: a.rule, severity: a.severity, state: a.state, raised_at: a.ts,
+        acked_at: a.acked_at, acked_by: a.acked_by, cleared_at: a.cleared_at,
+        version: a.version, shelved_until: null, assigned_to: null, assigned_name: null,
+      }))));
+    }
+    const ch = /^\/notification-channels(\/[^/]+)?$/.exec(rest);
+    if (ch) {
+      const config = role === 'admin' || role === 'owner';
+      if (req.method !== 'GET' && !config) return send(403, { detail: 'admin role required' });
+      const id = ch[1]?.slice(1);
+      if (id) {
+        const c = v2channels.find((x) => x.id === id);
+        if (!c) return send(404, { detail: 'unknown channel' });
+        if (req.method === 'PATCH') { Object.assign(c, await body(req)); return send(200, { channel: c }); }
+        if (req.method === 'DELETE') { v2channels.splice(v2channels.indexOf(c), 1); return send(200, { deleted: id }); }
+      }
+      if (req.method === 'POST') {
+        const b = await body(req);
+        const c = { id: `c-${v2channels.length + 1}`, name: String(b.name ?? 'channel'), type: String(b.type ?? 'email'), team_id: b.team_id ?? null, enabled: b.enabled !== false, has_secrets: false, config: b.config ?? {}, created_at: iso(t) };
+        v2channels.push(c);
+        return send(200, { channel: c });
+      }
+      return send(200, list(v2channels));
+    }
+    const pol = /^\/escalation-policies(\/[^/]+)?$/.exec(rest);
+    if (pol) {
+      const config = role === 'admin' || role === 'owner';
+      if (req.method !== 'GET' && !config) return send(403, { detail: 'admin role required' });
+      const id = pol[1]?.slice(1);
+      if (id) {
+        const x = v2policies.find((e) => e.id === id);
+        if (!x) return send(404, { detail: 'unknown policy' });
+        if (req.method === 'PATCH') { Object.assign(x, await body(req)); return send(200, { policy: x }); }
+        if (req.method === 'DELETE') { v2policies.splice(v2policies.indexOf(x), 1); return send(200, { deleted: id }); }
+      }
+      if (req.method === 'POST') {
+        const b = await body(req);
+        const x = { id: `p-${v2policies.length + 1}`, name: String(b.name ?? 'policy'), rule_id: b.rule_id ?? null, levels: b.levels ?? [], enabled: b.enabled !== false, created_at: iso(t) };
+        v2policies.push(x);
+        return send(200, { policy: x });
+      }
+      return send(200, list(v2policies));
+    }
+    if (rest === '/downtimes') {
+      if (req.method === 'POST') {
+        if (role === 'viewer') return send(403, { detail: 'operator role required' });
+        const b = await body(req);
+        const d = { id: `d-${v2downtimes.length + 1}`, rule_id: b.rule_id ?? null, rule: v2rules.find((r) => r.id === b.rule_id)?.name ?? null, description: String(b.description ?? ''), starts_at: String(b.starts_at), ends_at: String(b.ends_at), recurring: !!b.recurring, mine: true };
+        v2downtimes.push(d);
+        return send(200, { downtime: d });
+      }
+      return send(200, { downtimes: v2downtimes, rules: v2rules.map((r) => ({ id: r.id, name: r.name })) });
     }
     return send(200, list([]));
   }
