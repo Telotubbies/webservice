@@ -257,3 +257,9 @@ def _enforce_prod_env() -> None:
 
 if APP_ENV not in ("dev", "test"):
     _enforce_prod_env()
+
+# --- external AI inference (inference.py) — empty URL = feature off ---
+INFERENCE_URL = os.environ.get("INFERENCE_URL", "").strip()
+INFERENCE_API_KEY = _read_secret(os.environ.get("INFERENCE_API_KEY_FILE")) or os.environ.get("INFERENCE_API_KEY", "")
+INFERENCE_PERIOD_S = float(os.environ.get("INFERENCE_PERIOD_S", "10"))
+INFERENCE_TIMEOUT_S = float(os.environ.get("INFERENCE_TIMEOUT_S", "5"))
