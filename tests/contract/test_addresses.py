@@ -9,11 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.datasources.addresses import (  # noqa: E402
-    AddressError,
-    parse_address,
-    validate_connection,
-)
+from app.datasources.addresses import AddressError, parse_address, validate_connection
 
 
 def mb(area, index, dt):

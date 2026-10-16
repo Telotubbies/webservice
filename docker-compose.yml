@@ -238,14 +238,14 @@ services:
       <<: *pg-dsns
       APP_ENV: "${APP_ENV:-dev}"
       CORS_ORIGIN: http://localhost:5173
-      # v4 T4 — rate limiting + WS origin check (backend/app/config.py).
+      # v4 T4 — rate limiting + WS origin check (backend/app/core/config.py).
       # ALLOWED_ORIGINS empty = same-origin only (Origin host must match Host).
       RATE_COMMANDS_PER_TAG: "${RATE_COMMANDS_PER_TAG:-5}"
       RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-60}"
       RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
       TAGS_CONFIG: /config/tags.yaml
-      # external AI model server (backend/app/inference.py); empty = off
+      # external AI model server (backend/app/alarming/inference.py); empty = off
       INFERENCE_URL: "${INFERENCE_URL:-}"
       INFERENCE_PERIOD_S: "${INFERENCE_PERIOD_S:-10}"
       ALARM_RULES_CONFIG: /config/alarm_rules.yaml
@@ -271,7 +271,7 @@ services:
       KC_ADMIN_PASSWORD_FILE: /run/secrets/kc_admin_pw
       KC_DEMO_PASSWORD_FILE: /run/secrets/kc_demo_pw
       # Google/Microsoft sign-in via Keycloak brokering — off while empty
-      # (app.provision_idp syncs each IdP into the realm).
+      # (app.ops.provision_idp syncs each IdP into the realm).
       GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
       GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
       MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID:-}"

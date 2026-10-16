@@ -4,8 +4,14 @@ import uuid
 
 import pytest
 
-from app.vision.classes import (PALETTE, carry_over, class_diff, default_class_config, model_sig,
-                                validate_class_config)
+from app.vision.classes import (
+    PALETTE,
+    carry_over,
+    class_diff,
+    default_class_config,
+    model_sig,
+    validate_class_config,
+)
 
 CLASSES = ["person", "bicycle", "car"]
 

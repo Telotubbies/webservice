@@ -13,11 +13,11 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request
 
-from . import config
-from .auth import OPERATOR_ROLES, Principal
+from .core import config
+from .iam.auth import OPERATOR_ROLES, Principal
 from .db.context import tenant_tx
 from .db.pool import Pools
-from .security import ForbiddenError
+from .iam.security import ForbiddenError
 
 if TYPE_CHECKING:  # annotation only
     from .main import State

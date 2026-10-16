@@ -21,8 +21,11 @@ from fastapi import FastAPI  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 from prometheus_client import generate_latest  # noqa: E402
 
-from app.observability import (  # noqa: E402
-    ObservabilityMiddleware, metrics_response, redact, route_template,
+from app.core.observability import (
+    ObservabilityMiddleware,
+    metrics_response,
+    redact,
+    route_template,
 )
 
 REPO = Path(__file__).resolve().parents[2]

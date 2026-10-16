@@ -22,7 +22,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .. import config, plans
+from ..core import config
+from ..tenancy import plans
 from ..db import audit
 from ..db.context import global_tx, tenant_tx
 from ..db.util import iso_z, utcnow
@@ -370,7 +371,7 @@ async def test_version(org: str, model: str, version: str, request: Request,
     if (e["status"] != "active" or e["last_hb_at"] is None
             or (utcnow() - e["last_hb_at"]).total_seconds() > config.EDGE_STALE_AFTER_S):
         raise HTTPException(409, "edge_offline")
-    from .classes import model_cfg      # local: classes imports models
+    from .classes import model_cfg
     block = model_cfg({"model_version_id": vid, "sha256": v["sha256"],
                        "size_bytes": v["size_bytes"], "imgsz": v["imgsz"], "stride": v["stride"],
                        "classes": v["classes"], "class_config": {}, "placement": "edge"},

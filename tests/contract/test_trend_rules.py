@@ -6,11 +6,11 @@ from uuid import uuid4
 
 import pytest
 
-pytest.importorskip("asyncpg")  # app.alarms imports the db layer
+pytest.importorskip("asyncpg")  # app.alarming.alarms imports the db layer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "backend"))
 
-from app.alarms import (  # noqa: E402
+from app.alarming.alarms import (
     TREND_MIN_SAMPLES,
     Rule,
     trend_cleared,

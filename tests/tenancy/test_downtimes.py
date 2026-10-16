@@ -52,7 +52,7 @@ def test_downtimes_isolated_and_fk_scoped(two_orgs):
 
 def test_engine_mute_window(two_orgs):
     a, _ = two_orgs
-    from app.alarms import AlarmEngine
+    from app.alarming.alarms import AlarmEngine
     from app.db.context import tenant_tx
     now = datetime.now(timezone.utc)
 

@@ -16,7 +16,7 @@ BACKEND = Path(__file__).resolve().parents[2] / "backend"
 def _idps(extra: dict) -> str:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GOOGLE_")}
     env.update(extra, PYTHONPATH=str(BACKEND), APP_ENV="dev")
-    r = subprocess.run([sys.executable, "-c", "import app.config as c; print(c.IDPS)"],
+    r = subprocess.run([sys.executable, "-c", "import app.core.config as c; print(c.IDPS)"],
                        env=env, capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, r.stderr
     return r.stdout.strip()
@@ -34,7 +34,7 @@ def test_idps_follow_google_credentials(extra, expected):
 
 def test_web_client_gains_public_origin_idempotently():
     code = (
-        "from app.provision_idp import web_client_with_origin as f;"
+        "from app.ops.provision_idp import web_client_with_origin as f;"
         "rep={'redirectUris':['http://localhost:5173/*'],'webOrigins':['http://localhost:5173'],"
         "'attributes':{'post.logout.redirect.uris':'http://localhost:5173/*'}};"
         "a=f(rep,'https://ops.example.com/'); b=f(a,'https://ops.example.com');"

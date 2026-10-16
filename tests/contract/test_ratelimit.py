@@ -10,8 +10,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.ratelimit import RateLimiter  # noqa: E402
-from app.ws import OriginGuardMiddleware, origin_allowed  # noqa: E402
+from app.core.ratelimit import RateLimiter
+from app.edge.ws import OriginGuardMiddleware, origin_allowed
 
 
 def run(coro):

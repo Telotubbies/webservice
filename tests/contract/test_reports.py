@@ -1,4 +1,4 @@
-"""Contract tests for reports (backend/app/reports.py): CSV/HTML rendering,
+"""Contract tests for reports (backend/app/production/reports.py): CSV/HTML rendering,
 schedule-due math, and the sweeper contract — a due schedule enqueues exactly
 one `send_email` job with the documented payload shape. Fake-DB pattern per
 test_model_test_route.py; no live services.
@@ -22,9 +22,9 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import reports  # noqa: E402
-from app.auth import Principal  # noqa: E402
-from app.security import AuthError, ForbiddenError  # noqa: E402
+from app.production import reports
+from app.iam.auth import Principal
+from app.iam.security import AuthError, ForbiddenError
 
 BKK = ZoneInfo("Asia/Bangkok")
 UTC = timezone.utc

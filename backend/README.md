@@ -31,18 +31,18 @@ uvicorn app.main:app --port 8000
 |---|---|
 | `app/main.py` | FastAPI app, lifespan, REST routes, `/ws`, ingest worker, JSON logging |
 | `app/db/` | asyncpg pools (`wds_app`/`wds_system`), RLS tenant context (`global_tx`/`user_tx`/`tenant_tx`/`invite_tx`), audit-hash chain helpers |
-| `app/mqtt_client.py` | paho bridge over TLS 8883: shared-subscribe `v2/+/+/+/{tele/#,hb,cmd-resp/+}`, publish `v2/{org}/{site}/{edge}/cmd/{id}` |
-| `app/dynsec.py` | mosquitto dynamic-security reconciler — `edges`/`edge_identities` ↔ broker clients/ACLs |
-| `app/commands.py` | command lifecycle state machine |
-| `app/ws.py` | WS manager, bounded per-client queues (drop-oldest), shared `origin_allowed` + `OriginGuardMiddleware` |
-| `app/auth.py` | `Principal` model + dev-token path (**APP_ENV=dev only**) |
-| `app/security.py` | OIDC: JWKS cache, RS256 verify, authz cache, `wds_authz` listener + revalidation sweep, back-channel logout |
-| `app/registry.py` | site→org resolution cache for WS site selection + MQTT ingest |
-| `app/alarms.py` | alarm rule engine + `alarm_rules_changed` NOTIFY reload |
-| `app/insights.py` | insight/anomaly engine |
-| `app/observability.py` | metrics, request-id, access-log middleware + log redaction |
-| `app/ratelimit.py` | in-process token buckets (single replica) |
-| `app/seed.py` / `app/seed_oidc.py` | dev seed + KC demo provisioning (`make seed-dev`) |
+| `app/edge/mqtt_client.py` | paho bridge over TLS 8883: shared-subscribe `v2/+/+/+/{tele/#,hb,cmd-resp/+}`, publish `v2/{org}/{site}/{edge}/cmd/{id}` |
+| `app/edge/dynsec.py` | mosquitto dynamic-security reconciler — `edges`/`edge_identities` ↔ broker clients/ACLs |
+| `app/edge/commands.py` | command lifecycle state machine |
+| `app/edge/ws.py` | WS manager, bounded per-client queues (drop-oldest), shared `origin_allowed` + `OriginGuardMiddleware` |
+| `app/iam/auth.py` | `Principal` model + dev-token path (**APP_ENV=dev only**) |
+| `app/iam/security.py` | OIDC: JWKS cache, RS256 verify, authz cache, `wds_authz` listener + revalidation sweep, back-channel logout |
+| `app/edge/registry.py` | site→org resolution cache for WS site selection + MQTT ingest |
+| `app/alarming/alarms.py` | alarm rule engine + `alarm_rules_changed` NOTIFY reload |
+| `app/alarming/insights.py` | insight/anomaly engine |
+| `app/core/observability.py` | metrics, request-id, access-log middleware + log redaction |
+| `app/core/ratelimit.py` | in-process token buckets (single replica) |
+| `app/ops/seed.py` / `app/ops/seed_oidc.py` | dev seed + KC demo provisioning (`make seed-dev`) |
 
 ## Env vars
 
@@ -144,7 +144,7 @@ queries) and `wds_system` (LISTEN/dynsec/audit writers).
   propagated, else minted) and a JSON access log line on the
   `backend.access` logger: method, route template, status, latency_ms,
   request_id, client ip, and the authenticated `sub`. Headers, query strings
-  and bodies are never logged — `app.observability.redact` scrubs
+  and bodies are never logged — `app.core.observability.redact` scrubs
   `token=`/`Authorization:`/`Bearer …`/cookie-shaped material as a second
   fence.
 - `/docs`, `/redoc`, `/openapi.json` are served only under `APP_ENV=dev`

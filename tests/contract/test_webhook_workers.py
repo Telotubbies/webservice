@@ -1,4 +1,4 @@
-"""Offline contract for backend/app/workers.py — the webhook sweeper
+"""Offline contract for backend/app/tenancy/workers.py — the webhook sweeper
 (per-org cursor + enqueue) and signed delivery (X-WDS-Signature HMAC-SHA256,
 X-WDS-Delivery-Id) through the egress guard. HTTP POST is stubbed via
 workers._post where a live request isn't under test; the sealed secret
@@ -21,8 +21,9 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from app import egress, jobs, workers  # noqa: E402
-from app.datasources import secretbox  # noqa: E402
+from app.core import egress, jobs
+from app.tenancy import workers
+from app.datasources import secretbox
 
 ORG = uuid.uuid4()
 EP = uuid.uuid4()

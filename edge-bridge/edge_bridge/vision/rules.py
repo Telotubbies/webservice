@@ -1,6 +1,6 @@
 """Vision rule engine (roadmap 9.7): evaluates cfg-delivered rules on the
 gateway next to the model server, behind a LOCAL command gate that mirrors
-backend/app/commands.py.
+backend/app/edge/commands.py.
 
 Rules arrive inside the cfg cameras[] entries (`cameras[].rules`, plus the
 site/org off-switches in `cameras[].gate`) — the gateway never edits them.

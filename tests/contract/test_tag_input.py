@@ -9,14 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.datasources.addresses import AddressError  # noqa: E402
-from app.datasources.taginput import (  # noqa: E402
-    BulkError,
-    TagSpec,
-    build_tag,
-    norm_name,
-    parse_bulk_csv,
-)
+from app.datasources.addresses import AddressError
+from app.datasources.taginput import BulkError, TagSpec, build_tag, norm_name, parse_bulk_csv
 
 HDR = "line,device,signal,address,type,unit,writable,min,max,scale\n"
 

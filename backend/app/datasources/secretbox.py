@@ -12,7 +12,7 @@ import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .. import config
+from ..core import config
 
 MAX_PLAIN_BYTES = 4096
 

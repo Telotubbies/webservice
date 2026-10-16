@@ -1,4 +1,4 @@
-"""Offline HTTP contract for backend/app/platform.py — the /api/v1/platform
+"""Offline HTTP contract for backend/app/tenancy/platform.py — the /api/v1/platform
 back-office gate (platform_admins) + suspend/support-session/health paths.
 Fake-DB pattern per test_model_test_route.py.
 """
@@ -17,9 +17,9 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.auth import Principal  # noqa: E402
-from app.security import AuthError, ForbiddenError  # noqa: E402
-from app import platform as platform_mod  # noqa: E402
+from app.iam.auth import Principal
+from app.iam.security import AuthError, ForbiddenError
+from app.tenancy import platform as platform_mod
 
 ORG = uuid.uuid4()
 UID = uuid.uuid4()

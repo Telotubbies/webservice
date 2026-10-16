@@ -1,4 +1,4 @@
-"""HTTP contract for the Phase-5 OEE/downtime routes (backend/app/oee.py).
+"""HTTP contract for the Phase-5 OEE/downtime routes (backend/app/production/oee.py).
 
 Real router + real _v2_org permission check; the DB is a fake connection
 keyed by the SQL the routes actually issue (same pattern as
@@ -22,9 +22,9 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.auth import Principal  # noqa: E402
-from app.security import AuthError, ForbiddenError  # noqa: E402
-from app import oee  # noqa: E402
+from app.iam.auth import Principal
+from app.iam.security import AuthError, ForbiddenError
+from app.production import oee
 
 ORG = uuid.uuid4()
 SITE = uuid.uuid4()

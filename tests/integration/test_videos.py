@@ -62,7 +62,7 @@ def test_viewer_cannot_upload_403_nonmember_404(viewer_api, base_url):
 def test_media_download_needs_valid_sig(admin_api, base_url, video, monkeypatch):
     import uuid
     from conftest import REPO
-    from app import config
+    from app.core import config
     from app.vision.videos import media_sig
     keyfile = REPO / "infra" / "secrets" / "data_source_key"
     if not keyfile.exists():

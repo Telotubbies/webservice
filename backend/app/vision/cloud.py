@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from uuid import UUID
 
-from .. import config
+from ..core import config
 from ..db.context import global_tx
 from .classes import model_sig
 from .results import clean_test_result

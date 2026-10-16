@@ -1,4 +1,4 @@
-"""Stand-in model server for the INFERENCE_URL contract (backend/app/inference.py).
+"""Stand-in model server for the INFERENCE_URL contract (backend/app/alarming/inference.py).
     python scripts/mock_inference.py [port]     # then INFERENCE_URL=http://host.docker.internal:9100/predict
 Replace with your real model; only the request/response shapes matter."""
 

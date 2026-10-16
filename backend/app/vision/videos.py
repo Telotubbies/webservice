@@ -16,7 +16,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from .. import config
+from ..core import config
 from ..db import audit
 from ..db.context import global_tx, tenant_tx
 from ..db.util import iso_z

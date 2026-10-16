@@ -1,4 +1,4 @@
-# Alarm rules — config, not code. Loaded by app/alarms.py::load_rules
+# Alarm rules — config, not code. Loaded by app/alarming/alarms.py::load_rules
 # (override path with ALARM_RULES_CONFIG). Missing/unreadable file falls
 # back to the in-code defaults seeded below, which mirror this file.
 #

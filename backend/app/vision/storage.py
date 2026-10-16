@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import AsyncIterator
 from uuid import UUID
 
-from .. import config
+from ..core import config
 
 MAX_VIDEO_BYTES = 200 * 1024 * 1024
 MAX_MODEL_BYTES = 500 * 1024 * 1024

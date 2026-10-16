@@ -72,7 +72,7 @@ export SECRETS_DIR=... CERTS_DIR=... PUBLIC_URL=http://localhost:5180 \
 docker compose -p wds-prodtest -f docker-compose.yml -f docker-compose.prod.yml -f <test-ports.yml> up -d --build --wait
 
 # เปิดใช้งานลูกค้า (หลังเจ้าของล็อกอินครั้งแรก)
-docker compose exec backend python -m app.bootstrap --org "Acme Aggregates" --site "Plant 1" \
+docker compose exec backend python -m app.ops.bootstrap --org "Acme Aggregates" --site "Plant 1" \
   --site-code P1 --timezone Asia/Bangkok --owner-email owner@acme.com
 
 # Garage (เครื่องแยก): ครั้งแรก
@@ -96,6 +96,6 @@ docker compose -f deploy/garage/docker-compose.yml up -d && ./deploy/garage/init
 | # | งาน | เกณฑ์ผ่าน |
 |---|---|---|
 | G6 | ปรับจำนวนเมนูที่คาดใน `tests/e2e/uat.mjs:128` ให้ตรงกับ `nav.ts` (เมื่อปิด flag demo) | UAT เขียว |
-| G7 | bootstrap E2E บน prod-test: ล็อกอิน → none → `app.bootstrap` → owner | owner เข้าใช้งานได้ |
+| G7 | bootstrap E2E บน prod-test: ล็อกอิน → none → `app.ops.bootstrap` → owner | owner เข้าใช้งานได้ |
 | G8 | Google sign-in กับบัญชีจริง (ต้องมี OAuth client) | ล็อกอิน Google สำเร็จ |
 | UI | ตรวจด้วยตาหลังเปลี่ยนไอคอน lucide (rail, เมนู, มือถือ, contrast) | ไม่มีไอคอนหาย/ผิดความหมาย |

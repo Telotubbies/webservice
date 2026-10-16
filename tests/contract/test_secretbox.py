@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
 from cryptography.exceptions import InvalidTag  # noqa: E402
 
-from app.datasources import secretbox  # noqa: E402
+from app.datasources import secretbox
 
 
 def test_round_trip():

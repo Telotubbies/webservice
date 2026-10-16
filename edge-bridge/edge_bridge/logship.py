@@ -4,7 +4,7 @@ bounded ring buffer; a daemon thread flushes it to `.../logs` roughly every
 >= INFO. Publishing never raises into the logging pipeline (log messages
 never contain secrets — enforced by convention, see logging_setup).
 
-Wire contract (backend/app/edgelogs.py parse_log_batch): each entry is
+Wire contract (backend/app/edge/edgelogs.py parse_log_batch): each entry is
 {ts, level, source, msg} — ts in epoch SECONDS (or RFC-3339), level in
 debug|info|warn|error, source <= 80 chars, msg <= 2000 chars. Fields are
 truncated BEFORE json.dumps — cutting the encoded bytes would corrupt the

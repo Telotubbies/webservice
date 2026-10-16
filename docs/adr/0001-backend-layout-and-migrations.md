@@ -25,10 +25,26 @@ like duplication.
 3. **`main.py` keeps only** app construction, middleware, lifespan, MQTT
    ingest, machine/health endpoints, the v1 compat shim, edge provisioning
    and the WebSocket endpoint.
-4. **Migrations stay as `.py` + `.sql` twins.** The `.sql` is the reviewable,
+4. **Domain packages under `app/`** (the flat 36-module directory is gone):
+
+   | Package | Holds |
+   |---|---|
+   | `core/` | config, observability, ratelimit, egress guard, job queue |
+   | `iam/` | auth (principals), security (OIDC/JWKS), orgguard, consents |
+   | `tenancy/` | orgs, org API, plans, platform back-office, onboarding, webhook workers |
+   | `alarming/` | alarm engine, insights, inference client, notifications |
+   | `production/` | OEE/downtime, reports, status page, event feed, tag queries |
+   | `edge/` | MQTT bridge, dynsec, commands, registry, edge logs, WS hub, enroll codes |
+   | `ops/` | one-shot tasks: `python -m app.ops.seed_oidc`, `provision_idp`, `bootstrap`, `seed` |
+   | `api/`, `db/`, `datasources/`, `vision/` | v2 admin routers, data layer, data sources, vision |
+
+   Root keeps only `main.py` (wiring) and `deps.py` (shared dependencies).
+   New code goes in the package of its domain; a new top-level module needs
+   a reason.
+5. **Migrations stay as `.py` + `.sql` twins.** The `.sql` is the reviewable,
    hand-runnable artifact; the `.py` only executes it inside the Alembic
    transaction. `tests/contract/test_migrations_layout.py` enforces the pair.
-5. **An applied migration is never edited.** Fix forward with a new revision
+6. **An applied migration is never edited.** Fix forward with a new revision
    (e.g. `0046` replaces the `0033` seat-cap trigger function).
 
 ## Consequences

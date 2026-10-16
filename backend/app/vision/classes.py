@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from .. import config
+from ..core import config
 from ..datasources.routes import bump_config
 from ..db import audit
 from ..db.context import global_tx, tenant_tx

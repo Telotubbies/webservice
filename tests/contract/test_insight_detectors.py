@@ -15,18 +15,12 @@ from uuid import uuid4
 
 import pytest
 
-pytest.importorskip("asyncpg")  # app.insights imports the db layer
+pytest.importorskip("asyncpg")  # app.alarming.insights imports the db layer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "backend"))
 
-from app import config  # noqa: E402
-from app.insights import (  # noqa: E402
-    _MIN_BASE_N,
-    InsightEngine,
-    TagStats,
-    drift_detect,
-    flatline_on,
-)
+from app.core import config
+from app.alarming.insights import _MIN_BASE_N, InsightEngine, TagStats, drift_detect, flatline_on
 
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
 

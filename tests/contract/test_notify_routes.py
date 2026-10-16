@@ -23,9 +23,9 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import notify  # noqa: E402
-from app.auth import Principal  # noqa: E402
-from app.security import AuthError, ForbiddenError  # noqa: E402
+from app.alarming import notify
+from app.iam.auth import Principal
+from app.iam.security import AuthError, ForbiddenError
 
 ORG = uuid.uuid4()
 SITE = uuid.uuid4()

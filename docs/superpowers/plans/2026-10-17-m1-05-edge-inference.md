@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Model-server contract exactly as roadmap 9.10: `GET /v1/health`, `PUT /v1/models/{version_id}`, `DELETE /v1/models/{version_id}`, `POST /v1/infer?model=&classes=&conf=` (body `image/jpeg`), `POST /v1/benchmark?model=&frames=`.
-- Infer output is untrusted: cap 300 detections, string length 80, scores clamped to 0..1, boxes clamped to 0..1, polygons simplified to at most 64 points. Same discipline as `backend/app/inference.py::_clean`.
+- Infer output is untrusted: cap 300 detections, string length 80, scores clamped to 0..1, boxes clamped to 0..1, polygons simplified to at most 64 points. Same discipline as `backend/app/alarming/inference.py::_clean`.
 - Execution provider order: TensorRT, CUDA, OpenVINO, CPU (only providers that load are used; the chosen one is reported as `engine`).
 - The server keeps the last two versions on disk (rollback) and verifies `sha256` of every download. It runs with no inbound exposure beyond the compose network.
 - A model download uses only the `cfg` capability URL; the model-server never talks to the backend otherwise.
@@ -81,7 +81,7 @@
 
 **Files:**
 - Create: `backend/migrations/versions/0020_edge_capabilities.{sql,py}`
-- Modify: `edge-bridge/edge_bridge/vision/runner.py` (send `vision/caps` at start and every 5 min: cores, RAM MB, providers, device, loaded versions), `edge-bridge/edge_bridge/ops.py` (`model_test`), `backend/app/dynsec.py` (edge ACL + backend subscription for `vision/caps`), `backend/app/vision/stream.py` (`handle_caps`), `backend/app/vision/models.py` (`POST …/versions/{v}/test`), `backend/app/vision/relay.py` (`parse_stat` keeps `engine`, `latency_ms`), `backend/app/vision/cameras.py` (`camera_json` adds `engine`, `latency_ms` from the last stat held in memory)
+- Modify: `edge-bridge/edge_bridge/vision/runner.py` (send `vision/caps` at start and every 5 min: cores, RAM MB, providers, device, loaded versions), `edge-bridge/edge_bridge/ops.py` (`model_test`), `backend/app/edge/dynsec.py` (edge ACL + backend subscription for `vision/caps`), `backend/app/vision/stream.py` (`handle_caps`), `backend/app/vision/models.py` (`POST …/versions/{v}/test`), `backend/app/vision/relay.py` (`parse_stat` keeps `engine`, `latency_ms`), `backend/app/vision/cameras.py` (`camera_json` adds `engine`, `latency_ms` from the last stat held in memory)
 - Test: `tests/tenancy/test_edge_capabilities_rls.py`, `tests/contract/test_relay.py` (extend), `tests/integration/test_model_test_op.py`
 
 **Interfaces — Produces:**

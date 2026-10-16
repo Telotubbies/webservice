@@ -10,8 +10,15 @@ import uuid
 import pytest
 
 from app.vision import relay as relay_mod
-from app.vision.relay import (MAX_FRAME_BYTES, STAT_MAX_BYTES, CameraStat, FrameRelay,
-                              parse_stat, stream_sig, verify_stream_sig)
+from app.vision.relay import (
+    MAX_FRAME_BYTES,
+    STAT_MAX_BYTES,
+    CameraStat,
+    FrameRelay,
+    parse_stat,
+    stream_sig,
+    verify_stream_sig,
+)
 
 
 def run(coro):

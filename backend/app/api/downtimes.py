@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..auth import Principal
+from ..iam.auth import Principal
 from ..db import audit
 from ..db.util import iso_z
 from datetime import datetime
@@ -16,14 +16,7 @@ from pydantic import Field
 from pydantic import model_validator
 from uuid import UUID
 import asyncpg
-from ..deps import (
-    _OPERATE,
-    _mutation_gate,
-    _uuid_or_404,
-    _v2_org,
-    org_tx,
-    require_user,
-)
+from ..deps import _OPERATE, _mutation_gate, _uuid_or_404, _v2_org, org_tx, require_user
 from fastapi import APIRouter
 
 router = APIRouter()

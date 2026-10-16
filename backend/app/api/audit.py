@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..auth import Principal
+from ..iam.auth import Principal
 from ..db.util import iso_z
 from ..db.util import parse_ts
 from fastapi import Depends
@@ -13,12 +13,7 @@ from fastapi.responses import Response
 import csv
 import io
 import json
-from ..deps import (
-    _CONFIG,
-    _v2_org,
-    org_tx,
-    require_user,
-)
+from ..deps import _CONFIG, _v2_org, org_tx, require_user
 from fastapi import APIRouter
 
 router = APIRouter()

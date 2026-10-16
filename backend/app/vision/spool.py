@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from uuid import UUID
 
-from .. import config
+from ..core import config
 
 RESULT_MAX_BYTES = 8192
 STALE_S = 900

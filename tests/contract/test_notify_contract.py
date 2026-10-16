@@ -14,9 +14,9 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from app import config  # noqa: E402
-from app import notify  # noqa: E402
-from app.db.util import utcnow  # noqa: E402
+from app.core import config
+from app.alarming import notify
+from app.db.util import utcnow
 
 ORG = uuid.uuid4()
 ALARM = uuid.uuid4()

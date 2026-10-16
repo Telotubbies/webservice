@@ -87,7 +87,7 @@ Policies: `tenant_isolation` on both tables; `system_ds_lookup FOR SELECT TO wds
 
 **Files:**
 - Create: `backend/app/datasources/secretbox.py`, `backend/app/datasources/routes.py` (an `APIRouter`, included from `main.py` next to the edge routes)
-- Modify: `backend/app/main.py` (include router; reuse `_v2_org`, `_mutation_gate`, `st`), `backend/app/config.py` (`DATA_SOURCE_KEY = _read_secret(os.environ.get("DATA_SOURCE_KEY_FILE"))`; dev fallback key derived from `APP_ENV=dev` only; `_enforce_prod_env` requires the file), `docker-compose.yml` (secret file), `Makefile secrets` (generate it)
+- Modify: `backend/app/main.py` (include router; reuse `_v2_org`, `_mutation_gate`, `st`), `backend/app/core/config.py` (`DATA_SOURCE_KEY = _read_secret(os.environ.get("DATA_SOURCE_KEY_FILE"))`; dev fallback key derived from `APP_ENV=dev` only; `_enforce_prod_env` requires the file), `docker-compose.yml` (secret file), `Makefile secrets` (generate it)
 - Test: `tests/contract/test_secretbox.py`, `tests/integration/test_data_sources.py`
 
 **Interfaces:**
@@ -107,7 +107,7 @@ Policies: `tenant_isolation` on both tables; `system_ds_lookup FOR SELECT TO wds
 
 **Files:**
 - Create: `backend/app/datasources/publisher.py`
-- Modify: `backend/app/dynsec.py:edge_acls` (+ `subscribePattern {p}/cfg`, `publishClientReceive {p}/cfg`, `publishClientSend {p}/cfg-req`, `publishClientSend {p}/cfg-ack`), `backend/app/mqtt_client.py` (subscribe `$share/ingest/v2/+/+/+/cfg-req`, `…/cfg-ack`; `publish_cfg(topic, payload) -> bool`, QoS1, retain False), `backend/app/main.py:_handle_message` (route `cfg-req`, `cfg-ack`)
+- Modify: `backend/app/edge/dynsec.py:edge_acls` (+ `subscribePattern {p}/cfg`, `publishClientReceive {p}/cfg`, `publishClientSend {p}/cfg-req`, `publishClientSend {p}/cfg-ack`), `backend/app/edge/mqtt_client.py` (subscribe `$share/ingest/v2/+/+/+/cfg-req`, `…/cfg-ack`; `publish_cfg(topic, payload) -> bool`, QoS1, retain False), `backend/app/main.py:_handle_message` (route `cfg-req`, `cfg-ack`)
 - Test: `tests/contract/test_cfg_payload.py`, `tests/integration/test_cfg_delivery.py`
 
 **Interfaces:**

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from .. import consents
-from ..auth import Principal
+from ..iam import consents
+from ..iam.auth import Principal
 from ..db import audit
 from ..db.context import global_tx
 from ..db.context import invite_tx
@@ -11,7 +11,7 @@ from ..db.context import tenant_tx
 from ..db.context import user_tx
 from ..db.util import iso_z
 from ..db.util import utcnow
-from ..security import ForbiddenError
+from ..iam.security import ForbiddenError
 from fastapi import Depends
 from fastapi import HTTPException
 from fastapi import Request

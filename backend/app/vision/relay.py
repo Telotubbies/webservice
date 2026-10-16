@@ -16,7 +16,7 @@ import time
 from typing import AsyncIterator, Awaitable, Callable, NamedTuple
 from uuid import UUID
 
-from .. import config
+from ..core import config
 
 MAX_FRAME_BYTES = 150_000
 STREAM_URL_TTL_S = 60

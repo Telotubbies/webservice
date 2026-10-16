@@ -1,4 +1,4 @@
-"""Offline contract for backend/app/plans.py — cap resolution + the 402
+"""Offline contract for backend/app/tenancy/plans.py — cap resolution + the 402
 plan_limit refusal (roadmap §10 6.2). Fake-conn pattern; no HTTP needed —
 check_limit raises HTTPException directly.
 """
@@ -13,7 +13,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi import HTTPException  # noqa: E402
 
-from app import plans  # noqa: E402
+from app.tenancy import plans
 
 ORG = uuid.uuid4()
 

@@ -1,4 +1,4 @@
-"""Offline HTTP contract for backend/app/orgapi.py — usage, site create
+"""Offline HTTP contract for backend/app/tenancy/orgapi.py — usage, site create
 (402 plan cap), leave, soft-delete/restore, exports, webhook CRUD. Real
 router + real main._v2_org / require_user; the DB is a fake connection
 keyed by the SQL each route issues.
@@ -18,9 +18,9 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.auth import Principal  # noqa: E402
-from app.security import AuthError, ForbiddenError  # noqa: E402
-from app import orgapi  # noqa: E402
+from app.iam.auth import Principal
+from app.iam.security import AuthError, ForbiddenError
+from app.tenancy import orgapi
 
 ORG = uuid.uuid4()
 UID = uuid.uuid4()

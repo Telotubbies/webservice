@@ -29,7 +29,7 @@
 | **ช่างซ่อมบำรุง** | `operator` | Infrastructure (อุปกรณ์ออฟไลน์/ผิดปกติ) | เหมือน operator + ดูประวัติแอลาร์มรายเครื่อง | เหมือน operator |
 | **ผู้จัดการ** | `viewer` หรือ `admin` | Dashboards + SLOs | viewer: ดูอย่างเดียว · admin: + กฎแอลาร์ม, อุปกรณ์, ผู้ใช้ | viewer ไม่เห็นข้อมูลคำสั่งเลย (REST+WS) |
 | **เจ้าของโรงงาน** | `owner` | Dashboards (KPI) | ทุกอย่างของ admin + ตั้ง owner/admin คนอื่น | — |
-| **ผู้ดูแลแพลตฟอร์ม (เรา)** | ไม่มี role ในองค์กรลูกค้า | — | เปิดใช้งานลูกค้าใหม่ (`app.bootstrap`), deploy, backup | อ่านข้อมูลลูกค้าผ่าน UI |
+| **ผู้ดูแลแพลตฟอร์ม (เรา)** | ไม่มี role ในองค์กรลูกค้า | — | เปิดใช้งานลูกค้าใหม่ (`app.ops.bootstrap`), deploy, backup | อ่านข้อมูลลูกค้าผ่าน UI |
 
 > **Gap ที่บันทึกไว้:** role ช่างซ่อมบำรุงยังใช้ `operator` ร่วมกัน — role แยก (`maintenance`) เป็น future
 > เพราะต้องแก้ schema CHECK และ permission matrix (ดู 05 §9 roadmap)
@@ -57,7 +57,7 @@
 | Downtimes | `/downtimes` | Could | 🧪 ยังไม่ปิดเสียงแอลาร์มจริง | **off** | in-memory |
 | Error Tracking | `/errors` | Won't (รอบนี้) | 🧪 | **off** | mock |
 | Landing page สาธารณะ | `/` (ไม่ล็อกอิน) | Should | ✅ | on | — |
-| เปิดใช้งานลูกค้า (org/site/owner) | CLI `app.bootstrap` | **Must** | ✅ (ยังไม่ทดสอบ E2E ครบ) | — | DB |
+| เปิดใช้งานลูกค้า (org/site/owner) | CLI `app.ops.bootstrap` | **Must** | ✅ (ยังไม่ทดสอบ E2E ครบ) | — | DB |
 | LINE OA, OPC UA/S7, AWS IoT Core, role maintenance, billing | — | Won't (รอบนี้) | ⛔ | — | — |
 
 **กลไก flag (ต้องสร้าง — ดู 06):** `VITE_FEATURES` ตอน build (ค่าเริ่มต้นปิด `downtimes,errors`) ซ่อนทั้งเมนูและ route;

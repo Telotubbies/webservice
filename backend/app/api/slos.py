@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..auth import Principal
+from ..iam.auth import Principal
 from ..db import audit
 from ..db.util import iso_z
 from ..db.util import parse_ts
@@ -17,15 +17,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from uuid import UUID
 import asyncpg
-from ..deps import (
-    _CONFIG,
-    _mutation_gate,
-    _uuid_or_404,
-    _v2_org,
-    org_tx,
-    require_user,
-    st,
-)
+from ..deps import _CONFIG, _mutation_gate, _uuid_or_404, _v2_org, org_tx, require_user, st
 from fastapi import APIRouter
 
 router = APIRouter()

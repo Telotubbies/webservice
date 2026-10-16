@@ -15,7 +15,10 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
 
-from app import consents, edgelogs, eventsfeed, onboarding, statuspage, tagquery
+from app.iam import consents
+from app.edge import edgelogs
+from app.production import eventsfeed, statuspage, tagquery
+from app.tenancy import onboarding
 
 
 # ------------------------------------------------------------------ routes

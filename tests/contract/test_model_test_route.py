@@ -23,10 +23,10 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import config  # noqa: E402
-from app.auth import Principal  # noqa: E402
-from app.security import AuthError, ForbiddenError  # noqa: E402
-from app.vision import models as models_mod  # noqa: E402
+from app.core import config
+from app.iam.auth import Principal
+from app.iam.security import AuthError, ForbiddenError
+from app.vision import models as models_mod
 
 ORG = uuid.uuid4()
 OTHER_ORG = uuid.uuid4()

@@ -26,11 +26,9 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app import config
-from app.auth import dev_principal
-from app.security import (
-    AuthError, JwksCache, JwtVerifier, Security, BACKCHANNEL_EVENT,
-)
+from app.core import config
+from app.iam.auth import dev_principal
+from app.iam.security import AuthError, JwksCache, JwtVerifier, Security, BACKCHANNEL_EVENT
 
 ISSUER = "http://localhost:5173/realms/wds"
 AUDIENCE = "wds-api"

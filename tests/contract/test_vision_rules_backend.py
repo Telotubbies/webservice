@@ -16,8 +16,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.vision.events import parse_audit, parse_event  # noqa: E402
-from app.vision.rulecfg import validate_actions, validate_conditions  # noqa: E402
+from app.vision.events import parse_audit, parse_event
+from app.vision.rulecfg import validate_actions, validate_conditions
 
 
 # ----------------------------------------------------------- cfg validators

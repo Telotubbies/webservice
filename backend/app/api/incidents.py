@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from .. import config
-from .. import inference
-from ..auth import Principal
+from ..core import config
+from ..alarming import inference
+from ..iam.auth import Principal
 from ..db import audit
 from ..db.util import finite_or_none
 from ..db.util import iso_z

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from ..alarms import RULES_NOTIFY_CHANNEL
-from ..alarms import Rule
-from ..auth import Principal
+from ..alarming.alarms import RULES_NOTIFY_CHANNEL
+from ..alarming.alarms import Rule
+from ..iam.auth import Principal
 from ..db import audit
 from fastapi import Depends
 from fastapi import HTTPException

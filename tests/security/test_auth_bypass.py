@@ -24,7 +24,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.security]
 from conftest import OPERATOR_TOKEN, kc_password_token  # noqa: E402
 from security import forge  # noqa: E402
 
-LEEWAY_S = 30.0  # mirrors backend/app/security.py
+LEEWAY_S = 30.0  # mirrors backend/app/iam/security.py
 
 
 def _ws_close(base_url, token, wait_s=8):

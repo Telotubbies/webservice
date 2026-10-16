@@ -9,7 +9,7 @@ import pytest
 onnx = pytest.importorskip("onnx")
 from onnx import TensorProto, helper  # noqa: E402
 
-from app.vision.inspect import InspectError, inspect_onnx, parse_names, run_inspect  # noqa: E402
+from app.vision.inspect import InspectError, inspect_onnx, parse_names, run_inspect
 
 NAMES = "{0: 'person', 1: 'bicycle', 2: 'car'}"
 

@@ -6,9 +6,9 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app import credpush  # noqa: E402
-from app.dynsec import BACKEND_ACLS, edge_acls  # noqa: E402
-from app.mqtt_client import cred_topic  # noqa: E402
+from app.edge import credpush
+from app.edge.dynsec import BACKEND_ACLS, edge_acls
+from app.edge.mqtt_client import cred_topic
 
 
 class FakeMqtt:

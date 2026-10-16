@@ -129,10 +129,10 @@ migrate-sqlite: ## one-time v1 SQLite→Postgres import (doc 18 §3): make migra
 	  $(if $(DRY),--dry-run) $(if $(DSN),--dsn "$(DSN)") $(if $(ORG),--org-id "$(ORG)")
 
 idp: ## sync the Keycloak `google`/`microsoft` IdPs with *_CLIENT_ID/SECRET (removed when unset)
-	$(COMPOSE) exec -T backend python -m app.provision_idp
+	$(COMPOSE) exec -T backend python -m app.ops.provision_idp
 
 seed-dev: ## provision Keycloak test users + org memberships (APP_ENV=dev only)
-	$(COMPOSE) exec -T backend python -m app.seed_oidc
+	$(COMPOSE) exec -T backend python -m app.ops.seed_oidc
 
 test-integration: ## integration tests against the running stack (TLS :8883, v2 topics)
 	cd tests && BASE_URL=http://localhost:$(BACKEND_PORT) MQTT_HOST=localhost MQTT_PORT=8883 \

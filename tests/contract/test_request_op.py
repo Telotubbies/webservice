@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.commands import CommandManager  # noqa: E402
+from app.edge.commands import CommandManager
 
 
 class FakeMqtt:

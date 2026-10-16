@@ -12,10 +12,20 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.oee import (
-    break_seconds, compute_oee, counter_delta, current_shift, durations_in_windows,
-    map_state, pareto, shift_instances, shift_window, state_durations,
-    state_intervals, sweep_decision, to_time,
+from app.production.oee import (
+    break_seconds,
+    compute_oee,
+    counter_delta,
+    current_shift,
+    durations_in_windows,
+    map_state,
+    pareto,
+    shift_instances,
+    shift_window,
+    state_durations,
+    state_intervals,
+    sweep_decision,
+    to_time,
 )
 
 BKK = ZoneInfo("Asia/Bangkok")

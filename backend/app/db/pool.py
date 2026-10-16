@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import asyncpg
 
-from app import config
+from ..core import config
 
 
 async def _init_conn(conn: asyncpg.Connection) -> None:

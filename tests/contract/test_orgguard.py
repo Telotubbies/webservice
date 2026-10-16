@@ -1,4 +1,4 @@
-"""Offline contract for backend/app/orgguard.py — suspended orgs refuse
+"""Offline contract for backend/app/iam/orgguard.py — suspended orgs refuse
 member writes (403 org_suspended) while reads pass; deleted orgs 404 except
 /restore. The flag map comes from a fake conn; TTL is bypassed by calling
 the coroutine directly per test.
@@ -17,7 +17,7 @@ pytest.importorskip("fastapi")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import orgguard  # noqa: E402
+from app.iam import orgguard
 
 ORG = uuid.uuid4()
 OTHER = uuid.uuid4()

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "edge-bridge"))
 
-from app import enroll_codes  # noqa: E402
+from app.edge import enroll_codes
 from edge_bridge import cfg as edge_cfg  # noqa: E402
 from edge_bridge.config import Config  # noqa: E402
 from edge_bridge.adapters import IdleAdapter, make_adapter  # noqa: E402

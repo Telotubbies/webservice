@@ -2,7 +2,7 @@
 
 import pytest
 
-from app import orgs
+from app.tenancy import orgs
 
 
 def test_slug_normalizes_case_and_whitespace():

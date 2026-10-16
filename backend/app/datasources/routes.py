@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from .. import plans
+from ..tenancy import plans
 from ..db import audit
 from ..db.context import tenant_tx
 from ..db.util import iso_z

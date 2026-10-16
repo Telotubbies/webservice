@@ -104,7 +104,7 @@
 
 **Files:**
 - Create: `infra/keycloak/realm-wds.prod.json`
-- Modify: `infra/keycloak/realm-wds.json` (rename role: dev realm), `docker-compose.yml` (realm import path by `APP_ENV`), `backend/app/config.py` (prod validation)
+- Modify: `infra/keycloak/realm-wds.json` (rename role: dev realm), `docker-compose.yml` (realm import path by `APP_ENV`), `backend/app/core/config.py` (prod validation)
 - Test: `tests/contract/test_realm_prod.py` (create), extend `tests/contract/test_config_prod.py`
 
 **Interfaces:**

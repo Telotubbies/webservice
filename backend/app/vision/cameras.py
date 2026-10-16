@@ -14,7 +14,8 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import config, plans
+from ..core import config
+from ..tenancy import plans
 from ..datasources import secretbox
 from ..datasources.routes import bump_config
 from ..db import audit
@@ -112,7 +113,7 @@ async def cameras_for_cfg(tc, edge_id: UUID) -> list[dict]:
                 " WHERE model_id = ANY($1::uuid[])", list(ext_models)):
             key = secretbox.open_(er["key_enc"])["key"] if er["key_enc"] else None
             ext[er["model_id"]] = {"provider": er["provider"], "url": er["url"], "key": key}
-    from .classes import model_cfg      # local: classes imports models, which imports this package's siblings
+    from .classes import model_cfg
     from .rulecfg import gate_for_cfg, rules_for_cfg
     cam_ids = [r["id"] for r in rows]
     rules = await rules_for_cfg(tc, cam_ids)

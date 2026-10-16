@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 from fastapi import HTTPException  # noqa: E402
 
 from app.api.slos import _org_tag_or_400  # noqa: E402
-from app.registry import Registry, Tag  # noqa: E402
+from app.edge.registry import Registry, Tag  # noqa: E402
 
 ORG_ID = UUID("0199d000-0000-7000-8000-00000000a001")
 OTHER_ORG = UUID("0199d000-0000-7000-8000-00000000b999")

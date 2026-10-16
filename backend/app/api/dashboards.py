@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from ..auth import Principal
+from ..iam.auth import Principal
 from ..db import audit
 from ..db.util import iso_z
-from ..security import ForbiddenError
+from ..iam.security import ForbiddenError
 from datetime import datetime
 from fastapi import Depends
 from fastapi import HTTPException

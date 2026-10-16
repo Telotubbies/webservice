@@ -21,9 +21,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app import config
+from app.core import config
 from app.db.context import key_tx, set_key_user
-from app.security import AuthError, Security
+from app.iam.security import AuthError, Security
 
 KEY = "wds_sk_" + "a1b2c3d4" * 5                    # 40-char key body
 KEY_HASH = hashlib.sha256(KEY.encode()).hexdigest()

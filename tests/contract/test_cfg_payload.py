@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.datasources.publisher import (  # noqa: E402
+from app.datasources.publisher import (
     cfg_payload,
     cfg_topic,
     parse_cfg_ack,
@@ -16,8 +16,8 @@ from app.datasources.publisher import (  # noqa: E402
     should_send,
     stale_publish,
 )
-from app.dynsec import BACKEND_ACLS, edge_acls  # noqa: E402
-from app.mqtt_client import SUBSCRIPTIONS  # noqa: E402
+from app.edge.dynsec import BACKEND_ACLS, edge_acls
+from app.edge.mqtt_client import SUBSCRIPTIONS
 
 S1, S2, T1 = "s-1", "s-2", "t-1"
 

@@ -72,10 +72,10 @@ services:
         condition: service_completed_successfully
 
   # One-shot on every deploy: point the wds-web client at PUBLIC_URL and sync
-  # the Google IdP with GOOGLE_* (app.provision_idp, idempotent).
+  # the Google IdP with GOOGLE_* (app.ops.provision_idp, idempotent).
   kc-sync:
     build: ./backend
-    command: ["python", "-m", "app.provision_idp"]
+    command: ["python", "-m", "app.ops.provision_idp"]
     environment:
       # admin tool only — skips the API server's prod env gate, which needs
       # DB/MQTT secrets this job never uses

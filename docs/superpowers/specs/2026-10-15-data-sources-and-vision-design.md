@@ -6,7 +6,7 @@ Date: 2026-10-15 · Status: draft for approval · Branch: `feature/design`
 
 Today nobody but the person who runs the stack can put data into WDS. PLC
 connections live in `edge-bridge/tags.yaml` + env vars, the tag registry is
-seeded (`backend/app/seed.py`), and the AI model is two env vars
+seeded (`backend/app/ops/seed.py`), and the AI model is two env vars
 (`INFERENCE_URL`, `INFERENCE_API_KEY`). A customer opening the web console
 finds no place to add a PLC, a tag, a camera, or a model.
 

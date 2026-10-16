@@ -19,8 +19,7 @@ from pydantic import BaseModel, Field
 from ..datasources.routes import bump_config
 from ..db import audit
 from ..db.context import tenant_tx
-from .rulecfg import (has_plc_action, rule_json, validate_actions,
-                      validate_conditions)
+from .rulecfg import has_plc_action, rule_json, validate_actions, validate_conditions
 
 router = APIRouter()
 

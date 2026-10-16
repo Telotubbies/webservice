@@ -262,7 +262,7 @@ erDiagram
    ที่ backend ตั้งด้วย `set_config(..., true)` ภายใน transaction (`tenant_tx`)
 2. FK เป็นแบบ **composite** `(org_id, …)` → แถวลูกอ้างอิงแถวของ org อื่นไม่ได้แม้ RLS จะพลาด (defense in depth)
 3. Role แยก: `wds_owner` (migration เท่านั้น) · `wds_app` (API, NOBYPASSRLS) · `wds_system` (worker, lookup ข้าม org แบบจำกัด) — app ไม่มี superuser
-4. นอก tenant transaction (`global_tx`) เห็นเฉพาะตาราง global (`users`, `revoked_sessions`) — CLI `app.bootstrap`
+4. นอก tenant transaction (`global_tx`) เห็นเฉพาะตาราง global (`users`, `revoked_sessions`) — CLI `app.ops.bootstrap`
    จึงใช้ org id แบบ deterministic (uuid5 ของชื่อ) แทนการค้นข้าม tenant
 
 ## 4. State machines

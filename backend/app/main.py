@@ -36,21 +36,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import (
-    config, consents, credpush, edgelogs, enroll_codes, eventsfeed, inference,
-    notify, onboarding, orgapi, orgguard, orgs as orgs_mod, plans,
-    platform as platform_api, statuspage, tagquery, workers,
+from .core import config
+from .iam import consents, orgguard
+from .edge import credpush, edgelogs, enroll_codes
+from .production import eventsfeed, statuspage, tagquery
+from .alarming import inference, notify
+from .tenancy import onboarding, orgapi, orgs as orgs_mod, plans, platform as platform_api, workers
+from .alarming.alarms import AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener
+from .iam.auth import OPERATOR_ROLES, Principal
+from .edge.commands import CommandManager
+from .edge.dynsec import (
+    DynsecAdmin,
+    DynsecError,
+    Reconciler,
+    edge_acls,
+    edge_client_name,
+    edge_role_name,
+    fingerprint,
+    new_secret,
 )
-from .alarms import (
-    AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener,
-)
-from .auth import OPERATOR_ROLES, Principal
-from .commands import CommandManager
-from .dynsec import (
-    DynsecAdmin, DynsecError, Reconciler,
-    edge_acls, edge_client_name, edge_role_name, fingerprint, new_secret,
-)
-from .insights import INSIGHT_KINDS, InsightEngine
+from .alarming.insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
 from .datasources.publisher import CfgPublisher, parse_cfg_req
 from .datasources.routes import router as datasources_router, tags_notify_listener
@@ -69,19 +74,28 @@ from .vision.videos import router as videos_router
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
-from .mqtt_client import MQTTBridge
-from .oee import router as oee_router, downtime_sweep
-from .reports import router as reports_router, report_sweep
-from .observability import (
-    ObservabilityMiddleware, _client_ip, metrics_response, migration_at_head, RUNTIME,
+from .edge.mqtt_client import MQTTBridge
+from .production.oee import router as oee_router, downtime_sweep
+from .production.reports import router as reports_router, report_sweep
+from .core.observability import (
+    ObservabilityMiddleware,
+    _client_ip,
+    metrics_response,
+    migration_at_head,
+    RUNTIME,
 )
-from .ratelimit import RateLimiter
-from .registry import Registry
-from .security import (
-    API_KEY_PREFIX, AuthError, ForbiddenError, Security, authz_listener, authz_sweep,
+from .core.ratelimit import RateLimiter
+from .edge.registry import Registry
+from .iam.security import (
+    API_KEY_PREFIX,
+    AuthError,
+    ForbiddenError,
+    Security,
+    authz_listener,
+    authz_sweep,
 )
-from .seed import seed
-from .deps import (  # noqa: F401 — re-exported: routers/tests use main.<name>
+from .ops.seed import seed
+from .deps import (
     CONFIG_ROLES,
     Scope,
     _CONFIG,
@@ -107,10 +121,7 @@ from .deps import (  # noqa: F401 — re-exported: routers/tests use main.<name>
     v1_tx,
 )
 from .api import routers as api_routers
-from .ws import (
-    OriginGuardMiddleware, WSManager, WSAuthError, origin_allowed,
-    read_auth_frame,
-)
+from .edge.ws import OriginGuardMiddleware, WSManager, WSAuthError, origin_allowed, read_auth_frame
 
 START_TIME = time.monotonic()
 
@@ -705,7 +716,7 @@ async def readyz(request: Request):
 @app.get("/metrics")
 async def metrics():
     """Prometheus scrape — backend port only (loopback-bound; nginx returns
-    404 for /metrics on the web origin). See app.observability docstring."""
+    404 for /metrics on the web origin). See app.core.observability docstring."""
     return metrics_response()
 
 
@@ -1735,7 +1746,7 @@ for _r in api_routers:
 # ---------------------------------------------------------------------------
 # WebSocket (v1)
 # ---------------------------------------------------------------------------
-# _trusted_peer/_client_ip live in app.observability (v4 T8) — same code the
+# _trusted_peer/_client_ip live in app.core.observability (v4 T8) — same code the
 # access-log middleware uses to compute the request's IP field.
 async def _close_at_exp(client, exp: float) -> None:
     """Close the socket at token exp + 30 s (ADR-12 WS section: the server

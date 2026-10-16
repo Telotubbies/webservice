@@ -146,7 +146,7 @@ def has_plc_action(actions: list[dict]) -> bool:
 
 def rule_json(r) -> dict:
     """vision_events/rule API shape from a vision_rules row."""
-    from ..db.util import iso_z            # local: keep this module import-light
+    from ..db.util import iso_z
     return {"id": str(r["id"]), "camera_id": str(r["camera_id"]),
             "model_version_id": str(r["model_version_id"]) if r["model_version_id"] else None,
             "name": r["name"], "enabled": r["enabled"], "dry_run": r["dry_run"],

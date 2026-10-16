@@ -36,7 +36,7 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE") or os.path.join(
     os.path.dirname(__file__), "..", "..", "infra", "certs", "ca.crt")
 
-# dev-token users (backend/app/auth.py TOKENS + seed.py DEMO_USERS)
+# dev-token users (backend/app/iam/auth.py TOKENS + seed.py DEMO_USERS)
 ADMIN_UID = uuid.UUID("0199d000-0000-7000-8000-00000000d003")
 VIEWER_UID = uuid.UUID("0199d000-0000-7000-8000-00000000d002")
 

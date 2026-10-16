@@ -1,4 +1,4 @@
-"""APP_ENV=prod fail-fast (v4 T7, doc 20 §3.5): subprocess `import app.config`
+"""APP_ENV=prod fail-fast (v4 T7, doc 20 §3.5): subprocess `import app.core.config`
 must refuse loudly when required envs are missing or still dev-default.
 
 Runs in a subprocess because the check fires at import time — in-process the
@@ -37,7 +37,7 @@ def _import_config(env_extra: dict) -> subprocess.CompletedProcess:
     env.update(env_extra)
     env["PYTHONPATH"] = str(BACKEND)
     return subprocess.run(
-        [sys.executable, "-c", "import app.config"],
+        [sys.executable, "-c", "import app.core.config"],
         env=env, capture_output=True, text=True, timeout=30)
 
 
