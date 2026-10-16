@@ -187,11 +187,13 @@ def test_expired_real_token_rejected(anon_api, base_url, kc_admin):
         code = _ws_close(base_url, tok)
         assert code == 4401, f"expired WS close {code}, expected 4401"
     finally:
+        # the admin token (60 s lifespan) may have expired during the ~35 s wait;
+        # mint a fresh one or the restore fails and leaves wds-web at 3 s lifespans
+        kc_admin = forge.kc_admin_token() or kc_admin
         rep = forge.kc_get_client(kc_admin, cid)
-        if orig is None:
-            rep.get("attributes", {}).pop("access.token.lifespan", None)
-        else:
-            rep.setdefault("attributes", {})["access.token.lifespan"] = orig
+        # Keycloak MERGES attributes on PUT, so omitting the key leaves the 3 s
+        # override in place; an empty string is what clears it.
+        rep.setdefault("attributes", {})["access.token.lifespan"] = orig or ""
         forge.kc_put_client(kc_admin, cid, rep)
 
 
