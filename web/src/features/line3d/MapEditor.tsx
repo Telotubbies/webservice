@@ -277,10 +277,14 @@ export function MapEditor() {
       const dropped = plan.parts.slice(parts.length).filter((p) => skip.has(p.label)).map((p) => `auto/${slug(p.label)}/`);
       const defs = plan.simTags.filter((d) => !have.has(d.path) && !dropped.some((d0) => d.path.startsWith(d0)));
       const res = defs.length ? await plantApi.createSimTags(defs) : { created: [], existing: [] };
-      const known = new Set([...have, ...res.created, ...res.existing]);
-      const next = bindSimTags(base, kinds, known, parts.length, inp);
+      const fresh = res.created.length ? await plantApi.tags() : tags;
+      if (res.created.length) setTags(fresh);
+      // a tag from an earlier run may be read-only where the role needs a writable one
+      const usable = new Set(plan.simTags
+        .filter((d) => fresh.some((x) => x.path === d.path && (!d.writable || x.writable)))
+        .map((d) => d.path));
+      const next = bindSimTags(base, kinds, usable, parts.length, inp);
       setParts(next); setDirty(true);
-      if (res.created.length) setTags(await plantApi.tags());
       setPlan(null);
       setMsg({ kind: 'ok', text: t('plant.editor.setupDone', { parts: chosen.length, tags: res.created.length }) });
     } catch (e) { setMsg({ kind: 'err', text: t('plant.editor.errors.save', { why: why(e) }) }); }

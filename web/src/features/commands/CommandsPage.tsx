@@ -9,6 +9,8 @@ import { useNow, useStore } from '../../lib/hooks';
 import { fmtAge } from '../../lib/format';
 import { canOperate, useRole } from '../../app/session';
 import { LifecyclePill } from '../line/LifecyclePill';
+import { useEquipment } from '../../lib/equipment';
+import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 import { PageBar, Card, Table } from '../../shared/ui/Page';
 import { EmptyState, ErrorState, Notice, Skeleton } from '../../shared/ui/Feedback';
 import type { Command } from '../../types';
@@ -18,6 +20,7 @@ export function CommandsPage() {
   const now = useNow();
   const operable = canOperate(useRole());
   useStore(() => live.cmdRev);
+  const { current: eq } = useEquipment();
 
   // Page-level seed (App.tsx also seeds on auth, but its failure is silent) —
   // merges only ids the WS hasn't already delivered fresher state for.
@@ -31,11 +34,12 @@ export function CommandsPage() {
   });
 
   const rows = [...live.commands.values()]
+    .filter((c) => !eq || eq.tags.includes(c.tag))
     .sort((a, b) => Date.parse(b.updated_at ?? b.created_at ?? '') - Date.parse(a.updated_at ?? a.created_at ?? ''));
 
   return (
     <>
-      <PageBar title={t('nav.commands')} lede={t('commands.lede')} />
+      <PageBar title={t('nav.commands')} lede={t('commands.lede')} actions={<EquipmentPicker />} />
       <div className="p-4">
         <Card pad={false}>
           {!operable ? (

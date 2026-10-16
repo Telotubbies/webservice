@@ -20,6 +20,8 @@ import { SeverityBadge, AlarmStateBadge, QualityMark, normSeverity } from '../..
 import { Card, Table } from '../../shared/ui/Page';
 import { Notice } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
+import { useEquipment } from '../../lib/equipment';
+import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
 import { DdIcon } from '../../shared/ui/DdIcon';
@@ -125,6 +127,7 @@ export function AlarmsPage() {
   const [q, setQ] = useState(() => params.get('q') ?? '');
   const [state, setState] = useState<StateFilter>('active');
   const [win, setWin] = useState<Bucket | null>(null);
+  const { current: eq } = useEquipment();
 
   const signalLabel = (tag: string) => {
     const meta = SIGNALS[tag];
@@ -135,9 +138,10 @@ export function AlarmsPage() {
     return all
       .filter((a) => state === 'all' || a.state === state)
       .filter((a) => !win || (Date.parse(a.ts) >= win.from && Date.parse(a.ts) < win.to))
+      .filter((a) => !eq || eq.tags.includes(a.tag))
       .filter((a) => matchAlarmQuery(a, q, signalLabel));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [all, state, q, win, i18n.language]);
+  }, [all, state, q, win, eq, i18n.language]);
 
   const role = useRole();
   // "New rule" links into the admin surface, which gates on the per-org role
@@ -311,6 +315,7 @@ export function AlarmsPage() {
         {ws !== 'open' && seeded && (
           <div className="mb-3"><Notice tone="warn">{t('alx.liveLost')}</Notice></div>
         )}
+        <div className="mb-3 flex justify-end"><EquipmentPicker /></div>
         {seeded && <AlarmDensity alarms={all} now={now} picked={win} onPick={setWin} />}
         {seeded && rows.length > 0 && (
           <div className="mb-3 flex items-center gap-2 text-[12px] text-ink-68">

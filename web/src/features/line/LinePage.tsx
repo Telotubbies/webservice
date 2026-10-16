@@ -17,6 +17,10 @@ import { Icon } from '../../shared/ui/Icon';
 import { Confirm } from '../../shared/ui/Confirm';
 import { ErrorState, PageSkeleton } from '../../shared/ui/Feedback';
 import { Mimic } from './Mimic';
+import { PlanView, usePlantPlan } from '../line3d/PlantPlan';
+import { PartPanel } from '../line3d/PartPanel';
+import { useSceneSource } from '../line3d/useSceneSource';
+import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 
 function EquipmentCard({ id, selected, onSelect }: { id: EquipmentId; selected: boolean; onSelect: () => void }) {
   const { t, i18n } = useTranslation();
@@ -118,6 +122,30 @@ function Controls() {
   );
 }
 
+/** The plant's 2D plan, derived from the uploaded model, with live hotspots
+ *  and the same gated faceplate as the 3D twin. */
+function PlantSchematic() {
+  const { t } = useTranslation();
+  const src = useSceneSource();
+  const { img, view, failed } = usePlantPlan(src, 'top');
+  const [sel, setSel] = useState<string | null>(null);
+  const part = sel !== null ? src.parts[Number(sel)] : undefined;
+  if (failed) return <Mimic sel={null} onSelect={() => undefined} />;
+  if (!img) return <div className="p-6 text-[12px] text-ink-46" role="status">{t('line3d.loading')}</div>;
+  return (
+    <div className="grid lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="relative h-[460px] min-w-0">
+        <PlanView kind="top" img={img} view={view} parts={src.parts} sel={sel} onSelect={setSel} />
+      </div>
+      <div className="border-t border-line p-3 lg:border-l lg:border-t-0">
+        {part
+          ? <><p className="mb-2 text-[13px] font-semibold">{part.label}</p><PartPanel part={part} kind={src.kinds[part.kind]} /></>
+          : <p className="text-[12px] text-ink-46">{t('line.selectHint')}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function LinePage() {
   const { t } = useTranslation();
   const now = useNow();
@@ -137,7 +165,7 @@ export function LinePage() {
 
   return (
     <>
-      <PageBar title={t('line.title')} lede={t('line.lede')} />
+      <PageBar title={t('line.title')} lede={t('line.lede')} actions={<EquipmentPicker />} />
       <div className="p-4">
         <p className="mb-3 text-[12px] text-ink-46">
           {t('line.selectHint')}
@@ -150,8 +178,10 @@ export function LinePage() {
         </div>
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
           <Card title={t('line.controls')}><Controls /></Card>
+        </div>
+        <div className="mt-3">
           <Card title={t('line.schematic')} pad={false}>
-            <Mimic sel={sel} onSelect={setSel} />
+            <PlantSchematic />
           </Card>
         </div>
       </div>

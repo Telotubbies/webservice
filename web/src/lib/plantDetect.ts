@@ -82,7 +82,7 @@ export function detectParts(inp: DetectInput): Candidate[] {
     const big = Math.max(x, y, z) >= 0.07 * F;
     if (!big || n.children.length === 0) return null;
     // long low box -> belt
-    if (horiz >= 0.15 * F && horiz >= 4 * Math.max(wid, y) * 0.8 && y <= 0.14 * F && wid <= 0.1 * F) {
+    if (horiz >= 0.25 * F && horiz >= 4 * Math.max(wid, y) * 0.8 && y <= 0.14 * F && wid <= 0.1 * F) {
       return { label: 'Belt conveyor', kind: 'conveyor', nodes: [i], params: { axis: 'auto' }, conf: 'med', reason: 'long low box' };
     }
     // tall slender -> silo / tank
@@ -94,6 +94,25 @@ export function detectParts(inp: DetectInput): Candidate[] {
       return { label: 'Aggregate bin', kind: 'vessel', nodes: [i], params: { fill: true }, conf: 'med', reason: 'large cubic volume' };
     }
     return null;
+  };
+
+  // a group that contains named equipment (Skip, MALAXEUR…) is a container, not a part
+  const named = new Map<number, boolean>();
+  const hasNamed = (i: number): boolean => {
+    const hit = named.get(i);
+    if (hit !== undefined) return hit;
+    const n = nodes[i];
+    const t = text(n);
+    let r = false;
+    if (n) {
+      for (const k of n.children) {
+        const big = (size(k) ?? [0])
+          .reduce((m, v) => Math.max(m, v), 0) >= 0.06 * F;   // a small motor on a belt does not make the belt a container
+        if ((big && RULES.some((q) => !q.skip && q.re.test(text(nodes[k])))) || hasNamed(k)) { r = true; break; }
+      }
+    }
+    named.set(i, r && !!t);
+    return named.get(i)!;
   };
 
   const visit = (i: number, depth: number) => {
@@ -115,7 +134,7 @@ export function detectParts(inp: DetectInput): Candidate[] {
       (pipes.get(dn) ?? pipes.set(dn, []).get(dn)!).push(i);
       return;
     }
-    if (depth <= 4) {
+    if (depth <= 4 && !hasNamed(i)) {
       const g = geometric(i, n);
       if (g) { out.push(g); return; }
     }
@@ -210,7 +229,9 @@ export function autoBind(
       const tnums = tw.filter((w) => /^\d+$/.test(w));
       const tText = tw.filter((w) => !/^\d+$/.test(w));
       let score = 0;
-      for (const w of lwText) if (tText.includes(w)) score += 3;
+      let hits = 0;
+      for (const w of lwText) if (tText.includes(w)) { score += 3; hits++; }
+      if (lwText.length && hits === 0) continue;   // a number or a role word alone is not evidence
       if (nums.length && tnums.length) score += nums.every((n) => tnums.includes(n)) ? 4 : -6;
       if (nums.length === 0 && tnums.length) score -= 1;
       if (score > 0 && (!best || score > best.score)) best = { path: t.path, score };
@@ -258,14 +279,14 @@ export function simTagsFor(
     }
     const f = runPath && role !== 'level' && role !== 'weight' && role !== 'position' ? { follows: runPath } : {};
     switch (role) {
-      case 'speed': out.push({ path: p, type: 'number', writable: false, unit: 'm/s', behavior: 'follow', initial: 0, gain: 1.2, lag: 1.5, ...f }); break;
-      case 'flow': out.push({ path: p, type: 'number', writable: false, unit: 'L/min', behavior: 'follow', initial: 0, gain: 120, lag: 1.5, ...f }); break;
-      case 'pressure': out.push({ path: p, type: 'number', writable: false, unit: 'bar', behavior: 'follow', initial: 0, gain: 0.8, lag: 3, ...f }); break;
-      case 'current': out.push({ path: p, type: 'number', writable: false, unit: 'A', behavior: 'follow', initial: 0, gain: 60, offset: 4, lag: 2, ...f }); break;
-      case 'temp': out.push({ path: p, type: 'number', writable: false, unit: '°C', behavior: 'follow', initial: 28, gain: 40, offset: 28, lag: 20, ...f }); break;
-      case 'level': out.push({ path: p, type: 'number', writable: false, unit: '%', behavior: 'wander', initial: 60, lo: 15, hi: 95, min: 0, max: 100 }); break;
-      case 'weight': out.push({ path: p, type: 'number', writable: false, unit: 'kg', behavior: 'wander', initial: 400, lo: 0, hi: 1800 }); break;
-      case 'position': out.push({ path: p, type: 'number', writable: false, unit: '%', behavior: 'cycle', initial: 0, period: 14, lo: 0, hi: 100, min: 0, max: 100 }); break;
+      case 'speed': out.push({ path: p, type: 'number', writable: spec.writable, unit: 'm/s', min: 0, max: 3, behavior: 'follow', initial: 0, gain: 1.2, lag: 1.5, ...f }); break;
+      case 'flow': out.push({ path: p, type: 'number', writable: spec.writable, unit: 'L/min', behavior: 'follow', initial: 0, gain: 120, lag: 1.5, ...f }); break;
+      case 'pressure': out.push({ path: p, type: 'number', writable: spec.writable, unit: 'bar', behavior: 'follow', initial: 0, gain: 0.8, lag: 3, ...f }); break;
+      case 'current': out.push({ path: p, type: 'number', writable: spec.writable, unit: 'A', behavior: 'follow', initial: 0, gain: 60, offset: 4, lag: 2, ...f }); break;
+      case 'temp': out.push({ path: p, type: 'number', writable: spec.writable, unit: '°C', behavior: 'follow', initial: 28, gain: 40, offset: 28, lag: 20, ...f }); break;
+      case 'level': out.push({ path: p, type: 'number', writable: spec.writable, unit: '%', behavior: 'wander', initial: 60, lo: 15, hi: 95, min: 0, max: 100 }); break;
+      case 'weight': out.push({ path: p, type: 'number', writable: spec.writable, unit: 'kg', behavior: 'wander', initial: 400, lo: 0, hi: 1800 }); break;
+      case 'position': out.push({ path: p, type: 'number', writable: spec.writable, unit: '%', behavior: 'cycle', initial: 0, period: 14, lo: 0, hi: 100, min: 0, max: 100 }); break;
       default: out.push({ path: p, type: 'number', writable: spec.writable, behavior: 'wander', initial: 50, lo: 0, hi: 100 });
     }
   }

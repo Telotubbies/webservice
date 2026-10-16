@@ -9,13 +9,13 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { live } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
-import { liveValue, truthy, type PlantPart } from '../../lib/plantModel';
 import { canAdmin, useRole } from '../../app/session';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { ErrorState, Skeleton } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
-import type { LineSceneView, PlanImage, PlanKind } from './scene';
+import type { LineSceneView, PlanImage, PlanKind, XrayMode } from './scene';
 import { PartPanel } from './PartPanel';
+import { PlanView } from './PlantPlan';
 import { useSceneSource } from './useSceneSource';
 
 type Mode = '3d' | 'top' | 'front';
@@ -32,6 +32,9 @@ export function Line3DPage() {
   const [sceneView, setSceneView] = useState<LineSceneView | null>(null);
   const [fail, setFail] = useState(false);
   const [mode, setMode] = useState<Mode>('3d');
+  const [xray, setXray] = useState<XrayMode>('off');
+  const [isolated, setIsolated] = useState<string | null>(null);
+  const [q, setQ] = useState('');
   const [plans, setPlans] = useState<Partial<Record<PlanKind, PlanImage>>>({});
   const ver = useStore(() => live.version);
   const reduced = useMemo(() => matchMedia('(prefers-reduced-motion: reduce)').matches, []);
@@ -81,6 +84,10 @@ export function Line3DPage() {
     if (v && applyRef.current) applyRef.current(v, live, { selected: sel, reduceMotion: reduced });
   }, [ver, sel, ready, reduced]);
 
+  // view tools: X-ray / isolate act on the scene handle
+  useEffect(() => { sceneView?.setXray(xray, null); }, [sceneView, xray]);
+  useEffect(() => { sceneView?.isolate(isolated); }, [sceneView, isolated]);
+
   // 2D views are rendered once per kind from the loaded scene
   useEffect(() => {
     const v = viewRef.current;
@@ -113,6 +120,20 @@ export function Line3DPage() {
                 </button>
               ))}
             </div>
+            <button type="button" aria-pressed={xray !== 'off'} disabled={mode !== '3d'}
+              className={`btn btn-sm ${xray !== 'off' ? '' : 'btn-ghost'}`}
+              onClick={() => setXray((m) => (m === 'off' ? 'all' : 'off'))}>
+              {t('plant.editor.xray')}
+            </button>
+            <button type="button" className="btn btn-sm btn-ghost" disabled={mode !== '3d' || sel === null}
+              onClick={() => viewRef.current?.focus(sel)}>
+              {t('plant.editor.zoom')}
+            </button>
+            <button type="button" aria-pressed={isolated !== null} className={`btn btn-sm ${isolated !== null ? '' : 'btn-ghost'}`}
+              disabled={mode !== '3d' || (sel === null && isolated === null)}
+              onClick={() => setIsolated((c) => (c !== null ? null : sel))}>
+              {isolated !== null ? t('plant.editor.showAll') : t('plant.editor.isolate')}
+            </button>
             <button className="btn btn-sm btn-ghost" onClick={() => viewRef.current?.resetView()} disabled={mode !== '3d'}>
               <Icon name="refresh" size={13} /> {t('line3d.resetView')}
             </button>
@@ -159,8 +180,10 @@ export function Line3DPage() {
         <Card title={part ? part.label : t('faceplate.title')}>
           {/* canvas picking is pointer-only — this list is the keyboard path to
               the same selection (and the cage highlight) */}
+          <input type="search" className="input mb-2 w-full text-[12px]" value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder={t('plant.search')} aria-label={t('plant.search')} />
           <ul className="mb-3 flex max-h-56 flex-wrap gap-1 overflow-auto" aria-label={t('palette.equipment')}>
-            {src.parts.map((p, i) => (
+            {src.parts.map((p, i) => ({ p, i })).filter(({ p }) => !q || `${p.label} ${src.kinds[p.kind]?.label ?? p.kind}`.toLowerCase().includes(q.toLowerCase())).map(({ p, i }) => (
               <li key={`${p.label}-${i}`}>
                 <button
                   type="button"
@@ -180,54 +203,5 @@ export function Line3DPage() {
         </div>
       </div>
     </>
-  );
-}
-
-/** 2D plan / front elevation: the model's flat render with each mapped part
- *  as a live hotspot (tinted while active, amber/red on alarm). */
-function PlanView({ kind, img, view, parts, sel, onSelect }: {
-  kind: PlanKind; img: PlanImage; view: LineSceneView | null; parts: PlantPart[];
-  sel: string | null; onSelect: (k: string | null) => void;
-}) {
-  const { t } = useTranslation();
-  useStore(() => live.version);
-  const [w, h] = [img.max[0] - img.min[0], img.max[1] - img.min[1]];
-  const boxes = view?.partBoxes() ?? [];
-  const ax = (x: number) => x - img.min[0];
-  // top: image row 0 = min z; front: image row 0 = max y
-  const ay = (v: number) => (kind === 'top' ? v - img.min[1] : img.max[1] - v);
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="absolute inset-0 h-full w-full bg-white" preserveAspectRatio="xMidYMid meet"
-      role="group" aria-label={t(`plant.mode.${kind}`)} onClick={() => onSelect(null)}>
-      <image href={img.url} x="0" y="0" width={w} height={h} />
-      {boxes.map((b) => {
-        const p = parts[Number(b.key)];
-        const [x0, x1] = [ax(b.min[0]), ax(b.max[0])];
-        const [y0, y1] = kind === 'top' ? [ay(b.min[2]), ay(b.max[2])] : [ay(b.max[1]), ay(b.min[1])];
-        const flag = p.bindings.run ?? p.bindings.open ?? p.bindings.state;
-        const active = truthy(liveValue(flag));
-        const lvl = p.bindings.level ? Number(liveValue(p.bindings.level)) : NaN;
-        const selected = sel === b.key;
-        const label = Math.max(h / 55, 0.35);
-        return (
-          <g key={b.key} role="button" tabIndex={0} aria-label={p.label} aria-pressed={selected}
-            className="cursor-pointer focus-visible:outline-none"
-            onClick={(e) => { e.stopPropagation(); onSelect(selected ? null : b.key); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(selected ? null : b.key); } }}>
-            <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0}
-              fill={active ? '#1c9a67' : '#5e6dd6'} fillOpacity={active ? 0.35 : 0.14}
-              stroke={selected ? '#149eb4' : active ? '#1c9a67' : '#5e6dd6'} strokeWidth={selected ? h / 300 : h / 700} />
-            {Number.isFinite(lvl) && (
-              <rect x={x0} y={y1 - (y1 - y0) * (Math.min(Math.max(lvl, 0), 100) / 100)} width={x1 - x0}
-                height={(y1 - y0) * (Math.min(Math.max(lvl, 0), 100) / 100)} fill="#149eb4" fillOpacity={0.45} />
-            )}
-            <text x={(x0 + x1) / 2} y={y0 - label * 0.3} textAnchor="middle" fontSize={label}
-              className="fill-ink-68 font-semibold" style={{ paintOrder: 'stroke', stroke: '#fff', strokeWidth: label / 5 }}>
-              {p.label}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
   );
 }

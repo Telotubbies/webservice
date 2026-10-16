@@ -116,6 +116,42 @@ In dev, `make migrate` + a backend restart seeds the tags and the
 `Batching plant (sim)` data source, then bumps the edge cfg so the edge
 simulates them.
 
+## Auto-setup, motion and the rest of the app
+
+**Auto-setup** (button in the mapping editor) reads the model and proposes parts:
+
+1. names kept from SketchUp (`Skip`, `MALAXEUR75E`, `Silo2`, `Roots3`, `VideFuts`...
+   the converter stores them as node extras `skp`) and layer names;
+2. pipe fittings grouped by diameter (`DN100`, `DN125`...) into one flow part each;
+3. shape (tall cylinder = silo/tank, long low box = belt, big open box = bin) for
+   anything still unnamed. A group that contains named equipment is treated as a
+   container, not a part.
+
+Each proposal shows a `high`/`med` confidence and can be unticked. On **Apply**:
+roles are bound to the site's existing tags when the part name and number match
+(a number or role word alone is not enough); roles that stay empty get simulated
+tags `auto/<part>/<signal>` created in the site's "Auto plant (sim)" source
+(`POST .../plant-sim-tags`). They are normal tags: replace them with real PLC
+tags from the data-sources page when available. Nothing is saved until
+**Save mapping**.
+
+**Motion** is per kind and edited under "Motion" on each part: rotation axis and
+rpm (mixer, pump, motor), travel direction, distance and period (skip hoist),
+fluid colour (pipe flow dots), fill (bins). *Preview motion* runs every part as if
+its signals were on, so the mapping can be checked without the plant running.
+
+**Looking inside:** X-ray (whole scene), Isolate/Show all, Zoom to part, on both
+the editor and the twin page; the mixer shows concrete in the drum while it runs.
+
+**Central equipment picker:** the parts of the active model are the site's
+equipment list (`web/src/lib/equipment.ts`). The picker (`EquipmentPicker`) filters
+Tags, Alarms and Commands to that equipment's signals, sets the series on Trends,
+and the choice is remembered across pages. The Line view's drawing is the model's
+plan (rendered off-screen once, cached) with the same live hotspots and gated
+faceplate as the twin.
+
+Not done: alarm rules and Modbus/OPC addresses for the generated simulated tags.
+
 ## Safety notes
 
 - Upload is untrusted input: header/JSON-only inspection, no external URIs,

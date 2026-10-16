@@ -12,6 +12,7 @@ import { live, STALE_MS } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
 import { SIGNALS, T, displayNumber, shortName, unitOf } from '../../lib/plant';
 import { downloadCsv } from '../../lib/csv';
+import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { Icon } from '../../shared/ui/Icon';
 import { Segmented } from '../../shared/ui/Segmented';
@@ -116,6 +117,8 @@ export function TrendsPage() {
   return (
     <>
       <PageBar title={t('nav.trends')} lede={t('trends.lede')} actions={
+        <div className="flex items-center gap-3">
+        <EquipmentPicker onChange={(tags) => { if (tags?.length) patch({ tags: tags.slice(0, MAX_SERIES).join(',') }); }} />
         <Segmented
           value={mode}
           onChange={setMode}
@@ -125,6 +128,7 @@ export function TrendsPage() {
             { value: 'grid', label: t('trends.grid') },
           ]}
         />
+        </div>
       } />
       {mode === 'grid' ? (
         /* one card per plant signal, live 15 min */

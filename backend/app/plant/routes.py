@@ -298,7 +298,6 @@ def _check_part(part: PartIn, node_count: int, tags: dict[str, asyncpg.Record]) 
 async def put_parts(org: str, site: str, model: str, body: PartsIn, request: Request,
                     p=Depends(_user)):
     """Replace the whole mapping — the editor holds the full list."""
-    import json
     m = _m()
     org_id, site_id = m._v2_scope(org, site, p, m._CONFIG)
     mid = m._uuid_or_404(model, "plant model")
@@ -317,8 +316,8 @@ async def put_parts(org: str, site: str, model: str, body: PartsIn, request: Req
             await tc.execute(
                 "INSERT INTO plant_parts(org_id, model_id, label, kind, nodes, bindings, params, sort)"
                 " VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)",
-                org_id, mid, part.label, part.kind, part.nodes, json.dumps(part.bindings),
-                json.dumps(part.params), i)
+                org_id, mid, part.label, part.kind, part.nodes, part.bindings,
+                part.params, i)
         await audit.append(tc, f"user:{p.user_id}", "plant_model.mapped",
                            {"model_id": str(mid)}, {"parts": len(body.parts)})
         rows = await tc.fetch(

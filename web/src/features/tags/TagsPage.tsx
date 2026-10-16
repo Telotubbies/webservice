@@ -14,6 +14,8 @@ import { PageBar, Card, Table } from '../../shared/ui/Page';
 import { EmptyState } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
 import { isPinned, togglePin } from '../../lib/watchlist';
+import { useEquipment } from '../../lib/equipment';
+import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 
 export function TagsPage() {
   const { t, i18n } = useTranslation();
@@ -25,6 +27,7 @@ export function TagsPage() {
   const [preset, setPreset] = useState<'all' | 'pinned' | 'writable' | 'stale'>('all');
   const [selTag, setSelTag] = useState<string | null>(null);
   const [, forcePin] = useState(0);
+  const { current: eq } = useEquipment();
 
   // Esc closes the flyout — dd drawer pattern
   useEffect(() => {
@@ -45,6 +48,7 @@ export function TagsPage() {
 
   const tags = live.tags
     .filter((ti) => {
+      if (eq && !eq.tags.includes(ti.name)) return false;
       if (group && !ti.name.includes(`.${group}.`)) return false;
       if (preset === 'pinned' && !isPinned(ti.name)) return false;
       if (preset === 'writable' && !ti.writable) return false;
@@ -72,7 +76,7 @@ export function TagsPage() {
 
   return (
     <>
-      <PageBar title={t('nav.tags')} lede={t('tags.showing', { shown: tags.length, total: live.tags.length })} />
+      <PageBar title={t('nav.tags')} lede={t('tags.showing', { shown: tags.length, total: live.tags.length })} actions={<EquipmentPicker />} />
       {/* omnibar row — full width, dd dashboards pattern */}
       <div className="border-b border-line bg-white px-4 py-2">
         <div className="relative">

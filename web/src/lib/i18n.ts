@@ -246,6 +246,7 @@ const en = {
     confirmOff: 'Switch this equipment off?',
     offConsequence: 'The command is sent to the PLC through the guarded command path.',
     noBindings: 'No signals are bound to this part yet.',
+    search: 'Search equipment…',
     editor: {
       title: 'Plant model mapping',
       lede: 'Upload a .glb, click equipment in the model, then say what it is and which signals drive it.',
@@ -270,6 +271,7 @@ const en = {
       errors: { upload:'Upload failed: {{why}}', save: 'Save failed: {{why}}' },
     },
   },
+  equipment: { label: 'Equipment', all: 'All equipment', filtered: 'Showing signals of {{name}}' },
   control: {
     start: 'Start', stop: 'Stop', apply: 'Apply setpoint', newValue: 'New setpoint',
     range: 'Allowed {{min}} to {{max}} {{unit}}',
@@ -1095,6 +1097,7 @@ const th: Dict = {
     confirmOff: 'ปิดอุปกรณ์นี้หรือไม่',
     offConsequence: 'คำสั่งจะถูกส่งไปที่ PLC ผ่านเส้นทางคำสั่งที่มีการป้องกัน',
     noBindings: 'ยังไม่ได้ผูกสัญญาณกับอุปกรณ์นี้',
+    search: 'ค้นหาอุปกรณ์…',
     editor: {
       title: 'การผูกโมเดลโรงงาน',
       lede: 'อัปโหลดไฟล์ .glb คลิกอุปกรณ์ในโมเดล แล้วระบุว่าคืออะไรและใช้สัญญาณใด',
@@ -1119,6 +1122,7 @@ const th: Dict = {
       errors: { upload:'อัปโหลดไม่สำเร็จ: {{why}}', save: 'บันทึกไม่สำเร็จ: {{why}}' },
     },
   },
+  equipment: { label: 'อุปกรณ์', all: 'อุปกรณ์ทั้งหมด', filtered: 'แสดงสัญญาณของ {{name}}' },
   control: {
     start: 'เริ่ม', stop: 'หยุด', apply: 'ตั้งค่า', newValue: 'ค่าตั้งใหม่',
     range: 'ช่วงที่อนุญาต {{min}} ถึง {{max}} {{unit}}',
