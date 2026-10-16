@@ -122,13 +122,15 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: "${KC_ADMIN:-admin}"
       KC_HOSTNAME: "${KC_HOSTNAME:-http://localhost:5173}"
       KC_HOSTNAME_STRICT: "false"
+      WDS_WEB_ORIGIN: "${WDS_WEB_ORIGIN:-http://localhost:5173}"
       KC_PROXY_HEADERS: "xforwarded"
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
     secrets:
       - kc_admin_pw
     volumes:
-      - ./infra/keycloak:/opt/keycloak/data/import:ro
+      # dev realm by default; prod: KC_REALM_DIR=./infra/keycloak-prod (+ WDS_WEB_ORIGIN)
+      - ${KC_REALM_DIR:-./infra/keycloak}:/opt/keycloak/data/import:ro
     ports:
       # loopback only — browsers reach it through the web proxy
       - "127.0.0.1:8080:8080"
