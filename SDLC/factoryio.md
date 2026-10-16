@@ -35,3 +35,19 @@ Set `INFERENCE_URL` (and optionally `INFERENCE_API_KEY_FILE`, `INFERENCE_PERIOD_
     200   {"model": "...", "results": [{"tag"?, "label", "score": 0..1, "severity"?: "info|warning|critical", "detail"?}]}
 
 Try it: `python scripts/mock_inference.py` and `INFERENCE_URL=http://host.docker.internal:9100/predict`.
+
+## Vision on the edge (plan M1-05 demo)
+
+> Not run this session — commands below are the intended path, verified code-wise only.
+
+1. Intended commands — apply the capabilities migration (take a DB backup first), then rebuild the touched services and recreate mosquitto so the new 8 MiB packet cap takes effect:
+   ```bash
+   make migrate                      # applies migrations/versions/0020_edge_capabilities
+   docker compose up -d --build backend edge-bridge model-server web
+   docker compose up -d --force-recreate mosquitto
+   ```
+   `MODEL_SERVER_URL` is wired to `http://model-server:9000` inside the compose network — the model server has no host port.
+2. **Infrastructure → Models**: create a model, upload a `.onnx` version, activate it (draft also works for testing).
+3. **Cameras**: add a camera on the gateway, open *Model and classes*, pin the version and keep placement *On the gateway*.
+4. **Models → version row → Test**: pick an online gateway, drop a JPEG/PNG (≤ 5 MB) or *Use latest frame* from a camera, then *Run test*. Detections are drawn on the image; latency/engine come from the gateway. The image is streamed to the edge over MQTT (base64) and never persisted or logged; the broker packet cap is 8 MiB for this reason.
+5. The camera tile shows the measured engine/latency once the model reports `ready`; FPS appears only after the gateway's benchmark finishes (there is no estimated FPS).

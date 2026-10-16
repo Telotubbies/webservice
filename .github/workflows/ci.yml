@@ -64,5 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: i18n en/th parity (static, no deps)
+        run: node scripts/check-i18n.mjs
       - name: Typecheck + build
         run: cd web && bun install --frozen-lockfile && bun run build

@@ -207,9 +207,11 @@ REST (all `/api/v1/orgs/{org}/…`; non-member 404; writes need `config:write`, 
 | Topic | Dir | QoS | Payload |
 |---|---|---|---|
 | `vision/frame/{camera_id}` | edge → backend | 0 | one JPEG, ≤ 960 px wide, ≤ 100 000 bytes (relay accepts ≤ 150 000) |
-| `vision/stat` | edge → backend | 0 | `{camera_id: {status: "ok"\|"error", detail, fps}}` every 10 s → `cameras.status*` |
+| `vision/stat` | edge → backend | 0 | `{camera_id: {status: "ok"\|"error", detail, fps, engine?, latency_ms?, bench_fps?, model_state?, model_detail?, model_version?}}` every 10 s → `cameras.status*` + in-memory latest-stat (30 s freshness) |
+| `vision/caps` | edge → backend | 0 | `{cpu_cores, ram_mb, device, providers[], loaded[]}` at startup, on (re)connect and every 300 s → upsert `edge_capabilities` (migration 0020) |
 
-- Edge role ACL adds publish on `vision/frame/+` and `vision/stat` only. The backend ignores a frame whose camera does not belong to the publishing edge.
+- Edge role ACL adds publish on `vision/frame/+`, `vision/stat` and the exact `vision/caps` only. The backend ignores a frame whose camera does not belong to the publishing edge.
+- `vision/caps` payloads are untrusted: ≤ 64 KiB, `cpu_cores` integer 1–4096 required, `ram_mb` 0–2⁵⁰, strings ≤ 80 chars, `providers` ≤ 32 entries, `loaded` ≤ 256 UUID strings. Malformed payloads are dropped, edge identity comes only from the validated topic.
 - Frames are shed first when the ingest queue is more than half full, so they never delay telemetry.
 - The relay keeps only the newest frame per camera; a slow viewer skips frames. Single backend replica (the shared subscription would otherwise split frames across replicas).
 
@@ -229,8 +231,22 @@ REST under `/api/v1/orgs/{org}/vision/models` (non-member 404, writes need `conf
 | `GET/PUT/DELETE /api/v1/orgs/{org}/cameras/{camera}/model` | pin an `active` version; `PUT` keeps class settings only where the id keeps its name and returns `diff {added, removed, renamed}`; `placement` `auto\|edge\|cloud` |
 | `PATCH …/cameras/{camera}/classes` `{class_config}` | per class id: `enabled`, `names{en,th}`, `min_score` 0.05–0.95, `colour #rrggbb`, `alert` |
 | `POST …/cameras/{camera}/classes/apply-preset` `{preset_id}` | preset must belong to the pinned model |
-| `GET /api/v1/edge-models/{version}?edge&sig` | gateway download, no session; `sig = HMAC(edge, version, sha256)`; 404 on any failure |
+| `GET /api/v1/edge-models/{version}?edge&sig` | gateway download, no session; `sig = HMAC(edge, version, sha256)`; `active`/`archived`/`draft` (draft needed by the pre-activation model test); 404 on any failure |
 
 `cfg.cameras[i].model = {version_id, sha256, size_bytes, task, imgsz, stride, classes, class_config, placement, url}`.
+
+## Edge inference + model test (plan M1-05)
+
+| Route | Notes |
+|---|---|
+| `GET …/edges/{edge}/capabilities` | member `READ`; `{capabilities: null \| {reported_at, cpu_cores, ram_mb, device, providers, loaded}}` from `edge_capabilities` (migration 0020, fail-closed RLS, `wds_system` writes inside `tenant_tx`) |
+| `POST …/vision/models/{m}/versions/{v}/test?edge={uuid}` | `config:write` + mutation gate. Raw JPEG/PNG body streamed ≤ 5 MiB (413), magic checked (422 `invalid_image`). Version must be `draft`/`active` with classes; edge must be `active` and checked in within `EDGE_STALE_AFTER_S` (else 409 `edge_offline`). The model URL is built server-side (`EDGE_MEDIA_BASE_URL` + `HMAC` sig — the download route permits `draft` in addition to `active`/`archived`). Audited `vision.model.tested` with target ids + outcome code only, never the image/reason |
+| Op `model_test` on `v2/{org}/{site}/{edge}/cmd/{command_id}` | payload `{model: <model_cfg block>, image_b64}`; the bridge validates base64 + magic + `cv2.imdecode`, loads via `ModelClient` against `MODEL_SERVER_URL`, polls `loading` inside one ≤ 9 s monotonic budget (every request consumes the remaining deadline), infers all classes at conf 0.05 — no benchmark. Response `{ms, engine, detections}` |
+| Result shape | `{ms 0..3600000, engine ≤80 chars, detections ≤300}` — every detection sanitized at the backend boundary (`class_id < len(classes)`, score ≥ 0.05 clamped ≤ 1, normalized bbox clipped to the image, polygon ≤ 64 sampled points) |
+| Errors | timeout → 504 `edge_timeout`; decode failures → 422 `invalid_image`; other edge failures → generic 502 `edge_op_failed` (raw reasons can embed URLs and are never returned or audited) |
+
+The image is transient: streamed through memory to MQTT (base64) and never persisted or logged. Broker `max_packet_size` is 8 MiB to admit ~6.67 MiB base64 + envelope.
+
+**Internal model server** (`MODEL_SERVER_URL`, no host port — edge-bridge only): `GET /v1/health` `{device, providers[], loaded[], failed{}}`, `PUT /v1/models/{vid}` `{url, sha256, task, imgsz, classes[]}` (202 → loading/loaded/failed), `POST /v1/infer?model=&conf=&classes=` `{detections[], ms}`, `POST /v1/benchmark?model=&frames=` `{fps}` (run off the camera thread, once per detector). Output is untrusted and bounded at both edges.
 
 **Converter spool** (volume shared with the `model-converter` container, which has no network, a read-only root, tmpfs scratch, 3 GB / 2 CPU / 256 PIDs, no capabilities): in `{id}.pt` + `{id}.json {id, task_hint, queued_at}`; out `{id}.onnx` + `{id}.result.json {ok, error?}`. The `.pt` and the job file are deleted in every case. The backend never opens a `.pt` and never talks to Docker.
