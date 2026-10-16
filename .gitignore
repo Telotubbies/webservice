@@ -44,3 +44,4 @@ ref/
 # Claude Code local state + executor ledger
 .claude/
 .superpowers/
+.shots/

@@ -22,7 +22,7 @@ import { DASH_TEMPLATES } from './templates';
 import { WidgetEditor, autoTitle } from './WidgetEditor';
 import {
   GROUP_TONE_STYLE, RANGE_MIN, loadDashboards, makeWidget, newId, resetDashboard, saveDashboards, varValues,
-  type Dashboard, type RangeKey, type Widget,
+  type Dashboard, type DashVar, type RangeKey, type Widget,
 } from './model';
 
 const STAR_KEY = 'wds.dashStars'; // UI pref only
@@ -32,7 +32,9 @@ function readStars(): Set<string> {
 
 const toRow = (d: Dashboard) => ({
   id: d.id, title: d.title, description: d.description, shared: d.shared ?? true,
-  body: { range: d.range, widgets: d.widgets },
+  // body is opaque JSON on the backend — vars ride inside it; omitted when
+  // empty so rows written before WP-D stay byte-identical
+  body: { range: d.range, widgets: d.widgets, ...(d.vars?.length ? { vars: d.vars } : {}) },
 });
 
 /** One store for both pages: local cache + sync of custom boards to the org.
@@ -56,6 +58,7 @@ function useDashboards() {
           id: r.id, title: r.title, description: r.description, preset: 'custom',
           author: r.mine ? 'you' : '', shared: r.shared, updatedAt: r.updated_at,
           range: (r.body.range as RangeKey) ?? '1h', widgets: (r.body.widgets as Widget[]) ?? [],
+          vars: Array.isArray(r.body.vars) ? (r.body.vars as DashVar[]) : undefined,
         }));
         const ids = new Set(server.map((d) => d.id));
         const localOnly = cur.filter((d) => d.preset === 'custom' && !ids.has(d.id));
@@ -277,7 +280,24 @@ export function DashboardViewPage() {
   const now = useNow();
   const [endMs, setEndMs] = useState<number | null>(null);
   const [overlays, setOverlays] = useState(false);
-  const [vars, setVars] = useState<Record<string, string>>({});
+  // Template-var selections live in the URL as ?var_<name>=<value> so Share /
+  // reload / saved views round-trip them. Only names the board declares apply;
+  // '*'/unknown/invalid values are ignored and never written.
+  const [vsp, setVsp] = useSearchParams();
+  const vars = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const v of dash?.vars ?? []) {
+      const x = vsp.get(`var_${v.name}`);
+      if (x && x !== '*' && varValues(v.kind).includes(x)) out[v.name] = x;
+    }
+    return out;
+  }, [dash?.vars, vsp]);
+  const setVar = (name: string, value: string) =>
+    setVsp((p) => {
+      const n = new URLSearchParams(p);
+      if (!value || value === '*') n.delete(`var_${name}`); else n.set(`var_${name}`, value);
+      return n;
+    }, { replace: true });
   const [sharedNote, setSharedNote] = useState('');
 
   const update = useCallback((p: Partial<Dashboard>) => {
@@ -300,10 +320,12 @@ export function DashboardViewPage() {
   // rewind step = a quarter of the visible window, ≥ 1 min
   const stepMs = Math.max(60e3, rangeMs / 4);
   const share = () => {
-    const url = `${location.origin}/dashboards/${dash.id}`;
-    navigator.clipboard?.writeText(url)
+    // share the full URL minus the transient edit flag — var_* selections ride along
+    const u = new URL(location.href);
+    u.searchParams.delete('edit');
+    navigator.clipboard?.writeText(u.toString())
       .then(() => setSharedNote(t('ddb.linkCopied')))
-      .catch(() => setSharedNote(url));
+      .catch(() => setSharedNote(u.toString()));
   };
   const saveWidget = (w: Widget) => {
     const exists = dash.widgets.some((x) => x.id === w.id);
@@ -321,62 +343,38 @@ export function DashboardViewPage() {
     <div className="flex min-h-[calc(100svh-36px)] flex-col">
       <ProductHeader icon="dashboard" title={dash.title}
         actions={
+          /* header stays lean so 390px doesn't overflow — labels collapse to
+             icons below sm, and the view-time controls (pause / overlays /
+             range / share) live in the wrapping toolbar row below */
           <div className="flex items-center gap-2">
-            {/* pause / rewind the whole board — every data widget reads the
-                same fixed window through BoardCtx */}
-            <div className="flex items-center gap-0.5" role="group" aria-label={t('ddb.timeControls')}>
-              <IconBtn label={t('ddb.rewind')} onClick={() => setEndMs((e) => (e ?? now) - stepMs)}><Rewind size={14} /></IconBtn>
-              <IconBtn label={endMs == null ? t('ddb.pause') : t('ddb.resume')}
-                onClick={() => setEndMs((e) => (e == null ? now : null))}>
-                {endMs == null ? <Pause size={14} /> : <Play size={14} />}
-              </IconBtn>
-              <IconBtn label={t('ddb.forward')}
-                onClick={() => setEndMs((e) => {
-                  if (e == null) return null;
-                  const n = e + stepMs;
-                  return n >= now - 2000 ? null : n;
-                })}>
-                <FastForward size={14} />
-              </IconBtn>
-            </div>
-            <IconBtn label={t('ddb.overlays')} onClick={() => setOverlays((v) => !v)} pressed={overlays}><Layers size={14} /></IconBtn>
-            <Segmented value={dash.range} onChange={(r) => update({ range: r })} label={t('dash.range')}
-              options={RANGES.map((r) => ({ value: r, label: t('dash.past', { r }) }))} />
             {editable ? (
               <>
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditing(makeWidget('timeseries'))}><Plus size={14} aria-hidden /> {t('dash.addWidget')}</button>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditing(makeWidget('timeseries'))}><Plus size={14} aria-hidden /><span className="hidden sm:inline"> {t('dash.addWidget')}</span></button>
                 {dash.preset === 'builtin' && (
                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => { const s = resetDashboard(dash.id); if (s) update({ widgets: s.widgets, range: s.range }); }}>
-                    <RotateCcw size={14} aria-hidden /> {t('dash.reset')}
+                    <RotateCcw size={14} aria-hidden /><span className="hidden sm:inline"> {t('dash.reset')}</span>
                   </button>
                 )}
                 {dash.preset === 'custom' && (
                   <label className="flex items-center gap-1.5 text-[12px] text-ink-68">
                     <input type="checkbox" checked={dash.shared ?? true} onChange={(e) => update({ shared: e.target.checked })} />
-                    {t('dash.shareOrg')}
+                    <span className="hidden sm:inline">{t('dash.shareOrg')}</span>
                   </label>
                 )}
                 {dash.preset === 'custom' && (
-                  <button type="button" className="btn btn-sm btn-ghost text-[var(--color-danger)]" onClick={() => setConfirmDelete(true)}><Trash2 size={14} aria-hidden /> {t('dash.delete')}</button>
+                  <button type="button" className="btn btn-sm btn-ghost text-[var(--color-danger)]" onClick={() => setConfirmDelete(true)}><Trash2 size={14} aria-hidden /><span className="hidden sm:inline"> {t('dash.delete')}</span></button>
                 )}
-                <button type="button" className="btn btn-sm" onClick={() => setEdit(false)}><Check size={14} aria-hidden /> {t('dash.done')}</button>
+                <button type="button" className="btn btn-sm" onClick={() => setEdit(false)}><Check size={14} aria-hidden /><span className="hidden sm:inline"> {t('dash.done')}</span></button>
               </>
-            ) : (
+            ) : canWrite ? (
               <>
-                <button type="button" className="btn btn-sm btn-ghost" onClick={share} title={t('ddb.shareTitle')}>
-                  <Share2 size={14} aria-hidden /> {t('ddb.share')}
-                </button>
-                {canWrite && (
-                  <>
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => {
-                      const c = { ...structuredClone(dash), id: newId(), title: t('dash.copyOf', { name: dash.title }), preset: 'custom' as const, author: 'you' };
-                      commit([...list, c]); navigate(`/dashboards/${c.id}?edit=1`); setEdit(true);
-                    }}><Copy size={14} aria-hidden /> {t('dash.clone')}</button>
-                    <button type="button" className="btn btn-sm" onClick={() => setEdit(true)}><Pencil size={14} aria-hidden /> {t('dash.edit')}</button>
-                  </>
-                )}
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => {
+                  const c = { ...structuredClone(dash), id: newId(), title: t('dash.copyOf', { name: dash.title }), preset: 'custom' as const, author: 'you' };
+                  commit([...list, c]); navigate(`/dashboards/${c.id}?edit=1`); setEdit(true);
+                }}><Copy size={14} aria-hidden /><span className="hidden sm:inline"> {t('dash.clone')}</span></button>
+                <button type="button" className="btn btn-sm" onClick={() => setEdit(true)}><Pencil size={14} aria-hidden /><span className="hidden sm:inline"> {t('dash.edit')}</span></button>
               </>
-            )}
+            ) : null}
           </div>
         } />
 
@@ -388,7 +386,7 @@ export function DashboardViewPage() {
           <label key={v.name} className="flex items-center gap-1.5">
             <span className="font-mono text-ink-68">${v.name}</span>
             <select className="input h-7 w-auto text-[12px]" value={vars[v.name] ?? '*'}
-              onChange={(e) => setVars((s) => ({ ...s, [v.name]: e.target.value }))}
+              onChange={(e) => setVar(v.name, e.target.value)}
               aria-label={`$${v.name}`}>
               <option value="*">{t('ddb.varAll')}</option>
               {varValues(v.kind).map((x) => <option key={x} value={x}>{v.kind === 'equipment' ? t(`line.${x}`) : x}</option>)}
@@ -401,6 +399,31 @@ export function DashboardViewPage() {
             <button type="button" className="underline" onClick={() => setEndMs(null)}>{t('ddb.resume')}</button>
           </span>
         )}
+        {/* view-time controls — pause / rewind the whole board; every data
+            widget reads the same fixed window through BoardCtx */}
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-0.5" role="group" aria-label={t('ddb.timeControls')}>
+            <IconBtn label={t('ddb.rewind')} onClick={() => setEndMs((e) => (e ?? now) - stepMs)}><Rewind size={14} /></IconBtn>
+            <IconBtn label={endMs == null ? t('ddb.pause') : t('ddb.resume')}
+              onClick={() => setEndMs((e) => (e == null ? now : null))}>
+              {endMs == null ? <Pause size={14} /> : <Play size={14} />}
+            </IconBtn>
+            <IconBtn label={t('ddb.forward')}
+              onClick={() => setEndMs((e) => {
+                if (e == null) return null;
+                const n = e + stepMs;
+                return n >= now - 2000 ? null : n;
+              })}>
+              <FastForward size={14} />
+            </IconBtn>
+          </span>
+          <IconBtn label={t('ddb.overlays')} onClick={() => setOverlays((v) => !v)} pressed={overlays}><Layers size={14} /></IconBtn>
+          <Segmented value={dash.range} onChange={(r) => update({ range: r })} label={t('dash.range')}
+            options={RANGES.map((r) => ({ value: r, label: t('dash.past', { r }) }))} />
+          <button type="button" className="btn btn-sm btn-ghost" onClick={share} title={t('ddb.shareTitle')}>
+            <Share2 size={14} aria-hidden /><span className="hidden sm:inline"> {t('ddb.share')}</span>
+          </button>
+        </span>
         <span className="sr-only" aria-live="polite">{sharedNote}</span>
         {editable && (
           <label className="ml-auto flex items-center gap-2">
@@ -427,7 +450,7 @@ export function DashboardViewPage() {
             onLayoutChange={onLayoutChange}
           >
             {dash.widgets.map((w) => (
-              <div key={w.id}>
+              <div key={w.id} className="min-w-0">
                 {w.kind === 'group' ? (
                   /* dd group header: pastel themed bar + one-line description; the tiles below it belong to it */
                   <section
@@ -447,7 +470,7 @@ export function DashboardViewPage() {
                     {w.note && <p className="truncate px-5 pb-0.5 text-[11px] opacity-80">{w.note}</p>}
                   </section>
                 ) : (
-                <section className={`flex h-full flex-col rounded-[5px] border bg-white ${editable ? 'border-dashed border-blue' : 'border-line'}`} aria-label={w.title || autoTitle(w)}>
+                <section className={`flex h-full flex-col overflow-hidden rounded-[5px] border bg-white ${editable ? 'border-dashed border-blue' : 'border-line'}`} aria-label={w.title || autoTitle(w)}>
                   <header className="flex h-8 shrink-0 items-center gap-1 border-b border-line pl-2 pr-1">
                     {editable && <span className="widget-drag grid h-6 w-5 cursor-move place-items-center text-ink-46" aria-hidden><GripVertical size={14} /></span>}
                     <h3 className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink">{w.title || autoTitle(w)}</h3>
