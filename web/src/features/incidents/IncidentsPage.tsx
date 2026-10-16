@@ -1,142 +1,200 @@
-// Incidents — declare, acknowledge and resolve problems with an append-only
-// timeline. Facets (status / severity), table, detail drawer with notes.
+// Incidents (WP-E) — Datadog incident list shape on the plant incident model:
+// facet sidebar (status / severity / team / equipment), omnibar, dense table,
+// CSV export, row → right-hand triage drawer (IncidentPanel). Deep link:
+// ?incident=<id>. The settings tab jumps to /incidents/settings.
 
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, incidentApi, type IncidentSeverity } from '../../lib/api';
+import { NavLink, useSearchParams } from 'react-router';
+import { ApiError, incidentApi, type IncidentRow, type IncidentSeverity } from '../../lib/api';
 import { useAdminOrg } from '../admin/admin';
-import { canOperate, useRole } from '../../app/session';
+import { canOperate } from '../../app/session';
+import { fmtAge } from '../../lib/format';
+import { useNow } from '../../lib/hooks';
 import { DdIcon } from '../../shared/ui/DdIcon';
-import { EmptyState, Notice } from '../../shared/ui/Feedback';
+import { Icon } from '../../shared/ui/Icon';
+import { EmptyState, ErrorState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
 import { SeverityBadge } from '../../shared/ui/Status';
-import { FacetGroup, ProductHeader, facetOptions, toggleIn } from '../../shared/ui/Product';
+import { PageBar, PageBody } from '../../shared/ui/Page';
+import { FacetSidebar, passesFacets, toggleFacet, type FacetDef, type FacetSel } from '../../shared/ui/Facets';
+import { ExportCsvButton } from '../../shared/ui/ExportCsv';
+import { INC_SEVS, INC_STATUSES, matchIncident, useIncidentTabs, useLinkedAlarms } from './incidents';
+import { IncidentPanel, IncStatusPill } from './IncidentPanel';
+import './i18n';
 
 const fmt = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-const STATUS_STYLE = {
-  active: 'bg-[#fde8ea] text-[#a3263c]',
-  acknowledged: 'bg-[var(--color-caution-soft)] text-[#8a5a00]',
-  resolved: 'bg-[#e6f5ec] text-[#1c6b45]',
+const STATUS_MARK: Record<string, string> = {
+  active: 'bg-[var(--color-danger-bright)]', acknowledged: 'bg-[var(--color-warn)]', resolved: 'bg-[var(--color-ok)]',
 };
 
 export function IncidentsPage() {
   const { t } = useTranslation();
-  const operable = canOperate(useRole());
-  const { orgId } = useAdminOrg();
+  const { orgId, orgRole } = useAdminOrg();
+  const operable = canOperate(orgRole ?? 'none');
   const qc = useQueryClient();
-  const list = useQuery({ queryKey: ['incidents', orgId], queryFn: () => incidentApi.list(orgId!), enabled: !!orgId, refetchInterval: 30_000 });
-  const done = () => { qc.invalidateQueries({ queryKey: ['incidents', orgId] }); qc.invalidateQueries({ queryKey: ['incident', orgId] }); };
-  const create = useMutation({ mutationFn: (b: Parameters<typeof incidentApi.create>[1]) => incidentApi.create(orgId!, b), onSuccess: done });
-  const [offStatus, setOffStatus] = useState<Set<string>>(new Set(['resolved']));
-  const [offSev, setOffSev] = useState<Set<string>>(new Set());
+  const now = useNow(15_000);
+  const [params, setParams] = useSearchParams();
   const [q, setQ] = useState('');
-  const [open, setOpen] = useState<string | null>(null);
+  const [sel, setSel] = useState<FacetSel>({});
+  const [showFilters, setShowFilters] = useState(false);
   const dlg = useRef<HTMLDialogElement>(null);
+  const linked = useLinkedAlarms();
+
+  const list = useQuery({ queryKey: ['incidents', orgId], queryFn: () => incidentApi.list(orgId!), enabled: !!orgId, refetchInterval: 30_000 });
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['incidents', orgId] });
+    void qc.invalidateQueries({ queryKey: ['incident', orgId] });
+  };
+  const create = useMutation({ mutationFn: (b: Parameters<typeof incidentApi.create>[1]) => incidentApi.create(orgId!, b), onSuccess: refresh });
 
   const rows = useMemo(() => list.data?.incidents ?? [], [list.data]);
-  const shown = useMemo(() => rows
-    .filter((i) => !offStatus.has(i.status) && !offSev.has(i.severity))
-    .filter((i) => `${i.title} ${i.team ?? ''}`.toLowerCase().includes(q.toLowerCase())), [rows, offStatus, offSev, q]);
+  const eqOf = (i: IncidentRow) => linked.equipmentOf(i);
+  const eqLabel = (eq: string) => (eq ? t(`line.${eq}`, { defaultValue: eq }) : t('inc.noEquipment'));
+  const base = useMemo(
+    () => rows.filter((i) => matchIncident(i, q, eqLabel(eqOf(i)), linked.tagOf(i))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, q, linked],
+  );
+  const pick = (i: IncidentRow) => (f: string): string => {
+    switch (f) {
+      case 'status': return i.status;
+      case 'severity': return i.severity;
+      case 'team': return i.team ?? '_none';
+      case 'equipment': return eqOf(i) || '_none';
+      default: return '';
+    }
+  };
+  const shown = base.filter((i) => passesFacets(sel, pick(i)));
+
+  const count = (facet: string, value: string) =>
+    base.filter((i) => passesFacets(sel, pick(i), facet) && pick(i)(facet) === value).length;
+  const uniq = (f: string) => [...new Set(rows.map((i) => pick(i)(f)))].sort();
+  const facets: FacetDef[] = [
+    { id: 'status', title: t('inc.facetStatus'), values: INC_STATUSES.map((s) => ({
+      value: s, label: t(`inc.status.${s}`), count: count('status', s),
+      mark: <span aria-hidden className={`h-3 w-1 rounded-sm ${STATUS_MARK[s]}`} />,
+    })) },
+    { id: 'severity', title: t('inc.facetSeverity'), values: INC_SEVS.map((s) => ({
+      value: s, label: <SeverityBadge severity={s} />, count: count('severity', s),
+    })) },
+    { id: 'team', title: t('inc.facetTeam'), values: uniq('team').map((x) => ({
+      value: x, label: x === '_none' ? t('inc.unassigned') : x, count: count('team', x),
+    })) },
+    { id: 'equipment', title: t('inc.facetEquipment'), values: uniq('equipment').map((x) => ({
+      value: x, label: x === '_none' ? t('inc.noEquipment') : eqLabel(x), count: count('equipment', x),
+    })) },
+  ];
+
+  const openId = params.get('incident');
+  const openIncident = (id: string | null) => {
+    setParams((p) => {
+      const n = new URLSearchParams(p);
+      if (id) n.set('incident', id); else n.delete('incident');
+      return n;
+    }, { replace: true });
+  };
+
   const err = create.error ?? list.error;
+  const tabs = useIncidentTabs();
 
   return (
     <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="incidents" title={t('inc.title')} />
-      <div className="flex items-center gap-2 border-b border-line bg-white px-4 py-2">
-        <input className="input flex-1 font-mono" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('inc.queryPh')} aria-label={t('inc.queryPh')} />
-      </div>
-      {err && <div className="px-4 pt-2"><Notice>{err instanceof ApiError && err.status === 403 ? t('inc.needOperator') : t('inc.failed')}</Notice></div>}
-
-      <div className="flex flex-1 gap-4 p-4 pt-2">
-        <aside className="w-[220px] shrink-0 self-start border border-line bg-white" aria-label={t('inc.facets')}>
-          <FacetGroup title={t('inc.facetStatus')} off={offStatus} emptyLabel={t('slos.noValues')}
-            onToggle={(v) => setOffStatus((s) => toggleIn(s, v))}
-            options={facetOptions(rows, (i) => i.status, (v) => t(`inc.status.${v}`))} />
-          <FacetGroup title={t('inc.facetSeverity')} off={offSev} emptyLabel={t('slos.noValues')}
-            onToggle={(v) => setOffSev((s) => toggleIn(s, v))}
-            options={facetOptions(rows, (i) => i.severity, (v) => t(`alarms.${v}`))} />
-        </aside>
-
-        <div className="min-w-0 flex-1">
-          <div className="mb-2 flex items-center">
-            <span className="text-[12px] text-ink-68">{t('slos.showing', { shown: shown.length, total: rows.length })}</span>
-            <span className="flex-1" />
+      <PageBar icon="incidents" title={t('inc.title')} tabs={tabs}
+        actions={(
+          <>
+            {/* secondary actions collapse below md — the Declare CTA stays */}
+            <span className="hidden md:contents">
+              <ExportCsvButton name="incidents" count={shown.length}
+                columns={[
+                  { key: 'status', label: t('inc.colStatus') }, { key: 'severity', label: t('inc.colSeverity') },
+                  { key: 'title', label: t('inc.colTitle') }, { key: 'team', label: t('inc.colTeam') },
+                  { key: 'equipment', label: t('inc.colEquipment') }, { key: 'opened', label: t('inc.colOpened') },
+                ]}
+                rows={() => shown.map((i) => ({
+                  status: t(`inc.status.${i.status}`), severity: i.severity, title: i.title,
+                  team: i.team ?? '', equipment: eqOf(i) ? eqLabel(eqOf(i)) : '', opened: i.created_at,
+                }))} />
+              <NavLink to="/dashboards/incident-management-overview" className="btn btn-ghost btn-sm">
+                <DdIcon name="dashboard" size={13} /> {t('inc.overviewBoard')}
+              </NavLink>
+            </span>
             {operable ? (
               <button type="button" onClick={() => dlg.current?.showModal()}
-                className="flex h-8 items-center gap-1.5 rounded bg-blue px-3 text-[13px] text-white focus-visible:outline-2 focus-visible:outline-blue">
+                className="btn btn-sm">
                 <DdIcon name="incidents" size={13} /> {t('inc.declare')}
               </button>
-            ) : <span className="text-[11px] text-ink-46">{t('inc.needOperator')}</span>}
-          </div>
+            ) : null}
+          </>
+        )} />
 
-          <section className="overflow-x-auto rounded-[5px] border border-line bg-white">
-            {shown.length === 0 ? <EmptyState title={t('slos.empty')} icon="search" /> : (
-              <table className="w-full border-collapse text-[13px]">
-                <thead>
-                  <tr className="border-b border-line text-left">
-                    {['colStatus', 'colSeverity', 'colTitle', 'colTeam', 'colOpened'].map((c) => (
-                      <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t(`inc.${c}`)}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map((i) => (
-                    <tr key={i.id} className="h-10 cursor-pointer border-b border-line last:border-0 hover:bg-info-soft" onClick={() => setOpen(open === i.id ? null : i.id)}>
-                      <td className="px-3"><span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[i.status]}`}>{t(`inc.status.${i.status}`)}</span></td>
-                      <td className="px-3"><SeverityBadge severity={i.severity} /></td>
-                      <td className="px-3 font-medium">
-                        <button type="button" className="text-left text-blue hover:underline focus-visible:outline-2 focus-visible:outline-blue" aria-expanded={open === i.id}>{i.title}</button>
-                      </td>
-                      <td className="px-3 text-ink-68">{i.team ?? '—'}</td>
-                      <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(i.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
-          {open && orgId && <Detail orgId={orgId} id={open} operable={operable} onChange={done} />}
+      <PageBody className="flex-1">
+        <div className="relative">
+          <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
+          <input className="input w-full pl-7" value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder={t('inc.queryPh')} aria-label={t('inc.searchLabel')} />
         </div>
-      </div>
+        {err && <div className="pt-3"><Notice tone="error">{err instanceof ApiError && err.status === 403 ? t('inc.needOperator') : t('inc.failed')}</Notice></div>}
+        {!operable && <p className="pt-2 text-[11px] text-ink-46">{t('inc.needOperator')}</p>}
 
+        <div className="md:hidden">
+          <button type="button" className="btn btn-ghost btn-sm mt-2" aria-expanded={showFilters} onClick={() => setShowFilters((v) => !v)}>
+            <DdIcon name="filter" size={13} /> {t('inc.filters')}
+          </button>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-[248px_minmax(0,1fr)]">
+          <FacetSidebar
+            className={`self-start rounded-[5px] border border-line bg-white p-3 md:sticky md:top-[80px] md:block md:max-h-[calc(100svh-80px)] md:overflow-y-auto ${showFilters ? '' : 'hidden'}`}
+            facets={facets} sel={sel}
+            onToggle={(f, v) => setSel((s) => toggleFacet(s, f, v))}
+            onClear={() => setSel({})}
+            viewMore={t('inc.viewMore')} clearLabel={t('inc.clearFilters')}
+          />
+          <div className="min-w-0">
+            <p className="mb-2 text-[12px] text-ink-68">{t('inc.showing', { shown: shown.length, total: rows.length })}</p>
+            <section className="overflow-x-auto rounded-[5px] border border-line bg-white shadow-card">
+              {list.isLoading ? <div className="p-3"><SkeletonRows rows={6} /></div>
+                : list.isError ? <ErrorState onRetry={() => void list.refetch()} />
+                : shown.length === 0 ? <EmptyState title={t('inc.empty')} body={t('inc.emptyBody')} icon="search" />
+                : (
+                  <table className="w-full min-w-[720px] border-collapse text-[13px]">
+                    <thead>
+                      <tr className="border-b border-line text-left">
+                        {['colStatus', 'colSeverity', 'colTitle', 'colTeam', 'colEquipment', 'colOpened', 'colAge'].map((c) => (
+                          <th key={c} scope="col" className="overline h-7 px-3">{t(`inc.${c}`)}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shown.map((i) => (
+                        <tr key={i.id} tabIndex={0}
+                          className={`h-10 cursor-pointer border-b border-line last:border-0 hover:bg-info-soft focus-visible:bg-info-soft focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${openId === i.id ? 'bg-info-soft' : ''}`}
+                          onClick={() => openIncident(openId === i.id ? null : i.id)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') openIncident(i.id); }}
+                          aria-label={t('inc.openIncident', { title: i.title })}>
+                          <td className="px-3"><IncStatusPill status={i.status} /></td>
+                          <td className="px-3"><SeverityBadge severity={i.severity} /></td>
+                          <td className="px-3 font-medium">{i.title}</td>
+                          <td className="px-3 text-ink-68">{i.team ?? '—'}</td>
+                          <td className="px-3 text-[12px] text-ink-68">{eqOf(i) ? eqLabel(eqOf(i)) : '—'}</td>
+                          <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(i.created_at)}</td>
+                          <td className="whitespace-nowrap px-3 font-mono text-[12px] text-ink-68">{fmtAge(i.created_at, now)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+            </section>
+          </div>
+        </div>
+      </PageBody>
+
+      {openId && orgId && (
+        <IncidentPanel orgId={orgId} id={openId} operable={operable} linked={linked}
+          onChanged={refresh} onClose={() => openIncident(null)} />
+      )}
       <DeclareDialog dlgRef={dlg} teams={list.data?.teams ?? []} onSave={(b) => create.mutate(b)} />
     </div>
-  );
-}
-
-function Detail({ orgId, id, operable, onChange }: { orgId: string; id: string; operable: boolean; onChange: () => void }) {
-  const { t } = useTranslation();
-  const [note, setNote] = useState('');
-  const d = useQuery({ queryKey: ['incident', orgId, id], queryFn: () => incidentApi.get(orgId, id), refetchInterval: 15_000 });
-  const status = useMutation({ mutationFn: (s: 'acknowledged' | 'resolved') => incidentApi.setStatus(orgId, id, s), onSuccess: onChange });
-  const addNote = useMutation({ mutationFn: (b: string) => incidentApi.note(orgId, id, b), onSuccess: () => { setNote(''); onChange(); } });
-  const inc = d.data?.incident;
-  if (!inc) return null;
-  return (
-    <section className="mt-3 rounded-[5px] border border-line bg-white p-4" aria-label={inc.title}>
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">{inc.title}</h2>
-        {operable && inc.status === 'active' && <button type="button" className="btn btn-sm" onClick={() => status.mutate('acknowledged')}>{t('inc.ack')}</button>}
-        {operable && inc.status !== 'resolved' && <button type="button" className="btn btn-sm" onClick={() => status.mutate('resolved')}>{t('inc.resolve')}</button>}
-      </div>
-      {(status.error || addNote.error) && <Notice>{t('inc.failed')}</Notice>}
-      <ol className="mt-3 border-l border-line pl-3">
-        {(d.data?.events ?? []).map((e, k) => (
-          <li key={k} className="relative py-1 text-[12px]">
-            <span className="absolute -left-[17px] top-2 h-2 w-2 rounded-full bg-blue" aria-hidden />
-            <span className="font-mono text-ink-46">{fmt(e.at)}</span>{' '}
-            <span className="font-semibold">{e.who}</span>{' '}
-            <span className="text-ink-68">{e.kind === 'note' ? e.body : e.kind === 'created' ? t('inc.evCreated') : t(`inc.status.${e.body}`)}</span>
-          </li>
-        ))}
-      </ol>
-      {operable && (
-        <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (note.trim()) addNote.mutate(note.trim()); }}>
-          <input className="input flex-1" value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} placeholder={t('inc.notePh')} aria-label={t('inc.notePh')} />
-          <button type="submit" className="btn btn-sm" disabled={!note.trim()}>{t('inc.addNote')}</button>
-        </form>
-      )}
-    </section>
   );
 }
 
@@ -152,7 +210,7 @@ function DeclareDialog({ dlgRef, teams, onSave }: {
   const [tried, setTried] = useState(false);
   const close = () => { dlgRef.current?.close(); setTried(false); };
   return (
-    <dialog ref={dlgRef} className="m-auto w-[440px] rounded-[6px] border border-line p-0 shadow-pop backdrop:bg-black/40" aria-labelledby="inc-title">
+    <dialog ref={dlgRef} className="m-auto w-[440px] max-w-[calc(100vw-24px)] rounded-[6px] border border-line p-0 shadow-pop backdrop:bg-black/40" aria-labelledby="inc-title">
       <form method="dialog" className="p-4" onSubmit={(e) => {
         e.preventDefault(); setTried(true);
         if (!title.trim()) return;
@@ -167,7 +225,7 @@ function DeclareDialog({ dlgRef, teams, onSave }: {
           <div>
             <label className="block text-[12px] font-semibold text-ink-68" htmlFor="inc-s">{t('inc.colSeverity')}</label>
             <select id="inc-s" className="input mt-1 w-full" value={sev} onChange={(e) => setSev(e.target.value as IncidentSeverity)}>
-              {(['info', 'warning', 'critical'] as const).map((s) => <option key={s} value={s}>{t(`alarms.${s}`)}</option>)}
+              {INC_SEVS.map((s) => <option key={s} value={s}>{t(`alarms.${s}`)}</option>)}
             </select>
           </div>
           <div>

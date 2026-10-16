@@ -508,7 +508,7 @@ const en = {
     deniedRetry: 'Check again', deniedChecking: 'Checking…', deniedSwitch: 'Use a different account',
     deniedStill: 'Still no access. Your administrator may not have added you yet.',
   },
-  common: { retry: 'Try again', loading: 'Loading', error: 'Something went wrong', close: 'Close', export: 'Export', clear: 'Clear' },
+  common: { retry: 'Try again', loading: 'Loading', error: 'Something went wrong', close: 'Close', export: 'Export', clear: 'Clear', save: 'Save', edit: 'Edit' },
   // shared/ui primitives + shell chrome (design-system lead)
   ui: {
     demo: 'Simulated', demoTitle: 'Simulated value: it does not come from plant equipment',
@@ -1302,7 +1302,7 @@ const th: Dict = {
     deniedRetry: 'ตรวจสอบอีกครั้ง', deniedChecking: 'กำลังตรวจสอบ…', deniedSwitch: 'ใช้บัญชีอื่น',
     deniedStill: 'ยังไม่มีสิทธิ์ ผู้ดูแลอาจยังไม่ได้เพิ่มคุณ',
   },
-  common: { retry: 'ลองอีกครั้ง', loading: 'กำลังโหลด', error: 'เกิดข้อผิดพลาด', close: 'ปิด', export: 'ส่งออก', clear: 'ล้าง' },
+  common: { retry: 'ลองอีกครั้ง', loading: 'กำลังโหลด', error: 'เกิดข้อผิดพลาด', close: 'ปิด', export: 'ส่งออก', clear: 'ล้าง', save: 'บันทึก', edit: 'แก้ไข' },
   // shared/ui primitives + shell chrome (design-system lead)
   ui: {
     demo: 'ข้อมูลจำลอง', demoTitle: 'ค่าจำลอง ไม่ได้มาจากเครื่องจักรจริง',

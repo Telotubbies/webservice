@@ -57,6 +57,7 @@ const AlarmQualityPage = lazy(() => import('./features/alarmquality/AlarmQuality
 const AlarmSettingsPage = lazy(() => import('./features/alarmsettings/AlarmSettingsPage').then((m) => ({ default: m.AlarmSettingsPage })));
 const EventsPage = lazy(() => import('./features/events/EventsPage').then((m) => ({ default: m.EventsPage })));
 const IncidentsPage = lazy(() => import('./features/incidents/IncidentsPage').then((m) => ({ default: m.IncidentsPage })));
+const IncidentSettingsPage = lazy(() => import('./features/incidents/IncidentSettingsPage').then((m) => ({ default: m.IncidentSettingsPage })));
 const NotebooksPage = lazy(() => import('./features/notebooks/NotebooksPage').then((m) => ({ default: m.NotebooksPage })));
 const NotebookViewPage = lazy(() => import('./features/notebooks/NotebooksPage').then((m) => ({ default: m.NotebookViewPage })));
 const CatalogPage = lazy(() => import('./features/catalog/CatalogPage').then((m) => ({ default: m.CatalogPage })));
@@ -251,6 +252,7 @@ export default function App() {
             {enabled('alarmsettings') && <Route path="alarms/settings" element={page(AlarmSettingsPage)} />}
             <Route path="events" element={page(EventsPage)} />
             {enabled('incidents') && <Route path="incidents" element={page(IncidentsPage)} />}
+            {enabled('incidents') && <Route path="incidents/settings" element={page(IncidentSettingsPage)} />}
             <Route path="notebooks" element={page(NotebooksPage)} />
             <Route path="notebooks/:id" element={page(NotebookViewPage)} />
             {enabled('catalog') && <Route path="catalog" element={page(CatalogPage)} />}

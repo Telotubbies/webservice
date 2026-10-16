@@ -50,6 +50,65 @@ const rules = [
 
 const commands: Record<string, unknown>[] = [];
 
+// ---- WP-E: incidents + notification fixtures (in-memory, CONTRACT shapes) --
+const UID = (n: string) => `00000000-0000-4000-8000-${n.padStart(12, '0')}`;
+const MOCK_TAGS = [
+  { id: UID('a1'), path: 'sort.line1.motor1.running', name: 'drive motor running', type: 'bool', unit: null },
+  { id: UID('a2'), path: 'sort.line1.conv1.temp_c', name: 'conveyor temp', type: 'number', unit: '°C' },
+  { id: UID('a3'), path: 'sort.line1.bin1.level_pct', name: 'bin level', type: 'number', unit: '%' },
+  { id: UID('a4'), path: 'sort.vision.cam1.gravel_ratio', name: 'gravel ratio', type: 'number', unit: '%' },
+];
+const MOCK_RULES = [
+  { id: UID('b1'), tag_id: UID('a2'), name: 'conveyor temp HiHi', kind: 'hihi', threshold: 75, stale_s: null, window_s: null, deadband: 1, severity: 'critical', enabled: true },
+  { id: UID('b2'), tag_id: UID('a3'), name: 'bin level Hi', kind: 'hi', threshold: 90, stale_s: null, window_s: null, deadband: 2, severity: 'warning', enabled: true },
+  { id: UID('b3'), tag_id: UID('a4'), name: 'vision stale', kind: 'stale', threshold: null, stale_s: 30, window_s: null, deadband: 0, severity: 'info', enabled: true },
+];
+const MOCK_V2_ALARMS = [
+  { id: UID('c1'), tag_id: UID('a2'), rule_id: UID('b1'), rule: 'conveyor temp HiHi', severity: 'critical', state: 'active', raised_at: iso(T0 - 7 * 60e3), acked_at: null, acked_by: null, cleared_at: null, version: 1 },
+  { id: UID('c2'), tag_id: UID('a3'), rule_id: UID('b2'), rule: 'bin level Hi', severity: 'warning', state: 'acked', raised_at: iso(T0 - 25 * 60e3), acked_at: iso(T0 - 20 * 60e3), acked_by: 'demo-operator', cleared_at: null, version: 2 },
+  { id: UID('c3'), tag_id: UID('a4'), rule_id: UID('b3'), rule: 'vision stale', severity: 'info', state: 'cleared', raised_at: iso(T0 - 180 * 60e3), acked_at: iso(T0 - 175 * 60e3), acked_by: 'demo-operator', cleared_at: iso(T0 - 150 * 60e3), version: 3 },
+];
+const MOCK_TEAMS = [
+  { id: 'team-ops', name: 'Ops', description: 'shift operators', members: [{ user_id: 'u1', name: 'Demo operator' }] },
+  { id: 'team-maint', name: 'Maintenance', description: 'mechanical & electrical', members: [] },
+];
+const mockIncidents: Record<string, unknown>[] = [
+  { id: UID('d1'), title: 'Conveyor overheating above HiHi', severity: 'critical', status: 'active', created_at: iso(T0 - 6 * 60e3), acked_at: null, resolved_at: null, alarm_id: UID('c1'), team_id: 'team-ops', team: 'Ops', mine: true },
+  { id: UID('d2'), title: 'Bin 1 filling faster than discharge', severity: 'warning', status: 'acknowledged', created_at: iso(T0 - 40 * 60e3), acked_at: iso(T0 - 30 * 60e3), resolved_at: null, alarm_id: UID('c2'), team_id: 'team-maint', team: 'Maintenance', mine: false },
+  { id: UID('d3'), title: 'Vision feed went stale mid-shift', severity: 'info', status: 'resolved', created_at: iso(T0 - 26 * 3600e3), acked_at: iso(T0 - 25 * 3600e3), resolved_at: iso(T0 - 24 * 3600e3), alarm_id: UID('c3'), team_id: null, team: null, mine: false },
+  { id: UID('d4'), title: 'Manual declare — belt slip observed', severity: 'warning', status: 'active', created_at: iso(T0 - 3 * 3600e3), acked_at: null, resolved_at: null, alarm_id: null, team_id: 'team-ops', team: 'Ops', mine: false },
+];
+const mockIncEvents: Record<string, Record<string, unknown>[]> = {
+  [UID('d1')]: [
+    { kind: 'created', body: '', at: iso(T0 - 6 * 60e3), who: 'demo-operator' },
+  ],
+  [UID('d2')]: [
+    { kind: 'created', body: '', at: iso(T0 - 40 * 60e3), who: 'demo-operator' },
+    { kind: 'status', body: 'acknowledged', at: iso(T0 - 30 * 60e3), who: 'demo-operator' },
+    { kind: 'note', body: 'Maintenance is checking the discharge gate.', at: iso(T0 - 12 * 60e3), who: 'demo-operator' },
+  ],
+  [UID('d3')]: [
+    { kind: 'created', body: '', at: iso(T0 - 26 * 3600e3), who: 'demo-operator' },
+    { kind: 'status', body: 'acknowledged', at: iso(T0 - 25 * 3600e3), who: 'demo-operator' },
+    { kind: 'status', body: 'resolved', at: iso(T0 - 24 * 3600e3), who: 'demo-operator' },
+  ],
+  [UID('d4')]: [
+    { kind: 'created', body: '', at: iso(T0 - 3 * 3600e3), who: 'demo-operator' },
+    { kind: 'note', body: 'Operator on shift 2 reported slipping sounds at conv1.', at: iso(T0 - 2 * 3600e3), who: 'demo-operator' },
+  ],
+};
+const mockChannels: Record<string, unknown>[] = [
+  { id: 'ch-1', name: 'Ops email', type: 'email', team_id: 'team-ops', enabled: true, has_secrets: false, config: { to: ['ops@demo.local'] }, created_at: iso(T0 - 20 * 86400e3) },
+  { id: 'ch-2', name: 'LINE shift group', type: 'line', team_id: null, enabled: true, has_secrets: true, config: {}, created_at: iso(T0 - 19 * 86400e3) },
+];
+const mockPolicies: Record<string, unknown>[] = [
+  { id: 'pol-1', name: 'Night escalation', rule_id: null, enabled: true, created_at: iso(T0 - 15 * 86400e3),
+    levels: [
+      { after_minutes: 15, channel_ids: ['ch-1'], team_ids: [], oncall_team: 'team-ops' },
+      { after_minutes: 45, channel_ids: ['ch-2'], team_ids: ['team-maint'], oncall_team: null },
+    ] },
+];
+
 function roleOf(req: IncomingMessage): string | null {
   const m = /Bearer demo-(\w+)/.exec(req.headers.authorization ?? '');
   return m ? (m[1] === 'admin' || m[1] === 'owner' ? m[1] : m[1] === 'viewer' ? 'viewer' : 'operator') : null;
@@ -92,6 +151,9 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, { mqtt: { connected: true }, edge: { last_heartbeat_ts: iso(t - 2000), clock_ok: true }, backend: { uptime_s: Math.round((t - T0) / 1000) + 86400 } });
   }
   if (p === '/api/tags') return send(200, TAGS);
+  if (p === '/api/v1/consents') {
+    return send(200, { required: {}, given: {}, missing: [], current: true });
+  }
   if (p === '/api/tags/latest') return send(200, TAGS.map((g) => ({ name: g.name, v: value(g.name, t), q: 'good', ts: iso(t) })));
 
   const tagRoute = /^\/api\/tags\/(.+)\/(latest|history|availability)$/.exec(p);
@@ -151,7 +213,78 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   if (v2) {
     const rest = v2[2] ?? '';
     if (rest === '') return send(200, { id: v2[1], name: 'Demo Plant', role, created_at: iso(T0 - 30 * 86400e3) });
-    if (rest === '/sites') return send(200, list([{ id: 'site-1', name: 'Plant 1', code: 'P1', timezone: 'Asia/Bangkok' }]));
+    if (rest === '/sites') return send(200, list([{ id: 'site-1', name: 'Plant 1', code: 'plant1', timezone: 'Asia/Bangkok' }]));
+    if (/\/sites\/[^/]+\/tags$/.test(rest)) return send(200, list(MOCK_TAGS));
+    if (/\/sites\/[^/]+\/alarm-rules$/.test(rest)) return send(200, list(MOCK_RULES));
+    if (/\/sites\/[^/]+\/alarms$/.test(rest)) return send(200, list(MOCK_V2_ALARMS));
+
+    // --- WP-E: incidents (member read; operator+ writes) ---
+    if (rest === '/incidents' && req.method === 'GET') {
+      return send(200, { incidents: [...mockIncidents].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))), teams: MOCK_TEAMS.map(({ id, name }) => ({ id, name })) });
+    }
+    if (rest === '/incidents' && req.method === 'POST') {
+      if (role === 'viewer') return send(403, { detail: 'operator role required' });
+      const b = await body(req);
+      const team = MOCK_TEAMS.find((x) => x.id === b.owner_team_id);
+      const inc = { id: UID(`e${mockIncidents.length + 1}`), title: String(b.title ?? ''), severity: b.severity ?? 'warning', status: 'active', created_at: iso(t), acked_at: null, resolved_at: null, alarm_id: null, team_id: team?.id ?? null, team: team?.name ?? null, mine: true };
+      mockIncidents.push(inc);
+      mockIncEvents[String(inc.id)] = [{ kind: 'created', body: '', at: inc.created_at, who: `demo-${role}` }];
+      return send(201, { incident: inc });
+    }
+    const incDetail = /^\/incidents\/([^/]+)(\/status|\/notes)?$/.exec(rest);
+    if (incDetail) {
+      const inc = mockIncidents.find((x) => x.id === incDetail[1]);
+      if (!inc) return send(404, { detail: 'incident not found' });
+      const events = (mockIncEvents[String(inc.id)] ??= []);
+      const who = `demo-${role}`;
+      if (!incDetail[2] && req.method === 'GET') return send(200, { incident: inc, events });
+      if (role === 'viewer') return send(403, { detail: 'operator role required' });
+      const b = await body(req);
+      if (incDetail[2] === '/status' && req.method === 'POST') {
+        const s = String(b.status);
+        if (s === 'acknowledged' && inc.status === 'active') { inc.status = 'acknowledged'; inc.acked_at = iso(t); }
+        if (s === 'resolved' && inc.status !== 'resolved') {
+          if (!inc.acked_at) inc.acked_at = iso(t);
+          inc.status = 'resolved'; inc.resolved_at = iso(t);
+        }
+        events.push({ kind: 'status', body: s, at: iso(t), who });
+        return send(200, { incident: inc });
+      }
+      if (incDetail[2] === '/notes' && req.method === 'POST') {
+        events.push({ kind: 'note', body: String(b.body ?? ''), at: iso(t), who });
+        return send(201, {});
+      }
+      return send(404, { detail: 'mock: not implemented' });
+    }
+    if (rest === '/teams' && req.method === 'GET') return send(200, { teams: MOCK_TEAMS });
+
+    // --- WP-E: notification channels / escalation / on-call ---
+    if (rest === '/notification-channels' && req.method === 'GET') return send(200, list(mockChannels));
+    const chMut = /^\/notification-channels\/([^/]+)$/.exec(rest);
+    if (chMut && req.method === 'PATCH') {
+      const c = mockChannels.find((x) => x.id === chMut[1]);
+      if (!c) return send(404, { detail: 'channel not found' });
+      Object.assign(c, await body(req));
+      return send(200, { channel: c });
+    }
+    if (rest === '/escalation-policies' && req.method === 'GET') return send(200, list(mockPolicies));
+    if (rest === '/escalation-policies' && req.method === 'POST') {
+      const b = await body(req);
+      const pol = { id: `pol-${mockPolicies.length + 1}`, name: b.name, rule_id: b.rule_id ?? null, enabled: true, created_at: iso(t), levels: b.levels ?? [] };
+      mockPolicies.push(pol);
+      return send(201, { policy: pol });
+    }
+    const polMut = /^\/escalation-policies\/([^/]+)$/.exec(rest);
+    if (polMut) {
+      const pol = mockPolicies.find((x) => x.id === polMut[1]);
+      if (!pol) return send(404, { detail: 'policy not found' });
+      if (req.method === 'PATCH') { Object.assign(pol, await body(req)); return send(200, { policy: pol }); }
+      if (req.method === 'DELETE') { mockPolicies.splice(mockPolicies.indexOf(pol), 1); return send(204, {}); }
+    }
+    if (rest === '/oncall') {
+      return send(200, list([{ team_id: 'team-ops', team: 'Ops', user_id: 'u1', name: 'Demo operator', source: 'rotation', rotation: ['u1'] }]));
+    }
+    if (/\/teams\/[^/]+\/oncall\/overrides$/.test(rest)) return send(200, list([]));
     if (/\/sites\/[^/]+\/health$/.test(rest)) return send(200, { edges: [], buffer_depth: 0, clock_ok: true, adapter: 'mock' });
     if (rest === '/members') {
       return send(200, list([{ user_id: 'u1', sub: 'demo-operator', display_name: 'Demo operator', email: 'operator@demo.local', role: 'operator', disabled_at: null, created_at: iso(T0) }]));
