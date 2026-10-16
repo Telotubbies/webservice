@@ -164,6 +164,18 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # Gateway-side inference (plan M1-05): ONNX Runtime behind the 9.10 HTTP contract. Internal
+  # network only: it is reached by edge-bridge, never published on the host.
+  model-server:
+    build: ./model-server
+    environment:
+      MODEL_DIR: /models
+    volumes:
+      - edge-models:/models
+    mem_limit: 3g
+    restart: unless-stopped
+    logging: *default-logging
+
   edge-bridge:
     build: ./edge-bridge
     environment:
@@ -336,6 +348,7 @@ volumes:
   video-data:
   model-data:
   convert-spool:
+  edge-models:
 
 # MQTT identity secrets (infra/gen-secrets.sh — `make secrets`). Mounted at
 # /run/secrets/<name>; never in environment, never in `docker inspect`.
