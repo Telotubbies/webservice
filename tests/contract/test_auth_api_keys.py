@@ -50,11 +50,12 @@ class FakeConn:
     last_used_at write happened (or didn't)."""
 
     def __init__(self, key_row=None, user_row=None, member_row=None,
-                 fail: bool = False):
+                 fail: bool = False, rate: int = 120):
         self.key_row = key_row
         self.user_row = user_row
         self.member_row = member_row
         self.fail = fail
+        self.rate = rate
         self.executed: list[tuple[str, tuple]] = []
 
     def transaction(self):
@@ -76,6 +77,13 @@ class FakeConn:
             raise ConnectionError("authz store down")
         self.executed.append((sql, args))
         return "OK"
+
+    async def fetchval(self, sql: str, *args):
+        if self.fail:
+            raise ConnectionError("authz store down")
+        if "FROM organizations" in sql:
+            return self.rate
+        raise AssertionError(f"unexpected fetchval: {sql}")
 
 
 class FakePool:
