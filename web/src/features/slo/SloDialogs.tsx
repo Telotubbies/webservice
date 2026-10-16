@@ -156,13 +156,3 @@ export function CorrectionsBody({ org, slo, admin, onChanged }: {
   );
 }
 
-export function CorrectionsDialog({ org, slo, onChanged, onClose }: {
-  org: string; slo: SloDef; onChanged: () => void; onClose: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <Modal title={t('slos.corrections', { name: slo.name })} onClose={onClose}>
-      <CorrectionsBody org={org} slo={slo} admin onChanged={onChanged} />
-    </Modal>
-  );
-}

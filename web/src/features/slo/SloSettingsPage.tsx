@@ -25,6 +25,7 @@ export function SloSettingsPage() {
   const [target, setTarget] = useState(preset.target != null ? String(preset.target) : '');
   const [warning, setWarning] = useState(preset.warning != null ? String(preset.warning) : '');
   const [saved, setSaved] = useState(false);
+  const [presetErr, setPresetErr] = useState('');
 
   const deleted = useQuery({
     queryKey: ['slo-deleted-audit', orgId],
@@ -35,8 +36,14 @@ export function SloSettingsPage() {
   const savePresets = () => {
     const tg = target.trim() === '' ? null : Number(target);
     const w = warning.trim() === '' ? null : Number(warning);
-    if (tg != null && !(tg > 0 && tg < 100)) return;
-    if (w != null && !(w > 0 && w <= 100)) return;
+    if ((tg != null && !(tg > 0 && tg < 100))
+      || (w != null && !(w > 0 && w <= 100))
+      || (tg != null && w != null && w < tg)) { // backend: warning >= target
+      setPresetErr(t('slos.set.invalid'));
+      setSaved(false);
+      return;
+    }
+    setPresetErr('');
     setNewSloPreset({ target: tg, warning: w });
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2500);
@@ -80,6 +87,7 @@ export function SloSettingsPage() {
               <input id="slo-set-warning" className="input num h-8" type="number" step="0.01" max="100"
                 value={warning} placeholder={t('slos.set.warnAuto')} onChange={(e) => setWarning(e.target.value)} />
             </div>
+            {presetErr && <div className="sm:col-span-2"><Notice tone="error">{presetErr}</Notice></div>}
             <div className="flex items-center gap-2 sm:col-span-2">
               <button type="submit" className="btn btn-sm">{t('slos.save')}</button>
               {saved && <span className="text-[12px] font-medium text-ok-ink">{t('slos.set.saved')}</span>}

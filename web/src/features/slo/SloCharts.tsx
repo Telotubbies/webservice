@@ -53,10 +53,12 @@ function corrSpans(corrections: SloCorrection[], from: number, to: number): Span
     .map((c) => ({ a: Math.max(c.a, from), b: Math.min(c.b, to) }));
 }
 
-function Frame({ from, to, corrections, gapTo, children }: {
+function Frame({ from, to, corrections, gapTo, label, children }: {
   from: number; to: number; corrections: SloCorrection[];
   /** everything left of this ts has no retained history — shaded */
   gapTo?: number | null;
+  /** accessible name for the role=img svg */
+  label: string;
   children: (ctx: { sx: (t: number) => number; corr: Span[]; hatchId: string }) => React.ReactNode;
 }) {
   const { i18n } = useTranslation();
@@ -64,7 +66,7 @@ function Frame({ from, to, corrections, gapTo, children }: {
   const sx = (t: number) => ML + (IW * (t - from)) / Math.max(1, to - from);
   const corr = corrSpans(corrections, from, to);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={label}>
       <defs>
         <pattern id={hatchId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <rect width="6" height="6" fill="var(--color-neutral-soft)" />
@@ -101,7 +103,7 @@ export function BurndownChart({ from, to, bd, corrections }: {
   const sy = (v: number) => MT + IH * (1 - (v - yMin) / (100 - yMin));
   const y0 = sy(0);
   return (
-    <Frame from={from} to={to} corrections={corrections} gapTo={bd.coveredFrom}>
+    <Frame from={from} to={to} corrections={corrections} gapTo={bd.coveredFrom} label={t('slos.panel.burndown')}>
       {({ sx, corr, hatchId }) => (
         <>
           {/* y labels */}
@@ -186,7 +188,7 @@ export function BurnRateChart({ from, to, buckets, rates, corrections }: {
   const rMax = Math.max(1.5, ...rates.map((r) => (r == null || !Number.isFinite(r) ? 0 : Math.min(r, 20))));
   const sy = (v: number) => MT + IH * (1 - v / (rMax * 1.15));
   return (
-    <Frame from={from} to={to} corrections={corrections} gapTo={firstBucket(buckets)}>
+    <Frame from={from} to={to} corrections={corrections} gapTo={firstBucket(buckets)} label={t('slos.panel.burnRate')}>
       {({ sx, corr, hatchId }) => (
         <>
           {[0, 1, rMax].map((v) => (

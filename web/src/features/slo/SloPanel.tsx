@@ -59,7 +59,9 @@ export function SloPanel({ org, row, admin, win, onWin, onEdit, onDelete, onClos
     ref.current?.focus();
     const k = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (document.querySelector('dialog[open], .palette-panel')) return;
+      // one layer per Esc: native <dialog>, the command palette, and
+      // Confirm-style alertdialogs (role=alertdialog, not <dialog>)
+      if (document.querySelector('dialog[open], .palette-panel, [role="alertdialog"]')) return;
       onClose();
     };
     window.addEventListener('keydown', k);
@@ -177,7 +179,7 @@ export function SloPanel({ org, row, admin, win, onWin, onEdit, onDelete, onClos
         <div className="flex-1 bg-subtle/40 p-4">
           {tab === 'overview' && (
             <Overview
-              row={row} win={win} onWin={onWin} admin={admin}
+              row={row} win={win} onWin={onWin}
               hist={hist} bd={bd} rates={rates} overS={overS} toMs={toMs}
               truncated={hist.data?.truncated ?? false}
             />
@@ -272,15 +274,14 @@ export function SloPanel({ org, row, admin, win, onWin, onEdit, onDelete, onClos
 
 /* ---------------------------- Overview tab ---------------------------- */
 
-function Overview({ row, win, onWin, admin, hist, bd, rates, overS, truncated, toMs }: {
-  row: SloRow; win: SloWindowKey; onWin: (w: SloWindowKey) => void; admin: boolean;
+function Overview({ row, win, onWin, hist, bd, rates, overS, truncated, toMs }: {
+  row: SloRow; win: SloWindowKey; onWin: (w: SloWindowKey) => void;
   hist: { isLoading: boolean; isError: boolean; refetch: () => unknown };
   bd: ReturnType<typeof buildBurndown> | null; rates: (number | null)[];
   overS: number; truncated: boolean; toMs: number;
 }) {
   const { t, i18n } = useTranslation();
   const fromMs = bd && bd.buckets.length ? bd.buckets[0].t0 : toMs;
-  void admin;
   return (
     <div className="space-y-4">
       {/* identity rows — creator/team aren't in the SLO contract; what exists:

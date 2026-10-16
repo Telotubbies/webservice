@@ -99,6 +99,7 @@ export function matchSlo(r: SloRow, query: string): boolean {
     const m = tok.match(/^([a-z_]+):(.*)$/);
     if (!m) return free.includes(tok);
     const [, key, val] = m;
+    if (!val.trim()) return true; // `state:` mid-typing — no-op, don't blank the list
     if (key === 'state' || key === 'status') {
       const s = STATE_ALIAS[val] ?? STATE_ALIAS[val.replace('-', '_')];
       return s ? r.status === s : free.includes(tok);
