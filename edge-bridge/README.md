@@ -120,3 +120,7 @@ The console can also **test** a draft source and **browse** OPC UA nodes through
 ## Credential rotation
 
 Rotating an edge in the console issues a new credential version and pushes it in-band on `v2/{org}/{site}/{edge}/cred` (QoS 1, not retained). The gateway writes it into `identity.json` atomically and reconnects; the old credential stays valid for a grace window (`EDGE_CRED_GRACE_S`, default 24 h) and retires early once the gateway is live on the new one. A gateway that was **offline longer than the grace window** misses the push and can no longer connect: wipe its state volume (`docker volume rm edge-state`) and enroll again with a new code from **Devices**. Env-bootstrap gateways are unaffected: they re-read their credential files per reconnect.
+
+## Cameras (plan M1-03)
+
+The `vision` runner starts one thread per enabled camera in the pushed `cfg`. `upload` cameras download their clip once (sha256 verified, cached under `STATE_DIR/videos`) and loop it at real-time pace; `rtsp` cameras read over TCP with a 5 s open/read timeout and reconnect with backoff (1 → 30 s). Frames are published to `vision/frame/{camera_id}`; health to `vision/stat`. A broken camera reports `error` and never affects tags or other cameras. RTSP URLs are never logged or sent in status text. The detector seam (`vision/detector.py`) is a null detector until the model plans land.

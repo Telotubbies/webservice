@@ -187,3 +187,28 @@ Data-source config (backend ↔ edge, `v2/{org}/{site}/{edge}/…`; edge ACLs in
 - Telemetry with `ts` older than 8 h is dropped; newer data is stored. `tag_latest` is updated only when `ts` is newer than the current value.
 - The alarm engine evaluates only samples where `now − ts ≤ 15 s`, so replayed backlog never raises or clears alarms.
 - `ts` more than 5 s in the future → dropped and counted.
+
+## Cameras and frame relay (plan M1-03)
+
+REST (all `/api/v1/orgs/{org}/…`; non-member 404; writes need `config:write`, one audit row each):
+
+| Route | Notes |
+|---|---|
+| `POST …/sites/{site}/videos?filename=x.mp4` | raw body (mp4 or webm, sniffed from magic bytes, max 200 MB) → 201 `{id, filename, size_bytes, sha256}`; 415 not a video, 413 too large |
+| `GET …/sites/{site}/videos`, `DELETE …/videos/{id}` | 409 `video_in_use` while a camera pins it |
+| `GET/POST …/edges/{edge}/cameras`, `PATCH/DELETE …/cameras/{camera}` | `kind` `rtsp` (needs `rtsp_url`, `rtsp(s)://` + host) or `upload` (needs `video_id`); `fps_sample` 0.5–15; the URL is write-only (`has_rtsp_url`); every write bumps `edges.config_version` |
+| `POST …/cameras/{camera}/stream-url` | → `{url, expires_in: 60}`, a signed MJPEG URL |
+| `GET …/cameras/{camera}/stream?exp&sig` | `multipart/x-mixed-replace`, credential = the signature (an `<img>` cannot send headers); 401 on any failure |
+| `GET …/cameras/{camera}/snapshot` | latest JPEG, session auth, 404 before the first frame |
+| `GET /api/v1/edge-media/{video}?edge&sig` | gateway download, no session; `sig = HMAC(edge, video, sha256)`, 404 on any failure |
+
+`cfg` gains `cameras: [{id, name, kind, fps_sample, enabled, rtsp_url? | video: {url, sha256, size_bytes}}]`.
+
+| Topic | Dir | QoS | Payload |
+|---|---|---|---|
+| `vision/frame/{camera_id}` | edge → backend | 0 | one JPEG, ≤ 960 px wide, ≤ 100 000 bytes (relay accepts ≤ 150 000) |
+| `vision/stat` | edge → backend | 0 | `{camera_id: {status: "ok"\|"error", detail, fps}}` every 10 s → `cameras.status*` |
+
+- Edge role ACL adds publish on `vision/frame/+` and `vision/stat` only. The backend ignores a frame whose camera does not belong to the publishing edge.
+- Frames are shed first when the ingest queue is more than half full, so they never delay telemetry.
+- The relay keeps only the newest frame per camera; a slow viewer skips frames. Single backend replica (the shared subscription would otherwise split frames across replicas).
