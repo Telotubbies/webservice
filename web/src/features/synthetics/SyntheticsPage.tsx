@@ -35,7 +35,8 @@ export function SyntheticsPage() {
   const rows = Object.keys(SIGNALS).map((tag) => {
     const tv = live.latest.get(tag);
     const status: Check = !tv ? 'none' : now - Date.parse(tv.ts) > STALE_MS ? 'stale' : tv.q === 'good' ? 'ok' : 'bad';
-    return { tag, tv, status, area: SIGNALS[tag].equipment ?? 'other' };
+    const area: string = SIGNALS[tag].equipment ?? 'other';
+    return { tag, tv, status, area };
   });
   const n = (s: Check) => rows.filter((r) => r.status === s).length;
   const suites = [...new Set(rows.map((r) => r.area))].map((area) => {
