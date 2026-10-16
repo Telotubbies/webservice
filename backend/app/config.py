@@ -17,6 +17,10 @@ MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD") or None
 MQTT_PASSWORD_FILE = os.environ.get("MQTT_PASSWORD_FILE") or None
 # CA bundle for the TLS listener (self-signed dev CA from `make certs`).
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE") or None
+# what an enrolling gateway is told to dial (spec 5.1); host defaults to the
+# hostname the enroll request arrived on
+PUBLIC_MQTT_HOST = os.environ.get("PUBLIC_MQTT_HOST") or None
+PUBLIC_MQTT_PORT = int(os.environ.get("PUBLIC_MQTT_PORT", "8883"))
 
 
 def _read_secret(path: str | None) -> str | None:
@@ -30,6 +34,32 @@ def _read_secret(path: str | None) -> str | None:
 
 
 MQTT_PASSWORD = _read_secret(MQTT_PASSWORD_FILE) or MQTT_PASSWORD
+
+# --- data-source secret box (spec 5.6) ---------------------------------------
+# 32-byte AES-GCM key, stored base64 (or 64-char hex) in DATA_SOURCE_KEY_FILE.
+# DEV/TEST ONLY: when the file is absent a fixed, publicly-known key is derived
+# so `make up` and the tests work with zero setup. NEVER relied on in prod —
+# _enforce_prod_env fails without a readable DATA_SOURCE_KEY_FILE.
+def _load_data_source_key() -> bytes | None:
+    import base64
+    import hashlib
+    raw = _read_secret(os.environ.get("DATA_SOURCE_KEY_FILE"))
+    if raw:
+        try:
+            if len(raw) == 64:
+                return bytes.fromhex(raw)
+            key = base64.b64decode(raw + "=" * (-len(raw) % 4))
+            if len(key) == 32:
+                return key
+        except ValueError:
+            pass
+        return hashlib.sha256(raw.encode()).digest()  # any passphrase -> 32 bytes
+    if os.environ.get("APP_ENV", "dev") in ("dev", "test"):
+        return hashlib.sha256(b"wds-dev-only-data-source-key").digest()
+    return None
+
+
+DATA_SOURCE_KEY = _load_data_source_key()
 
 # --- dynamic-security admin channel (doc 17 §2/§6) -------------------------
 DYNSEC_ADMIN_USER = os.environ.get("DYNSEC_ADMIN_USER", "svc-dynsec-admin")
@@ -72,6 +102,8 @@ RATE_COMMANDS_PER_TAG = int(os.environ.get("RATE_COMMANDS_PER_TAG", "5"))   # pe
 RATE_COMMANDS_WINDOW_S = float(os.environ.get("RATE_COMMANDS_WINDOW_S", "10"))
 RATE_MUTATIONS_PER_USER = int(os.environ.get("RATE_MUTATIONS_PER_USER", "60"))  # per window, per user
 RATE_MUTATIONS_WINDOW_S = float(os.environ.get("RATE_MUTATIONS_WINDOW_S", "60"))
+RATE_ENROLL_PER_IP = int(os.environ.get("RATE_ENROLL_PER_IP", "10"))
+RATE_ENROLL_WINDOW_S = float(os.environ.get("RATE_ENROLL_WINDOW_S", "60"))
 RATE_LOGOUT_PER_IP = int(os.environ.get("RATE_LOGOUT_PER_IP", "10"))
 RATE_LOGOUT_WINDOW_S = float(os.environ.get("RATE_LOGOUT_WINDOW_S", "60"))
 RATE_WS_PER_IP = int(os.environ.get("RATE_WS_PER_IP", "20"))                # concurrent /ws sockets per client IP
@@ -200,7 +232,8 @@ def _enforce_prod_env() -> None:
     # File-mounted secrets (the *_FILE vars are the prod contract — an env
     # password would land in `docker inspect`, doc 17).
     for name in ("MQTT_PASSWORD_FILE", "DYNSEC_ADMIN_PASSWORD_FILE",
-                 "SVC_BACKEND_PW_FILE", "EDGE_BOOTSTRAP_PW_FILE"):
+                 "SVC_BACKEND_PW_FILE", "EDGE_BOOTSTRAP_PW_FILE",
+                 "DATA_SOURCE_KEY_FILE"):
         if not _readable(os.environ.get(name)):
             missing.append(f"{name} (missing/unreadable/empty)")
 

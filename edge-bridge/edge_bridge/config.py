@@ -15,8 +15,9 @@ attempt so a rotated credential takes effect at the next reconnect.
 
 from __future__ import annotations
 
+import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -49,9 +50,31 @@ class Config:
     tags_config: str = "tags.yaml"
     heartbeat_s: float = 5.0          # contract: heartbeat every 5 s
     clock_ok_threshold_ms: float = 500.0
+    state_dir: str = "/var/lib/wds-edge"       # applied-cfg cache (cfg.json)
+    state_key: str | None = None               # from enrollment; seals the cfg cache
+    identity_file: str | None = None           # set when running from enrollment
 
     @classmethod
-    def from_env(cls) -> "Config":
+    def from_env(cls, identity: dict | None = None) -> "Config":
+        """``identity`` (enroll.py's identity.json) wins over env for ids,
+        broker address, credentials and CA."""
+        c = cls._from_env()
+        if not identity:
+            return c
+        return replace(
+            c, org_id=identity["org_id"], site_id=identity["site_id"],
+            edge_id=identity["edge_id"],
+            mqtt_host=identity.get("mqtt_host") or c.mqtt_host,
+            mqtt_port=int(identity.get("mqtt_port") or c.mqtt_port),
+            mqtt_user=identity.get("mqtt_username") or c.mqtt_user,
+            mqtt_password=identity.get("mqtt_password") or c.mqtt_password,
+            mqtt_user_file=None, mqtt_password_file=None,
+            mqtt_ca_file=identity.get("mqtt_ca_file") or c.mqtt_ca_file,
+            state_key=identity.get("state_key") or None,
+            identity_file=str(Path(c.state_dir) / "identity.json"))
+
+    @classmethod
+    def _from_env(cls) -> "Config":
         return cls(
             mqtt_host=os.getenv("MQTT_HOST", "localhost"),
             mqtt_port=int(os.getenv("MQTT_PORT", "8883")),
@@ -68,6 +91,7 @@ class Config:
             poll_ms=int(os.getenv("POLL_MS", "1000")),
             clock_skew_ms=float(os.getenv("EDGE_CLOCK_SKEW_MS", "0")),
             tags_config=os.getenv("TAGS_CONFIG", "tags.yaml"),
+            state_dir=os.getenv("STATE_DIR", "/var/lib/wds-edge"),
         )
 
     # -- doc 17 topic helpers -------------------------------------------------
@@ -82,6 +106,26 @@ class Config:
     @property
     def cmd_topic(self) -> str:
         return f"{self.prefix}/cmd/+"
+
+    @property
+    def enrolled(self) -> bool:
+        return self.identity_file is not None
+
+    @property
+    def cred_topic(self) -> str:
+        return f"{self.prefix}/cred"
+
+    @property
+    def cfg_topic(self) -> str:
+        return f"{self.prefix}/cfg"
+
+    @property
+    def cfg_req_topic(self) -> str:
+        return f"{self.prefix}/cfg-req"
+
+    @property
+    def cfg_ack_topic(self) -> str:
+        return f"{self.prefix}/cfg-ack"
 
     def tele_topic(self, tag_path: str) -> str:
         """tag_path is the site-relative path (area/line/device/signal)."""
@@ -101,6 +145,15 @@ class Config:
     def credentials(self) -> tuple[str | None, str | None]:
         """Current (username, password); files re-read so a rotated secret
         is picked up on the next connect attempt (doc 17 §5)."""
+        if self.identity_file:
+            # enrolled: identity.json is the live source (in-band rotation
+            # rewrites it); fall back to the values captured at startup
+            try:
+                ident = json.loads(Path(self.identity_file).read_text(encoding="utf-8"))
+                return ident.get("mqtt_username") or self.mqtt_user, \
+                    ident.get("mqtt_password") or self.mqtt_password
+            except (OSError, ValueError):
+                return self.mqtt_user, self.mqtt_password
         user = _file_or_none(self.mqtt_user_file) or self.mqtt_user
         pw = _file_or_none(self.mqtt_password_file) or self.mqtt_password
         return user, pw

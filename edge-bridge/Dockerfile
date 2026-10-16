@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY edge_bridge ./edge_bridge
 COPY tags.yaml ./tags.yaml
 
-RUN useradd --create-home --uid 10001 edge
+RUN useradd --create-home --uid 10001 edge && mkdir -p /var/lib/wds-edge && chown edge /var/lib/wds-edge
 USER edge
 
 CMD ["python", "-m", "edge_bridge.main"]

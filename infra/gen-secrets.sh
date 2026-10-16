@@ -81,6 +81,16 @@ gen_env kc_admin_pw    KC_ADMIN_PASSWORD           admin-dev-pass
 gen_env kc_demo_pw     KC_DEMO_PASSWORD            kc-demo-pass
 gen_env kc_db_pw       KC_DB_PASSWORD              kc-db-dev-pass
 
+# Data-source secret box key (spec 5.6): 32 random bytes, base64. Always
+# random (never an env/dev default) — losing it makes stored PLC credentials
+# unreadable, so --force rotation requires re-entering them.
+if [ ! -s "$DIR/data_source_key" ] || [ "${FORCE:-0}" = "1" ]; then
+  openssl rand -base64 32 | tr -d '
+' > "$DIR/data_source_key"
+  chmod 0644 "$DIR/data_source_key"
+  echo "  wrote $DIR/data_source_key"
+fi
+
 # Google OAuth client secret (G9) — never random: empty = Google sign-in off.
 if [ ! -e "$DIR/google_client_secret" ] || [ "${FORCE:-0}" = "1" ]; then
   printf '%s' "${GOOGLE_CLIENT_SECRET:-}" > "$DIR/google_client_secret"

@@ -20,21 +20,25 @@ import signal
 import threading
 import time
 
-from .adapters import load_tags_config, make_adapter
+from .adapters import IdleAdapter, load_tags_config, make_adapter
+from .cfg import AdapterHolder, CfgClient
+from .credpush import CredClient
 from .clock import EdgeClock
 from .commands import CommandHandler
 from .config import Config
+from .enroll import EnrollError, enroll_if_needed
 from .logging_setup import setup_logging
 from .mqtt_bridge import MqttBridge
 
 log = logging.getLogger("edge_bridge.main")
 
 
-def _poll_loop(stop: threading.Event, cfg: Config, adapter,
+def _poll_loop(stop: threading.Event, cfg: Config, holder: AdapterHolder,
                bridge: MqttBridge, health: dict) -> None:
-    period = cfg.poll_ms / 1000.0
     next_tick = time.monotonic()  # monotonic: immune to NTP slew (SDLC §6.6)
     while not stop.is_set():
+        adapter = holder.get()  # re-read: a cfg push may have swapped it
+        period = max(holder.poll_ms, 100) / 1000.0  # floor matches backend CHECK
         try:
             values = adapter.read_all()
             health["read_failures"] = 0
@@ -55,7 +59,7 @@ def _poll_loop(stop: threading.Event, cfg: Config, adapter,
         stop.wait(delay)
 
 
-def _heartbeat_loop(stop: threading.Event, cfg: Config, adapter,
+def _heartbeat_loop(stop: threading.Event, cfg: Config, holder: AdapterHolder,
                     bridge: MqttBridge, clock: EdgeClock,
                     health: dict) -> None:
     while not stop.is_set():
@@ -70,7 +74,7 @@ def _heartbeat_loop(stop: threading.Event, cfg: Config, adapter,
             "read_failures": read_failures,
             "buffer_depth": bridge.queued(),
             "buffer_dropped": 0,
-            "adapter": adapter.name,
+            "adapter": holder.get().name,
             "ts": clock.now().isoformat().replace("+00:00", "Z"),
         }
         bridge.publish_json(cfg.hb_topic, payload)
@@ -79,15 +83,24 @@ def _heartbeat_loop(stop: threading.Event, cfg: Config, adapter,
 
 def main() -> int:
     setup_logging()
-    cfg = Config.from_env()
+    try:
+        identity = enroll_if_needed(Config.from_env().state_dir)
+    except EnrollError as exc:
+        log.error("enrollment failed: %s", exc)
+        return 3   # non-zero: the container restart policy retries
+    cfg = Config.from_env(identity)
     if not cfg.org_id or not cfg.site_id or not cfg.edge_id:
         log.error("ORG_ID/SITE_ID/EDGE_ID (uuids) are required — the v2 "
                   "topic namespace has no human names")
         return 2
     clock = EdgeClock(cfg.clock_skew_ms, cfg.clock_ok_threshold_ms)
 
-    tags_cfg = load_tags_config(cfg.tags_config)
-    adapter = make_adapter(cfg.adapter, cfg.site_code, tags_cfg, now=clock.now)
+    if cfg.enrolled:
+        # enrolled: nothing is published until the console pushes a cfg
+        adapter = IdleAdapter()
+    else:
+        tags_cfg = load_tags_config(cfg.tags_config)
+        adapter = make_adapter(cfg.adapter, cfg.site_code, tags_cfg, now=clock.now)
 
     health: dict = {"read_failures": 0}
     bridge = MqttBridge(
@@ -100,20 +113,41 @@ def main() -> int:
         will_topic=cfg.hb_topic,
         will_payload=json.dumps({"status": "down", "clock_ok": None}),
     )
-    handler = CommandHandler(cfg, adapter, clock, bridge)
-    # Re-subscribes on every reconnect (on_connect fires per CONNACK).
-    bridge.on_connect = lambda b: b.subscribe(handler.cmd_topic, qos=1)
-    bridge.on_message = handler.handle_message
+    holder = AdapterHolder(adapter, cfg.poll_ms)
+    handler = CommandHandler(cfg, holder, clock, bridge)
+    cfg_client = CfgClient(cfg, holder, bridge, cfg.site_code, now=clock.now)
+    # A cached backend cfg wins over tags.yaml; tags.yaml stays the fallback.
+    cfg_client.load_cached()
+    cred_client = CredClient(cfg, bridge.reconnect) if cfg.enrolled else None
+    adapter = holder.get()
+
+    def _on_connect(b: MqttBridge) -> None:
+        # Re-subscribes on every reconnect (on_connect fires per CONNACK).
+        b.subscribe(handler.cmd_topic, qos=1)
+        cfg_client.on_connect(b)
+        if cred_client is not None:
+            b.subscribe(cfg.cred_topic, qos=1)
+
+    def _on_message(msg) -> None:
+        if msg.topic == cfg.cfg_topic:
+            cfg_client.handle(msg)
+        elif cred_client is not None and msg.topic == cfg.cred_topic:
+            cred_client.handle(msg)
+        else:
+            handler.handle_message(msg)
+
+    bridge.on_connect = _on_connect
+    bridge.on_message = _on_message
 
     log.info(
         "edge-bridge starting org=%s site=%s edge=%s adapter=%s poll_ms=%d "
         "mqtt=%s:%d tls=%s clock_skew_ms=%s clock_ok=%s tags=%d",
-        cfg.org_id, cfg.site_id, cfg.edge_id, adapter.name, cfg.poll_ms,
+        cfg.org_id, cfg.site_id, cfg.edge_id, adapter.name, holder.poll_ms,
         cfg.mqtt_host, cfg.mqtt_port, bool(cfg.mqtt_ca_file),
         cfg.clock_skew_ms, clock.clock_ok,
         len(adapter.tag_map()),
         extra={"fields": {"event": "startup", "adapter": adapter.name,
-                          "poll_ms": cfg.poll_ms, "site": cfg.site_id,
+                          "poll_ms": holder.poll_ms, "site": cfg.site_id,
                           "edge_id": cfg.edge_id}},
     )
 
@@ -130,10 +164,10 @@ def main() -> int:
     bridge.start()
     threads = [
         threading.Thread(target=_poll_loop, name="poll",
-                         args=(stop, cfg, adapter, bridge, health),
+                         args=(stop, cfg, holder, bridge, health),
                          daemon=True),
         threading.Thread(target=_heartbeat_loop, name="heartbeat",
-                         args=(stop, cfg, adapter, bridge, clock, health),
+                         args=(stop, cfg, holder, bridge, clock, health),
                          daemon=True),
     ]
     for t in threads:
@@ -142,7 +176,7 @@ def main() -> int:
     stop.wait()  # main thread idles until SIGTERM/SIGINT
 
     bridge.stop()
-    adapter.close()
+    holder.get().close()
     for t in threads:
         t.join(timeout=2.0)
     log.info("edge-bridge stopped cleanly cmds_handled=%d denies=%d",

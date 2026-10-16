@@ -64,6 +64,9 @@ class CommandManager:
         self.registry = registry
         self.cmd_limiter = cmd_limiter  # RateLimiter | None (per user+tag)
         self._timers: dict[UUID, asyncio.Task] = {}
+        # read-only edge ops (test_source / browse): in-memory only, never a
+        # `commands` row. request id -> (edge_id, future)
+        self._pending_ops: dict[str, tuple[UUID, asyncio.Future]] = {}
 
     # ---------------------------------------------------------------- issue
     async def issue(self, *, tag, org_id: UUID, site_id: UUID, value,
@@ -146,6 +149,43 @@ class CommandManager:
         self._timers[cid] = asyncio.create_task(self._watch(cid, ttl_s, org_id))
         status = await self._status(cid, org_id)
         return 201, {"command_id": str(cid), "status": V1_STATUS[status]}
+
+    # ------------------------------------------------------- edge ops (RPC)
+    async def request_op(self, org_id: UUID, site_id: UUID, edge_id: UUID,
+                         op: str, payload: dict, timeout_s: float = 10) -> dict:
+        """Ask the edge to run a read-only op and wait for its cmd-resp.
+        Returns the edge's `result`; raises TimeoutError if the edge is
+        unknown/offline/silent, RuntimeError(reason) if the edge reports failure."""
+        rid = str(uuid.uuid4())
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending_ops[rid] = (edge_id, fut)
+        try:
+            body = {**payload, "command_id": rid, "op": op,
+                    "issued_at": iso_z(utcnow()),
+                    "ttl_s": max(1, math.ceil(timeout_s))}
+            if not self.mqtt.publish_command(
+                    command_topic(org_id, site_id, edge_id, rid), body):
+                raise TimeoutError("publish_failed")
+            resp = await asyncio.wait_for(fut, timeout_s)
+        except asyncio.TimeoutError:
+            raise TimeoutError("edge_timeout") from None
+        finally:
+            self._pending_ops.pop(rid, None)
+        if resp.get("status") != "acknowledged":
+            raise RuntimeError(str(resp.get("reason") or resp.get("status")))
+        return resp.get("result") or {}
+
+    def resolve_op(self, command_id: str, edge_id: UUID, payload: dict) -> bool:
+        """True if `command_id` belongs to a pending op (consumed here, never
+        looked up in the commands table). A response from a different edge
+        than the one asked is swallowed without resolving."""
+        entry = self._pending_ops.get(command_id)
+        if entry is None:
+            return False
+        want_edge, fut = entry
+        if want_edge == edge_id and not fut.done():
+            fut.set_result(payload)
+        return True
 
     # ----------------------------------------------------- responses / ttl
     async def handle_response(self, command_id: str, status: str,

@@ -99,28 +99,32 @@ export function actionError(e: unknown, t: TFunction): string {
 /** Container name used by dockerRun — reused for the `docker logs` hint. */
 export const containerName = (edgeId: string) => `edge-${edgeId.slice(0, 8)}`;
 
-export type Adapter = 'sim' | 'modbus';
+export type Adapter = 'sim' | 'modbus' | 'opcua' | 's7';
 
-export interface InstallParams {
-  host: string; orgId: string; siteId: string; edgeId: string;
-  username: string; secret: string; adapter: Adapter; pollMs: number; siteCode: string;
+/** m:ss left on a code; null once expired. */
+export function codeCountdown(expiresAt: string, now: number): string | null {
+  const left = Date.parse(expiresAt) - now;
+  if (!(left > 0)) return null;
+  const s = Math.ceil(left / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** Env file for edge-bridge (keys from edge-bridge/README §Configuration). */
+export interface InstallParams {
+  /** Origin of this web app / API — what the gateway dials to enroll. */
+  wdsUrl: string; code: string; edgeId: string;
+}
+
+/** Env file for edge-bridge: only the enrollment pair — no secret, no ids. */
 export function envFile(p: InstallParams): string {
-  return [
-    `MQTT_HOST=${p.host}`, 'MQTT_PORT=8883', 'MQTT_CA_FILE=/certs/ca.crt',
-    `MQTT_USER=${p.username}`, `MQTT_PASSWORD=${p.secret}`,
-    `ORG_ID=${p.orgId}`, `SITE_ID=${p.siteId}`, `EDGE_ID=${p.edgeId}`,
-    `SITE=${p.siteCode}`, `ADAPTER=${p.adapter}`, `POLL_MS=${p.pollMs}`,
-  ].join('\n');
+  return [`WDS_URL=${p.wdsUrl}`, `ENROLL_CODE=${p.code}`].join('\n');
 }
 
 export function dockerRun(p: InstallParams): string {
   return [
     `docker run -d --name ${containerName(p.edgeId)} --restart unless-stopped \\`,
-    '  --env-file edge.env \\',
-    '  -v "$PWD/certs:/certs:ro" \\',
+    `  -e WDS_URL=${p.wdsUrl} \\`,
+    `  -e ENROLL_CODE=${p.code} \\`,
+    '  -v wds-edge-state:/var/lib/wds-edge \\',
     '  edge-bridge',
   ].join('\n');
 }

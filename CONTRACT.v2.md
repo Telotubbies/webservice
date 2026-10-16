@@ -18,7 +18,7 @@ Landed on `ui-v4`:
 - **WS**: `/ws/v1` requires the `site_id` auth frame (4401 without it); the site's org must be a membership else 4403 — the site anchors authorization only. Broadcasts (`tag`, `alarm*`, `command`, `insight`, `health`) are **org-membership-scoped**: a socket receives events for every org the principal belongs to (see §5.8). `/ws` is the v1 compat socket — site anchor is the seeded site, no `site_id` needed — but a multi-org member still receives all its orgs' events. V1 events keep v1 field names plus `org_id`/`site_id`/`tag_id` extras.
 - **Dev tokens** (APP_ENV=dev only): memberships hydrate from the `memberships` table, so a dev user is a member of every org it has a row in — including non-shim orgs created via admin/test paths. The nominal token role applies only as the shim-org fallback when no memberships hydrated at all.
 
-Still v1-shim-only (not yet landed): `PATCH /api/v1/me`, org/site create+mutation (read-only in v4 admin scope), line/device/tag mutation routes, `history.csv`, WS snapshot frame + `seq`/`reauth` (the current stream is the v1 event shape on `/ws` and `/ws/v1`).
+Still v1-shim-only (not yet landed): `PATCH /api/v1/me`, org/site create+mutation (read-only in v4 admin scope), line/device mutation routes (tag mutation now lands as data-source tags, §3 *Data sources*), `history.csv`, WS snapshot frame + `seq`/`reauth` (the current stream is the v1 event shape on `/ws` and `/ws/v1`).
 
 **v1 compatibility shim**: every `/api/*` v1 path is an alias pinned to the seeded dev org (`config.V1_*`) requiring shim-org membership; the single pin is `v1_tx()` in `backend/app/main.py`.
 
@@ -82,16 +82,35 @@ Org-scoped (`/api/v1/orgs/{org_id}` prefix):
 | GET / POST | `/sites` | site:read / config:write |
 | GET / PATCH / DELETE | `/sites/{site_id}` | site:read / config:write |
 
+Edge enrollment (machine, no user auth):
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/edge/enroll` | body `{"code"}` (≤1 KiB). The one-time code is the credential: per-IP rate limited (429 + `Retry-After`), single-use, 30 min. 404 `unknown_code`; 410 `code_used` / `code_expired` / `edge_disabled`; 503 `provisioning_failed` (code is returned for retry). Rotates the MQTT credential and answers `Cache-Control: no-store` `{org_id, site_id, edge_id, mqtt_host, mqtt_port, ca_pem, mqtt_username, mqtt_password, state_key}`; `state_key` is a fresh at-rest key that is not stored server-side. Clients must use https |
+
+Data sources (`/api/v1/orgs/{org_id}/edges/{edge_id}` prefix; list = site:read, everything else config:write; every mutation bumps the edge's `config_version` and republishes `cfg`):
+
+| Method | Path | Notes |
+|---|---|---|
+| GET / POST | `/sources` | `{items}` with `tag_count` / POST `{name, protocol: sim\|modbus\|s7\|opcua, connection, secrets?, poll_ms, enabled}` → 201 `{source, config_version}`; 409 `source_name_exists`; 422 field-level on bad connection |
+| PATCH / DELETE | `/sources/{source_id}` | secrets are sealed (AES-GCM, `DATA_SOURCE_KEY_FILE`) and never returned |
+| GET / POST | `/sources/{source_id}/tags` | tag with PLC `address` (normalized per protocol), `scale`, `offset`, `writable`, `min`, `max` |
+| POST | `/sources/{source_id}/tags:bulk` | CSV/TSV body, UTF-8, size-capped (413 `csv_too_large`, 422 `csv_not_utf8`) |
+| PATCH / DELETE | `/sources/{source_id}/tags/{tag_id}` | |
+| POST | `/sources:test` | dry-run a **draft** source through the edge (read-only, never writes to a PLC); config:write |
+| POST | `/sources/{source_id}/browse` | body `{node_id}`; one-level OPC UA browse via the edge using stored secrets; 409 `browse_requires_opcua` |
+
 Site-scoped (`/api/v1/orgs/{org_id}/sites/{site_id}` prefix):
 
 | Method | Path | Permission |
 |---|---|---|
 | GET | `/health` | site:read: edges (status, last_hb, clock_ok, buffer_depth), mqtt, db |
 | GET / POST / PATCH / DELETE | `/lines`, `/devices` | read / config:write |
-| GET / POST | `/edges` | site:read / config:write (POST returns the secret **once**) |
-| POST | `/edges/{edge_id}/rotate`, `/edges/{edge_id}/disable` | config:write |
+| GET / POST | `/edges` | site:read / config:write (POST returns the secret **once** plus a one-time `enroll_code` + `enroll_expires_at`). Edge rows carry `config_version`, `config_applied` (last version the gateway acked, null = never) and `config_error` (ack error summary, null = ok) |
+| POST | `/edges/{edge_id}/enroll-code` | config:write → `{enroll_code, enroll_expires_at}` (30 min, single-use; supersedes unused codes; 409 `edge_not_active`) |
+| POST | `/edges/{edge_id}/rotate`, `/edges/{edge_id}/disable` | config:write (rotate also pushes the new credential in-band on `cred`, §6) |
 | GET | `/tags?search=&writable=` | site:read |
-| POST / PATCH / DELETE | `/tags`, `/tags/{tag_id}` | config:write |
+| POST / PATCH / DELETE | `/tags`, `/tags/{tag_id}` | config:write (v1-shim tag registry; PLC-addressed tags use the data-source routes below) |
 | GET | `/tags/latest` | site:read: **bulk** latest for every tag of the site (replaces the v1 N+1 calls) |
 | GET | `/tags/{tag_id}/history?from=&to=&limit=` (max 5000) | site:read |
 | GET | `/tags/{tag_id}/history.csv?from=&to=` | site:read |
@@ -151,6 +170,19 @@ Heartbeat (hb)     { "status": "up|degraded|down", "clock_ok": bool, "adapter": 
 Command (cmd)      { "command_id", "tag_path", "value", "issued_at", "ttl_s", "idempotency_key"? }
 CommandResp        { "command_id", "status": "acknowledged|rejected|failed", "reason"?: str }
 ```
+
+Data-source config (backend ↔ edge, `v2/{org}/{site}/{edge}/…`; edge ACLs in `dynsec.edge_acls`):
+
+| Topic | Dir | QoS / retain | Payload |
+|---|---|---|---|
+| `cfg` | backend → edge | 1, **not retained** | `{ "version": int, "sources": [{ "id", "protocol", "connection", "secrets"?: object, "poll_ms", "enabled", "tags": [{ "id", "path", "type", "address", "scale", "offset", "writable", "min", "max" }] }] }` — full config, only enabled sources; secrets are opened only to build this message |
+| `cfg-req` | edge → backend | 1 | `{ "have_version": int \| null }` on every (re)connect; the backend answers with `cfg` when `have_version` is null or older |
+| `cfg-ack` | edge → backend | 1 | `{ "version": int, "ok": bool, "errors"?: [{ "source_id"?, "tag_id"?, "detail" }] }` → `edges.config_applied` / `config_error` |
+| `cred` | backend → edge | 1, **not retained** | `{ "version": int, "username", "password" }` — in-band credential rotation for enrolled gateways; the edge ignores retained, malformed or not-newer messages |
+
+- Edge role ACL: subscribe `cfg` and `cred`; publish `cfg-req` and `cfg-ack`. Backend publishes `cfg`/`cred`; ingest subscribes `cfg-req`/`cfg-ack` via `$share/ingest`.
+- An edge ignores a `cfg` with `version` ≤ the applied one. Each source is applied independently; a bad source is reported in `errors` and keeps its previous adapter.
+- `cred` carries a secret: never logged, never retained.
 
 - Telemetry with `ts` older than 8 h is dropped; newer data is stored. `tag_latest` is updated only when `ts` is newer than the current value.
 - The alarm engine evaluates only samples where `now − ts ≤ 15 s`, so replayed backlog never raises or clears alarms.

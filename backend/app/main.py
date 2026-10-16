@@ -13,6 +13,7 @@ it is pinned to the seeded dev org (config.V1_ORG_ID) and v1 wire shapes.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import csv
 import hashlib
@@ -38,7 +39,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import config, inference, orgs as orgs_mod
+from . import config, credpush, enroll_codes, inference, orgs as orgs_mod
 from .alarms import (
     AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener,
 )
@@ -50,6 +51,8 @@ from .dynsec import (
 )
 from .insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
+from .datasources.publisher import CfgPublisher, parse_cfg_req
+from .datasources.routes import router as datasources_router, tags_notify_listener
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
@@ -294,19 +297,19 @@ class State:
         # each forged attempt burns a JWKS verify; keep a tight per-IP bucket
         self.logout_limiter = RateLimiter(config.RATE_LOGOUT_PER_IP,
                                           config.RATE_LOGOUT_WINDOW_S)
+        # unauthenticated enroll endpoint: tight per-IP bucket (code guessing)
+        self.enroll_limiter = RateLimiter(config.RATE_ENROLL_PER_IP,
+                                          config.RATE_ENROLL_WINDOW_S)
         self.commands = CommandManager(pools, self.ws, self.mqtt, self.registry,
                                        cmd_limiter=self.cmd_limiter)
         self.alarms = AlarmEngine(pools, self.ws, self.registry)
+        self.cfgpub = CfgPublisher(pools, self.mqtt, self.registry)
         self.insights = InsightEngine(pools, self.ws, self.registry)
         self.auth = Security(pools, self.ws)  # v4 T5 — OIDC verify + authz
         self.history_buf: list[tuple] = []
         self.edge = {"last_rx": None, "last_heartbeat_ts": None, "clock_ok": None,
                      "adapter": None}
-        self.counters = {"telemetry_unknown_tag": 0, "telemetry_bad_payload": 0,
-                         "telemetry_future_ts": 0, "telemetry_too_old": 0,
-                         # doc 17 §4 — security events, counted + logged
-                         "mqtt_topic_identity_mismatch": 0,
-                         "mqtt_bad_topic": 0}
+        self.counters = new_ingest_counters()
         self.db_ok = True
 
     def edge_status(self) -> str:
@@ -323,6 +326,15 @@ class State:
 # ---------------------------------------------------------------------------
 # Ingest
 # ---------------------------------------------------------------------------
+def new_ingest_counters() -> dict:
+    return {"telemetry_unknown_tag": 0, "telemetry_bad_payload": 0,
+            "telemetry_future_ts": 0, "telemetry_too_old": 0,
+            # doc 17 §4 — security events, counted + logged
+            "mqtt_topic_identity_mismatch": 0,
+            "mqtt_bad_topic": 0,
+            "cfg_bad_payload": 0}
+
+
 def _count(st: State, key: str, msg: str, **extra) -> None:
     st.counters[key] += 1
     if st.counters[key] % 100 == 1:
@@ -362,12 +374,27 @@ async def _handle_message(st: State, msg) -> None:
     kind = parts[4]
     if kind == "hb" and len(parts) == 5:
         return await _handle_heartbeat(st, msg, edge)
+    if kind in ("cfg-req", "cfg-ack") and len(parts) == 5:
+        return await _handle_cfg(st, msg, edge, kind)
     if kind == "cmd-resp" and len(parts) == 6:
         return _handle_cmd_resp(st, msg, org_id, edge_id)
     if kind == "tele" and len(parts) >= 6:
         return await _handle_telemetry(st, msg, edge, "/".join(parts[5:]))
     return _count(st, "mqtt_bad_topic", "unrecognized v2 subtree — dropped",
                   topic=msg.topic)
+
+
+async def _handle_cfg(st: State, msg, edge, kind: str) -> None:
+    try:
+        payload = json.loads(msg.payload)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _count(st, "cfg_bad_payload", f"bad {kind} payload", topic=msg.topic)
+    if kind == "cfg-req":
+        valid, have = parse_cfg_req(payload)
+        if not valid:
+            return _count(st, "cfg_bad_payload", "bad cfg-req payload", topic=msg.topic)
+        return await st.cfgpub.on_request(edge, have)
+    await st.cfgpub.on_ack(edge, payload)
 
 
 async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
@@ -455,6 +482,9 @@ def _handle_cmd_resp(st: State, msg, org_id: UUID, edge_id: UUID) -> None:
         return
     if cid != msg.topic.rsplit("/", 1)[-1]:
         log.warning("cmd-resp id mismatch — dropped", extra={"topic": msg.topic})
+        return
+    # edge ops (test_source/browse) answer here, before any commands-table lookup
+    if st.commands.resolve_op(cid, edge_id, payload):
         return
     # CONTRACT.v2 §6 names the field `reason`; `detail` tolerated for compat
     asyncio.ensure_future(st.commands.handle_response(
@@ -574,6 +604,10 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(authz_sweep(st.auth, config.AUTHZ_SWEEP_S)),
         # alarm_rules_changed NOTIFY -> rule reload without restart (v4 T10)
         asyncio.create_task(rules_notify_listener(st.alarms)),
+        # wds_tags NOTIFY -> registry refresh on data-source/tag CRUD (spec 5.6)
+        asyncio.create_task(tags_notify_listener(st.registry, st.pools)),
+        # wds_cfg NOTIFY -> push edge config over MQTT (spec 5.4)
+        asyncio.create_task(st.cfgpub.start()),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
                                        "site": config.V1_SITE_CODE})
@@ -1170,6 +1204,8 @@ def _edge_json(r, latest_ident=None) -> dict:
         "credential_version": r["credential_version"],
         "last_hb_at": iso_z(r["last_hb_at"]) if r["last_hb_at"] else None,
         "clock_ok": r["clock_ok"], "adapter": r["adapter"],
+        "config_version": r["config_version"], "config_applied": r["config_applied"],
+        "config_error": r["config_error"],
         # the reconciler recreated a lost credential: broker is live, nobody
         # holds the secret — rotate to regain access (doc 17 §6)
         "needs_rotation": bool(latest_ident and not latest_ident["secret_issued"]),
@@ -1493,7 +1529,8 @@ async def list_edges(org: str, site: str, request: Request,
     async with tenant_tx(st(request).pools.app, org_id) as tc:
         rows = await tc.fetch(
             "SELECT id, org_id, site_id, name, status, mqtt_username,"
-            " credential_version, last_hb_at, clock_ok, adapter FROM edges"
+            " credential_version, last_hb_at, clock_ok, adapter,"
+            " config_version, config_applied, config_error FROM edges"
             " WHERE site_id=$1 ORDER BY name", site_id)
         latest = await tc.fetch(
             "SELECT DISTINCT ON (edge_id) edge_id, secret_issued"
@@ -1551,12 +1588,16 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
         await audit.append(tc, f"user:{p.user_id}", "edge.provisioned",
                            {"edge_id": str(eid), "username": username},
                            {"name": body.name})
+        enroll_code, enroll_expires = await _issue_enroll_code(
+            tc, eid, p.user_id)
         await tc.execute("SELECT pg_notify('wds_edges', $1)", str(eid))
     await st(request).registry.refresh()
     edge = {"id": str(eid), "org_id": str(org_id), "site_id": str(site_id),
             "name": body.name, "status": "active", "mqtt_username": username,
-            "credential_version": version, "needs_rotation": False}
-    return {"edge": edge, "secret": secret}
+            "credential_version": version, "needs_rotation": False,
+            "config_version": 0, "config_applied": None, "config_error": None}
+    return {"edge": edge, "secret": secret, "enroll_code": enroll_code,
+            "enroll_expires_at": iso_z(enroll_expires)}
 
 
 @app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/rotate")
@@ -1575,6 +1616,29 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
             raise HTTPException(404, "edge not found")
         if edge["status"] != "active":
             raise HTTPException(409, "edge_not_active")
+    cred = await _rotate_edge_credential(
+        request, st(request).pools.app, org_id, site_id, eid,
+        actor=f"user:{p.user_id}", user_id=p.user_id, action="edge.rotated")
+    if cred is None:
+        return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
+    # Always push in-band: gateways enrolled via a code listen on /cred and
+    # adopt it; env-bootstrap gateways ignore the message (they use files/env).
+    credpush.push_cred(st(request).mqtt, org_id, site_id, eid,
+                       cred["version"], cred["username"], cred["secret"])
+    return {"edge_id": str(eid), "credential_version": cred["version"],
+            "mqtt_username": cred["username"], "secret": cred["secret"],
+            "grace_s": int(config.EDGE_CRED_GRACE_S)}
+
+
+async def _rotate_edge_credential(request: Request, pool, org_id: UUID,
+                                  site_id: UUID, eid: UUID, *, actor: str,
+                                  user_id: UUID | None, action: str,
+                                  audit_detail: dict | None = None) -> dict | None:
+    """Mint credential version n+1 on the edge's role (doc 17 §5): broker
+    client first, then the rows; the previous active identity drops to grace.
+    Shared by the operator rotate route and enrollment. None = broker failure
+    (nothing committed; a stray client is an orphan the reconciler disables)."""
+    async with tenant_tx(pool, org_id) as tc:
         maxv = await tc.fetchval(
             "SELECT max(version) FROM edge_identities WHERE edge_id=$1", eid) or 0
     version = int(maxv) + 1
@@ -1587,8 +1651,8 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
         await st(request).dynsec.create_client(username, secret, edge_role_name(eid))
     except DynsecError as exc:
         log.warning("edge rotation failed at broker", extra={"error": str(exc)})
-        return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
-    async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        return None
+    async with tenant_tx(pool, org_id, user_id) as tc:
         # current credential -> grace: stays enabled until cut-over or the
         # grace deadline, whichever the reconciler sees first (doc 17 §5)
         await tc.execute(
@@ -1604,14 +1668,131 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
             "UPDATE edges SET credential_version=$2, mqtt_username=$3,"
             " credential_fingerprint=$4 WHERE id=$1",
             eid, version, username, fp)
-        await audit.append(tc, f"user:{p.user_id}", "edge.rotated",
+        await audit.append(tc, actor, action,
                            {"edge_id": str(eid), "username": username},
-                           {"credential_version": version})
+                           {"credential_version": version, **(audit_detail or {})})
         await tc.execute("SELECT pg_notify('wds_edges', $1)", str(eid))
     await st(request).registry.refresh()
-    return {"edge_id": str(eid), "credential_version": version,
-            "mqtt_username": username, "secret": secret,
-            "grace_s": int(config.EDGE_CRED_GRACE_S)}
+    return {"version": version, "username": username, "secret": secret}
+
+
+async def _issue_enroll_code(tc, eid: UUID, user_id: UUID | None):
+    """New one-time code for an edge; unused older codes are voided. Only the
+    sha256 is stored (spec 5.1)."""
+    code = enroll_codes.new_code()
+    expires = utcnow() + timedelta(seconds=enroll_codes.CODE_TTL_S)
+    await tc.execute(
+        "UPDATE edge_enrollments SET used_at=now()"
+        " WHERE edge_id=$1 AND used_at IS NULL", eid)
+    await tc.execute(
+        "INSERT INTO edge_enrollments(org_id, edge_id, code_hash, expires_at,"
+        " created_by) VALUES ($1,$2,$3,$4,$5)",
+        tc.org_id, eid, enroll_codes.hash_code(code), expires, user_id)
+    return code, expires
+
+
+@app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/enroll-code")
+async def new_enroll_code(org: str, site: str, edge_id: str, request: Request,
+                          p: Principal = Depends(require_user)):
+    """Fresh 30-min enrollment code for an edge (e.g. the first one expired)."""
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    eid = _uuid_or_404(edge_id, "edge")
+    async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        edge = await tc.fetchrow(
+            "SELECT id, status FROM edges WHERE id=$1 AND site_id=$2", eid, site_id)
+        if edge is None:
+            raise HTTPException(404, "edge not found")
+        if edge["status"] != "active":
+            raise HTTPException(409, "edge_not_active")
+        code, expires = await _issue_enroll_code(tc, eid, p.user_id)
+        await audit.append(tc, f"user:{p.user_id}", "edge.enroll_code_issued",
+                           {"edge_id": str(eid)}, None)
+    return {"enroll_code": code, "enroll_expires_at": iso_z(expires)}
+
+
+ENROLL_BODY_MAX = 1024
+
+
+class EnrollIn(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+
+
+def _read_ca_pem() -> str:
+    if not config.MQTT_CA_FILE:
+        return ""
+    try:
+        with open(config.MQTT_CA_FILE, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        log.warning("MQTT_CA_FILE unreadable for enroll response")
+        return ""
+
+
+@app.post("/api/v1/edge/enroll")
+async def edge_enroll(request: Request):
+    """Exchange a one-time code for the gateway identity (spec 5.1). No auth:
+    the code is the credential, so the endpoint is per-IP rate limited and
+    the code is single-use. The MQTT credential is rotated here, so the
+    provision-time secret is no longer the live one."""
+    s = st(request)
+    ip = _client_ip(request)
+    if not await s.enroll_limiter.allow(ip):
+        retry = await s.enroll_limiter.retry_after(ip)
+        raise HTTPException(status_code=429, detail="rate_limited",
+                            headers={"Retry-After": str(max(1, math.ceil(retry)))})
+    # the limiter runs BEFORE the body is read or parsed: junk bodies cost a token
+    raw = await request.body()
+    if len(raw) > ENROLL_BODY_MAX:
+        raise HTTPException(413, "body_too_large")
+    try:
+        body = EnrollIn.model_validate_json(raw)
+    except ValueError:
+        raise HTTPException(422, "invalid_body") from None
+    code_hash = enroll_codes.hash_code(body.code)
+    if code_hash is None:
+        raise HTTPException(404, "unknown_code")
+    async with global_tx(s.pools.system) as conn:
+        row = await conn.fetchrow(
+            "SELECT en.id, en.org_id, en.edge_id, en.expires_at, en.used_at,"
+            " e.site_id, e.status FROM edge_enrollments en"
+            " JOIN edges e ON e.org_id=en.org_id AND e.id=en.edge_id"
+            " WHERE en.code_hash=$1", code_hash)
+    if row is None:
+        raise HTTPException(404, "unknown_code")
+    if row["status"] != "active":
+        raise HTTPException(410, "edge_disabled")
+    if row["used_at"] is not None:
+        raise HTTPException(410, "code_used")
+    if row["expires_at"] <= utcnow():
+        raise HTTPException(410, "code_expired")
+    org_id, site_id, eid = row["org_id"], row["site_id"], row["edge_id"]
+    async with tenant_tx(s.pools.system, org_id) as tc:
+        # single-statement claim: two concurrent enrolls cannot both win
+        won = await tc.fetchval(
+            "UPDATE edge_enrollments SET used_at=now() WHERE id=$1"
+            " AND used_at IS NULL AND expires_at > now() RETURNING id", row["id"])
+    if won is None:
+        raise HTTPException(410, "code_used")
+    cred = await _rotate_edge_credential(
+        request, s.pools.system, org_id, site_id, eid,
+        actor=f"edge:{eid}", user_id=None, action="edge.enrolled",
+        audit_detail={"enrollment_id": str(row["id"]), "ip": ip})
+    if cred is None:
+        # broker down: give the code back so the gateway's restart retries
+        async with tenant_tx(s.pools.system, org_id) as tc:
+            await tc.execute(
+                "UPDATE edge_enrollments SET used_at=NULL WHERE id=$1", row["id"])
+        return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
+    return JSONResponse(headers={"Cache-Control": "no-store"}, content={
+        "org_id": str(org_id), "site_id": str(site_id), "edge_id": str(eid),
+        "mqtt_host": config.PUBLIC_MQTT_HOST or request.url.hostname or "localhost",
+        "mqtt_port": config.PUBLIC_MQTT_PORT,
+        "ca_pem": _read_ca_pem(),
+        "mqtt_username": cred["username"], "mqtt_password": cred["secret"],
+        # gateway-side at-rest key; deliberately not stored server-side
+        "state_key": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
+    })
 
 
 @app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/disable")
@@ -1641,6 +1822,11 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
             await st(request).dynsec.disable_client(username)
     await st(request).registry.refresh()
     return {"edge_id": str(eid), "status": "disabled"}
+
+
+# data sources + tags CRUD (spec 5.2) — handlers resolve auth helpers from this
+# module lazily, so including here (after the helpers exist) is safe.
+app.include_router(datasources_router)
 
 
 # ---------------------------------------------------------------------------

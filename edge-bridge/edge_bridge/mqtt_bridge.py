@@ -93,6 +93,13 @@ class MqttBridge:
             pass
         self._thread.join(timeout=5.0)
 
+    def reconnect(self) -> None:
+        """Drop the session; the supervisor reconnects (re-reading credentials)."""
+        try:
+            self._client.disconnect()
+        except Exception:  # noqa: BLE001
+            log.exception("reconnect: disconnect failed")
+
     def queued(self) -> int:
         """Buffered QoS1 messages awaiting the connection — surfaced in the
         heartbeat as buffer_depth (doc 17 §6 heartbeat schema)."""

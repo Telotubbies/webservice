@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from datetime import datetime, timezone
 
-from .adapters.base import TagAdapter
+from . import ops
 from .clock import EdgeClock
 from .config import Config
 from .mqtt_bridge import MqttBridge
@@ -31,19 +33,25 @@ _DEFAULT_TTL_S = 60.0        # used if the backend omits ttl_s
 _MAX_TTL_S = 3600.0          # bounded: an attacker-set year-long TTL is a time bomb
 _MAX_FUTURE_S = 2.0          # issued_at tolerance for harmless clock noise
 _IDEMPOTENCY_MAX = 1000      # SDLC 04 §5: remember last N command keys
+_OP_WORKERS = 2              # read-only ops (test_source/browse) run here
+_OP_INFLIGHT_MAX = 4         # queued + running; more get an immediate "busy"
 
 
 class CommandHandler:
-    def __init__(self, cfg: Config, adapter: TagAdapter,
+    def __init__(self, cfg: Config, holder,
                  clock: EdgeClock, bridge: MqttBridge):
         self._cfg = cfg
-        self._adapter = adapter
+        self._holder = holder  # AdapterHolder: adapter may be swapped live
         self._clock = clock
         self._bridge = bridge
         # idempotency_key -> (status, reason); FIFO eviction
         self._seen: OrderedDict[str, tuple[str, str]] = OrderedDict()
         self.handled = 0
         self.denied = 0
+        self._op_pool = ThreadPoolExecutor(max_workers=_OP_WORKERS,
+                                           thread_name_prefix="edge-op")
+        self._op_lock = threading.Lock()
+        self._op_inflight = 0
 
     @property
     def cmd_topic(self) -> str:
@@ -64,10 +72,54 @@ class CommandHandler:
         except Exception as exc:  # belt-and-braces: never drop a response
             log.exception("command handler crashed req_id=%s", req_id)
             status, reason, command_id = "failed", f"internal:{exc}", req_id
+        if status == "pending":  # an op worker thread will respond
+            return
         self._respond(req_id, status, reason, command_id)
 
+    def _run_op(self, req_id: str, op: str, payload: dict,
+                command_id: object) -> None:
+        """Worker thread: ops can block on the network for seconds, which
+        must never stall the paho network thread."""
+        try:
+            try:
+                result = ops.run(op, payload)
+                status, reason = "acknowledged", "ok"
+            except ops.OpError as exc:
+                result, status, reason = None, "failed", str(exc)
+                if reason == "timeout":
+                    result = {"ok": False, "detail": "timeout"}
+            except Exception as exc:  # noqa: BLE001 - always answer
+                log.exception("op crashed req_id=%s op=%s", req_id, op)
+                result, status, reason = None, "failed", f"internal:{exc}"
+            self._respond(req_id, status, reason, command_id, result)
+        finally:
+            with self._op_lock:
+                self._op_inflight -= 1
+
+    def _submit_op(self, req_id: str, op: str, payload: dict,
+                   command_id: object) -> tuple[str, str]:
+        """Bounded: at most _OP_INFLIGHT_MAX ops queued+running, executed by
+        _OP_WORKERS threads. Over the cap -> immediate failed/busy."""
+        with self._op_lock:
+            if self._op_inflight >= _OP_INFLIGHT_MAX:
+                busy = True
+            else:
+                busy = False
+                self._op_inflight += 1
+        if busy:
+            self._respond(req_id, "failed", "busy", command_id,
+                          {"ok": False, "detail": "busy"})
+            return "pending", ""
+        try:
+            self._op_pool.submit(self._run_op, req_id, op, payload, command_id)
+        except RuntimeError:  # pool shut down
+            with self._op_lock:
+                self._op_inflight -= 1
+            return "failed", "shutting_down"
+        return "pending", ""
+
     def _respond(self, req_id: str, status: str, reason: str,
-                 command_id: object) -> None:
+                 command_id: object, result: dict | None = None) -> None:
         resp_topic = self._cfg.cmd_resp_topic(req_id)
         resp = {
             "command_id": command_id,
@@ -75,6 +127,8 @@ class CommandHandler:
             "reason": reason,
             "ts": self._clock.now().isoformat().replace("+00:00", "Z"),
         }
+        if result is not None:
+            resp["result"] = result
         self._bridge.publish_json(resp_topic, resp)
         self.handled += 1
         if status == "rejected":
@@ -102,9 +156,12 @@ class CommandHandler:
         value = payload.get("value")
         issued_at_raw = payload.get("issued_at")
 
-        if not isinstance(tag_path, str) or issued_at_raw is None:
+        op = payload.get("op")
+        if op is not None and op not in ops.OPS:
+            return "failed", "unknown_op", command_id
+        if (op is None and not isinstance(tag_path, str)) or issued_at_raw is None:
             return "failed", "invalid_command", command_id
-        tag = self._adapter_name(tag_path)
+        tag = self._adapter_name(tag_path) if op is None else ""
         try:
             issued_at = _parse_ts(str(issued_at_raw))
             ttl_s = float(payload.get("ttl_s", _DEFAULT_TTL_S))
@@ -129,6 +186,11 @@ class CommandHandler:
                 issued_at.timestamp() + ttl_s, tz=timezone.utc):
             return "rejected", "ttl_expired", command_id
 
+        if op is not None:
+            # read-only op on a throwaway adapter; answered from a worker
+            status, reason = self._submit_op(req_id, op, payload, command_id)
+            return status, reason, command_id
+
         idem = payload.get("idempotency_key")
         if idem is not None and idem in self._seen:
             status, reason = self._seen[idem]
@@ -137,7 +199,7 @@ class CommandHandler:
             return status, reason, command_id
 
         try:
-            result = self._adapter.write(tag, value)
+            result = self._holder.get().write(tag, value)
             status = "acknowledged" if result.ok else "rejected"
             reason = result.detail
         except Exception as exc:

@@ -33,11 +33,17 @@ SUBSCRIPTIONS = (
     "$share/ingest/v2/+/+/+/tele/#",
     "$share/ingest/v2/+/+/+/hb",
     "$share/ingest/v2/+/+/+/cmd-resp/+",
+    "$share/ingest/v2/+/+/+/cfg-req",
+    "$share/ingest/v2/+/+/+/cfg-ack",
 )
 
 
 def command_topic(org_id, site_id, edge_id, command_id: str) -> str:
     return f"v2/{org_id}/{site_id}/{edge_id}/cmd/{command_id}"
+
+
+def cred_topic(org_id, site_id, edge_id) -> str:
+    return f"v2/{org_id}/{site_id}/{edge_id}/cred"
 
 
 class MQTTBridge:
@@ -154,4 +160,36 @@ class MQTTBridge:
             return ok
         except Exception:  # noqa: BLE001 — paho can raise on dead client
             log.exception("command publish raised")
+            return False
+
+    def publish_cred(self, topic: str, payload: dict) -> bool:
+        """Publish a rotated MQTT credential to `v2/{o}/{s}/{e}/cred` (QoS1,
+        retain=False: a retained secret would outlive its grace window).
+        Never logs the payload."""
+        try:
+            info = self.client.publish(
+                topic, json.dumps(payload, separators=(",", ":")),
+                qos=1, retain=False)
+            ok = info.rc == mqtt.MQTT_ERR_SUCCESS
+            if not ok:
+                log.error("cred publish failed", extra={"rc": info.rc, "topic": topic})
+            return ok
+        except Exception:  # noqa: BLE001
+            log.exception("cred publish raised")
+            return False
+
+    def publish_cfg(self, topic: str, payload: dict) -> bool:
+        """Publish edge config to `v2/{o}/{s}/{e}/cfg` (QoS1, retain=False —
+        an offline edge asks again with cfg-req). Never logs the payload: it
+        carries opened secrets."""
+        try:
+            info = self.client.publish(
+                topic, json.dumps(payload, separators=(",", ":")),
+                qos=1, retain=False)
+            ok = info.rc == mqtt.MQTT_ERR_SUCCESS
+            if not ok:
+                log.error("cfg publish failed", extra={"rc": info.rc, "topic": topic})
+            return ok
+        except Exception:  # noqa: BLE001
+            log.exception("cfg publish raised")
             return False
