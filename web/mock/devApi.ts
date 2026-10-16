@@ -50,6 +50,58 @@ const rules = [
 
 const commands: Record<string, unknown>[] = [];
 
+/* ---- WP-D surfaces: dashboards, report schedules, reports, incidents ----
+ * In-memory, contract-shaped rows so the parity pages render without the
+ * backend stack. */
+
+// widget body shape mirrors web/src/features/dashboards/model.ts Widget
+const demoWidgets = {
+  timeseries: { id: 'w-ts', kind: 'timeseries', title: 'Belt temperature (°C)', x: 0, y: 0, w: 8, h: 3, tags: ['plant1.sort.line1.conv1.temp_c'], agg: 'last', groupBy: 'tag', range: 'inherit', unit: '', decimals: 1, colors: [], lineWidth: 2, yMin: null, yMax: null, legend: true, warn: 70, crit: 75, note: '', tone: 'blue' },
+  alarms: { id: 'w-al', kind: 'alarms', title: 'Active alarms', x: 8, y: 0, w: 4, h: 3, tags: [], agg: 'last', groupBy: 'tag', range: 'inherit', unit: '', decimals: 1, colors: [], lineWidth: 2, yMin: null, yMax: null, legend: true, warn: null, crit: null, note: '', tone: 'blue' },
+};
+
+const dashboards: Record<string, unknown>[] = [
+  {
+    id: '11111111-2222-4333-8444-555555555551', title: 'Shift handover', description: 'Board shared across shifts by the day team.',
+    shared: true, mine: false, body: { range: '1h', widgets: [demoWidgets.timeseries, demoWidgets.alarms] },
+    updated_at: iso(T0 - 2 * 86400e3),
+  },
+  {
+    id: '11111111-2222-4333-8444-555555555552', title: 'My commissioning checks', description: '',
+    shared: false, mine: true, body: { range: '15m', widgets: [demoWidgets.timeseries] },
+    updated_at: iso(T0 - 86400e3),
+  },
+];
+
+const schedules: Record<string, unknown>[] = [
+  { id: 'rs-1', site_id: 'site-1', template: 'daily', to_addrs: ['ops@demo.plant'], send_time: '07:00', send_day: null, enabled: true, last_run_at: iso(T0 - 9 * 3600e3), created_at: iso(T0 - 30 * 86400e3) },
+  { id: 'rs-2', site_id: 'site-1', template: 'weekly_oee', to_addrs: ['ops@demo.plant', 'owner@demo.plant'], send_time: '06:30', send_day: 1, enabled: true, last_run_at: iso(T0 - 5 * 86400e3), created_at: iso(T0 - 60 * 86400e3) },
+  { id: 'rs-3', site_id: null, template: 'monthly_alarms', to_addrs: ['owner@demo.plant'], send_time: '08:00', send_day: 1, enabled: false, last_run_at: null, created_at: iso(T0 - 45 * 86400e3) },
+];
+
+const teams = [
+  { id: 'team-ops', org_id: 'org-demo', name: 'Operations', user_ids: ['u1'], created_at: iso(T0 - 90 * 86400e3) },
+];
+
+const incidents: Record<string, unknown>[] = [
+  { id: 'inc-1', title: 'Bin overfill tripped the conveyor', severity: 'critical', status: 'acknowledged', created_at: iso(T0 - 26 * 60e3), acked_at: iso(T0 - 20 * 60e3), resolved_at: null, alarm_id: '102', team_id: 'team-ops', team: 'Operations', mine: true },
+  { id: 'inc-2', title: 'Vision camera feed stalled', severity: 'warning', status: 'active', created_at: iso(T0 - 3 * 3600e3), acked_at: null, resolved_at: null, alarm_id: '104', team_id: null, team: null, mine: false },
+  { id: 'inc-3', title: 'Belt slip during morning shift', severity: 'warning', status: 'resolved', created_at: iso(T0 - 3 * 86400e3), acked_at: iso(T0 - 3 * 86400e3 + 9 * 60e3), resolved_at: iso(T0 - 3 * 86400e3 + 47 * 60e3), alarm_id: '103', team_id: 'team-ops', team: 'Operations', mine: false },
+  { id: 'inc-4', title: 'Weekend gravel screen clog', severity: 'info', status: 'resolved', created_at: iso(T0 - 9 * 86400e3), acked_at: iso(T0 - 9 * 86400e3 + 30 * 60e3), resolved_at: iso(T0 - 9 * 86400e3 + 6 * 3600e3), alarm_id: null, team_id: null, team: null, mine: false },
+];
+const incidentEvents: Record<string, Record<string, unknown>[]> = {
+  'inc-1': [
+    { kind: 'created', body: 'declared the incident', at: iso(T0 - 26 * 60e3), who: 'demo-operator' },
+    { kind: 'status', body: 'acknowledged', at: iso(T0 - 20 * 60e3), who: 'demo-operator' },
+  ],
+};
+
+const slos = [
+  { id: 'slo-1', name: 'Sorting line availability', description: 'Belt signal uptime', tag: 'plant1.sort.line1.conv1.speed_mps', tag_id: 't-speed', target: 0.999, warning: 0.9995, updated_at: iso(T0 - 10 * 86400e3), corrections: [] },
+];
+// status SLI uses the same uptime fixture as /availability so pages agree
+const SLOS_SLI: Record<string, number> = { 'slo-1': 0.9993 };
+
 function roleOf(req: IncomingMessage): string | null {
   const m = /Bearer demo-(\w+)/.exec(req.headers.authorization ?? '');
   return m ? (m[1] === 'admin' || m[1] === 'owner' ? m[1] : m[1] === 'viewer' ? 'viewer' : 'operator') : null;
@@ -172,6 +224,117 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
         { id: 'e3', org_id: v2[1], site_id: 'site-1', name: 'edge-vision-03', status: 'active', mqtt_username: 'edge-3', credential_version: 2, last_hb_at: iso(T0 - 900e3), clock_ok: true, adapter: 'mqtt', needs_rotation: true },
       ]));
     }
+    // dashboards — custom board bodies synced by useDashboards
+    const dash = /^\/dashboards(?:\/([^/]+))?$/.exec(rest);
+    if (dash) {
+      const id = dash[1];
+      if (req.method === 'GET' && !id) return send(200, { dashboards });
+      if (req.method === 'POST' && !id) {
+        if (role === 'viewer') return send(403, { detail: 'viewer role cannot write dashboards' });
+        const b = await body(req);
+        const row = { ...b, updated_at: iso(t), mine: true };
+        dashboards.push(row);
+        return send(200, row);
+      }
+      const d = dashboards.find((x) => x.id === id);
+      if (!d) return send(404, { detail: 'unknown dashboard' });
+      if (req.method === 'PUT') {
+        if (role === 'viewer') return send(403, { detail: 'viewer role cannot write dashboards' });
+        Object.assign(d, await body(req), { updated_at: iso(t) });
+        return send(200, d);
+      }
+      if (req.method === 'DELETE') {
+        if (role === 'viewer') return send(403, { detail: 'viewer role cannot write dashboards' });
+        dashboards.splice(dashboards.indexOf(d), 1);
+        return send(200, {});
+      }
+    }
+
+    // report schedules — writes need admin|owner like the backend
+    const sched = /^\/report-schedules(?:\/([^/]+))?$/.exec(rest);
+    if (sched) {
+      const id = sched[1];
+      if (req.method === 'GET' && !id) return send(200, list(schedules));
+      if (role !== 'admin' && role !== 'owner') return send(403, { detail: 'admin role required' });
+      if (req.method === 'POST' && !id) {
+        const b = await body(req);
+        const row = { id: `rs-${schedules.length + 1}`, site_id: b.site_id ?? null, last_run_at: null, created_at: iso(t), ...b };
+        schedules.push(row);
+        return send(200, { schedule: row });
+      }
+      const s = schedules.find((x) => x.id === id);
+      if (!s) return send(404, { detail: 'unknown schedule' });
+      if (req.method === 'PATCH') { Object.assign(s, await body(req)); return send(200, { schedule: s }); }
+      if (req.method === 'DELETE') { schedules.splice(schedules.indexOf(s), 1); return send(200, {}); }
+    }
+
+    // on-demand report downloads — CSV text or a printable HTML page
+    const rep = /^\/reports\/(shift|daily|weekly_oee|monthly_alarms)$/.exec(rest);
+    if (rep && req.method === 'GET') {
+      const fmt = url.searchParams.get('format') ?? 'csv';
+      const name = rep[1];
+      const csv = `metric,value\nuptime_pct,99.9\nopen_alarms,${alarms.filter((a) => a.state !== 'cleared').length}\n`;
+      if (fmt === 'html') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${name}.html"`);
+        res.end(`<!doctype html><title>${name} report</title><h1>${name} report</h1><p>Demo Plant — generated ${iso(t)}</p><pre>${csv}</pre>`);
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${name}.csv"`);
+      res.end(csv);
+      return;
+    }
+
+    // SLOs — list + status so the dashboard SloBody renders
+    if (rest === '/slos') {
+      if (req.method === 'POST' && role !== 'viewer') { const b = await body(req); slos.push({ id: `slo-${slos.length + 1}`, updated_at: iso(t), corrections: [], ...b } as never); return send(200, { slo: slos[slos.length - 1] }); }
+      return send(200, list(slos));
+    }
+    const sloStatus = /^\/slos\/status$/.exec(rest);
+    if (sloStatus) {
+      return send(200, { days: Number(url.searchParams.get('days')) || 30, items: slos.map((s) => ({ id: s.id, samples: 86400, excluded: 0, sli: SLOS_SLI[s.id] ?? null, covered_s: 86400 })) });
+    }
+    const sloRow = /^\/slos\/([^/]+)$/.exec(rest);
+    if (sloRow) {
+      const s = slos.find((x) => x.id === sloRow[1]);
+      if (!s) return send(404, { detail: 'unknown slo' });
+      if (req.method === 'PATCH') { Object.assign(s, await body(req)); return send(200, { slo: s }); }
+      if (req.method === 'DELETE') { slos.splice(slos.indexOf(s), 1); return send(200, {}); }
+    }
+
+    // teams + incidents — read for all; writes need operator+
+    if (rest === '/teams') return send(200, list(teams));
+    const inc = /^\/incidents(?:\/([^/]+)(\/status|\/notes)?)?$/.exec(rest);
+    if (inc) {
+      const id = inc[1]; const sub = inc[2];
+      if (req.method === 'GET' && !id) return send(200, { incidents, teams });
+      if (req.method === 'POST' && !id) {
+        if (role === 'viewer') return send(403, { detail: 'operator role required' });
+        const b = await body(req);
+        const team = teams.find((x) => x.id === b.owner_team_id);
+        const row = { id: `inc-${incidents.length + 1}`, title: b.title, severity: b.severity, status: 'active', created_at: iso(t), acked_at: null, resolved_at: null, alarm_id: null, team_id: b.owner_team_id ?? null, team: team?.name ?? null, mine: true };
+        incidents.unshift(row);
+        return send(200, { incident: row });
+      }
+      const i = incidents.find((x) => x.id === id);
+      if (!i) return send(404, { detail: 'unknown incident' });
+      if (req.method === 'GET' && !sub) return send(200, { incident: i, events: incidentEvents[i.id as string] ?? [] });
+      if (role === 'viewer') return send(403, { detail: 'operator role required' });
+      const b = await body(req);
+      if (req.method === 'POST' && sub === '/status') {
+        Object.assign(i, { status: b.status, ...(b.status === 'acknowledged' ? { acked_at: iso(t) } : {}), ...(b.status === 'resolved' ? { resolved_at: iso(t) } : {}) });
+        (incidentEvents[i.id as string] ??= []).push({ kind: 'status', body: b.status, at: iso(t), who: `demo-${role}` });
+        return send(200, { incident: i });
+      }
+      if (req.method === 'POST' && sub === '/notes') {
+        (incidentEvents[i.id as string] ??= []).push({ kind: 'note', body: b.body, at: iso(t), who: `demo-${role}` });
+        return send(200, {});
+      }
+    }
+
     if (rest.startsWith('/audit')) {
       const acts = ['auth.login', 'auth.login', 'auth.login', 'member.updated', 'alarm_rule.created', 'alarm_rule.updated', 'edge.rotated', 'downtime.created', 'tag.updated'];
       return send(200, list(Array.from({ length: 60 }, (_, i) => ({

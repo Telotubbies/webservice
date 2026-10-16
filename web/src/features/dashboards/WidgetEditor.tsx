@@ -5,11 +5,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, ChartBar, LayoutGrid, Heading, ChartColumn, ChartLine, CircleGauge, Activity, Gauge, GitCompareArrows, Hash, ListOrdered, PieChart, SquareActivity, StickyNote, Table2, TrendingUp, X, type LucideIcon } from 'lucide-react';
+import { Bell, BellRing, ChartBar, LayoutGrid, Heading, ChartColumn, ChartLine, CircleGauge, Activity, Gauge, GitCompareArrows, Hash, ListOrdered, PieChart, Siren, SquareActivity, StickyNote, Table2, TrendingUp, X, type LucideIcon } from 'lucide-react';
 import { api } from '../../lib/api';
 import { SIGNALS } from '../../lib/plant';
 import { WidgetBody, seriesColor } from './widgets';
-import { SERIES_COLORS, type Agg, type RangeKey, type VizKind, type Widget } from './model';
+import { GROUP_TONES, GROUP_TONE_STYLE, SERIES_COLORS, type Agg, type RangeKey, type VizKind, type Widget } from './model';
 
 const KINDS: { kind: VizKind; icon: LucideIcon }[] = [
   { kind: 'timeseries', icon: ChartLine },
@@ -27,6 +27,8 @@ const KINDS: { kind: VizKind; icon: LucideIcon }[] = [
   { kind: 'slo', icon: Gauge },
   { kind: 'monitors', icon: Activity },
   { kind: 'treemap', icon: LayoutGrid },
+  { kind: 'incidents', icon: Siren },
+  { kind: 'alarmkpi', icon: BellRing },
   { kind: 'group', icon: Heading },
   { kind: 'note', icon: StickyNote },
 ];
@@ -44,8 +46,8 @@ const numOrNull = (s: string) => (s.trim() === '' || Number.isNaN(Number(s)) ? n
 
 export function validate(w: Widget): Partial<Record<'tags' | 'thresholds' | 'yaxis' | 'note', string>> {
   const e: Partial<Record<'tags' | 'thresholds' | 'yaxis' | 'note', string>> = {};
-  if (MULTI.includes(w.kind) && (w.tags.length < 1 || w.tags.length > MAX_SERIES)) e.tags = 'dash.errSeries';
-  if (SINGLE.includes(w.kind) && w.tags.length !== 1) e.tags = 'dash.errOneMetric';
+  if (!w.varTag && MULTI.includes(w.kind) && (w.tags.length < 1 || w.tags.length > MAX_SERIES)) e.tags = 'dash.errSeries';
+  if (!w.varTag && SINGLE.includes(w.kind) && w.tags.length !== 1) e.tags = 'dash.errOneMetric';
   if (w.warn != null && w.crit != null && w.warn >= w.crit) e.thresholds = 'dash.errThresholds';
   if (w.yMin != null && w.yMax != null && w.yMin >= w.yMax) e.yaxis = 'dash.errYaxis';
   if (w.kind === 'note' && !w.note.trim()) e.note = 'dash.errNote';
@@ -116,8 +118,8 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
               </div>
             </fieldset>
 
-            {/* 2. data */}
-            {w.kind !== 'note' && w.kind !== 'alarms' && w.kind !== 'slo' && w.kind !== 'monitors' && (
+            {/* 2. data — tag/alarm-driven kinds only; group/incident/kpi widgets carry no data config */}
+            {w.kind !== 'note' && w.kind !== 'alarms' && w.kind !== 'slo' && w.kind !== 'monitors' && w.kind !== 'incidents' && w.kind !== 'alarmkpi' && w.kind !== 'group' && (
               <fieldset>
                 <legend className="mb-2 text-[13px] font-semibold"><Step n={2} />{t('dash.stepData')}</legend>
                 {usesTags && (
@@ -134,6 +136,11 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
                       ))}
                     </div>
                     {err('tags')}
+                    <label className={`${field} mt-3`}>{t('ddb.varTag')}
+                      <input className="input mt-1 w-full font-mono" value={w.varTag ?? ''} placeholder="$line" spellCheck={false}
+                        onChange={(e) => set({ varTag: e.target.value.trim() || undefined })} />
+                      <span className="mt-1 block text-[11px] font-normal text-ink-46">{t('ddb.varTagHint')}</span>
+                    </label>
                   </>
                 )}
                 <div className="mt-3 grid grid-cols-3 gap-3">
@@ -150,6 +157,7 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
                         <option value="tag">{t('dash.group.tag')}</option>
                         <option value="rule">{t('dash.group.rule')}</option>
                         <option value="severity">{t('dash.group.severity')}</option>
+                        <option value="eq">{t('ddb.groupEq')}</option>
                       </select>
                     </label>
                   )}
@@ -177,6 +185,26 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
                     <textarea className="input mt-1 h-28 w-full py-1" value={w.note} onChange={(e) => set({ note: e.target.value })} />
                   </label>
                   {err('note')}
+                </>
+              )}
+              {w.kind === 'group' && (
+                <>
+                  <div className="mt-3">
+                    <p className={field}>{t('ddb.tone')}</p>
+                    <div className="mt-1 flex flex-wrap gap-2" role="radiogroup" aria-label={t('ddb.tone')}>
+                      {GROUP_TONES.map((tone) => (
+                        <button key={tone} type="button" role="radio" aria-checked={w.tone === tone}
+                          onClick={() => set({ tone })}
+                          className={`h-8 w-12 rounded border focus-visible:outline-2 focus-visible:outline-blue ${w.tone === tone ? 'border-ink ring-1 ring-ink-46' : 'border-line'}`}
+                          style={{ background: GROUP_TONE_STYLE[tone].header }}
+                          title={t(`ddb.tones.${tone}`)} aria-label={t(`ddb.tones.${tone}`)} />
+                      ))}
+                    </div>
+                  </div>
+                  <label className={`${field} mt-3`}>{t('ddb.groupDesc')}
+                    <input className="input mt-1 w-full" value={w.note} placeholder={t('ddb.groupDescPh')}
+                      onChange={(e) => set({ note: e.target.value })} />
+                  </label>
                 </>
               )}
               {usesTags && (
@@ -228,6 +256,11 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
               {(w.kind === 'timeseries' || w.kind === 'pie') && (
                 <label className="mt-3 flex items-center gap-2 text-[13px]">
                   <input type="checkbox" checked={w.legend} onChange={(e) => set({ legend: e.target.checked })} /> {t('dash.legend')}
+                </label>
+              )}
+              {w.kind === 'timeseries' && (
+                <label className="mt-3 flex items-center gap-2 text-[13px]">
+                  <input type="checkbox" checked={!!w.forecast} onChange={(e) => set({ forecast: e.target.checked })} /> {t('ddb.forecast')}
                 </label>
               )}
               {w.kind === 'timeseries' && (
@@ -289,6 +322,8 @@ export function autoTitle(w: Widget): string {
   if (w.kind === 'alarms') return 'Active alarms';
   if (w.kind === 'slo') return 'SLO summary';
   if (w.kind === 'monitors') return 'Monitor summary';
+  if (w.kind === 'incidents') return 'Incidents';
+  if (w.kind === 'alarmkpi') return 'Alarm KPIs';
   if (w.kind === 'table') return 'Latest values';
   if (w.kind === 'toplist' || w.kind === 'pie' || w.kind === 'treemap') return `Alarms by ${w.groupBy}`;
   if (w.kind === 'group') return 'Group';
