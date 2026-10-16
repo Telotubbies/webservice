@@ -143,6 +143,27 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # Sandbox for customer .pt weights (plan M1-04): unpickling runs code, so this
+  # container has no network, a read-only root, tmpfs scratch, CPU/memory/pid
+  # limits, no capabilities, and reaches only the spool volume.
+  model-converter:
+    build: ./model-converter
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /work:size=2g,mode=1777
+    volumes:
+      - convert-spool:/spool
+    user: "10001:10001"
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    logging: *default-logging
+
   edge-bridge:
     build: ./edge-bridge
     environment:

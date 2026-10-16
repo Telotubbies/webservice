@@ -1,0 +1,4 @@
+# CPU torch is installed first from the CPU index in the Dockerfile.
+ultralytics==8.4.0
+onnx==1.17.0
+onnxslim
