@@ -20,10 +20,12 @@ class FakeEdge:
         import paho.mqtt.client as mqtt
         self.prefix = f"v2/{ORG_ID}/{SITE_ID}/{edge_id}"
         self.ready = queue.Queue()
+        self.cfgs = queue.Queue()
         self.c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"fake-{uuid.uuid4().hex[:8]}")
         self.c.username_pw_set(username, secret)
         self.c.tls_set(ca_certs=MQTT_CA_FILE)
-        self.c.on_connect = lambda c, u, f, rc, p: self.ready.put(rc)
+        self.c.on_message = lambda c, u, m: self.cfgs.put(json.loads(m.payload))
+        self.c.on_connect = lambda c, u, f, rc, p: (c.subscribe(f"{self.prefix}/cfg", qos=1), self.ready.put(rc))
         self.c.connect(MQTT_HOST, MQTT_PORT, keepalive=15)
         self.c.loop_start()
 
@@ -126,3 +128,19 @@ def test_stat_updates_camera_status(api, admin_headers, rig):
     wait_until(lambda: (fe.stat({cam: {"status": "error", "detail": "cannot open stream at 10.1.1.1:554", "fps": 0}}),
                         status()["status"] == "error")[1], 20, desc="status written")
     assert "10.1.1.1" in status()["status_detail"]
+
+
+def test_cfg_pushed_to_edge_carries_camera_with_url(api, admin_headers, rig):
+    e, fe, cam = rig
+    fe.c.publish(f"{fe.prefix}/cfg-req", json.dumps({"have_version": None}), qos=1)
+    deadline = time.time() + 20
+    found = None
+    while time.time() < deadline and found is None:
+        try:
+            doc = fe.cfgs.get(timeout=2)
+        except queue.Empty:
+            fe.c.publish(f"{fe.prefix}/cfg-req", json.dumps({"have_version": None}), qos=1)
+            continue
+        found = next((c for c in doc.get("cameras", []) if c["id"] == cam), None)
+    assert found is not None, "camera missing from the pushed cfg"
+    assert found["kind"] == "rtsp" and found["rtsp_url"] == "rtsp://10.1.1.1/s"

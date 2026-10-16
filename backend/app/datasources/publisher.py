@@ -141,6 +141,7 @@ async def build_cfg(pool, org_id: UUID, edge_id: UUID) -> dict:
         trows = await tc.fetch(
             _TAG_SELECT + " WHERE t.edge_id=$1 AND t.source_id IS NOT NULL ORDER BY t.path",
             edge_id)
+        cameras = await cameras_for_cfg(tc, edge_id)
     by_src: dict[str, list[dict]] = {}
     for r in trows:
         t = _tag_json(r)
