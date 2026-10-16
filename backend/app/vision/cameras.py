@@ -224,7 +224,7 @@ async def patch_camera(org: str, edge: str, camera: str, body: CameraPatch, requ
             if f in ch and ch[f] is not None:
                 put(f, ch[f])
         if "material" in ch:
-            mat = ch["material"]
+            mat = body.material.model_dump() if body.material is not None else None   # full object, defaults filled
             if mat is not None:
                 await check_output_tags(tc, cur["site_id"], mat["outputs"])
             put("material", mat)

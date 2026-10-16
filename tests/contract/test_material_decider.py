@@ -17,7 +17,7 @@ def det(cls, score=0.9, a=0.2):
 
 def decider(**over):
     d = MaterialDecider()
-    assert d.configure({"enabled": True, **over})
+    assert d.configure({"enabled": True, "min_frames": 3, **over})
     return d
 
 

@@ -7,11 +7,12 @@ import { Trash2 } from 'lucide-react';
 import { camApi, type Camera } from './api';
 import { streamRefreshMs } from './logic';
 import '../vision/i18n';
+import '../material/i18n';
 import './i18n';
 
-export function CameraTile({ orgId, cam, admin, onToggle, onDelete, onModel }: {
+export function CameraTile({ orgId, cam, admin, onToggle, onDelete, onModel, onMaterial }: {
   orgId: string; cam: Camera; admin: boolean;
-  onToggle: (c: Camera) => void; onDelete: (c: Camera) => void; onModel: (c: Camera) => void;
+  onToggle: (c: Camera) => void; onDelete: (c: Camera) => void; onModel: (c: Camera) => void; onMaterial: (c: Camera) => void;
 }) {
   const { t } = useTranslation();
   const [src, setSrc] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export function CameraTile({ orgId, cam, admin, onToggle, onDelete, onModel }: {
         </div>
         <div className="flex shrink-0 gap-1">
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => onModel(cam)}>{t('vis.panelTitle')}</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onMaterial(cam)}>{t('mat.open')}</button>
           {admin && (<>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => onToggle(cam)}>
               {cam.enabled ? t('cam.disable') : t('cam.enable')}

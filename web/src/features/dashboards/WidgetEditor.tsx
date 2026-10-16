@@ -5,10 +5,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, BellRing, ChartBar, LayoutGrid, Heading, ChartColumn, ChartLine, CircleGauge, Activity, Gauge, GitCompareArrows, Hash, ListOrdered, PieChart, Siren, SquareActivity, StickyNote, Table2, TrendingUp, X, type LucideIcon } from 'lucide-react';
+import { Bell, BellRing, Camera, ChartNoAxesColumn, ClipboardList, Cpu, Timer, Truck, PanelTop, Layers, ChartBar, LayoutGrid, Heading, ChartColumn, ChartLine, CircleGauge, Activity, Gauge, GitCompareArrows, Hash, ListOrdered, PieChart, Siren, SquareActivity, StickyNote, Table2, TrendingUp, X, type LucideIcon } from 'lucide-react';
 import { api } from '../../lib/api';
 import { SIGNALS } from '../../lib/plant';
 import { WidgetBody, seriesColor } from './widgets';
+import { AI_KINDS } from './aiWidgets';
 import { GROUP_TONES, GROUP_TONE_STYLE, SERIES_COLORS, type Agg, type RangeKey, type VizKind, type Widget } from './model';
 
 const KINDS: { kind: VizKind; icon: LucideIcon }[] = [
@@ -29,6 +30,14 @@ const KINDS: { kind: VizKind; icon: LucideIcon }[] = [
   { kind: 'treemap', icon: LayoutGrid },
   { kind: 'incidents', icon: Siren },
   { kind: 'alarmkpi', icon: BellRing },
+  { kind: 'matlive', icon: Camera },
+  { kind: 'matdecision', icon: Truck },
+  { kind: 'matkpi', icon: PanelTop },
+  { kind: 'matmix', icon: Layers },
+  { kind: 'matmargin', icon: ChartNoAxesColumn },
+  { kind: 'matlog', icon: ClipboardList },
+  { kind: 'ailatency', icon: Timer },
+  { kind: 'aithroughput', icon: Cpu },
   { kind: 'group', icon: Heading },
   { kind: 'note', icon: StickyNote },
 ];
@@ -119,7 +128,7 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
             </fieldset>
 
             {/* 2. data — tag/alarm-driven kinds only; group/incident/kpi widgets carry no data config */}
-            {w.kind !== 'note' && w.kind !== 'alarms' && w.kind !== 'slo' && w.kind !== 'monitors' && w.kind !== 'incidents' && w.kind !== 'alarmkpi' && w.kind !== 'group' && (
+            {w.kind !== 'note' && w.kind !== 'alarms' && w.kind !== 'slo' && w.kind !== 'monitors' && w.kind !== 'incidents' && w.kind !== 'alarmkpi' && w.kind !== 'group' && !(AI_KINDS as readonly string[]).includes(w.kind) && (
               <fieldset>
                 <legend className="mb-2 text-[13px] font-semibold"><Step n={2} />{t('dash.stepData')}</legend>
                 {usesTags && (
@@ -324,6 +333,7 @@ export function autoTitle(w: Widget): string {
   if (w.kind === 'monitors') return 'Monitor summary';
   if (w.kind === 'incidents') return 'Incidents';
   if (w.kind === 'alarmkpi') return 'Alarm KPIs';
+  if ((AI_KINDS as readonly string[]).includes(w.kind)) return w.kind;
   if (w.kind === 'table') return 'Latest values';
   if (w.kind === 'toplist' || w.kind === 'pie' || w.kind === 'treemap') return `Alarms by ${w.groupBy}`;
   if (w.kind === 'group') return 'Group';

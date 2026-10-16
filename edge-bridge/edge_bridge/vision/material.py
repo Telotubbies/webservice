@@ -30,7 +30,7 @@ SCHEMA = "wds.material.v1"
 _DEF = {
     "enabled": True, "dry_run": True, "gravel_class": "gravel", "sand_class": "sand",
     "conf": 0.25, "area_min": 0.005, "coverage_gate": 0.02, "k_enter": 3, "k_leave": 5,
-    "min_margin": 0.30, "min_frames": 3, "max_event_s": 180, "rule": "mass_vote",
+    "min_margin": 0.30, "min_frames": 15, "max_event_s": 180, "rule": "mass_vote",
 }
 _RANGE = {"conf": (0.05, 0.95), "area_min": (0.0, 0.5), "coverage_gate": (0.001, 0.9),
           "k_enter": (1, 30), "k_leave": (1, 120), "min_margin": (0.0, 1.0),
@@ -244,7 +244,7 @@ def draw_hud(img, status: dict, dry_run: bool):
     if dry_run:
         lines.append(("DRY-RUN (no PLC write)", (120, 160, 255)))
     h, w = img.shape[:2]
-    scale = max(0.4, min(w, h) / 900.0)
+    scale = max(0.7, min(w, h) / 700.0)
     pad, y = int(8 * scale), int(8 * scale)
     bw = int(max(cv2.getTextSize(t, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * scale, 1)[0][0] for t, _ in lines) + 2 * pad)
     lh = int(24 * scale)

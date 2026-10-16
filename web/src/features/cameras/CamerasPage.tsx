@@ -16,6 +16,7 @@ import { AddCameraDialog } from './AddCameraDialog';
 import { camApi, type Camera } from './api';
 import { CameraTile } from './CameraTile';
 import { ModelPanel } from '../vision/ModelPanel';
+import { MaterialPanel } from '../material/MaterialPanel';
 import './i18n';
 
 export function CamerasPage() {
@@ -28,6 +29,7 @@ export function CamerasPage() {
   const [adding, setAdding] = useState(false);
   const [del, setDel] = useState<Camera | null>(null);
   const [modelFor, setModelFor] = useState<Camera | null>(null);
+  const [matFor, setMatFor] = useState<Camera | null>(null);
   const [msg, setMsg] = useState('');
 
   const edges = useQuery({
@@ -83,9 +85,13 @@ export function CamerasPage() {
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {items.map((c) => (
                   <CameraTile key={c.id} orgId={orgId!} cam={c} admin={admin}
-                    onToggle={(x) => toggle.mutate(x)} onDelete={setDel} onModel={setModelFor} />
+                    onToggle={(x) => toggle.mutate(x)} onDelete={setDel} onModel={setModelFor} onMaterial={setMatFor} />
                 ))}
               </div>
+            )}
+            {matFor && orgId && (
+              <MaterialPanel key={matFor.id} orgId={orgId} cam={items.find((i) => i.id === matFor.id) ?? matFor}
+                admin={admin} onClose={() => setMatFor(null)} />
             )}
             {modelFor && orgId && (
               // resolve the freshest polled row so runtime metadata updates while open

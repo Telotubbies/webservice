@@ -17,7 +17,7 @@ import { visionApi, type EventFilter, type VisionEvent } from './api';
 import { CameraCascade, useCameraPick, type CameraChoice } from './CameraSelect';
 import './i18n';
 
-const KINDS = ['rule_fire', 'blocked', 'dry_run', 'alert_object'] as const;
+const KINDS = ['rule_fire', 'blocked', 'dry_run', 'alert_object', 'material'] as const;
 
 /** Thumbnails need the bearer token — <img src> cannot send it, so fetch
  * into an object URL and revoke on swap/unmount. */

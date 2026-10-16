@@ -140,7 +140,7 @@ export interface VisionRule extends RuleBody {
   created_at: string; updated_at: string;
 }
 
-export type EventKind = 'rule_fire' | 'blocked' | 'dry_run' | 'alert_object';
+export type EventKind = 'rule_fire' | 'blocked' | 'dry_run' | 'alert_object' | 'material';
 export interface VisionEvent {
   id: string; camera_id: string; rule_id: string | null; kind: EventKind;
   class_id: number | null; score: number | null; bbox: number[] | null;

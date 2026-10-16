@@ -9,7 +9,8 @@ export type VizKind =
   | 'stateline' | 'histogram' | 'table'
   | 'toplist' | 'pie' | 'alarms' | 'note'
   | 'change' | 'slo' | 'monitors' | 'group' | 'treemap'
-  | 'incidents' | 'alarmkpi';
+  | 'incidents' | 'alarmkpi'
+  | 'matlive' | 'matdecision' | 'matkpi' | 'matmix' | 'matmargin' | 'matlog' | 'ailatency' | 'aithroughput';
 export type Agg = 'last' | 'avg' | 'min' | 'max';
 export type RangeKey = '15m' | '1h' | '4h' | '24h';
 export const RANGE_MIN: Record<RangeKey, number> = { '15m': 15, '1h': 60, '4h': 240, '24h': 1440 };
@@ -92,6 +93,8 @@ export function makeWidget(kind: VizKind, over: Partial<Widget> = {}): Widget {
     toplist: [4, 3], pie: [4, 3], alarms: [6, 3], note: [3, 2],
     change: [3, 2], slo: [4, 2], monitors: [4, 2], group: [6, 0.5], treemap: [3, 3],
     incidents: [6, 3], alarmkpi: [12, 3],
+    matlive: [6, 5], matdecision: [3, 3], matkpi: [12, 2], matmix: [3, 3], matmargin: [4, 3],
+    matlog: [6, 4], ailatency: [6, 3], aithroughput: [6, 3],
   };
   return {
     // y is set by the caller (bottom of the board); not Infinity — JSON turns it into null
@@ -173,6 +176,26 @@ const SEEDS: Dashboard[] = [
       makeWidget('toplist', { id: 'a4', title: 'Alarms by severity', groupBy: 'severity', x: 6, y: 7.5, w: 3, h: 3 }),
       makeWidget('slo', { id: 'a5', title: 'SLO summary', x: 9, y: 7.5, w: 3, h: 3 }),
       makeWidget('alarms', { id: 'a6', title: 'Active alarms', x: 6, y: 10.5, w: 6, h: 5 }),
+    ],
+  },
+  {
+    // Aggregate AI: the gravel/sand truck decision, the camera behind it and the
+    // health of the models doing the work (dd "pipeline visibility" shape).
+    id: 'aggregate-ai', title: 'Aggregate AI — gravel / sand',
+    description: 'Live CCTV with the per-truck gravel or sand decision, and the inference health behind it.',
+    preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-17T00:00:00Z', range: '1h',
+    widgets: [
+      makeWidget('group', { id: 'm-g1', title: 'Truck decision', tone: 'purple', note: 'One answer per truck, judged over the whole dump — never per frame.', x: 0, y: 0, w: 12, h: 0.75 }),
+      makeWidget('matlive', { id: 'm1', title: 'Dump point (CCTV)', x: 0, y: 0.75, w: 6, h: 5 }),
+      makeWidget('matdecision', { id: 'm2', title: 'Last truck', x: 6, y: 0.75, w: 3, h: 2.5 }),
+      makeWidget('matmix', { id: 'm3', title: 'Gravel / sand trucks', x: 9, y: 0.75, w: 3, h: 2.5 }),
+      makeWidget('matkpi', { id: 'm4', title: 'Summary', x: 6, y: 3.25, w: 6, h: 2.5 }),
+      makeWidget('group', { id: 'm-g2', title: 'Confidence and review', tone: 'blue', note: 'Decisions below the review margin are flagged for a person; the margin and gate are set per camera.', x: 0, y: 5.75, w: 12, h: 0.75 }),
+      makeWidget('matmargin', { id: 'm5', title: 'Decision margin distribution', x: 0, y: 6.5, w: 5, h: 3.5 }),
+      makeWidget('matlog', { id: 'm6', title: 'Recent trucks', x: 5, y: 6.5, w: 7, h: 3.5 }),
+      makeWidget('group', { id: 'm-g3', title: 'AI inference', tone: 'orange', note: 'Latency and throughput of the model server for this gateway.', x: 0, y: 10, w: 12, h: 0.75 }),
+      makeWidget('ailatency', { id: 'm7', title: 'Inference latency (ms)', x: 0, y: 10.75, w: 6, h: 3.5 }),
+      makeWidget('aithroughput', { id: 'm8', title: 'Inferences and detections per minute', x: 6, y: 10.75, w: 6, h: 3.5 }),
     ],
   },
   {

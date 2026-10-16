@@ -2,6 +2,7 @@
 // (backend/app/vision/{cameras,videos,stream}.py).
 
 import { request, requestBlob } from '../../lib/api';
+import type { MatLive, MatSettings } from '../material/api';
 
 export interface Camera {
   id: string; edge_id: string; name: string; kind: 'rtsp' | 'upload'; has_rtsp_url: boolean;
@@ -11,6 +12,8 @@ export interface Camera {
   engine?: string; latency_ms?: number; bench_fps?: number;
   model_state?: 'none' | 'loading' | 'ready' | 'error';
   model_detail?: string; model_version?: string;
+  // material (gravel/sand) decision: settings and the live gate/answer
+  material?: MatSettings | null; material_live?: MatLive; fps?: number;
 }
 export interface Video { id: string; filename: string; size_bytes: number; sha256: string; created_at: string }
 

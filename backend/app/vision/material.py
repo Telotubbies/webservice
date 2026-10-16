@@ -90,7 +90,7 @@ class MaterialCfg(BaseModel):
     k_enter: int = Field(default=3, ge=1, le=30)
     k_leave: int = Field(default=5, ge=1, le=120)
     min_margin: float = Field(default=0.30, ge=0.0, le=1.0)
-    min_frames: int = Field(default=3, ge=1, le=1000)
+    min_frames: int = Field(default=15, ge=1, le=1000)
     max_event_s: int = Field(default=180, ge=10, le=3600)
     rule: Literal["mass_vote", "frame_majority"] = "mass_vote"
     preprocess: Preprocess = Preprocess()
@@ -199,6 +199,19 @@ async def metrics(org: str, request: Request, camera: str | None = None,
         {"t": iso_z(r["t"]), "fps": f(r["fps"]), "lat_avg": f(r["lat_avg"]), "lat_p50": f(r["lat_p50"]),
          "lat_p95": f(r["lat_p95"]), "infer_n": r["infer_n"], "det_n": r["det_n"],
          "present_n": r["present_n"], "n": r["n"]} for r in rows]}
+
+
+@router.get("/api/v1/orgs/{org}/vision/material/cameras")
+async def cameras(org: str, request: Request, p=Depends(_user)):
+    """Every camera of the org with its decision settings and live runtime (relay), for the dashboard."""
+    m = _m()
+    org_id = m._v2_org(org, p, m._READ)
+    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT c.*, e.name AS edge_name FROM cameras c JOIN edges e ON e.id=c.edge_id ORDER BY c.name")
+    from .cameras import camera_json
+    relay = m.st(request).relay
+    return {"items": [dict(camera_json(r, relay.latest_stat(r["id"])), edge_name=r["edge_name"]) for r in rows]}
 
 
 @router.get("/api/v1/orgs/{org}/vision/material/summary")

@@ -160,7 +160,7 @@ class FrameRelay:
             "engine": s.engine, "latency_ms": s.latency_ms, "bench_fps": s.bench_fps,
             "model_state": s.model_state, "model_detail": s.model_detail or None,
             "model_version": s.model_version, "placement": s.placement,
-            "fps": s.fps, "material": s.material}.items() if v is not None}
+            "fps": s.fps, "material_live": s.material}.items() if v is not None}
 
     def note_count(self, camera_id: UUID, counts: dict) -> None:
         """Latest per-minute class-count rollup (vision/count, roadmap 9.8)."""

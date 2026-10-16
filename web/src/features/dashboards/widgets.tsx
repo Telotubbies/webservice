@@ -23,6 +23,9 @@ import {
   LEGACY_SERIES_COLORS, RANGE_MIN, SERIES_COLORS, alarmMatchesVars, resolveVarTag,
   type DashVar, type RangeKey, type Widget,
 } from './model';
+import {
+  AiLatencyBody, AiThroughputBody, MatDecisionBody, MatKpiBody, MatLiveBody, MatLogBody, MatMarginBody, MatMixBody,
+} from './aiWidgets';
 import type { Alarm, Quality, TagValue } from '../../types';
 
 /* ---------- board-level context ----------------------------------------
@@ -151,6 +154,14 @@ export function WidgetBody({ w, range }: { w: Widget; range: RangeKey }) {
     case 'treemap': return <TreemapBody w={vw} />;
     case 'incidents': return <IncidentsBody />;
     case 'alarmkpi': return <AlarmKpiBody />;
+    case 'matlive': return <MatLiveBody />;
+    case 'matdecision': return <MatDecisionBody />;
+    case 'matkpi': return <MatKpiBody range={range} />;
+    case 'matmix': return <MatMixBody range={range} />;
+    case 'matmargin': return <MatMarginBody range={range} />;
+    case 'matlog': return <MatLogBody />;
+    case 'ailatency': return <AiLatencyBody w={vw} range={range} />;
+    case 'aithroughput': return <AiThroughputBody w={vw} range={range} />;
     case 'group': return null; // header bar only — drawn by the board
     // react-markdown drops raw HTML, so a shared note can't inject markup
     case 'note': return <div className="h-full overflow-auto text-[13px] leading-5 text-ink [&_a]:text-blue [&_code]:font-mono [&_h1]:text-[16px] [&_h1]:font-semibold [&_h2]:text-[14px] [&_h2]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_p]:my-1 [&_pre]:overflow-x-auto [&_pre]:bg-subtle [&_pre]:p-2"><Markdown>{w.note}</Markdown></div>;
