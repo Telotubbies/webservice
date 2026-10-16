@@ -127,12 +127,36 @@ class Config:
     def cfg_ack_topic(self) -> str:
         return f"{self.prefix}/cfg-ack"
 
+    @property
+    def model_server_url(self) -> str:
+        return os.environ.get("MODEL_SERVER_URL", "http://model-server:9000")
+
     def vision_frame_topic(self, camera_id: str) -> str:
         return f"{self.prefix}/vision/frame/{camera_id}"
 
     @property
     def vision_stat_topic(self) -> str:
         return f"{self.prefix}/vision/stat"
+
+    @property
+    def vision_caps_topic(self) -> str:
+        return f"{self.prefix}/vision/caps"
+
+    @property
+    def vision_event_topic(self) -> str:
+        return f"{self.prefix}/vision/event"
+
+    @property
+    def vision_audit_topic(self) -> str:
+        return f"{self.prefix}/vision/audit"
+
+    @property
+    def vision_count_topic(self) -> str:
+        return f"{self.prefix}/vision/count"
+
+    @property
+    def logs_topic(self) -> str:
+        return f"{self.prefix}/logs"
 
     def tele_topic(self, tag_path: str) -> str:
         """tag_path is the site-relative path (area/line/device/signal)."""

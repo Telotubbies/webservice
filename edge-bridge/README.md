@@ -83,6 +83,7 @@ docker run --rm --network webservice_default \
 | `MQTT_USERNAME_FILE` / `MQTT_PASSWORD_FILE` | — | provisioned credential files (re-read per reconnect for rotation) |
 | `ORG_ID` / `SITE_ID` / `EDGE_ID` | — | UUID topic identity |
 | `SITE` | `plant1` | tag-naming site code, not a topic identity |
+| `MODEL_SERVER_URL` | `http://model-server:9000` | internal model server for pinned-camera inference + the `model_test` op; compose sets this — unset/empty leaves model ops erroring |
 | `ADAPTER` | `sim` | `sim`, `modbus`, `s7` or `opcua` (env bootstrap only; enrolled gateways take sources from `cfg`) |
 | `STATE_DIR` | `/var/lib/wds-edge` | identity, CA and config cache |
 | `POLL_MS` | `1000` | tag publish cadence |
@@ -124,3 +125,7 @@ Rotating an edge in the console issues a new credential version and pushes it in
 ## Cameras (plan M1-03)
 
 The `vision` runner starts one thread per enabled camera in the pushed `cfg`. `upload` cameras download their clip once (sha256 verified, cached under `STATE_DIR/videos`) and loop it at real-time pace; `rtsp` cameras read over TCP with a 5 s open/read timeout and reconnect with backoff (1 → 30 s). Frames are published to `vision/frame/{camera_id}`; health to `vision/stat`. A broken camera reports `error` and never affects tags or other cameras. RTSP URLs are never logged or sent in status text. The detector seam (`vision/detector.py`) is a null detector until the model plans land.
+
+### Edge inference (plan M1-05)
+
+Set `MODEL_SERVER_URL` (compose default `http://model-server:9000`; no host port — only the bridge and the server share the compose network). A pinned camera (`cfg.cameras[i].model`) gets a `ModelDetector` that loads the version through `PUT /v1/models/{id}` and runs one synchronous `POST /v1/infer` per frame inside the client's timeout. While the model is `loading` or a call fails, the raw frame is published instead — inference errors fall back to raw after the bounded timeout, never silently. The per-version benchmark runs once on its own daemon thread, never inline. Model weights are downloaded by the model server itself and cached under its `MODEL_DIR` (`/models`, the `edge-models` volume); when the server is unreachable the stat reports `error` and a recheck happens on the next cycle. Capability reports (`vision/caps`: cpu/ram/device/providers/loaded) publish at startup, on every MQTT (re)connect, and every 300 s.

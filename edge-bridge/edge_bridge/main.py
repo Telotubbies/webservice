@@ -28,8 +28,13 @@ from .commands import CommandHandler
 from .config import Config
 from .enroll import EnrollError, enroll_if_needed
 from .logging_setup import setup_logging
+from .logship import LogShipper
 from .mqtt_bridge import MqttBridge
+from .vision.detector import make_detector
+from .vision.modelclient import ModelClient
 from .vision.runner import VisionRunner
+from .vision.rules import THUMB_MAX_BYTES, RuleEngine
+from .vision.source import encode_jpeg
 
 log = logging.getLogger("edge_bridge.main")
 
@@ -74,7 +79,7 @@ def _heartbeat_loop(stop: threading.Event, cfg: Config, holder: AdapterHolder,
             "clock_offset_ms": clock.skew_ms,
             "read_failures": read_failures,
             "buffer_depth": bridge.queued(),
-            "buffer_dropped": 0,
+            "buffer_dropped": getattr(bridge, "dropped", 0),
             "adapter": holder.get().name,
             "ts": clock.now().isoformat().replace("+00:00", "Z"),
         }
@@ -116,22 +121,38 @@ def main() -> int:
     )
     holder = AdapterHolder(adapter, cfg.poll_ms)
     handler = CommandHandler(cfg, holder, clock, bridge)
+    model_client = ModelClient(cfg.model_server_url)
+
+    def _thumb(frame):
+        jpeg = encode_jpeg(frame, max_w=320, quality=60)
+        return jpeg if jpeg is not None and len(jpeg) <= THUMB_MAX_BYTES else None
+
+    rules = RuleEngine(holder, bridge, cfg, cfg.state_dir, clock=clock,
+                       encode_thumb=_thumb)
     vision = VisionRunner(
+        detector_factory=lambda cam: make_detector(cam, model_client),
         publish_frame=lambda cid, jpeg: bridge.publish_raw(cfg.vision_frame_topic(cid), jpeg),
         publish_stat=lambda doc: bridge.publish_json(cfg.vision_stat_topic, doc, qos=0),
+        publish_caps=lambda doc: bridge.publish_json(cfg.vision_caps_topic, doc, qos=0),
+        on_detections=rules.on_detections,
+        model_client=model_client,
         state_dir=cfg.state_dir)
     cfg_client = CfgClient(cfg, holder, bridge, cfg.site_code, now=clock.now, vision=vision)
     # A cached backend cfg wins over tags.yaml; tags.yaml stays the fallback.
     cfg_client.load_cached()
     cred_client = CredClient(cfg, bridge.reconnect) if cfg.enrolled else None
+    shipper = LogShipper(bridge, cfg.logs_topic)
     adapter = holder.get()
 
     def _on_connect(b: MqttBridge) -> None:
         # Re-subscribes on every reconnect (on_connect fires per CONNACK).
         b.subscribe(handler.cmd_topic, qos=1)
         cfg_client.on_connect(b)
+        vision.request_caps()      # just sets an event — no network on this thread
         if cred_client is not None:
             b.subscribe(cfg.cred_topic, qos=1)
+        rules.note_connected()     # close the offline write window
+        rules.flush_audit()          # replay spooled signed audits, oldest first
 
     def _on_message(msg) -> None:
         if msg.topic == cfg.cfg_topic:
@@ -142,6 +163,7 @@ def main() -> int:
             handler.handle_message(msg)
 
     bridge.on_connect = _on_connect
+    bridge.on_disconnect = rules.note_disconnected   # stamp the offline window NOW
     bridge.on_message = _on_message
 
     log.info(
@@ -167,6 +189,8 @@ def main() -> int:
     signal.signal(signal.SIGINT, _sigterm)
 
     bridge.start()
+    logging.getLogger().addHandler(shipper)
+    shipper.start()
     threads = [
         threading.Thread(target=_poll_loop, name="poll",
                          args=(stop, cfg, holder, bridge, health),
@@ -181,6 +205,8 @@ def main() -> int:
     stop.wait()  # main thread idles until SIGTERM/SIGINT
 
     vision.stop()
+    rules.stop()
+    shipper.stop()
     bridge.stop()
     holder.get().close()
     for t in threads:

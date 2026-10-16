@@ -16,16 +16,21 @@ import tempfile
 import threading
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .detector import NullDetector
+from .detector import ModelNotReady, NullDetector
+from .overlay import draw_overlay
 from .source import FileSource, RtspSource, SourceError, encode_jpeg
 
 log = logging.getLogger("edge_bridge.vision")
 
 MAX_VIDEO_BYTES = 250 * 1024 * 1024
 _URL = re.compile(r"[a-z]+://\S+", re.I)
+# Only these camera fields rebuild the worker pipeline; incidental metadata
+# (name, rules, gate, updated_at, ...) is hot-applied via cam_cfg() instead.
+_PIPE_HASH_KEYS = ("id", "kind", "rtsp_url", "video", "fps_sample", "model")
 
 
 def _clean(msg: str) -> str:
@@ -74,7 +79,8 @@ class _Worker(threading.Thread):
         self.stop_ev = threading.Event()
         self.status, self.detail = "starting", ""
         self.frames = 0
-        self._detector = runner.detector_factory()
+        self._detector = runner.detector_factory(cam)
+        self._class_config = (cam.get("model") or {}).get("class_config") or {}
 
     def _open(self):
         c = self.cam
@@ -95,8 +101,26 @@ class _Worker(threading.Thread):
                 backoff = 1.0
                 while not self.stop_ev.is_set():
                     frame = src.read()
-                    self._detector.detect(frame)    # seam: overlay/events arrive with the model plans
-                    jpeg = encode_jpeg(frame)
+                    out, dets = frame, []
+                    try:
+                        dets = self._detector.detect(frame)
+                        if dets:
+                            out = draw_overlay(frame, dets, self._class_config)
+                    except ModelNotReady:
+                        pass                           # raw frame; the detector holds the reason for the stat
+                    except Exception as exc:  # noqa: BLE001 — a detector bug must not stop the picture
+                        log.warning("detector failed on %s: %s", self.cam.get("name"), exc)
+                        self._detector.state, self._detector.detail = "error", _clean(str(exc))
+                    if self.r.on_detections is not None:
+                        # EVERY frame — including empty dets: edge-triggered
+                        # rules re-arm only when they see the cleared frame
+                        try:
+                            self.r.on_detections(
+                                self.r.cam_cfg(self.cam["id"]) or self.cam,
+                                dets, frame, detector=self._detector)
+                        except Exception:  # noqa: BLE001
+                            log.exception("on_detections failed")
+                    jpeg = encode_jpeg(out)
                     if jpeg is not None:
                         self.r.publish_frame(self.cam["id"], jpeg)
                         self.frames += 1
@@ -114,25 +138,102 @@ class _Worker(threading.Thread):
                         pass
 
 
+def _ram_mb() -> int | None:
+    """Total RAM in MiB via stdlib sysconf (Linux); None where unavailable."""
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // (1024 * 1024)
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
 class VisionRunner:
     def __init__(self, publish_frame, publish_stat, state_dir, fetch=download_to_cache,
-                 detector_factory=NullDetector, stat_period_s: float = 10.0):
+                 detector_factory=lambda cam: NullDetector(), stat_period_s: float = 10.0,
+                 on_detections=None, publish_caps=None, model_client=None,
+                 caps_period_s: float = 300.0):
         self.publish_frame = publish_frame
         self.publish_stat = publish_stat
         self.state_dir = state_dir
         self.fetch = fetch
         self.detector_factory = detector_factory
+        self.on_detections = on_detections         # (camera_cfg, detections, frame) -> None; rules arrive in M1-06
+        self.publish_caps = publish_caps           # optional: vision/caps reporter (M1-05 T4)
+        self._client = model_client                # ModelClient | None — health() feeds caps
+        self._caps_period = caps_period_s
         self._period = stat_period_s
         self._lock = threading.Lock()
         self._workers: dict[str, tuple[str, _Worker]] = {}
+        self._cam_cfgs: dict[str, dict] = {}   # latest pushed cfg per camera id
         self._stop = threading.Event()
+        self._caps_evt = threading.Event()
         self._stat_t: threading.Thread | None = None
+        self._caps_t: threading.Thread | None = None
+        if publish_caps is not None:
+            # capability report goes out at startup even with zero cameras —
+            # the console uses it to say what the gateway can run. The loop is
+            # signalled (startup, every reconnect) rather than pure-interval.
+            self._caps_t = threading.Thread(target=self._caps_loop,
+                                            name="vision-caps", daemon=True)
+            self._caps_t.start()
+            self.request_caps()                    # initial report ASAP
+
+    def request_caps(self) -> None:
+        """Ask the caps loop to publish now — safe to call from MQTT callbacks
+        (just sets an event; never touches the network itself)."""
+        self._caps_evt.set()
+
+    def _caps_payload(self) -> dict:
+        health = {}
+        if self._client is not None:
+            try:
+                health = self._client.health()
+            except Exception:                       # noqa: BLE001 — caps are best-effort
+                health = {}
+        if not isinstance(health, dict):
+            health = {}
+        device = health.get("device")
+        providers = health.get("providers") or []
+        loaded_raw = health.get("loaded") or []
+        providers = [str(p)[:80] for p in (providers[:32] if isinstance(providers, list) else [])
+                     if isinstance(p, str)]
+        loaded = []
+        for v in (loaded_raw[:256] if isinstance(loaded_raw, list) else []):
+            try:
+                loaded.append(str(uuid.UUID(str(v))))
+            except (ValueError, AttributeError):
+                continue
+        return {"cpu_cores": os.cpu_count(), "ram_mb": _ram_mb(),
+                "device": str(device)[:80] if isinstance(device, str) and device else None,
+                "providers": providers, "loaded": loaded}
+
+    def _caps_loop(self) -> None:
+        while not self._stop.is_set():
+            # publish on signal (startup/reconnect) OR every _caps_period,
+            # whichever comes first
+            self._caps_evt.wait(self._caps_period)
+            self._caps_evt.clear()
+            if self._stop.is_set():
+                break
+            try:
+                self.publish_caps(self._caps_payload())
+            except Exception:                       # noqa: BLE001
+                log.exception("vision caps publish failed")
+
+    def cam_cfg(self, camera_id: str) -> dict:
+        """Latest pushed cfg for a camera — rules/gate/metadata update without
+        a worker restart; pipeline fields still rebuild via the apply() hash."""
+        return self._cam_cfgs.get(camera_id) or {}
 
     @staticmethod
     def _valid(c) -> bool:
         return (isinstance(c, dict) and isinstance(c.get("id"), str) and c.get("kind") in ("rtsp", "upload")
                 and ((c["kind"] == "rtsp" and isinstance(c.get("rtsp_url"), str))
                      or (c["kind"] == "upload" and isinstance(c.get("video"), dict))))
+
+    @staticmethod
+    def _pipe_hash(c: dict) -> str:
+        return hashlib.sha256(json.dumps(
+            {k: c.get(k) for k in _PIPE_HASH_KEYS}, sort_keys=True).encode()).hexdigest()
 
     def apply(self, cameras: list) -> None:
         wanted = {}
@@ -141,8 +242,9 @@ class VisionRunner:
                 log.warning("ignored malformed camera entry")
                 continue
             if c.get("enabled", True):
-                wanted[c["id"]] = (hashlib.sha256(json.dumps(c, sort_keys=True).encode()).hexdigest(), c)
+                wanted[c["id"]] = (self._pipe_hash(c), c)
         with self._lock:
+            self._cam_cfgs = {cid: c for cid, (_h, c) in wanted.items()}
             for cid in list(self._workers):
                 h, w = self._workers[cid]
                 if cid not in wanted or wanted[cid][0] != h:
@@ -165,8 +267,13 @@ class VisionRunner:
                 items = [(cid, w) for cid, (_, w) in self._workers.items()]
             doc = {}
             for cid, w in items:
+                d = w._detector
                 doc[cid] = {"status": w.status, "detail": w.detail,
-                            "fps": round((w.frames - last.get(cid, 0)) / max(now - t0, 1e-6), 2)}
+                            "fps": round((w.frames - last.get(cid, 0)) / max(now - t0, 1e-6), 2),
+                            "model_state": getattr(d, "state", "none"), "model_detail": getattr(d, "detail", ""),
+                            "engine": getattr(d, "engine", None), "latency_ms": getattr(d, "latency_ms", None),
+                            "bench_fps": getattr(d, "bench_fps", None), "model_version": getattr(d, "version", None),
+                            "placement": getattr(d, "placement", None)}
                 last[cid] = w.frames
             t0 = now
             if doc:
@@ -177,6 +284,7 @@ class VisionRunner:
 
     def stop(self) -> None:
         self._stop.set()
+        self._caps_evt.set()                 # wake the caps loop so it exits now
         with self._lock:
             ws = [w for _, w in self._workers.values()]
             self._workers.clear()
@@ -184,3 +292,5 @@ class VisionRunner:
             w.stop_ev.set()
         for w in ws:
             w.join(timeout=3.0)
+        if self._caps_t is not None:
+            self._caps_t.join(timeout=2.0)

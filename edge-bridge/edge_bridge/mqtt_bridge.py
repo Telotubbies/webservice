@@ -30,6 +30,7 @@ _BACKOFF_MIN_S = 1.0
 _BACKOFF_MAX_S = 60.0
 _JITTER = 0.5  # delay * uniform(1-JITTER, 1+JITTER)
 _KEEPALIVE_S = 30
+_MAX_QUEUED = 500  # bound on paho's out-queue while offline; excess publishes are dropped+counted
 
 
 class MqttBridge:
@@ -41,9 +42,11 @@ class MqttBridge:
     """
 
     # Public callbacks, assignable after construction (paho-style):
-    #   on_connect(bridge) — e.g. (re)subscribe; fires on every reconnect
-    #   on_message(msg)    — runs on paho's network thread
+    #   on_connect(bridge)    — e.g. (re)subscribe; fires on every reconnect
+    #   on_disconnect(bridge) — fires the moment the link drops (offline-since stamp)
+    #   on_message(msg)       — runs on paho's network thread
     on_connect: Callable[["MqttBridge"], None] | None = None
+    on_disconnect: Callable[["MqttBridge"], None] | None = None
     on_message: Callable[[mqtt.MQTTMessage], None] | None = None
 
     def __init__(self, host: str, port: int, client_id: str,
@@ -79,6 +82,7 @@ class MqttBridge:
         self._attempts = 0
         self._ever_connected = False
         self._session = False   # CONNACK-accepted during the current attempt
+        self.dropped = 0        # publishes refused while the offline out-queue was full
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -189,6 +193,11 @@ class MqttBridge:
             return
         log.warning("mqtt disconnected rc=%s — supervisor will reconnect "
                     "with backoff+jitter", reason_code)
+        if self.on_disconnect is not None:
+            try:
+                self.on_disconnect(self)
+            except Exception:
+                log.exception("on_disconnect callback failed")
 
     def _dispatch_message(self, client, userdata, msg) -> None:
         if self.on_message is not None:
@@ -206,11 +215,29 @@ class MqttBridge:
         else:
             log.info("subscribed topic=%s qos=%d", topic, qos)
 
+    def _queue_has_room(self) -> bool:
+        """Bound paho's out-queue while offline: non-durable payloads
+        (frames, telemetry, events) drop+count past _MAX_QUEUED; durable ones
+        (audits) see a False return and spool to disk instead."""
+        if self.connected.is_set():
+            return True
+        if self.queued() < _MAX_QUEUED:
+            return True
+        self.dropped += 1
+        if self.dropped % 100 == 1:
+            log.warning("offline out-queue full (>=%d) — dropping publishes "
+                        "(total dropped=%d)", _MAX_QUEUED, self.dropped)
+        return False
+
     def publish_raw(self, topic: str, payload: bytes, qos: int = 0) -> bool:
+        if not self._queue_has_room():
+            return False
         info = self._client.publish(topic, payload, qos=qos)
         return info.rc == mqtt.MQTT_ERR_SUCCESS
 
     def publish_json(self, topic: str, payload: dict, qos: int = 1) -> bool:
+        if not self._queue_has_room():
+            return False
         info = self._client.publish(topic, json.dumps(payload), qos=qos)
         if info.rc != mqtt.MQTT_ERR_SUCCESS:
             log.warning("publish failed topic=%s rc=%s", topic, info.rc)

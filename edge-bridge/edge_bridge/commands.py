@@ -82,7 +82,9 @@ class CommandHandler:
         must never stall the paho network thread."""
         try:
             try:
-                result = ops.run(op, payload)
+                result = ops.run(op, payload,
+                                 **({"model_server_url": self._cfg.model_server_url}
+                                    if op == "model_test" else {}))
                 status, reason = "acknowledged", "ok"
             except ops.OpError as exc:
                 result, status, reason = None, "failed", str(exc)
