@@ -221,6 +221,32 @@ class LiveStore {
     this.poke();
   }
 
+  /** Org switch: drop everything that belongs to the previous org so a stale
+   *  value can never render under the new one. */
+  resetData() {
+    this.tags = [];
+    this.latest = new Map();
+    this.buffers = new Map();
+    this.alarms = [];
+    this.insights = [];
+    this.commands = new Map();
+    this.journal = [];
+    this.health = null;
+    this.sysHealth = null;
+    this.tagsSeeded = false;
+    this.alarmsSeeded = false;
+    this.insightsSeeded = false;
+    this.seedError = false;
+    this.tagRev++;
+    this.alarmRev++;
+    this.insightRev++;
+    this.cmdRev++;
+    this.journalRev++;
+    this.healthRev++;
+    this.seedRev++;
+    this.poke();
+  }
+
   bumpAuth() {
     this.authRev++;
     this.poke();

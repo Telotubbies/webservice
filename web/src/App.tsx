@@ -8,7 +8,9 @@ import { api } from './lib/api';
 import { live } from './lib/live';
 import { useStore } from './lib/hooks';
 import { startWS, stopWS } from './lib/ws';
-import { canOperate, getSessionRole, hasToken, refreshSession, useDenied } from './app/session';
+import { canOperate, getSessionRole, hasToken, refreshSession, useDenied, useNoOrg } from './app/session';
+import { CreateOrgPage } from './features/orgs/CreateOrgPage';
+import { getScope } from './lib/scope';
 import { initAuth, restoreSession, completeRedirectCallback, isCallbackPath, authConfig } from './features/auth/oidc';
 import { signIn } from './app/session';
 import { Shell } from './app/Shell';
@@ -113,7 +115,9 @@ function useLiveBoot(tags: TagInfo[] | undefined) {
 }
 
 function AuthedApp() {
-  const q = useQuery({ queryKey: ['tags'], queryFn: api.tags, staleTime: 60_000 });
+  useStore(() => live.authRev); // org switch bumps authRev
+  const scopeKey = getScope()?.siteId ?? 'none';
+  const q = useQuery({ queryKey: ['tags', scopeKey], queryFn: api.tags, staleTime: 60_000 });
   useLiveBoot(q.data);
   useEffect(() => { void refreshSession(); }, []);
   useEffect(() => { if (q.isError) live.setSeedError(); }, [q.isError]);
@@ -125,6 +129,7 @@ function Boot() {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
   const denied = useDenied();
+  const noOrg = useNoOrg();
   useStore(() => live.authRev);
 
   useEffect(() => {
@@ -163,6 +168,7 @@ function Boot() {
     if (!denied && loc.pathname === '/') return <Landing />;
     return <SignInWall denied={denied} />;
   }
+  if (noOrg) return <CreateOrgPage />;
   if (loc.pathname === '/signin') return <Navigate to="/" replace />;
   return <AuthedApp />;
 }
@@ -202,6 +208,7 @@ export default function App() {
             <Route path="infrastructure/map" element={page(NetworkMapPage)} />
             <Route path="infrastructure/profiles" element={page(ProfilesPage)} />
             <Route path="settings" element={page(SettingsPage)} />
+            <Route path="orgs/new" element={<CreateOrgPage standalone={false} />} />
             {enabled('alarmquality') && <Route path="alarms/quality" element={page(AlarmQualityPage)} />}
             {enabled('alarmsettings') && <Route path="alarms/settings" element={page(AlarmSettingsPage)} />}
             {enabled('events') && <Route path="events" element={page(EventsPage)} />}

@@ -2,6 +2,7 @@
 // dark flyout per group, 44px topbar (search / live / bell / user), alarm
 // banner under the bar. Nav model shared with the palette via ./nav.
 
+import { OrgSwitcher } from '../features/orgs/OrgSwitcher';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
@@ -595,6 +596,7 @@ export function Shell() {
           <kbd className="ml-auto hidden rounded border border-white/20 px-1 text-[10px] lg:inline">Ctrl K</kbd>
         </button>
         <div className="ml-auto flex min-w-0 items-center gap-2 md:ml-0">
+          <OrgSwitcher />
           <CriticalChip />
           <TopClock />
           <LivePill />

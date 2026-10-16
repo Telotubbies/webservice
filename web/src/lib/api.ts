@@ -8,6 +8,8 @@ import type {
   Alarm, AlarmRule, Command, CommandStatus, Health, Insight, SystemHealth, TagInfo, TagValue,
 } from '../types';
 
+import { scopeHeaders } from './scope';
+
 let memToken = '';
 
 export function getToken(): string {
@@ -51,6 +53,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (init.body != null) headers['Content-Type'] = 'application/json';
+  // org-aware v1 endpoints read the active org/site from these headers;
+  // /api/v1/orgs/... paths carry the org in the path and ignore them.
+  if (!path.startsWith('/api/v1/')) Object.assign(headers, scopeHeaders());
 
   const res = await fetch(path, { ...init, headers });
   const text = await res.text();
@@ -200,6 +205,17 @@ export interface SloDef {
 }
 export interface SloInput { name: string; tag: string; target: number; warning?: number; description?: string }
 export interface SloStatus { id: string; samples: number; excluded: number; sli: number | null; covered_s: number }
+export interface CreatedOrg {
+  org: { id: string; name: string; slug: string; timezone: string; language: string };
+  site: { id: string; name: string; code: string };
+  role: string;
+}
+
+export const orgApi = {
+  create: (body: { name: string; slug: string; timezone: string; language: 'en' | 'th' }) =>
+    request<CreatedOrg>('/api/v1/orgs', { method: 'POST', body: JSON.stringify(body) }),
+};
+
 export const sloApi = {
   list: (org: string) => request<V2List<SloDef>>(v2(org, '/slos')),
   status: (org: string, days: number) => request<{ days: number; items: SloStatus[] }>(v2(org, `/slos/status?days=${days}`)),

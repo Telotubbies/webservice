@@ -12,9 +12,19 @@ import { live } from '../lib/live';
 import { reconnectWS } from '../lib/ws';
 import { useStore, useViewport } from '../lib/hooks';
 import { oidcEnabled, signOutSSO } from '../features/auth/oidc';
+import { getScope, setScope, subscribeScope } from '../lib/scope';
+import { initScope } from '../lib/org';
 
 let sessionRole: SessionRole = 'none';
 let meResolved = false;
+let noOrg = false;
+
+// Switching org: drop the old org's data and reopen the socket on the new site.
+subscribeScope(() => {
+  live.resetData();
+  live.bumpAuth();
+  reconnectWS();
+});
 
 export function getSessionRole(): SessionRole {
   return sessionRole;
@@ -24,10 +34,14 @@ export function getSessionRole(): SessionRole {
 export async function refreshSession(): Promise<SessionRole> {
   try {
     const me = await api.me();
-    sessionRole = (me.role as SessionRole) ?? 'none';
+    const sc = await initScope(me);
+    noOrg = sc == null && me.memberships.length === 0;
+    sessionRole = ((sc?.role ?? me.role) as SessionRole) ?? 'none';
   } catch {
     if (getToken()) setSessionToken('');
     sessionRole = 'none';
+    noOrg = false;
+    setScope(null);
   }
   meResolved = true;
   live.bumpAuth();
@@ -42,8 +56,17 @@ export function useRole(): SessionRole {
 /** Authenticated but no org membership — the wall shows the denied copy. */
 export function useDenied(): boolean {
   useStore(() => live.authRev);
-  return meResolved && getToken() !== '' && sessionRole === 'none';
+  return meResolved && getToken() !== '' && sessionRole === 'none' && !noOrg;
 }
+
+/** Signed in, verified identity, but not a member of any org yet: the app
+ *  shows "Create organization" instead of the denied wall. */
+export function useNoOrg(): boolean {
+  useStore(() => live.authRev);
+  return meResolved && getToken() !== '' && noOrg;
+}
+
+export { getScope };
 
 export function canOperate(role: string): boolean {
   return role === 'operator' || role === 'admin' || role === 'owner';

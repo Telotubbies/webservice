@@ -27,6 +27,17 @@ const en = {
     newBadge: 'NEW', actionNewDashboard: 'New dashboard', actionNewNotebook: 'New notebook', secDashboards: 'Dashboards', secNotebooks: 'Notebooks', secLive: 'Live views', actionNewRule: 'New rule', actionInvite: 'Invite member',
     invite: 'Invite', support: 'Support', help: 'Help',
   },
+  org: {
+    title: 'Create your organization', intro: 'An organization holds your sites, gateways, tags and team. You become its owner.',
+    name: 'Organization name', slug: 'Address', slugHint: 'Lowercase letters, numbers and hyphens, 3-40 characters. Used in links.',
+    timezone: 'Time zone', language: 'Language', submit: 'Create organization', creating: 'Creating...',
+    switcher: 'Organization', newOrg: 'Create organization',
+    err: {
+      taken: 'That address is taken. Try another.', format: 'Use 3-40 lowercase letters, numbers and single hyphens.',
+      reserved: 'That address is reserved. Try another.', email: 'Verify your email address first, then try again.',
+      generic: 'Could not create the organization. Try again.',
+    },
+  },
   settings: {
     profile: 'Profile', prefs: 'Preferences', orgs: 'Organizations',
     userId: 'User ID', role: 'Role', provider: 'Sign-in method',
@@ -797,6 +808,17 @@ const th: Dict = {
     adminUsers: 'ผู้ใช้', adminAudit: 'บันทึกตรวจสอบ', adminKeys: 'คีย์ API', settings: 'ตั้งค่าบัญชี',
     newBadge: 'ใหม่', actionNewDashboard: 'แดชบอร์ดใหม่', actionNewNotebook: 'สมุดบันทึกใหม่', secDashboards: 'แดชบอร์ด', secNotebooks: 'สมุดบันทึก', secLive: 'มุมมองสด', actionNewRule: 'กฎใหม่', actionInvite: 'เชิญสมาชิก',
     invite: 'เชิญ', support: 'สนับสนุน', help: 'ช่วยเหลือ',
+  },
+  org: {
+    title: 'สร้างองค์กรของคุณ', intro: 'องค์กรใช้เก็บไซต์ เกตเวย์ แท็ก และทีมของคุณ คุณจะเป็นเจ้าขององค์กรนี้',
+    name: 'ชื่อองค์กร', slug: 'ที่อยู่', slugHint: 'ตัวพิมพ์เล็ก ตัวเลข และขีดกลาง 3-40 ตัวอักษร ใช้ในลิงก์',
+    timezone: 'เขตเวลา', language: 'ภาษา', submit: 'สร้างองค์กร', creating: 'กำลังสร้าง...',
+    switcher: 'องค์กร', newOrg: 'สร้างองค์กร',
+    err: {
+      taken: 'ที่อยู่นี้ถูกใช้แล้ว ลองที่อยู่อื่น', format: 'ใช้ตัวพิมพ์เล็ก ตัวเลข และขีดกลางเดี่ยว 3-40 ตัวอักษร',
+      reserved: 'ที่อยู่นี้ถูกสงวนไว้ ลองที่อยู่อื่น', email: 'โปรดยืนยันอีเมลก่อน แล้วลองอีกครั้ง',
+      generic: 'สร้างองค์กรไม่สำเร็จ ลองอีกครั้ง',
+    },
   },
   settings: {
     profile: 'โปรไฟล์', prefs: 'การตั้งค่า', orgs: 'องค์กร',

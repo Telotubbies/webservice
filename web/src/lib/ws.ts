@@ -6,6 +6,7 @@
 //  - handles auth_expired event + close code 4401 -> "session expired" banner
 
 import { api, getToken } from './api';
+import { getScope } from './scope';
 import { live } from './live';
 import { ensureFreshToken } from '../features/auth/oidc';
 import type { Alarm, CommandStatus, Insight, Quality, WSEvent } from '../types';
@@ -67,7 +68,8 @@ function connect(): void {
     // First-frame auth — the server closes 4401 if this doesn't arrive in
     // its auth window or the token doesn't resolve. Anonymous is gone (T5):
     // the frame must carry a real OIDC/dev token.
-    s.send(JSON.stringify({ type: 'auth', token: getToken() }));
+    const sc = getScope();
+    s.send(JSON.stringify({ type: 'auth', token: getToken(), ...(sc ? { site_id: sc.siteId } : {}) }));
     attempt = 0;
     live.setWsState('open');
     // Resync open insights: insight events missed while disconnected would
