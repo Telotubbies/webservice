@@ -74,7 +74,12 @@ def test_cross_org_read_and_write_blocked_on_every_table(two_orgs):
                 for t in tables:
                     if t == "organizations":
                         continue
-                    seen = await tc.fetchval(f"SELECT count(*) FROM {t} WHERE org_id = $1", a["org"])
+                    try:  # system-only tables (e.g. webhook_cursor) have no app grant
+                        async with tc.conn.transaction():
+                            seen = await tc.fetchval(
+                                f"SELECT count(*) FROM {t} WHERE org_id = $1", a["org"])
+                    except asyncpg.InsufficientPrivilegeError:
+                        seen = 0
                     assert seen == 0, f"{t}: org B read org A rows"
                     # A cross-org UPDATE must touch nothing (policy USING hides the rows).
                     for verb, sql in (("UPDATE", f"UPDATE {t} SET org_id = org_id WHERE org_id = $1"),

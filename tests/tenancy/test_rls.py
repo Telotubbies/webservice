@@ -343,7 +343,9 @@ def test_system_role_edge_lookup_is_column_limited(two_orgs):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await conn.fetch("SELECT name FROM edges")  # not a granted column
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
-                await conn.fetch("SELECT name FROM organizations")
+                # organizations/users are readable by the platform back-office
+                # (0032+), so probe a table the system role must never read
+                await conn.fetch("SELECT count(*) FROM api_keys")
             assert await conn.fetchval("SELECT count(*) FROM sites") == 0
             assert await conn.fetchval("SELECT count(*) FROM tags") == 0
         finally:

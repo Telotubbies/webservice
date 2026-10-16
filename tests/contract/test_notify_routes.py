@@ -71,6 +71,10 @@ class FakeConn:
         return "UPDATE 1" if "UPDATE" in sql else "OK"
 
     async def fetch(self, sql, *args):
+        if "secrets_enc FROM notification_channels" in sql:  # wds_system-only read
+            self.sealed_reads = getattr(self, "sealed_reads", 0) + 1
+            return ([{"id": self.channel["id"], "secrets_enc": self.channel["secrets_enc"]}]
+                    if self.channel else [])
         return []
 
     async def fetchval(self, sql, *args):

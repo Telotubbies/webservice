@@ -360,6 +360,31 @@ def _levels(v) -> list[dict]:
 JOB_KINDS = ("notify_send", "send_email")
 
 
+# wds_app has no SELECT on secrets_enc (0026: write-only) - `SELECT *` or
+# RETURNING * as the app role is "permission denied". Sealed credentials are
+# read through wds_system, only on the send path and for has_secrets.
+_CH_COLS = ("id, org_id, team_id, name, type, config, enabled, created_by,"
+            " created_at, updated_at")
+
+
+async def _sealed(pools, org_id: UUID, ids) -> dict:
+    ids = list(ids)
+    if not ids:
+        return {}
+    async with tenant_tx(pools.system, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT id, secrets_enc FROM notification_channels"
+            " WHERE id = ANY($1::uuid[])", ids)
+    return {r["id"]: r["secrets_enc"] for r in rows}
+
+
+async def _attach_secrets(pools, org_id: UUID, channels: list[dict]) -> list[dict]:
+    sealed = await _sealed(pools, org_id, [c["id"] for c in channels])
+    for c in channels:
+        c["secrets_enc"] = sealed.get(c["id"])
+    return channels
+
+
 async def _record_delivery(conn, org_id: UUID, channel_id, alarm_id, kind: str,
                            target: str, status: str, attempts: int = 1,
                            error: str | None = None) -> None:
@@ -403,7 +428,7 @@ async def _channels_for_targets(tc: TenantConn, targets: dict) -> list[dict]:
     if not cids and not tids:
         return []
     rows = await tc.fetch(
-        "SELECT * FROM notification_channels WHERE enabled AND ("
+        f"SELECT {_CH_COLS} FROM notification_channels WHERE enabled AND ("
         " id = ANY($1::uuid[]) OR team_id = ANY($2::uuid[]))", cids, tids)
     return [dict(r) for r in rows][:25]
 
@@ -449,7 +474,7 @@ async def _deliver_to_channels(tc: TenantConn, channels: list[dict], episode: st
     return failures
 
 
-async def _deliver_oncall_email(tc: TenantConn, team_id: UUID, episode: str,
+async def _deliver_oncall_email(tc: TenantConn, pools, team_id: UUID, episode: str,
                                 kind: str, alarm_id, subject: str, text: str) -> int:
     """Route to a team's current on-call member: their user email via the
     org's first enabled email channel."""
@@ -458,11 +483,11 @@ async def _deliver_oncall_email(tc: TenantConn, team_id: UUID, episode: str,
         return 0
     email = await tc.fetchval("SELECT email FROM users WHERE id=$1", uid)
     ch = await tc.fetchrow(
-        "SELECT * FROM notification_channels WHERE enabled AND type='email'"
+        f"SELECT {_CH_COLS} FROM notification_channels WHERE enabled AND type='email'"
         " ORDER BY created_at LIMIT 1")
     if not email or ch is None:
         return 0
-    ch = dict(ch)
+    ch = (await _attach_secrets(pools, tc.org_id, [dict(ch)]))[0]
     if await _dedup(tc, episode, ch["id"], kind):
         return 0
     pub = dict(ch["config"]) if isinstance(ch["config"], dict) else {}
@@ -525,16 +550,17 @@ async def _job_notify_send(st, payload: dict) -> None:
         channels = await _channels_for_targets(tc, targets)
         if not channels and event == "vision":
             rows = await tc.fetch(
-                "SELECT * FROM notification_channels WHERE enabled"
+                f"SELECT {_CH_COLS} FROM notification_channels WHERE enabled"
                 " ORDER BY created_at LIMIT 25")
             channels = [dict(r) for r in rows]
+        await _attach_secrets(st.pools, org_id, channels)
         failures += await _deliver_to_channels(
             tc, channels, episode, dedup_kind, delivery_kind,
             alarm_id, subject, text)
         oncall = targets.get("oncall_team")
         if oncall:
             failures += await _deliver_oncall_email(
-                tc, UUID(str(oncall)), episode, "raised", alarm_id, subject, text)
+                tc, st.pools, UUID(str(oncall)), episode, "raised", alarm_id, subject, text)
         if failures:
             raise RuntimeError(f"{failures} channel(s) failed")
 
@@ -572,8 +598,10 @@ async def _job_send_email(st, payload: dict) -> None:
         org_id = UUID(str(org_id))
         async with tenant_tx(st.pools.app, org_id) as tc:
             ch = await tc.fetchrow(
-                "SELECT * FROM notification_channels WHERE enabled AND type='email'"
+                f"SELECT {_CH_COLS} FROM notification_channels WHERE enabled AND type='email'"
                 " ORDER BY created_at LIMIT 1")
+            if ch:
+                ch = (await _attach_secrets(st.pools, org_id, [dict(ch)]))[0]
             smtp = {"host": config.SMTP_HOST, "port": config.SMTP_PORT,
                     "user": config.SMTP_USER, "password": config.SMTP_PASSWORD,
                     "from": config.SMTP_FROM, "tls": config.SMTP_TLS == "starttls"}
@@ -802,12 +830,12 @@ class ChannelPatch(BaseModel):
     enabled: bool | None = None
 
 
-def _channel_json(r) -> dict:
+def _channel_json(r, has_secrets: bool) -> dict:
     """Never returns config/secrets — only the write-time redacted shape."""
     pub = r["config"] if isinstance(r["config"], dict) else {}
     return {"id": str(r["id"]), "name": r["name"], "type": r["type"],
             "team_id": str(r["team_id"]) if r["team_id"] else None,
-            "enabled": r["enabled"], "has_secrets": r["secrets_enc"] is not None,
+            "enabled": r["enabled"], "has_secrets": has_secrets,
             "config": pub,
             "created_at": iso_z(r["created_at"])}
 
@@ -824,8 +852,9 @@ async def list_channels(org: str, request: Request, p=Depends(_user)):
     org_id = m._v2_org(org, p, m._READ)
     async with tenant_tx(m.st(request).pools.app, org_id) as tc:
         rows = await tc.fetch(
-            "SELECT * FROM notification_channels ORDER BY lower(name) LIMIT 200")
-    return {"items": [_channel_json(r) for r in rows]}
+            f"SELECT {_CH_COLS} FROM notification_channels ORDER BY lower(name) LIMIT 200")
+    sealed = await _sealed(m.st(request).pools, org_id, [r["id"] for r in rows])
+    return {"items": [_channel_json(r, sealed.get(r["id"]) is not None) for r in rows]}
 
 
 @router.post("/api/v1/orgs/{org}/notification-channels", status_code=201)
@@ -846,14 +875,14 @@ async def create_channel(org: str, body: ChannelIn, request: Request, p=Depends(
             row = await tc.fetchrow(
                 "INSERT INTO notification_channels(org_id, team_id, name, type,"
                 " config, secrets_enc, enabled, created_by)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+                f" VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {_CH_COLS}",
                 org_id, body.team_id, body.name.strip(), body.type, pub,
                 secretbox.seal(sec) if sec else None, body.enabled, p.user_id)
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "channel_name_exists") from None
         await audit.append(tc, f"user:{p.user_id}", "notify.channel.created",
                            {"channel_id": str(row["id"])}, {"type": body.type})
-    return {"channel": _channel_json(row)}
+    return {"channel": _channel_json(row, bool(sec))}
 
 
 @router.patch("/api/v1/orgs/{org}/notification-channels/{channel}")
@@ -868,9 +897,10 @@ async def patch_channel(org: str, channel: str, body: ChannelPatch, request: Req
     await m._mutation_gate(request, p.user_id)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
         cur = await tc.fetchrow(
-            "SELECT * FROM notification_channels WHERE id=$1", cid)
+            f"SELECT {_CH_COLS} FROM notification_channels WHERE id=$1", cid)
         if cur is None:
             raise HTTPException(404, "channel not found")
+        had_secrets = (await _sealed(m.st(request).pools, org_id, [cid])).get(cid) is not None
         sets, args = [], []
 
         def put(col, val):
@@ -899,14 +929,15 @@ async def patch_channel(org: str, channel: str, body: ChannelPatch, request: Req
         try:
             row = await tc.fetchrow(
                 f"UPDATE notification_channels SET {', '.join(sets)}, updated_at=now()"
-                f" WHERE id=${len(args)} RETURNING *", *args)
+                f" WHERE id=${len(args)} RETURNING {_CH_COLS}", *args)
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "channel_name_exists") from None
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
         await audit.append(tc, f"user:{p.user_id}", "notify.channel.updated",
                            {"channel_id": str(cid)}, {"fields": sorted(ch)})
-    return {"channel": _channel_json(row)}
+    return {"channel": _channel_json(
+        row, bool(sec) if "secrets" in ch else had_secrets)}
 
 
 @router.delete("/api/v1/orgs/{org}/notification-channels/{channel}", status_code=204)
@@ -938,11 +969,13 @@ async def test_channel(org: str, channel: str, body: TestIn, request: Request,
     cid = m._uuid_or_404(channel, "channel")
     await m._mutation_gate(request, p.user_id)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
-        ch = await tc.fetchrow("SELECT * FROM notification_channels WHERE id=$1", cid)
+        ch = await tc.fetchrow(
+            f"SELECT {_CH_COLS} FROM notification_channels WHERE id=$1", cid)
         if ch is None:
             raise HTTPException(404, "channel not found")
+        ch = (await _attach_secrets(m.st(request).pools, org_id, [dict(ch)]))[0]
         try:
-            target = await send_channel(dict(ch), "WDS test", body.text)
+            target = await send_channel(ch, "WDS test", body.text)
             status = "sent"
         except Exception as e:  # noqa: BLE001 — outward error is generic
             log.warning("test notify failed", extra={"channel_id": str(cid),
