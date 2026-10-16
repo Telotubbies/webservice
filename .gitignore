@@ -45,3 +45,5 @@ ref/
 .claude/
 .superpowers/
 .shots/
+
+.env.garage

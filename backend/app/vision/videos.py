@@ -16,7 +16,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from ..core import config
+from ..core import config, objstore
 from ..db import audit
 from ..db.context import global_tx, tenant_tx
 from ..db.util import iso_z
@@ -107,6 +107,7 @@ async def upload_video(org: str, site: str, request: Request, filename: str = "v
     except BaseException:
         storage.delete(org_id, vid)   # no orphan file when the insert fails
         raise
+    await objstore.mirror(storage.path(org_id, vid), objstore.key("videos", org_id, vid))   # durable copy in Garage
     return video_json(row)
 
 
@@ -136,6 +137,7 @@ async def delete_video(org: str, site: str, video: str, request: Request, p=Depe
             raise HTTPException(404, "video not found")
         await audit.append(tc, f"user:{p.user_id}", "video.deleted", {"video_id": str(vid)}, {})
     storage.delete(org_id, vid)
+    await objstore.remove(objstore.key("videos", org_id, vid))
 
 
 @router.get("/api/v1/edge-media/{video}")

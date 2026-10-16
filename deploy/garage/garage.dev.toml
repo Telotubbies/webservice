@@ -1,0 +1,14 @@
+# DEV ONLY Garage config (single node, localhost). Secrets here are throwaway;
+# production uses deploy/garage/garage.toml (git-ignored) with real secrets.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+rpc_secret = "3f6c1d0b9a8e47c2b5d4a1f0e9c8b7a6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"

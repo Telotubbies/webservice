@@ -72,6 +72,9 @@ PLANT_DIR = os.environ.get("PLANT_DIR", "/data/plant")
 PLANT_S3_ENDPOINT = os.environ.get("PLANT_S3_ENDPOINT") or None
 PLANT_S3_BUCKET = os.environ.get("PLANT_S3_BUCKET", "wds-plant-models")
 PLANT_S3_REGION = os.environ.get("PLANT_S3_REGION", "garage")
+# durable copies of videos / model files / plant models (same Garage, own bucket)
+ARTIFACT_S3_ENDPOINT = os.environ.get("ARTIFACT_S3_ENDPOINT") or PLANT_S3_ENDPOINT
+ARTIFACT_S3_BUCKET = os.environ.get("ARTIFACT_S3_BUCKET", "wds-artifacts")
 
 
 def _secret(name: str) -> str | None:
@@ -84,6 +87,8 @@ def _secret(name: str) -> str | None:
 
 PLANT_S3_KEY_ID = _secret("PLANT_S3_KEY_ID")
 PLANT_S3_SECRET = _secret("PLANT_S3_SECRET")
+ARTIFACT_S3_KEY_ID = _secret("ARTIFACT_S3_KEY_ID") or PLANT_S3_KEY_ID
+ARTIFACT_S3_SECRET = _secret("ARTIFACT_S3_SECRET") or PLANT_S3_SECRET
 # --- owner data exports + lifecycle (roadmap §12 8.2/8.3, §10/11) -----------
 EXPORT_DIR = os.environ.get("EXPORT_DIR", "/data/exports")
 EXPORT_MAX_BYTES = int(os.environ.get("EXPORT_MAX_BYTES", str(512 * 1024 * 1024)))

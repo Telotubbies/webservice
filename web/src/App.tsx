@@ -39,6 +39,7 @@ const ApiKeysPage = lazy(() => import('./features/admin/ApiKeysPage').then((m) =
 const AlarmRulesPage = lazy(() => import('./features/admin/AlarmRulesPage').then((m) => ({ default: m.AlarmRulesPage })));
 const RuleCreatePage = lazy(() => import('./features/admin/RuleCreatePage').then((m) => ({ default: m.RuleCreatePage })));
 const UsersPage = lazy(() => import('./features/admin/UsersPage').then((m) => ({ default: m.UsersPage })));
+const StoragePage = lazy(() => import('./features/storage/StoragePage').then((m) => ({ default: m.StoragePage })));
 const AuditPage = lazy(() => import('./features/admin/AuditPage').then((m) => ({ default: m.AuditPage })));
 const ActivityPage = lazy(() => import('./features/notify/ActivityPage').then((m) => ({ default: m.ActivityPage })));
 const ErrorTrackingPage = lazy(() => import('./features/errors/ErrorTrackingPage').then((m) => ({ default: m.ErrorTrackingPage })));
@@ -232,6 +233,7 @@ export default function App() {
             <Route path="admin/rules/new" element={page(RuleCreatePage)} />
             <Route path="admin/users" element={page(UsersPage)} />
             <Route path="admin/audit" element={page(AuditPage)} />
+            <Route path="admin/storage" element={page(StoragePage)} />
             <Route path="admin/keys" element={page(ApiKeysPage)} />
             <Route path="activity" element={page(ActivityPage)} />
             {enabled('errors') && <Route path="errors" element={page(ErrorTrackingPage)} />}

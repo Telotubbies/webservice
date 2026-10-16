@@ -22,12 +22,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from ..core import config
+from ..core import config, objstore
 from ..tenancy import plans
 from ..db import audit
 from ..db.context import global_tx, tenant_tx
 from ..db.util import iso_z, utcnow
 from . import spool, storage
+from .ptscan import UnsafeCheckpoint, scan_pt
 from .inspect import MAX_CLASSES, InspectError, run_inspect
 from .results import clean_test_result
 
@@ -143,6 +144,12 @@ async def delete_model(org: str, model: str, request: Request, p=Depends(_user))
         await audit.append(tc, f"user:{p.user_id}", "vision.model.deleted", {"model_id": str(model_id)}, {})
     for v in vids:
         _remove_files(org_id, v)
+        await _remove_copies(org_id, v)
+
+
+async def _remove_copies(org_id: UUID, version_id: UUID) -> None:
+    await objstore.remove(objstore.key("models", org_id, version_id, "onnx"))
+    await objstore.remove(objstore.key("models-src", org_id, version_id, "pt"))
 
 
 def _remove_files(org_id: UUID, version_id: UUID) -> None:
@@ -202,6 +209,13 @@ async def upload_version(org: str, model: str, request: Request, filename: str =
     except storage.TooLarge:
         raise HTTPException(413, "model_too_large") from None
     info = None
+    if ext == "pt":
+        # first gate: a checkpoint is a pickle and can run code when loaded
+        try:
+            await asyncio.to_thread(scan_pt, dest)
+        except UnsafeCheckpoint as e:
+            os.remove(dest)
+            return _refusal(422, "unsafe_checkpoint", f"this .pt is refused ({e.code}); export your model to .onnx instead")
     try:
         if ext == "onnx":
             try:
@@ -230,7 +244,10 @@ async def upload_version(org: str, model: str, request: Request, filename: str =
                                {"model_id": str(model_id), "version_id": str(vid)},
                                {"version": n, "format": ext, "size_bytes": size})
         if ext == "pt":
+            await objstore.mirror(dest, objstore.key("models-src", org_id, vid, "pt"))
             spool.enqueue(vid, mo["task"])
+        else:
+            await objstore.mirror(dest, objstore.key("models", org_id, vid, "onnx"))
     except BaseException:
         _remove_files(org_id, vid)
         raise
@@ -325,6 +342,7 @@ async def delete_version(org: str, model: str, version: str, request: Request, p
             raise HTTPException(404, "version not found")
         await audit.append(tc, f"user:{p.user_id}", "vision.version.deleted", {"version_id": str(vid)}, {})
     _remove_files(org_id, vid)
+    await _remove_copies(org_id, vid)
 
 
 # ---------------------------------------------------------------- test op
@@ -438,6 +456,8 @@ async def ingest_once(pools) -> int:
                         os.remove(dest)
                     fields = {"status": "failed", "failure_reason": f"{e.code}: {e.message}"[:500]}
             await _apply(pools, org_id, jid, fields)
+            if fields.get("status") == "draft":
+                await objstore.mirror(storage.model_path(org_id, jid), objstore.key("models", org_id, jid, "onnx"))
             spool.cleanup(jid)
             handled += 1
         except Exception:  # noqa: BLE001 — one bad job must not stop the loop

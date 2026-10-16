@@ -68,6 +68,7 @@ from .vision.events import router as vision_events_router
 from .vision.rules import router as vision_rules_router
 from .vision.external import router as vision_external_router
 from .vision.material import router as material_router
+from .artifacts import router as artifacts_router
 from .vision.models import router as models_router
 from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
@@ -1726,6 +1727,7 @@ app.include_router(videos_router)
 app.include_router(plant_router)
 app.include_router(cameras_router)
 app.include_router(material_router)
+app.include_router(artifacts_router)
 app.include_router(models_router)
 app.include_router(classes_router)
 app.include_router(stream_router)

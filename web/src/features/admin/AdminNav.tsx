@@ -12,6 +12,7 @@ const SECTIONS: { headKey: string; items: { to: string; key: string; icon: DdIco
   { headKey: 'admin.navOrg', items: [
     { to: '/admin', key: 'nav.adminOrg', icon: 'organization' },
     { to: '/admin/rules', key: 'nav.adminRules', icon: 'assert-list' },
+    { to: '/admin/storage', key: 'nav.adminStorage', icon: 'metric' },
   ] },
   { headKey: 'admin.navIdentity', items: [
     { to: '/admin/users', key: 'nav.adminUsers', icon: 'users' },

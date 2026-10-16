@@ -21,3 +21,12 @@ $G bucket create wds-plant-models
 $G key create wds-plant
 $G bucket allow --read --write wds-plant-models --key wds-plant
 echo "Plant-model key printed above goes into plant_s3_key_id / plant_s3_secret."
+
+# Uploaded artifacts (videos, model files) — durable per-org copies written by
+# the API under {kind}/{org_id}/... Its own bucket + key, scoped to that bucket.
+# Key id + secret -> artifact_s3_key_id / artifact_s3_secret,
+# ARTIFACT_S3_ENDPOINT -> this Garage's S3 URL.
+$G bucket create wds-artifacts
+$G key create wds-artifacts
+$G bucket allow --read --write wds-artifacts --key wds-artifacts
+echo "Artifact key printed above goes into artifact_s3_key_id / artifact_s3_secret."

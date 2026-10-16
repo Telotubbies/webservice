@@ -157,6 +157,7 @@ const ALL_NAV: NavGroup[] = [
     { title: 'admin.navOrg', items: [
       { to: '/admin', key: 'nav.adminOrg', icon: 'organization' },
       { to: '/admin/rules', key: 'nav.adminRules', icon: 'assert-list' },
+      { to: '/admin/storage', key: 'nav.adminStorage', icon: 'metric' },
     ] },
     { title: 'admin.navIdentity', items: [
       { to: '/admin/users', key: 'nav.adminUsers', icon: 'users' },
