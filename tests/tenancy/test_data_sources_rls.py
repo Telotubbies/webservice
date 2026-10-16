@@ -94,14 +94,14 @@ def test_tag_source_fk_restrict(two_orgs):
 def test_seeded_tags_have_sim_source():
     """Backfill contract: every edge-owned tag has a 'Simulator' sim source and a
     behavior address. Skips (never passes vacuously) on a DB with no such tags.
-    wds_system has no cross-org tags policy, so scan org by org."""
+    wds_system has no cross-org tags policy. Only the seeded org is checked: other
+    suites insert edge-owned tags directly, without a source."""
     from app.db.context import tenant_tx
 
     async def go():
         pools = await make_pools()
         try:
-            async with pools.system.acquire() as conn:
-                orgs = [r["id"] for r in await conn.fetch("SELECT id FROM organizations")]
+            orgs = [uuid.UUID("0199d000-0000-7000-8000-00000000a001")]
             owned = orphans = bad = 0
             for org in orgs:
                 async with tenant_tx(pools.system, org) as tc:
