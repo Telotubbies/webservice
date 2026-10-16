@@ -122,6 +122,15 @@ class Registry:
             return None
         return self._by_key.get((config.V1_SITE_ID, path))
 
+    def by_display_name(self, site_id: UUID, name: str) -> Tag | None:
+        """`{site_code}.{dotted path}` within ONE site (org-scoped v1 shim).
+        The code prefix must match that site's own code, so a name can never
+        resolve into another site."""
+        code = (self._sites.get(site_id) or (None, None))[1]
+        if not code or not name.startswith(code + "."):
+            return None
+        return self._by_key.get((site_id, name[len(code) + 1:].replace(".", "/")))
+
     def by_id(self, tag_id: UUID) -> Tag | None:
         return self._by_id.get(tag_id)
 

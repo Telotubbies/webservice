@@ -335,6 +335,10 @@ class Security:
             self._mark_revoked(sid)
         return bool(exists)
 
+    def forget(self, sub: str) -> None:
+        """Drop one user's cached authz record (e.g. right after they gain a membership)."""
+        self._authz.pop(sub, None)
+
     async def _authz_rec(self, sub: str, claims: dict) -> _AuthzRec:
         rec = self._authz.get(sub)
         if rec and time.monotonic() - rec.at < config.AUTHZ_TTL_S:

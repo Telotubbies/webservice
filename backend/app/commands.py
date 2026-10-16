@@ -22,6 +22,7 @@ from uuid import UUID
 
 import asyncpg
 
+from . import config
 from .db import audit
 from .db.context import TenantConn, active_org_ids, tenant_tx
 from .db.util import iso_z, utcnow
@@ -297,14 +298,16 @@ class CommandManager:
         return self._v2(r, events)
 
     async def list(self, tc: TenantConn, limit: int, tag_name: str | None,
-                   user_name: str | None) -> list[dict]:
-        tag = self.registry.by_v1_name(tag_name) if tag_name else None
+                   user_name: str | None, site_id: UUID | None = None) -> list[dict]:
+        sid = site_id or config.V1_SITE_ID
+        tag = self.registry.by_display_name(sid, tag_name) if tag_name else None
         if tag_name and tag is None:
             return []
         rows = await tc.fetch(
             CMD_SQL + " WHERE ($1::uuid IS NULL OR c.tag_id=$1)"
-            " AND ($2::text IS NULL OR u.display_name=$2) ORDER BY c.issued_at DESC LIMIT $3",
-            tag.id if tag else None, user_name, limit)
+            " AND ($2::text IS NULL OR u.display_name=$2) AND c.site_id=$4"
+            " ORDER BY c.issued_at DESC LIMIT $3",
+            tag.id if tag else None, user_name, limit, sid)
         return [self._v1(r) for r in rows]
 
     async def list_v2(self, tc: TenantConn, site_id: UUID, limit: int,

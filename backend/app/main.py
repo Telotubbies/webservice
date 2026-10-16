@@ -25,6 +25,7 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Literal
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -37,7 +38,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import config, inference
+from . import config, inference, orgs as orgs_mod
 from .alarms import (
     AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener,
 )
@@ -206,6 +207,56 @@ async def require_operator(request: Request) -> Principal:
 
 
 require_authenticated = require_operator  # ack is an operator-level mutation
+
+
+@dataclass(frozen=True)
+class Scope:
+    """Org + site a v1 request acts on. Without `X-WDS-Org`/`X-WDS-Site`
+    headers it is the seeded shim org (legacy clients); with them the caller
+    must be a member of that org and the site must belong to it - anything
+    else is the same flat 404 as the v2 routes (no existence oracle)."""
+    p: Principal
+    org_id: UUID
+    site_id: UUID
+    role: str
+
+    @property
+    def can_operate(self) -> bool:
+        return self.role in OPERATOR_ROLES
+
+
+async def _scope(request: Request) -> Scope:
+    p = await _authenticate(request)
+    org_h = request.headers.get("x-wds-org")
+    site_h = request.headers.get("x-wds-site")
+    if org_h is None and site_h is None:
+        if not p.member:
+            raise ForbiddenError("not a member of this organization")
+        return Scope(p, config.V1_ORG_ID, config.V1_SITE_ID, p.role)
+    if not (org_h and site_h):
+        raise HTTPException(400, "x-wds-org and x-wds-site go together")
+    org_id, site_id = _uuid_or_404(org_h, "organization"), _uuid_or_404(site_h, "site")
+    role = _effective_org_roles(p).get(org_id)
+    if role is None:
+        raise HTTPException(404, "not found")
+    reg = st(request).registry
+    await reg.maybe_refresh()
+    if reg.site_org(site_id) is None:
+        await reg.refresh()  # a member's brand-new site isn't in the cache yet
+    if reg.site_org(site_id) != org_id:
+        raise HTTPException(404, "not found")
+    return Scope(p, org_id, site_id, role)
+
+
+async def v1_read(request: Request) -> Scope:
+    return await _scope(request)
+
+
+async def v1_operate(request: Request) -> Scope:
+    sc = await _scope(request)
+    if not sc.can_operate:
+        raise ForbiddenError("operator role required")
+    return sc
 
 
 # ---------------------------------------------------------------------------
@@ -781,6 +832,33 @@ async def me(request: Request, p: Principal = Depends(require_user)):
     }
 
 
+class OrgCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    slug: str
+    timezone: str = "Asia/Bangkok"
+    language: str = "en"
+
+
+@app.post("/api/v1/orgs", status_code=201)
+async def create_organization(body: OrgCreateIn, request: Request,
+                              p: Principal = Depends(require_user)):
+    """Self-serve org creation (roadmap 1.2): creator becomes owner, a default
+    site is created. Needs a verified email; API keys cannot create orgs."""
+    if p.user_id is None or p.kind not in ("oidc", "dev"):
+        raise ForbiddenError("a signed-in user is required")
+    await _mutation_gate(request, p.user_id)
+    try:
+        out = await orgs_mod.create_org(
+            st(request).pools, p.user_id, name=body.name, slug=body.slug,
+            timezone=body.timezone, language=body.language)
+    except orgs_mod.OrgError as e:
+        raise HTTPException(e.status, e.code) from None
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    st(request).auth.forget(p.sub)  # /me shows the new org at once
+    return out
+
+
 @app.post("/api/auth/backchannel-logout")
 @app.post("/api/v1/auth/backchannel-logout")
 async def backchannel_logout(request: Request):
@@ -822,47 +900,49 @@ async def backchannel_logout(request: Request):
 # v1 REST — every read requires an authenticated member (anonymous removed)
 # ---------------------------------------------------------------------------
 @app.get("/api/tags")
-async def list_tags(request: Request, p: Principal = Depends(require_principal)):
+async def list_tags(request: Request, sc: Scope = Depends(v1_read)):
     """v1 shim: the seeded site's tags only — the registry is now multi-org
     (v4 T9), so the compat surface must filter or other orgs' tags would
     leak under plant1-prefixed names."""
     s = st(request)
     await s.registry.maybe_refresh()
-    return [{"name": t.v1_name, "writable": t.writable, **({"unit": t.unit} if t.unit else {})}
-            for t in sorted(s.registry.for_site(config.V1_SITE_ID),
-                            key=lambda t: t.v1_name)]
+    return [{"name": s.registry.display_name(t), "writable": t.writable,
+             **({"unit": t.unit} if t.unit else {})}
+            for t in sorted(s.registry.for_site(sc.site_id),
+                            key=lambda t: s.registry.display_name(t))]
 
 
 @app.get("/api/tags/latest")
-async def tags_latest_bulk(request: Request,
-                           p: Principal = Depends(require_principal)):
+async def tags_latest_bulk(request: Request, sc: Scope = Depends(v1_read)):
     """All latest values for the site in one call (CONTRACT.v2 `/tags/latest`)."""
     s = st(request)
     await s.registry.maybe_refresh()
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         rows = await tc.fetch("SELECT tag_id, v, q, ts FROM tag_latest")
     out = []
     for r in rows:
         tag = s.registry.by_id(r["tag_id"])
         # seeded-SITE filter (T9-review F3): /api/tags already scopes to
         # V1_SITE_ID — the bulk latest must too, not just the shim org
-        if tag and tag.site_id == config.V1_SITE_ID:
-            out.append({"name": tag.v1_name, "v": finite_or_none(r["v"]), "q": r["q"],
+        if tag and tag.site_id == sc.site_id:
+            out.append({"name": s.registry.display_name(tag), "v": finite_or_none(r["v"]), "q": r["q"],
                         "ts": iso_z(r["ts"])})
     return out
 
 
 @app.get("/api/alarm-rules")
-async def list_alarm_rules(request: Request,
-                           p: Principal = Depends(require_principal)):
+async def list_alarm_rules(request: Request, sc: Scope = Depends(v1_read)):
     s = st(request)
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         rows = await tc.fetch("SELECT tag_id, name, kind, threshold, stale_s, deadband, severity,"
                               " enabled FROM alarm_rules ORDER BY name")
     out = []
     for r in rows:
         tag = s.registry.by_id(r["tag_id"])
-        out.append({"tag": tag.v1_name if tag else None, "name": r["name"], "kind": r["kind"],
+        if tag is not None and tag.site_id != sc.site_id:
+            continue
+        out.append({"tag": s.registry.display_name(tag) if tag else None,
+                    "name": r["name"], "kind": r["kind"],
                     "threshold": r["threshold"], "stale_s": r["stale_s"],
                     "deadband": r["deadband"], "severity": r["severity"],
                     "enabled": r["enabled"]})
@@ -870,16 +950,15 @@ async def list_alarm_rules(request: Request,
 
 
 @app.get("/api/tags/{name:path}/latest")
-async def tag_latest(name: str, request: Request,
-                     p: Principal = Depends(require_principal)):
-    tag = st(request).registry.by_v1_name(name)
+async def tag_latest(name: str, request: Request, sc: Scope = Depends(v1_read)):
+    tag = st(request).registry.by_display_name(sc.site_id, name)
     if tag is None:
         raise HTTPException(404, "tag not found or no data yet")
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         row = await tc.fetchrow("SELECT v, q, ts FROM tag_latest WHERE tag_id=$1", tag.id)
     if row is None:
         raise HTTPException(404, "tag not found or no data yet")
-    return {"name": tag.v1_name, "v": finite_or_none(row["v"]), "q": row["q"],
+    return {"name": name, "v": finite_or_none(row["v"]), "q": row["q"],
             "ts": iso_z(row["ts"])}
 
 
@@ -890,9 +969,9 @@ async def tag_history(
     from_: str | None = Query(None, alias="from"),
     to: str | None = Query(None),
     limit: int = Query(500, ge=1, le=5000),
-    p: Principal = Depends(require_principal),
+    sc: Scope = Depends(v1_read),
 ):
-    tag = st(request).registry.by_v1_name(name)
+    tag = st(request).registry.by_display_name(sc.site_id, name)
     if tag is None:
         return []
     try:
@@ -900,7 +979,7 @@ async def tag_history(
         t_to = parse_ts(to) if to else None
     except ValueError:
         raise HTTPException(400, "invalid_request") from None
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         # newest `limit` rows in range, returned oldest→newest (trend seeding)
         rows = await tc.fetch(
             "SELECT v, q, ts FROM (SELECT v, q, ts FROM tag_history WHERE tag_id=$1"
@@ -915,11 +994,11 @@ async def tag_availability(
     request: Request,
     from_: str | None = Query(None, alias="from"),
     to: str | None = Query(None),
-    p: Principal = Depends(require_principal),
+    sc: Scope = Depends(v1_read),
 ):
     """Share of samples with quality 'good' in the window (SLO SLI).
     Only as deep as tag_history retention (HISTORY_MAX_AGE_S)."""
-    tag = st(request).registry.by_v1_name(name)
+    tag = st(request).registry.by_display_name(sc.site_id, name)
     try:
         t_from = parse_ts(from_) if from_ else None
         t_to = parse_ts(to) if to else utcnow()
@@ -929,7 +1008,7 @@ async def tag_availability(
            "samples": 0, "good_frac": None, "uptime": None, "down_s": None}
     if tag is None:
         return out
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         row = await tc.fetchrow(
             "SELECT count(*) AS n, count(*) FILTER (WHERE q='good') AS good,"
             " min(ts) AS first FROM tag_history WHERE tag_id=$1"
@@ -956,13 +1035,13 @@ async def _mutation_gate(request: Request, uid: UUID) -> None:
 
 @app.post("/api/commands", status_code=201)
 async def post_command(body: CommandIn, request: Request,
-                       p: Principal = Depends(require_operator)):
+                       sc: Scope = Depends(v1_operate)):
     s = st(request)
     code, resp = await s.commands.issue(
-        tag=s.registry.by_v1_name(body.tag),   # shim-site resolution only
-        org_id=config.V1_ORG_ID, site_id=config.V1_SITE_ID,
+        tag=s.registry.by_display_name(sc.site_id, body.tag),
+        org_id=sc.org_id, site_id=sc.site_id,
         value=body.value, ttl_s=body.ttl_s,
-        idempotency_key=body.idempotency_key, user_id=p.user_id)
+        idempotency_key=body.idempotency_key, user_id=sc.p.user_id)
     out = JSONResponse(status_code=code, content=resp)
     if code == 429:
         # RFC 6585 — clients back off on the header, not the body
@@ -973,14 +1052,14 @@ async def post_command(body: CommandIn, request: Request,
 @app.get("/api/commands")
 async def list_commands(request: Request, limit: int = Query(50, ge=1, le=500),
                         tag: str | None = None, user: str | None = None,
-                        p: Principal = Depends(require_operator)):
-    async with v1_tx(request) as tc:
-        return await st(request).commands.list(tc, limit, tag, user)
+                        sc: Scope = Depends(v1_operate)):
+    async with org_tx(request, sc.org_id) as tc:
+        return await st(request).commands.list(tc, limit, tag, user, site_id=sc.site_id)
 
 
 @app.get("/api/commands/{cid}")
-async def get_command(cid: str, request: Request, p: Principal = Depends(require_operator)):
-    async with v1_tx(request) as tc:
+async def get_command(cid: str, request: Request, sc: Scope = Depends(v1_operate)):
+    async with org_tx(request, sc.org_id) as tc:
         cmd = await st(request).commands.get(tc, _uuid_or_404(cid, "command"))
     if cmd is None:
         raise HTTPException(404, "command not found")
@@ -991,9 +1070,10 @@ async def get_command(cid: str, request: Request, p: Principal = Depends(require
 async def list_alarms(request: Request, status: str | None = Query(None),
                       severity: str | None = Query(None),
                       limit: int = Query(100, ge=1, le=500),
-                      p: Principal = Depends(require_principal)):
-    async with v1_tx(request) as tc:
-        return await st(request).alarms.list_alarms(tc, status, severity, limit)
+                      sc: Scope = Depends(v1_read)):
+    async with org_tx(request, sc.org_id) as tc:
+        return await st(request).alarms.list_alarms(tc, status, severity, limit,
+                                                    site_id=sc.site_id)
 
 
 @app.get("/api/insights")
@@ -1003,7 +1083,7 @@ async def list_insights(request: Request,
                         tag: str | None = Query(None),
                         from_: str | None = Query(None, alias="from"),
                         to: str | None = Query(None),
-                        p: Principal = Depends(require_principal)):
+                        sc: Scope = Depends(v1_read)):
     """Engine-generated insights (doc 19 §4.3) — additive v1 endpoint.
     Member read, same policy as /api/alarms (anonymous removed, v4 T5)."""
     s = st(request)
@@ -1013,7 +1093,7 @@ async def list_insights(request: Request,
         raise HTTPException(400, "invalid_request")
     tag_id = None
     if tag is not None:
-        t = s.registry.by_v1_name(tag)
+        t = s.registry.by_display_name(sc.site_id, tag)
         if t is None:
             return []
         tag_id = t.id
@@ -1022,18 +1102,19 @@ async def list_insights(request: Request,
         t_to = parse_ts(to) if to else None
     except ValueError:
         raise HTTPException(400, "invalid_request") from None
-    async with v1_tx(request) as tc:
-        return await s.insights.list_insights(tc, state, kind, tag_id, t_from, t_to)
+    async with org_tx(request, sc.org_id) as tc:
+        return await s.insights.list_insights(tc, state, kind, tag_id, t_from, t_to,
+                                            site_id=sc.site_id)
 
 
 @app.post("/api/alarms/{alarm_id}/ack")
 async def ack_alarm(alarm_id: str, request: Request,
-                    p: Principal = Depends(require_authenticated)):
-    uid = p.user_id
+                    sc: Scope = Depends(v1_operate)):
+    uid = sc.p.user_id
     await _mutation_gate(request, uid)
-    async with v1_tx(request, uid) as tc:
+    async with org_tx(request, sc.org_id, uid) as tc:
         alarm = await st(request).alarms.ack(tc, _uuid_or_404(alarm_id, "alarm"), uid,
-                                             f"user:{uid}")
+                                             f"user:{uid}", site_id=sc.site_id)
     if alarm is None:
         raise HTTPException(404, "alarm not found")
     return alarm
