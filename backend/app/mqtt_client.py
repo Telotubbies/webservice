@@ -36,6 +36,11 @@ SUBSCRIPTIONS = (
     "$share/ingest/v2/+/+/+/cfg-req",
     "$share/ingest/v2/+/+/+/cfg-ack",
 )
+# camera frames/health: best-effort (QoS 0), shed first when the ingest queue fills
+VISION_SUBSCRIPTIONS = (
+    "$share/ingest/v2/+/+/+/vision/frame/+",
+    "$share/ingest/v2/+/+/+/vision/stat",
+)
 
 
 def command_topic(org_id, site_id, edge_id, command_id: str) -> str:
@@ -101,6 +106,8 @@ class MQTTBridge:
         if ok:
             for sub in SUBSCRIPTIONS:
                 client.subscribe(sub, qos=1)
+            for sub in VISION_SUBSCRIPTIONS:
+                client.subscribe(sub, qos=0)
             log.info("mqtt connected", extra={"subscribe": ",".join(SUBSCRIPTIONS)})
         else:
             log.warning("mqtt connect refused", extra={"rc": str(reason_code)})
@@ -131,6 +138,9 @@ class MQTTBridge:
             pass  # loop closing
 
     def _enqueue(self, msg) -> None:
+        if "/vision/" in msg.topic and self.queue.qsize() > QUEUE_MAX // 2:
+            self.dropped_msgs += 1      # frames never crowd out telemetry
+            return
         try:
             self.queue.put_nowait(msg)
         except asyncio.QueueFull:

@@ -53,7 +53,10 @@ from .insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
 from .datasources.publisher import CfgPublisher, parse_cfg_req
 from .datasources.routes import router as datasources_router, tags_notify_listener
+from .vision import stream as vision_stream
 from .vision.cameras import router as cameras_router
+from .vision.relay import FrameRelay
+from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
@@ -306,6 +309,7 @@ class State:
                                        cmd_limiter=self.cmd_limiter)
         self.alarms = AlarmEngine(pools, self.ws, self.registry)
         self.cfgpub = CfgPublisher(pools, self.mqtt, self.registry)
+        self.relay = FrameRelay(vision_stream.cameras_lookup(pools))
         self.insights = InsightEngine(pools, self.ws, self.registry)
         self.auth = Security(pools, self.ws)  # v4 T5 — OIDC verify + authz
         self.history_buf: list[tuple] = []
@@ -378,6 +382,10 @@ async def _handle_message(st: State, msg) -> None:
         return await _handle_heartbeat(st, msg, edge)
     if kind in ("cfg-req", "cfg-ack") and len(parts) == 5:
         return await _handle_cfg(st, msg, edge, kind)
+    if kind == "vision" and len(parts) == 7 and parts[5] == "frame":
+        return await vision_stream.handle_frame(st, msg, edge, parts[6])
+    if kind == "vision" and len(parts) == 6 and parts[5] == "stat":
+        return await vision_stream.handle_stat(st, msg, edge)
     if kind == "cmd-resp" and len(parts) == 6:
         return _handle_cmd_resp(st, msg, org_id, edge_id)
     if kind == "tele" and len(parts) >= 6:
@@ -1831,6 +1839,7 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
 app.include_router(datasources_router)
 app.include_router(videos_router)
 app.include_router(cameras_router)
+app.include_router(stream_router)
 
 
 # ---------------------------------------------------------------------------
