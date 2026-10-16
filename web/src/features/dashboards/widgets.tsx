@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { sloStatus } from '../slo/SloPage';
+import { sloStatus, STATUS_GLYPH, STATUS_TILE, STATUS_ORDER, type Status } from '../slo/slo';
 import { sloApi } from '../../lib/api';
 import { useAdminOrg } from '../admin/admin';
 import { useTranslation } from 'react-i18next';
@@ -272,7 +272,9 @@ function SloBody() {
   const n = { breached: 0, warning: 0, ok: 0, nodata: 0 };
   const sliOf = new Map((stat.data?.items ?? []).map((x) => [x.id, x.sli]));
   (defs.data?.items ?? []).forEach((s) => { n[sloStatus(sliOf.get(s.id) ?? null, s.target, s.warning)]++; });
-  return <Counts items={[['breached', '▲', n.breached], ['warning', '◆', n.warning], ['ok', '●', n.ok], ['nodata', '○', n.nodata]].map(([k, g, c]) => ({ label: t(`slos.status.${k}`), glyph: g as string, count: c as number }))} link="/slo" />;
+  return <Counts link="/slos" items={STATUS_ORDER.map((s: Status) => ({
+    label: t(`slos.status.${s}`), glyph: STATUS_GLYPH[s], count: n[s], cls: STATUS_TILE[s].split(' ')[1],
+  }))} />;
 }
 
 /* ---------- monitors — signal feed health: alarming / stale / ok --------- */
@@ -296,12 +298,12 @@ function MonitorsBody() {
   ]} link="/alarms" />;
 }
 
-function Counts({ items, link }: { items: { label: string; glyph: string; count: number }[]; link: string }) {
+function Counts({ items, link }: { items: { label: string; glyph: string; count: number; cls?: string }[]; link: string }) {
   return (
     <Link to={link} className="flex h-full items-center justify-around gap-2 focus-visible:outline-2 focus-visible:outline-blue">
       {items.map((i) => (
         <div key={i.label} className="text-center">
-          <div className="font-mono text-[24px] leading-none">{i.count}</div>
+          <div className={`font-mono text-[24px] leading-none ${i.cls ?? ''}`}>{i.count}</div>
           <div className="mt-1 text-[11px] text-ink-46"><span aria-hidden>{i.glyph}</span> {i.label}</div>
         </div>
       ))}

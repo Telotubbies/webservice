@@ -42,6 +42,7 @@ const AuditPage = lazy(() => import('./features/admin/AuditPage').then((m) => ({
 const ActivityPage = lazy(() => import('./features/notify/ActivityPage').then((m) => ({ default: m.ActivityPage })));
 const ErrorTrackingPage = lazy(() => import('./features/errors/ErrorTrackingPage').then((m) => ({ default: m.ErrorTrackingPage })));
 const SloPage = lazy(() => import('./features/slo/SloPage').then((m) => ({ default: m.SloPage })));
+const SloSettingsPage = lazy(() => import('./features/slo/SloSettingsPage').then((m) => ({ default: m.SloSettingsPage })));
 const DowntimesPage = lazy(() => import('./features/downtimes/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
 const DashboardsPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardsPage })));
 const DashboardViewPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardViewPage })));
@@ -230,6 +231,7 @@ export default function App() {
             <Route path="activity" element={page(ActivityPage)} />
             {enabled('errors') && <Route path="errors" element={page(ErrorTrackingPage)} />}
             <Route path="slos" element={page(SloPage)} />
+            <Route path="slos/settings" element={page(SloSettingsPage)} />
             <Route path="downtimes" element={page(DowntimesPage)} />
             <Route path="dashboards" element={page(DashboardsPage)} />
             <Route path="dashboards/:id" element={page(DashboardViewPage)} />

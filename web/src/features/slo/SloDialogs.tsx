@@ -1,12 +1,14 @@
-// SLO editor and corrections dialogs (admin/owner). Native <dialog>: Esc and
-// backdrop click close, focus is trapped by the browser.
+// SLO editor and corrections UI (admin/owner). Native <dialog>: Esc and
+// backdrop click close, focus is trapped by the browser. CorrectionsBody is
+// shared by the dialog (list page) and the detail panel's Corrections tab.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError, sloApi, type SloDef } from '../../lib/api';
-import { Notice } from '../../shared/ui/Feedback';
+import { Notice, PermissionNotice } from '../../shared/ui/Feedback';
+import { newSloPreset } from './prefs';
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const { t } = useTranslation();
@@ -30,10 +32,11 @@ export function SloEditor({ org, initial, onSaved, onClose }: {
 }) {
   const { t } = useTranslation();
   const tags = useQuery({ queryKey: ['tags'], queryFn: api.tags, staleTime: 60_000 });
+  const preset = initial ? null : newSloPreset();
   const [name, setName] = useState(initial?.name ?? '');
   const [tag, setTag] = useState(initial?.tag ?? '');
-  const [target, setTarget] = useState(String(initial?.target ?? 99.5));
-  const [warning, setWarning] = useState(initial ? String(initial.warning) : '');
+  const [target, setTarget] = useState(String(initial?.target ?? preset?.target ?? 99.5));
+  const [warning, setWarning] = useState(initial ? String(initial.warning) : (preset?.warning != null ? String(preset.warning) : ''));
   const [desc, setDesc] = useState(initial?.description ?? '');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -91,8 +94,10 @@ export function SloEditor({ org, initial, onSaved, onClose }: {
 
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
-export function CorrectionsDialog({ org, slo, onChanged, onClose }: {
-  org: string; slo: SloDef; onChanged: () => void; onClose: () => void;
+/** Correction list + (for admins) the add/remove controls. Rendered inside
+ *  the modal on the list page and as the Corrections tab of the panel. */
+export function CorrectionsBody({ org, slo, admin, onChanged }: {
+  org: string; slo: SloDef; admin: boolean; onChanged: () => void;
 }) {
   const { t } = useTranslation();
   const [from, setFrom] = useState(() => localInput(new Date(Date.now() - 3600e3)));
@@ -109,7 +114,7 @@ export function CorrectionsDialog({ org, slo, onChanged, onClose }: {
   };
 
   return (
-    <Modal title={t('slos.corrections', { name: slo.name })} onClose={onClose}>
+    <div>
       <p className="mb-3 text-[12px] text-ink-68">{t('slos.correctionsHelp')}</p>
       {slo.corrections.length === 0 ? <p className="mb-3 text-[12px] italic text-ink-46">{t('slos.noCorrections')}</p> : (
         <ul className="mb-3 divide-y divide-line rounded border border-line">
@@ -119,30 +124,45 @@ export function CorrectionsDialog({ org, slo, onChanged, onClose }: {
                 <p className="font-medium">{c.reason}</p>
                 <p className="font-mono text-ink-68">{new Date(c.starts_at).toLocaleString()} → {new Date(c.ends_at).toLocaleString()}</p>
               </div>
-              <button type="button" className="grid h-7 w-7 place-items-center rounded text-[var(--color-danger)] hover:bg-subtle" aria-label={t('slos.removeCorrection')}
-                onClick={() => sloApi.deleteCorrection(org, slo.id, c.id).then(onChanged).catch(() => setErr(t('slos.errSave')))}><Trash2 size={14} /></button>
+              {admin && (
+                <button type="button" className="grid h-7 w-7 place-items-center rounded text-[var(--color-danger)] hover:bg-subtle" aria-label={t('slos.removeCorrection')}
+                  onClick={() => sloApi.deleteCorrection(org, slo.id, c.id).then(onChanged).catch(() => setErr(t('slos.errSave')))}><Trash2 size={14} /></button>
+              )}
             </li>
           ))}
         </ul>
       )}
-      <form className="grid gap-3" noValidate onSubmit={(e) => { e.preventDefault(); add(); }}>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="field">
-            <label className="field-label" htmlFor="cor-from">{t('slos.cFrom')}</label>
-            <input id="cor-from" className="input h-8" type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
+      {admin ? (
+        <form className="grid gap-3" noValidate onSubmit={(e) => { e.preventDefault(); add(); }}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="field">
+              <label className="field-label" htmlFor="cor-from">{t('slos.cFrom')}</label>
+              <input id="cor-from" className="input h-8" type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="cor-to">{t('slos.cTo')}</label>
+              <input id="cor-to" className="input h-8" type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
           </div>
           <div className="field">
-            <label className="field-label" htmlFor="cor-to">{t('slos.cTo')}</label>
-            <input id="cor-to" className="input h-8" type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
+            <label className="field-label" htmlFor="cor-reason">{t('slos.cReason')}</label>
+            <input id="cor-reason" className="input h-8" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} placeholder={t('slos.cReasonPh')} />
           </div>
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="cor-reason">{t('slos.cReason')}</label>
-          <input id="cor-reason" className="input h-8" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} placeholder={t('slos.cReasonPh')} />
-        </div>
-        {err && <Notice tone="error">{err}</Notice>}
-        <div className="flex justify-end"><button type="submit" className="btn">{t('slos.addCorrection')}</button></div>
-      </form>
+          {err && <Notice tone="error">{err}</Notice>}
+          <div className="flex justify-end"><button type="submit" className="btn">{t('slos.addCorrection')}</button></div>
+        </form>
+      ) : <PermissionNotice role="admin" />}
+    </div>
+  );
+}
+
+export function CorrectionsDialog({ org, slo, onChanged, onClose }: {
+  org: string; slo: SloDef; onChanged: () => void; onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Modal title={t('slos.corrections', { name: slo.name })} onClose={onClose}>
+      <CorrectionsBody org={org} slo={slo} admin onChanged={onChanged} />
     </Modal>
   );
 }
