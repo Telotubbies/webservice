@@ -118,7 +118,8 @@ export function AlarmsPage() {
   useStore(() => live.seedRev);
   const seeded = live.alarmsSeeded;
   const seedError = live.seedError;
-  const [q, setQ] = useState('');
+  const [params, setParams] = useSearchParams();
+  const [q, setQ] = useState(() => params.get('q') ?? '');
   const [state, setState] = useState<StateFilter>('active');
   const [win, setWin] = useState<Bucket | null>(null);
 
@@ -188,7 +189,6 @@ export function AlarmsPage() {
   const ws = useStore(() => live.ws);
 
   // F03 flood grouping — `?group=state|rule|eq`, deep-linkable, default state
-  const [params, setParams] = useSearchParams();
   const groupParam = params.get('group') as GroupBy | null;
   const groupBy: GroupBy = groupParam && GROUP_BY.includes(groupParam) ? groupParam : 'state';
   const setGroupBy = (g: GroupBy) => setParams((p) => { const n = new URLSearchParams(p); n.set('group', g); return n; }, { replace: true });

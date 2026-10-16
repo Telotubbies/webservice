@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, ChartBar, ChartColumn, ChartLine, CircleGauge, Activity, Gauge, GitCompareArrows, Hash, ListOrdered, PieChart, SquareActivity, StickyNote, Table2, TrendingUp, X, type LucideIcon } from 'lucide-react';
+import { Bell, ChartBar, LayoutGrid, Heading, ChartColumn, ChartLine, CircleGauge, Activity, Gauge, GitCompareArrows, Hash, ListOrdered, PieChart, SquareActivity, StickyNote, Table2, TrendingUp, X, type LucideIcon } from 'lucide-react';
 import { api } from '../../lib/api';
 import { SIGNALS } from '../../lib/plant';
 import { WidgetBody, seriesColor } from './widgets';
@@ -26,6 +26,8 @@ const KINDS: { kind: VizKind; icon: LucideIcon }[] = [
   { kind: 'change', icon: GitCompareArrows },
   { kind: 'slo', icon: Gauge },
   { kind: 'monitors', icon: Activity },
+  { kind: 'treemap', icon: LayoutGrid },
+  { kind: 'group', icon: Heading },
   { kind: 'note', icon: StickyNote },
 ];
 const MAX_SERIES = SERIES_COLORS.length;
@@ -34,7 +36,7 @@ const SINGLE: VizKind[] = ['change', 'value', 'stat', 'gauge', 'stateline', 'his
 /** kinds fed by 1..N tags → checkbox pick */
 const MULTI: VizKind[] = ['timeseries', 'bargauge', 'table'];
 /** kinds that group the open-alarm set */
-const ALARM_GROUPS: VizKind[] = ['toplist', 'pie'];
+const ALARM_GROUPS: VizKind[] = ['toplist', 'pie', 'treemap'];
 const HAS_THRESHOLDS: VizKind[] = ['value', 'stat', 'gauge', 'bargauge', 'stateline'];
 const HAS_RANGE: VizKind[] = ['gauge', 'bargauge', 'timeseries'];
 
@@ -198,6 +200,12 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
                   )}
                 </div>
               )}
+              {w.kind === 'value' && (
+                <label className="mt-3 flex items-center gap-2 text-[13px]">
+                  <input type="checkbox" checked={!!w.fill} onChange={(e) => set({ fill: e.target.checked })} />
+                  {t('dash.fillTile')}
+                </label>
+              )}
               {err('thresholds')}
               {HAS_RANGE.includes(w.kind) && (
                 <div className="mt-3 grid grid-cols-3 gap-3">
@@ -282,6 +290,7 @@ export function autoTitle(w: Widget): string {
   if (w.kind === 'slo') return 'SLO summary';
   if (w.kind === 'monitors') return 'Monitor summary';
   if (w.kind === 'table') return 'Latest values';
-  if (w.kind === 'toplist' || w.kind === 'pie') return `Alarms by ${w.groupBy}`;
+  if (w.kind === 'toplist' || w.kind === 'pie' || w.kind === 'treemap') return `Alarms by ${w.groupBy}`;
+  if (w.kind === 'group') return 'Group';
   return w.tags.map((x) => x.split('.').slice(-2).join('.')).join(', ') || 'New widget';
 }

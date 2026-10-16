@@ -66,7 +66,12 @@ const TracesPage = lazy(() => import('./features/traces/TracesPage').then((m) =>
 const QueryPage = lazy(() => import('./features/query/QueryPage').then((m) => ({ default: m.QueryPage })));
 const ProcessesPage = lazy(() => import('./features/processes/ProcessesPage').then((m) => ({ default: m.ProcessesPage })));
 const SyntheticsPage = lazy(() => import('./features/synthetics/SyntheticsPage').then((m) => ({ default: m.SyntheticsPage })));
+const MonitorsPage = lazy(() => import('./features/monitors/MonitorsPage').then((m) => ({ default: m.MonitorsPage })));
 const SecurityPage = lazy(() => import('./features/security/SecurityPage').then((m) => ({ default: m.SecurityPage })));
+const SecurityIssuesPage = lazy(() => import('./features/security/IssuesPage').then((m) => ({ default: m.IssuesPage })));
+const SecurityFindingsPage = lazy(() => import('./features/security/FindingsPage').then((m) => ({ default: m.FindingsPage })));
+const SecurityApiPage = lazy(() => import('./features/security/ApiProtectionPage').then((m) => ({ default: m.ApiProtectionPage })));
+const SecurityAccessPage = lazy(() => import('./features/security/AccessPage').then((m) => ({ default: m.AccessPage })));
 const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then((m) => ({ default: m.SessionsPage })));
 const MetricsSummaryPage = lazy(() => import('./features/metrics/MetricsSummaryPage').then((m) => ({ default: m.MetricsSummaryPage })));
 const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })));
@@ -206,6 +211,7 @@ export default function App() {
             <Route index element={<RouteBoundary><OverviewPage /></RouteBoundary>} />
             <Route path="line" element={page(LinePage)} />
             <Route path="line3d" element={page(Line3DPage)} />
+            <Route path="monitors" element={page(MonitorsPage)} />
             <Route path="alarms" element={page(AlarmsPage)} />
             <Route path="alarms/:id" element={page(AlarmDetailPage)} />
             <Route path="trends" element={page(TrendsPage)} />
@@ -253,6 +259,10 @@ export default function App() {
             {enabled('processes') && <Route path="processes" element={page(ProcessesPage)} />}
             {enabled('synthetics') && <Route path="synthetics" element={page(SyntheticsPage)} />}
             <Route path="security" element={page(SecurityPage)} />
+            <Route path="security/issues" element={page(SecurityIssuesPage)} />
+            <Route path="security/findings" element={page(SecurityFindingsPage)} />
+            <Route path="security/api" element={page(SecurityApiPage)} />
+            <Route path="security/access" element={page(SecurityAccessPage)} />
             {enabled('sessions') && <Route path="sessions" element={page(SessionsPage)} />}
             <Route path="metrics" element={page(MetricsSummaryPage)} />
             {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}

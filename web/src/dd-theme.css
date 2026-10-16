@@ -19,6 +19,7 @@
   /* ---- dark chrome (rail + topbar) ---- */
   --color-rail:       #292e39;                /* sidebar bg */
   --color-topbar:     #292e39;                /* global top bar — same chrome tone (measured) */
+  --color-flyout:     #15171e;                /* mega-menu panel + its open rail row (one connected tab) */
   --color-rail-hover: #3b393d;                /* dark surface raised */
   --color-rail-line:  #65626a;                /* dark button border */
   --color-nav-text:   rgb(255 255 255 / 0.76);/* nav label */

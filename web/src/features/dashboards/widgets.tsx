@@ -62,6 +62,8 @@ export function WidgetBody({ w, range }: { w: Widget; range: RangeKey }) {
     case 'change': return <ChangeBody w={w} minutes={minutes} />;
     case 'slo': return <SloBody />;
     case 'monitors': return <MonitorsBody />;
+    case 'treemap': return <TreemapBody w={w} />;
+    case 'group': return null; // header bar only — drawn by the board
     // react-markdown drops raw HTML, so a shared note can't inject markup
     case 'note': return <div className="h-full overflow-auto text-[13px] leading-5 text-ink [&_a]:text-blue [&_code]:font-mono [&_h1]:text-[16px] [&_h1]:font-semibold [&_h2]:text-[14px] [&_h2]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_p]:my-1 [&_pre]:overflow-x-auto [&_pre]:bg-subtle [&_pre]:p-2"><Markdown>{w.note}</Markdown></div>;
   }
@@ -95,6 +97,12 @@ const LEVEL_STYLE: Record<Level, string> = {
   ok: '',
 };
 
+const FILL_STYLE: Record<Level, string> = {
+  ok: 'bg-[var(--color-ok)] text-white',
+  warn: 'bg-[var(--color-warn)] text-[#2b1d00]',
+  crit: 'bg-[var(--color-danger-bright)] text-white',
+};
+
 function ValueBody({ w, minutes }: { w: Widget; minutes: number }) {
   const { t, i18n } = useTranslation();
   const now = useNow();
@@ -115,6 +123,18 @@ function ValueBody({ w, minutes }: { w: Widget; minutes: number }) {
   const lvl = levelOf(v, w);
   const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
   const unit = unitOfWidget(w);
+  if (w.fill) {
+    // solid tile: the threshold colour is the background (dd conditional format)
+    return (
+      <div className={`flex h-full flex-col items-center justify-center rounded text-center ${FILL_STYLE[lvl]}`}>
+        <span className={`font-mono text-[clamp(32px,5vw,60px)] font-bold leading-none tabular-nums ${stale ? 'opacity-60' : ''}`}>{fmtNum(v, w.decimals, i18n.language)}</span>
+        <span className="mt-1 text-[clamp(13px,1.6vw,20px)]">{unit}</span>
+        {(lvl !== 'ok' || stale) && (
+          <span className="mt-1 text-[11px] font-semibold">{stale ? t('viz.staleFor', { age: tv ? fmtAge(tv.ts, now) : '—' }) : lvl === 'crit' ? `▲ ${t('alarms.critical')}` : `◆ ${t('alarms.warning')}`}</span>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={`flex h-full flex-col justify-center rounded px-2 ${LEVEL_STYLE[lvl]}`}>
       <div className="flex items-baseline gap-1.5">
@@ -444,6 +464,16 @@ function StateLineBody({ w, minutes }: { w: Widget; minutes: number }) {
 }
 
 /* ---------- histogram — value distribution over the window (Grafana hist) - */
+function quantile(sorted: number[], q: number) {
+  if (!sorted.length) return 0;
+  const i = (sorted.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+}
+const PCTS: [string, number][] = [['p50', 0.5], ['p75', 0.75], ['p90', 0.9], ['p95', 0.95], ['p99', 0.99]];
+
+/** Distribution of the signal over the window with dashed percentile markers
+ *  and a stats column (dd "time saved distribution"). The column hides on
+ *  narrow tiles so a 4-wide widget stays a plain histogram. */
 function HistogramBody({ w, minutes }: { w: Widget; minutes: number }) {
   const { t, i18n } = useTranslation();
   const tag = w.tags[0];
@@ -454,24 +484,118 @@ function HistogramBody({ w, minutes }: { w: Widget; minutes: number }) {
   if (hist.isError) return <ErrorState onRetry={hist.refetch} />;
   const vals = (hist.series[0]?.pts ?? []).map((p) => (w.unit ? p.v : displayNumber(tag, p.v)));
   if (!vals.length) return <EmptyState title={t('viz.noData')} />;
-  const [lo, hi] = rangeOf(w, tag);
-  const BINS = 12;
+  // author range wins; otherwise fit the data so a signal that lives in a narrow
+  // band of its full scale still fills the plot
+  const dMin = Math.min(...vals), dMax = Math.max(...vals);
+  const pad = (dMax - dMin || Math.abs(dMax) || 1) * 0.05;
+  const [lo, hi] = w.yMin != null || w.yMax != null ? rangeOf(w, tag) : [dMin - pad, dMax + pad];
+  const wide = w.w >= 5;
+  const BINS = wide ? 24 : 12;
   const bins = Array(BINS).fill(0) as number[];
   for (const x of vals) bins[Math.min(BINS - 1, Math.max(0, Math.floor(((x - lo) / (hi - lo)) * BINS)))]++;
   const max = Math.max(...bins, 1);
+  const sorted = [...vals].sort((a, b) => a - b);
+  const stats = [...PCTS.map(([k, q]) => [k, quantile(sorted, q)] as const), ['max', sorted[sorted.length - 1]] as const].reverse();
+  const at = (x: number) => `${Math.max(0, Math.min(100, ((x - lo) / (hi - lo)) * 100))}%`;
+  const fmt = (x: number) => fmtNum(x, w.decimals, i18n.language);
+  return (
+    <div className="flex h-full gap-3">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1 items-end gap-px border-b border-line">
+          {wide && PCTS.filter(([k]) => k !== 'p99' && k !== 'p95').map(([k, q]) => (
+            <span key={k} className="pointer-events-none absolute inset-y-0 border-l border-dashed border-ink-35" style={{ left: at(quantile(sorted, q)) }}>
+              <span className="absolute -top-0.5 left-1 text-[10px] text-ink-46">{k}</span>
+            </span>
+          ))}
+          {bins.map((n, i) => (
+            <div key={i} className="flex-1 bg-[var(--color-blue)] opacity-90"
+              style={{ height: `${(n / max) * 100}%`, minHeight: n ? 2 : 0 }}
+              title={`${fmt(lo + (i / BINS) * (hi - lo))}–${fmt(lo + ((i + 1) / BINS) * (hi - lo))}: ${n}`} />
+          ))}
+        </div>
+        <div className="mt-1 flex justify-between text-[10px] text-ink-46">
+          <span className="font-mono">{fmtNum(lo, w.decimals, 'en')}</span>
+          <span>{unitOfWidget(w)}</span>
+          <span className="font-mono">{fmtNum(hi, w.decimals, 'en')}</span>
+        </div>
+      </div>
+      {wide && (
+        <dl className="w-40 shrink-0 self-stretch overflow-auto border-l border-line pl-3 text-[12px]">
+          <dt className="mb-1 text-ink-68">{t('dash.samples', { count: vals.length })}</dt>
+          {stats.map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-2 py-0.5">
+              <dt className="text-ink-68">{k}</dt>
+              <dd className="font-mono tabular-nums">{fmt(v)} <span className="text-[11px] text-ink-46">{unitOfWidget(w)}</span></dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/* ---------- treemap — alarm volume by group, area = count (dd treemap) ------ */
+interface Cell { k: string; n: number; x: number; y: number; w: number; h: number }
+/** Squarified treemap (Bruls et al.) over a 100×100 box. */
+function squarify(items: [string, number][]): Cell[] {
+  const total = items.reduce((s, [, n]) => s + n, 0);
+  const out: Cell[] = [];
+  let box = { x: 0, y: 0, w: 100, h: 100 };
+  let rest = items.map(([k, n]) => ({ k, n, a: (n / total) * 100 * 100 }));
+  const worst = (row: typeof rest, side: number) => {
+    const s = row.reduce((t, r) => t + r.a, 0);
+    const mx = Math.max(...row.map((r) => r.a)), mn = Math.min(...row.map((r) => r.a));
+    return Math.max((side * side * mx) / (s * s), (s * s) / (side * side * mn));
+  };
+  while (rest.length) {
+    const side = Math.min(box.w, box.h);
+    let row = [rest[0]];
+    let i = 1;
+    while (i < rest.length && worst([...row, rest[i]], side) <= worst(row, side)) row = [...row, rest[i++]];
+    const s = row.reduce((t, r) => t + r.a, 0);
+    const horiz = box.w >= box.h; // lay the row along the short side
+    const thick = s / side;
+    let off = 0;
+    for (const r of row) {
+      const len = r.a / thick;
+      out.push(horiz ? { k: r.k, n: r.n, x: box.x, y: box.y + off, w: thick, h: len } : { k: r.k, n: r.n, x: box.x + off, y: box.y, w: len, h: thick });
+      off += len;
+    }
+    box = horiz ? { x: box.x + thick, y: box.y, w: box.w - thick, h: box.h } : { x: box.x, y: box.y + thick, w: box.w, h: box.h - thick };
+    rest = rest.slice(row.length);
+  }
+  return out;
+}
+const TREEMAP_FILLS = ['#00bdfd', '#d68cd9', '#fcd23a', '#2fc9a3', '#f2707e', '#17d0e8', '#a490ee'];
+
+function TreemapBody({ w }: { w: Widget }) {
+  const { t } = useTranslation();
+  const { all } = useAlarms();
+  const items = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of all) {
+      const k = w.groupBy === 'rule' ? a.rule : w.groupBy === 'severity' ? normSeverity(a.severity) : short(a.tag);
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  }, [all, w.groupBy]);
+  if (!items.length) return <EmptyState title={t('alarms.empty')} />;
+  const total = items.reduce((s, [, n]) => s + n, 0);
+  const cells = squarify(items);
   return (
     <div className="flex h-full flex-col">
-      <div className="flex min-h-0 flex-1 items-end gap-1">
-        {bins.map((n, i) => (
-          <div key={i} className="flex-1 rounded-t-sm bg-[var(--color-blue)] opacity-85"
-            style={{ height: `${(n / max) * 100}%`, minHeight: n ? 3 : 0 }}
-            title={`${fmtNum(lo + (i / BINS) * (hi - lo), w.decimals, i18n.language)}–${fmtNum(lo + ((i + 1) / BINS) * (hi - lo), w.decimals, i18n.language)}: ${n}`} />
+      <div className="mb-1 flex justify-between text-[12px]"><span className="font-semibold">{t('dash.total')}</span><span className="font-mono">{total}</span></div>
+      <div className="relative min-h-0 flex-1">
+        {cells.map((c, i) => (
+          <div
+            key={c.k} title={`${c.k}: ${c.n}`}
+            className="absolute overflow-hidden p-1 text-center text-[11px] leading-tight text-[#0b1b2b]"
+            style={{ left: `${c.x}%`, top: `${c.y}%`, width: `${c.w}%`, height: `${c.h}%`, background: TREEMAP_FILLS[i % TREEMAP_FILLS.length], outline: '1px solid #fff', outlineOffset: -1 }}
+          >
+            <span className="block truncate">{w.groupBy === 'severity' ? t(`alarms.${c.k}`) : c.k}</span>
+            <span className="block font-mono font-semibold">{c.n}</span>
+          </div>
         ))}
-      </div>
-      <div className="mt-1 flex justify-between text-[10px] text-ink-46">
-        <span className="font-mono">{fmtNum(lo, w.decimals, 'en')}</span>
-        <span>{unitOfWidget(w)}</span>
-        <span className="font-mono">{fmtNum(hi, w.decimals, 'en')}</span>
       </div>
     </div>
   );

@@ -353,7 +353,7 @@ function FlyoutAction({ action, onNavigate }: { action: { to: string; key: strin
       to={action.to} onClick={onNavigate}
       className="group/act relative -ml-px flex h-[30px] items-center border-l border-transparent pl-3.5 pr-2 text-[14px] text-white/70 outline-none motion-safe:transition-colors hover:bg-white/[0.06] hover:text-nav-flyout-hi focus-visible:bg-white/[0.06] focus-visible:text-nav-flyout-hi"
     >
-      <DdIcon name="plus" size={11} aria-hidden className="absolute -left-[6px] top-1/2 -translate-y-1/2 bg-[#3a3f49] py-px text-[#1e90ff]" />
+      <DdIcon name="plus" size={11} aria-hidden className="absolute -left-[6px] top-1/2 -translate-y-1/2 bg-flyout py-px text-[#1e90ff]" />
       <span className="truncate">{t(action.key)}</span>
     </Link>
   );
@@ -411,7 +411,8 @@ function SideRow({ group, openId, setOpenId }: {
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const open_ = (e: React.SyntheticEvent) => {
     const r = e.currentTarget.getBoundingClientRect();
-    setAnchor({ x: r.right, y: r.top });
+    const rail = e.currentTarget.closest('nav')?.getBoundingClientRect();
+    setAnchor({ x: rail ? rail.right : r.right, y: r.top });
     /* y = row top, so the panel's top edge lines up with the highlighted row;
        the layout effect below clamps it by the panel's *measured* height */
     setOpenId(group.group);
@@ -430,7 +431,7 @@ function SideRow({ group, openId, setOpenId }: {
     <div className="relative" onMouseEnter={open_} onMouseLeave={close}>
       <button
         className={`flex min-h-[31px] w-full items-center gap-2 px-2.5 py-1 text-left text-[13px] leading-[15px] transition-colors ${
-          open ? 'relative z-[51] bg-white/10 text-white' : active ? 'bg-white/10 text-white' :'text-nav-dim hover:bg-nav-hover hover:text-white'
+          open ? 'relative z-[51] bg-flyout text-white' : active ? 'bg-white/10 text-white' :'text-nav-dim hover:bg-nav-hover hover:text-white'
         } ${active ? 'font-semibold shadow-[inset_3px_0_0_var(--color-blue-nav)]' : ''}`}
         /* inset bar marks the group of the current page — "where am I" at a glance */
         aria-current={active ? 'true' : undefined}
@@ -450,10 +451,19 @@ function SideRow({ group, openId, setOpenId }: {
       {open && anchor && (
         /* flush against the row (no gap) and the same colour as the open row,
            so row + panel read as one connected tab */
-        <div ref={panelRef} className="fixed z-50" style={{ left: anchor.x - 1, top: anchor.y }}>
-          <div className="flyout-in w-[400px] rounded-r-md border border-l-0 border-white/10 bg-topbar bg-[linear-gradient(rgb(255_255_255/0.1),rgb(255_255_255/0.1))] pb-2 shadow-flyout">
+        <div ref={panelRef} className="fixed z-50" style={{ left: anchor.x, top: anchor.y }}>
+          <div className="flyout-in w-[400px] rounded-r-md border border-l-0 border-white/10 bg-flyout pb-2 shadow-flyout">
             {/* group title — larger than the rail label so the panel reads as its own surface */}
-            <p className="px-4 pb-1 pt-3 text-[17px] font-bold leading-6 text-white">{t(group.group)}</p>
+            {/* the title is the group's own landing page: lights blue with an arrow on hover/focus (dd "Monitors →") */}
+            <div className="px-2 pt-2">
+              <NavLink
+                to={group.href ?? group.items[0]?.to ?? '/'} onClick={() => setOpenId(null)}
+                className="group/title flex h-9 items-center gap-2 rounded px-2 text-[17px] font-bold leading-6 text-white outline-none motion-safe:transition-colors hover:bg-nav-action focus-visible:bg-nav-action"
+              >
+                {t(group.group)}
+                <DdIcon name="arrow-right" size={15} className="opacity-0 motion-safe:transition-opacity group-hover/title:opacity-100 group-focus-visible/title:opacity-100" />
+              </NavLink>
+            </div>
             {flat ? (
               /* ≥4 flat items → two guide-lined columns like dd's wide sections */
               <div className="flex gap-5 px-4 pb-1 pt-1">
@@ -503,7 +513,7 @@ export function Shell() {
       {/* sidebar — full height, expanded ~168px dark rail (measured layout:
           logo header inside the rail, icon+label rows, footer icons).
           Below md the rail hides and nav opens as a slide-over drawer. */}
-      <nav className="side-nav chrome fixed bottom-0 left-0 top-0 z-30 hidden w-40 flex-col bg-rail px-1.5 md:flex" aria-label={t('ui.mainNav')}>
+      <nav className="side-nav chrome fixed bottom-0 left-0 top-0 z-30 hidden w-40 flex-col bg-rail pl-1.5 md:flex" aria-label={t('ui.mainNav')}>
         <NavLink to="/" className="flex h-16 items-center gap-2 px-1.5 text-white">
           <span className="brand-mark" style={{ width: 30, height: 30 }}>
             <img src="/logo-192.png" alt="" />

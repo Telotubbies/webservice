@@ -1,146 +1,153 @@
-// Org security (Phase 4 "Security — repurpose"): the owner-facing security
-// surface — sign-in/auth events from the org audit log, API key usage
-// (last_used_at / expiry / revocation), member access state, and edge
-// credentials due for rotation. Admin+ only where the backend requires
-// audit:read / member:manage; everyone else sees the explainer, not a 403.
-//
-// Schema note: `users` carries no per-user MFA flag today — MFA is enforced
-// at the IdP, so the member table shows sign-in method instead of a fake
-// toggle (px.security.mfaIdp).
+// Security overview (dd Cloud Security › Overview): posture score, the three
+// worst high-severity rules, a severity breakdown, then one collapsible
+// section per control family listing each rule with its passed resources.
+// All numbers are computed from real org data (see posture.ts).
 
+import { useState } from 'react';
+import { NavLink, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
-import { adminApi } from '../../lib/api';
-import { canAdmin, useRole } from '../../app/session';
-import { useAdminOrg } from '../admin/admin';
-import { useEdgeFleet } from '../health/fleet';
+import { PageBar } from '../../shared/ui/Page';
+import { DdIcon } from '../../shared/ui/DdIcon';
 import { EmptyState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
-import { ProductHeader } from '../../shared/ui/Product';
-import { HelpLink } from '../onboarding/HelpLink';
-import '../onboarding/i18n';
-import '../misc/i18n';
+import { RULE_SEVERITIES, usePosture, type RuleSeverity, type SecRule } from './posture';
+import { SEV_BAR, SevChip, useSecurityTabs } from './ui';
+import './i18n';
 
-const AUTH_EVENTS = /^(auth|session|invite\.accepted|member\.)/;
-const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : '—');
+const CONTROLS: SecRule['control'][] = ['access', 'credentials', 'edge', 'monitoring'];
+
+function scoreTone(p: number) {
+  return p >= 80 ? 'text-[#1c7a4f]' : p >= 50 ? 'text-[#b86e00]' : 'text-[#c6283c]';
+}
+const Mark = ({ ok }: { ok: boolean }) => (
+  <span aria-label={ok ? 'pass' : 'fail'} className={`inline-grid h-5 w-5 shrink-0 place-items-center rounded-full text-white ${ok ? 'bg-[#1c9a67]' : 'bg-[#e5304f]'}`}>
+    <DdIcon name={ok ? 'check' : 'cancel'} size={11} />
+  </span>
+);
 
 export function SecurityPage() {
   const { t } = useTranslation();
-  const admin = canAdmin(useRole());
-  const { orgId } = useAdminOrg();
-  const fleet = useEdgeFleet();
-  const audit = useQuery({ queryKey: ['security-audit', orgId], queryFn: () => adminApi.audit(orgId!, { limit: 200 }), enabled: !!orgId && admin });
-  const keys = useQuery({ queryKey: ['security-keys', orgId], queryFn: () => adminApi.apiKeys(orgId!), enabled: !!orgId && admin });
-  const members = useQuery({ queryKey: ['security-members', orgId], queryFn: () => adminApi.members(orgId!), enabled: !!orgId && admin });
-  const due = fleet.edges.filter((e) => e.needsRotation);
-  const signins = (audit.data?.items ?? []).filter((a) => AUTH_EVENTS.test(a.action)).slice(0, 50);
-  const apiKeys = keys.data?.items ?? [];
-  const memberRows = members.data?.items ?? [];
+  const navigate = useNavigate();
+  const tabs = useSecurityTabs();
+  const p = usePosture();
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  const maxFail = Math.max(1, ...p.topFailures.map((r) => r.failed.length));
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="security-monitoring" title={t('px.security.title')} />
+    <>
+      <PageBar icon="security-monitoring" title={t('sec.title')} tabs={tabs} />
       <div className="space-y-4 p-4">
-        <section>
-          <h2 className="mb-2 text-[13px] font-semibold">{t('px.security.rotation')}</h2>
-          {fleet.loading ? <SkeletonRows rows={2} /> : due.length === 0 ? <Notice tone="ok">{t('px.security.noRotation')}</Notice> : (
-            <ul className="rounded-[5px] border border-line bg-white text-[13px]">
-              {due.map((e) => <li key={e.id} className="border-b border-line px-3 py-2 last:border-0"><span aria-hidden className="text-[var(--color-caution-ink)]">◆ </span>{e.name}</li>)}
-            </ul>
-          )}
-        </section>
-        {!admin ? (
-          <Notice>{t('px.needAdmin')}</Notice>
+        {!p.admin && <Notice>{t('sec.needAdmin')}</Notice>}
+        {p.loading ? <SkeletonRows rows={5} h={36} /> : p.rules.length === 0 ? (
+          <EmptyState title={t('sec.empty')} icon="shield" />
         ) : (
           <>
-            <section>
-              <h2 className="mb-2 text-[13px] font-semibold">{t('px.security.signins')}</h2>
-              {audit.isLoading ? <SkeletonRows /> : signins.length === 0 ? (
-                <EmptyState title={t('px.security.noSignins')} icon="search" action={<HelpLink doc="invite" />} />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]">
-                    <thead>
-                      <tr className="border-b border-line text-left">
-                        {['colWhen', 'colActor', 'colAction'].map((c) => (
-                          <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t(`px.security.${c}`)}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {signins.map((a) => (
-                        <tr key={a.seq} className="h-9 border-b border-line last:border-0">
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(a.at)}</td>
-                          <td className="px-3 font-mono text-[12px] text-ink-68">{a.actor}</td>
-                          <td className="px-3">{a.action}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            <section className="grid gap-6 rounded-[5px] border border-line bg-white p-4 shadow-card lg:grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)_minmax(0,2fr)]">
+              <div>
+                <p className="text-[13px] font-semibold text-ink-68">{t('sec.frameworkRef')}</p>
+                <div className="mt-2 flex items-center gap-4">
+                  <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-blue text-white"><DdIcon name="security-monitoring" size={26} /></span>
+                  <div>
+                    <p className="text-[13px] font-semibold">{t('sec.score')}</p>
+                    <p className={`font-mono text-[44px] font-bold leading-none tabular-nums ${scoreTone(p.score ?? 0)}`}>{p.score}<span className="text-[22px]">%</span></p>
+                  </div>
                 </div>
-              )}
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-[14px] font-semibold">{t('sec.topFailures')}</h2>
+                {p.topFailures.length === 0 ? <p className="mt-3 text-[13px] text-ink-68">{t('sec.allPass')}</p> : (
+                  <ul className="mt-2 space-y-1.5">
+                    {p.topFailures.map((r) => (
+                      <li key={r.id} className="flex items-center gap-2 text-[13px]">
+                        <span className="w-8 shrink-0 text-right font-mono tabular-nums">{r.failed.length}</span>
+                        <span className="relative min-w-0 flex-1 overflow-hidden rounded-[3px] px-2 py-0.5">
+                          <span aria-hidden className={`absolute inset-y-0 left-0 ${SEV_BAR[r.severity]}`} style={{ width: `${(r.failed.length / maxFail) * 100}%` }} />
+                          <span className="relative block truncate">{t(`sec.rules.${r.title}`)}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <NavLink to="/security/issues" className="mt-3 inline-flex items-center gap-1 text-[13px] text-blue hover:underline">{t('sec.explore')} <DdIcon name="external-link" size={12} /></NavLink>
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-[14px] font-semibold">{t('sec.breakdown')}</h2>
+                <ul className="mt-2 grid grid-cols-5 gap-1.5 text-center">
+                  {RULE_SEVERITIES.map((s: RuleSeverity) => {
+                    const b = p.bySeverity[s];
+                    const pct = b.total ? Math.round((b.passed / b.total) * 100) : null;
+                    return (
+                      <li key={s} className="min-w-0">
+                        <SevChip severity={s} className="w-full" />
+                        <p className="mt-1.5 flex items-center justify-center gap-1 text-[13px]">
+                          {pct != null ? <><Mark ok={pct === 100} />{pct}%</> : '—'}
+                        </p>
+                        <p className="font-mono text-[12px] text-ink-46">{b.passed}/{b.total}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             </section>
-            <section>
-              <h2 className="mb-2 text-[13px] font-semibold">{t('px.security.apiKeys')}</h2>
-              {keys.isLoading ? <SkeletonRows /> : apiKeys.length === 0 ? (
-                <EmptyState title={t('px.security.noKeys')} icon="check" />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]">
-                    <thead>
-                      <tr className="border-b border-line text-left">
-                        {['colName', 'colPrefix', 'colLastUsed', 'colExpires', 'colState'].map((c) => (
-                          <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t(`px.security.${c}`)}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {apiKeys.map((k) => (
-                        <tr key={k.id} className="h-9 border-b border-line last:border-0">
-                          <td className="px-3">{k.name}</td>
-                          <td className="px-3 font-mono text-[12px] text-ink-68">{k.prefix}…</td>
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(k.last_used_at)}</td>
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(k.expires_at)}</td>
-                          <td className="px-3 text-[12px]">{k.revoked_at ? t('px.security.revoked') : t('px.security.active')}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-            <section>
-              <h2 className="mb-2 text-[13px] font-semibold">{t('px.security.members')}</h2>
-              {members.isLoading ? <SkeletonRows /> : memberRows.length === 0 ? (
-                <EmptyState title={t('px.security.noMembers')} icon="check" />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]">
-                    <thead>
-                      <tr className="border-b border-line text-left">
-                        {['colMember', 'colRole', 'colKind', 'colMfa'].map((c) => (
-                          <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t(`px.security.${c}`)}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {memberRows.map((m) => (
-                        <tr key={m.user_id} className="h-9 border-b border-line last:border-0">
-                          <td className="px-3">{m.display_name ?? m.email ?? m.sub}
-                            {m.disabled && <span className="ml-2 text-[11px] text-[var(--color-danger)]">{t('px.security.disabled')}</span>}
-                          </td>
-                          <td className="px-3 text-[12px]">{t(`roles.${m.role}`, { defaultValue: m.role })}</td>
-                          <td className="px-3 text-[12px]">{m.sub.startsWith('dev:') || m.sub.startsWith('svc:') ? t('px.security.kindKey') : t('px.security.kindSso')}</td>
-                          <td className="px-3 text-[12px] text-ink-68">{m.sub.startsWith('dev:') || m.sub.startsWith('svc:') ? '—' : t('px.security.mfaIdp')}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
+
+            {CONTROLS.map((c) => {
+              const rules = p.rules.filter((r) => r.control === c);
+              if (!rules.length) return null;
+              const passed = rules.filter((r) => r.failed.length === 0).length;
+              const pct = Math.round((passed / rules.length) * 100);
+              const open = !closed.has(c);
+              return (
+                <section key={c} className="rounded-[5px] border border-line bg-white shadow-card">
+                  <button
+                    type="button" aria-expanded={open}
+                    className="flex min-h-12 w-full items-center gap-2 px-4 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue"
+                    onClick={() => setClosed((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n; })}
+                  >
+                    <DdIcon name={open ? 'caret-down' : 'caret-right'} size={14} className="text-ink-68" />
+                    <span className="flex-1 text-[16px]">{t(`sec.control.${c}`)}</span>
+                    <span className="text-[13px] text-ink-68">{t('sec.passedRules', { count: rules.length, passed, total: rules.length })}</span>
+                    <span className="flex items-center gap-1.5 border-l border-line pl-3 text-[13px] text-ink-68">{pct}% <Mark ok={pct === 100} /></span>
+                  </button>
+                  {open && (
+                    <div className="overflow-x-auto border-t border-line">
+                      <table className="w-full min-w-[640px] border-collapse text-[13px]">
+                        <thead>
+                          <tr className="text-left">
+                            <th scope="col" className="h-9 px-4 font-semibold">{t('sec.colControl')}</th>
+                            <th scope="col" className="h-9 px-2 font-semibold">{t('sec.colRule')}</th>
+                            <th scope="col" className="h-9 px-4 text-right font-semibold">{t('sec.colPassed')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rules.map((r) => {
+                            const total = r.passed.length + r.failed.length;
+                            const ok = r.failed.length === 0;
+                            return (
+                              <tr
+                                key={r.id} tabIndex={0}
+                                className="h-10 cursor-pointer hover:bg-info-soft focus-visible:bg-info-soft focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue"
+                                onClick={() => navigate(`/security/findings?rule=${r.id}`)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/security/findings?rule=${r.id}`); }}
+                              >
+                                <td className="whitespace-nowrap px-4 font-semibold">{r.ref}</td>
+                                <td className="px-2"><span className="flex items-center gap-3"><SevChip severity={r.severity} className="w-[72px]" /><span>{t(`sec.rules.${r.title}`)}</span></span></td>
+                                <td className="whitespace-nowrap px-4 text-right">
+                                  <span className="inline-flex items-center gap-2 font-mono tabular-nums">
+                                    {r.passed.length}/{total} <span className="text-ink-46">({Math.round((r.passed.length / total) * 100)}%)</span> <Mark ok={ok} />
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </>
         )}
       </div>
-    </div>
+    </>
   );
 }

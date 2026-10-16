@@ -22,6 +22,8 @@ export interface NavGroup {
   /** flyout anatomy; falls back to one anonymous section of `items` */
   sections?: NavSection[];
   action?: { to: string; key: string };
+  /** the group's own landing page — the flyout title links here */
+  href?: string;
 }
 
 const ALL_NAV: NavGroup[] = [
@@ -48,7 +50,8 @@ const ALL_NAV: NavGroup[] = [
       { to: '/line3d', key: 'nav.line3d', icon: 'building-block' },
     ] },
   ] },
-  { cluster: 1, group: 'nav.monitoring', icon: 'monitor', items: [
+  { cluster: 1, group: 'nav.monitoring', icon: 'monitor', href: '/monitors', items: [
+    { to: '/monitors', key: 'nav.monitors', icon: 'monitor' },
     { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
     { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },
     { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
@@ -117,8 +120,24 @@ const ALL_NAV: NavGroup[] = [
     { to: '/sessions', key: 'nav.sessions', icon: 'eye', flag: 'sessions' },
     { to: '/synthetics', key: 'nav.synthetics', icon: 'multi-heartbeat', flag: 'synthetics' },
   ] },
-  { cluster: 2, group: 'nav.security', icon: 'security-monitoring', items: [
-    { to: '/security', key: 'nav.security', icon: 'security-monitoring' },
+  { cluster: 2, group: 'nav.security', icon: 'security-monitoring', href: '/security', items: [
+    { to: '/security', key: 'nav.secPosture', icon: 'security-monitoring' },
+    { to: '/security/issues', key: 'nav.secIssues', icon: 'attention-circled' },
+    { to: '/security/findings', key: 'nav.secFindings', icon: 'list' },
+    { to: '/security/api', key: 'nav.secApi', icon: 'signpost' },
+    { to: '/security/access', key: 'nav.secAccess', icon: 'key' },
+  ], sections: [
+    { title: 'nav.secCloud', items: [
+      { to: '/security', key: 'nav.secPosture', icon: 'security-monitoring' },
+      { to: '/security/issues', key: 'nav.secIssues', icon: 'attention-circled' },
+      { to: '/security/findings', key: 'nav.secFindings', icon: 'list' },
+    ] },
+    { title: 'nav.secApiProtection', items: [
+      { to: '/security/api', key: 'nav.secApi', icon: 'signpost' },
+    ] },
+    { title: 'nav.secAccess', items: [
+      { to: '/security/access', key: 'nav.secAccess', icon: 'key' },
+    ] },
   ] },
   { cluster: 2, group: 'nav.intelligence', icon: 'watchdog', items: [
     { to: '/insights', key: 'nav.insights', icon: 'ai-search' },

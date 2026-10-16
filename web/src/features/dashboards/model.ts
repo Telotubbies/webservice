@@ -6,7 +6,7 @@ export type VizKind =
   | 'timeseries' | 'stat' | 'value' | 'gauge' | 'bargauge'
   | 'stateline' | 'histogram' | 'table'
   | 'toplist' | 'pie' | 'alarms' | 'note'
-  | 'change' | 'slo' | 'monitors';
+  | 'change' | 'slo' | 'monitors' | 'group' | 'treemap';
 export type Agg = 'last' | 'avg' | 'min' | 'max';
 export type RangeKey = '15m' | '1h' | '4h' | '24h';
 export const RANGE_MIN: Record<RangeKey, number> = { '15m': 15, '1h': 60, '4h': 240, '24h': 1440 };
@@ -39,6 +39,8 @@ export interface Widget {
   legend: boolean;
   warn: number | null; crit: number | null; // thresholds (value tint / timeseries markers)
   note: string;                   // note widget body
+  /** value tiles: solid fill in the threshold colour (dd conditional formatting) */
+  fill?: boolean;
 }
 
 export interface Dashboard {
@@ -55,7 +57,7 @@ export function makeWidget(kind: VizKind, over: Partial<Widget> = {}): Widget {
     timeseries: [6, 3], stat: [3, 2], value: [3, 2], gauge: [4, 3], bargauge: [6, 2],
     stateline: [6, 2], histogram: [4, 3], table: [6, 3],
     toplist: [4, 3], pie: [4, 3], alarms: [6, 3], note: [3, 2],
-    change: [3, 2], slo: [4, 2], monitors: [4, 2],
+    change: [3, 2], slo: [4, 2], monitors: [4, 2], group: [6, 0.5], treemap: [3, 3],
   };
   return {
     // y is set by the caller (bottom of the board); not Infinity — JSON turns it into null
@@ -76,6 +78,30 @@ const T = {
 };
 
 const SEEDS: Dashboard[] = [
+  {
+    // dd "intelligent test runner" board shape: two blue group bars, solid-fill
+    // KPI tiles, distribution with percentiles, treemaps and ranked tables.
+    id: 'line-performance', title: 'Line performance', description: 'KPI tiles, distribution and alarm breakdown for the sorting line.',
+    preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-16T00:00:00Z', range: '1h',
+    widgets: [
+      makeWidget('group', { id: 'g1', title: 'Line health', x: 0, y: 0, w: 6 }),
+      makeWidget('group', { id: 'g2', title: 'Alarm activity', x: 6, y: 0, w: 6 }),
+      makeWidget('value', { id: 'p1', title: 'Belt speed', tags: [T.speed], decimals: 2, fill: true, x: 0, y: 0.5, w: 2, h: 3 }),
+      makeWidget('timeseries', { id: 'p2', title: 'Belt speed (m/s)', tags: [T.speed], x: 2, y: 0.5, w: 4, h: 3 }),
+      makeWidget('histogram', { id: 'p3', title: 'Belt temperature distribution', tags: [T.temp], x: 0, y: 3.5, w: 6, h: 4 }),
+      makeWidget('value', { id: 'p4', title: 'Bin level', tags: [T.bin], decimals: 0, warn: 85, crit: 90, x: 0, y: 7.5, w: 3, h: 2 }),
+      makeWidget('value', { id: 'p5', title: 'Speed setpoint', tags: [T.sp], x: 3, y: 7.5, w: 3, h: 2 }),
+      makeWidget('value', { id: 'p6', title: 'Belt temperature', tags: [T.temp], warn: 70, crit: 75, x: 0, y: 9.5, w: 3, h: 2 }),
+      makeWidget('value', { id: 'p7', title: 'Gravel ratio', tags: [T.gravel], decimals: 0, x: 3, y: 9.5, w: 3, h: 2 }),
+      makeWidget('table', { id: 'p8', title: 'Latest values', tags: [T.speed, T.temp, T.bin, T.sp, T.gravel], x: 0, y: 11.5, w: 6, h: 4 }),
+      makeWidget('treemap', { id: 'a1', title: 'Alarms by rule', groupBy: 'rule', x: 6, y: 0.5, w: 3, h: 3 }),
+      makeWidget('treemap', { id: 'a2', title: 'Alarms by signal', groupBy: 'tag', x: 9, y: 0.5, w: 3, h: 3 }),
+      makeWidget('timeseries', { id: 'a3', title: 'Belt temperature (°C)', tags: [T.temp], warn: 70, crit: 75, x: 6, y: 3.5, w: 6, h: 4 }),
+      makeWidget('toplist', { id: 'a4', title: 'Alarms by severity', groupBy: 'severity', x: 6, y: 7.5, w: 3, h: 3 }),
+      makeWidget('slo', { id: 'a5', title: 'SLO summary', x: 9, y: 7.5, w: 3, h: 3 }),
+      makeWidget('alarms', { id: 'a6', title: 'Active alarms', x: 6, y: 10.5, w: 6, h: 5 }),
+    ],
+  },
   {
     id: 'line-1', title: 'Sorting line 1 — overview', description: 'Live state of the gravel sorting line.',
     preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-14T00:00:00Z', range: '1h',

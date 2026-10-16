@@ -208,7 +208,10 @@ export function DashboardsPage() {
 }
 
 const RANGES: RangeKey[] = ['15m', '1h', '4h', '24h'];
-const ROW_H = 100;
+/** Layout runs on half rows (50px) so a header bar can be half a row tall; stored
+ *  y/h stay in the original whole-row units (x2 going in, /2 coming out). */
+const ROW_H = 50;
+const UNIT = 2;
 
 export function DashboardViewPage() {
   const { t } = useTranslation();
@@ -227,7 +230,7 @@ export function DashboardViewPage() {
   }, [commit, list, id]);
 
   const layout: Layout = useMemo(
-    () => (dash?.widgets ?? []).map((w) => ({ i: w.id, x: w.x, y: w.y, w: w.w, h: w.h, minW: 2, minH: 1 })),
+    () => (dash?.widgets ?? []).map((w) => ({ i: w.id, x: w.x, y: Math.round(w.y * UNIT), w: w.w, h: Math.max(1, Math.round(w.h * UNIT)), minW: 2, minH: 1 })),
     [dash?.widgets],
   );
 
@@ -244,8 +247,8 @@ export function DashboardViewPage() {
   const onLayoutChange = (l: Layout) => {
     if (!edit) return;
     const pos = new Map(l.map((it) => [it.i, it]));
-    const moved = dash.widgets.some((w) => { const p = pos.get(w.id); return p && (p.x !== w.x || p.y !== w.y || p.w !== w.w || p.h !== w.h); });
-    if (moved) update({ widgets: dash.widgets.map((w) => { const p = pos.get(w.id); return p ? { ...w, x: p.x, y: p.y, w: p.w, h: p.h } : w; }) });
+    const moved = dash.widgets.some((w) => { const p = pos.get(w.id); return p && (p.x !== w.x || p.y !== Math.round(w.y * UNIT) || p.w !== w.w || p.h !== Math.max(1, Math.round(w.h * UNIT))); });
+    if (moved) update({ widgets: dash.widgets.map((w) => { const p = pos.get(w.id); return p ? { ...w, x: p.x, y: p.y / UNIT, w: p.w, h: p.h / UNIT } : w; }) });
   };
 
   return (
@@ -313,6 +316,19 @@ export function DashboardViewPage() {
           >
             {dash.widgets.map((w) => (
               <div key={w.id}>
+                {w.kind === 'group' ? (
+                  /* dd group header: solid blue bar, centred title; the tiles below it belong to it */
+                  <section className={`flex h-full items-center gap-1 rounded-[3px] bg-[#1a62d0] px-2 text-white ${edit ? 'outline-dashed outline-1 outline-white' : ''}`} aria-label={w.title || autoTitle(w)}>
+                    {edit && <span className="widget-drag grid h-6 w-5 cursor-move place-items-center text-white/80" aria-hidden><GripVertical size={14} /></span>}
+                    <h3 className="min-w-0 flex-1 truncate text-center text-[16px] font-semibold">{w.title || autoTitle(w)}</h3>
+                    {edit && (
+                      <>
+                        <IconBtn label={t('dash.editWidgetNamed', { name: w.title || autoTitle(w) })} onClick={() => setEditing(w)}><Pencil size={13} /></IconBtn>
+                        <IconBtn label={t('dash.removeWidget')} onClick={() => update({ widgets: dash.widgets.filter((x) => x.id !== w.id) })}><Trash2 size={13} /></IconBtn>
+                      </>
+                    )}
+                  </section>
+                ) : (
                 <section className={`flex h-full flex-col rounded-[5px] border bg-white ${edit ? 'border-dashed border-blue' : 'border-line'}`} aria-label={w.title || autoTitle(w)}>
                   <header className="flex h-8 shrink-0 items-center gap-1 border-b border-line pl-2 pr-1">
                     {edit && <span className="widget-drag grid h-6 w-5 cursor-move place-items-center text-ink-46" aria-hidden><GripVertical size={14} /></span>}
@@ -328,6 +344,7 @@ export function DashboardViewPage() {
                   </header>
                   <div className="min-h-0 flex-1 p-2"><WidgetBody w={w} range={dash.range} /></div>
                 </section>
+                )}
               </div>
             ))}
           </ReactGridLayout>
