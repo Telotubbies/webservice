@@ -301,7 +301,7 @@ def test_heartbeat_present_and_shaped(mqtt_client):
     body = json.loads(payload)
     assert body["status"] == "up"
     assert isinstance(body["clock_ok"], bool)
-    assert body["adapter"] == "sim"
+    assert body["adapter"] in ("sim", "multi")  # multi = data-source adapter wrapping sim
 
 
 def test_clock_skew_commands_denied(mqtt_client):

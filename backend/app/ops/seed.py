@@ -116,8 +116,10 @@ async def seed(pools: Pools) -> None:
                         " VALUES ($1,$2,$3) ON CONFLICT (user_id, doc) DO NOTHING",
                         uid, doc, ver)
     async with tenant_tx(pools.app, org) as tc:
-        await tc.execute("INSERT INTO organizations(id, name) VALUES ($1,'Demo')"
-                         " ON CONFLICT (id) DO NOTHING", org)
+        # enterprise = uncapped: the dev/test org must not hit trial seat/site
+        # limits (plans, 0032) - plan-limit behaviour is tested on its own orgs.
+        await tc.execute("INSERT INTO organizations(id, name, plan) VALUES ($1,'Demo','enterprise')"
+                         " ON CONFLICT (id) DO UPDATE SET plan = 'enterprise'", org)
         await tc.execute("INSERT INTO sites(id, org_id, name, code) VALUES ($1,$2,'Plant 1',$3)"
                          " ON CONFLICT (id) DO NOTHING", site, org, config.V1_SITE_CODE)
         await tc.execute(

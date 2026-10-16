@@ -1,5 +1,6 @@
 """Camera model pin, class config, presets, and the model block in the pushed cfg."""
 
+import time
 import uuid
 
 import pytest
@@ -15,7 +16,22 @@ CAMS = f"/api/v1/orgs/{ORG_ID}/edges/{EDGE_UUID}/cameras"
 
 def _client(base_url, token):
     httpx = pytest.importorskip("httpx")
-    return httpx.Client(base_url=base_url, timeout=30.0, headers={"Authorization": f"Bearer {token}"})
+
+    class _Wait429(httpx.HTTPTransport):
+        """The per-user mutation bucket (60/min) is shared by every test in the
+        run; wait out a drained bucket instead of failing on someone else's burst."""
+
+        def handle_request(self, request):
+            for _ in range(3):
+                r = super().handle_request(request)
+                if r.status_code != 429:
+                    return r
+                r.close()
+                time.sleep(min(int(r.headers.get("retry-after", "2")) + 1, 30))
+            return super().handle_request(request)
+
+    return httpx.Client(base_url=base_url, timeout=30.0, transport=_Wait429(),
+                        headers={"Authorization": f"Bearer {token}"})
 
 
 @pytest.fixture()
