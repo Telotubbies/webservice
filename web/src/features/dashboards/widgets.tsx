@@ -92,14 +92,14 @@ const LVL_COLOR: Record<Level, string> = {
 };
 
 const LEVEL_STYLE: Record<Level, string> = {
-  crit: 'bg-[var(--color-danger-soft)] text-[var(--color-danger)] border-l-4 border-[var(--color-danger)]',
-  warn: 'bg-[var(--color-caution-soft)] text-[var(--color-caution)] border-l-4 border-[var(--color-caution)]',
+  crit: 'bg-[var(--color-danger-soft)] text-[var(--color-danger)] ring-1 ring-inset ring-[var(--color-danger)]/40',
+  warn: 'bg-[var(--color-caution-soft)] text-[var(--color-caution)] ring-1 ring-inset ring-[var(--color-caution)]/40',
   ok: '',
 };
 
 const FILL_STYLE: Record<Level, string> = {
   ok: 'bg-[var(--color-ok)] text-white',
-  warn: 'bg-[var(--color-warn)] text-[#2b1d00]',
+  warn: 'bg-sev-medium text-sev-ink',
   crit: 'bg-[var(--color-danger-bright)] text-white',
 };
 

@@ -25,9 +25,9 @@ import { matchMonitor, monitorRows, STATUS_ORDER, type MonitorRow, type MonStatu
 import './i18n';
 
 const STATUS_STYLE: Record<MonStatus, string> = {
-  alert: 'bg-[var(--color-danger-bright)] text-white',
-  warn: 'bg-[var(--color-warn)] text-white',
-  nodata: 'bg-[var(--color-muted-pill)] text-white',
+  alert: 'bg-sev-high text-white',
+  warn: 'bg-sev-medium text-sev-ink',
+  nodata: 'bg-sev-info text-white',
   ok: 'bg-[var(--color-ok)] text-white',
   disabled: 'bg-subtle text-ink-46 border border-line',
 };

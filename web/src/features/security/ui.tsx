@@ -10,11 +10,11 @@ import './i18n';
 
 /** Chip colours follow the dd severity ramp (dark red → red → orange → gold → grey). */
 export const SEV_CHIP: Record<RuleSeverity, string> = {
-  critical: 'bg-[#a31d1d] text-white', high: 'bg-[#e5304f] text-white', medium: 'bg-[#f08c00] text-white',
-  low: 'bg-[#d9a82b] text-white', info: 'bg-[#8e96ab] text-white',
+  critical: 'bg-sev-critical text-white', high: 'bg-sev-high text-white', medium: 'bg-sev-medium text-sev-ink',
+  low: 'bg-sev-low text-sev-ink', info: 'bg-sev-info text-white',
 };
 export const SEV_BAR: Record<RuleSeverity, string> = {
-  critical: 'bg-[#f6c9c9]', high: 'bg-[#fbc2c9]', medium: 'bg-[#fcdcae]', low: 'bg-[#f3e2ad]', info: 'bg-[#dfe2ea]',
+  critical: 'bg-sev-critical-soft', high: 'bg-sev-high-soft', medium: 'bg-sev-medium-soft', low: 'bg-sev-low-soft', info: 'bg-sev-info-soft',
 };
 
 export function SevChip({ severity, className = '' }: { severity: RuleSeverity; className?: string }) {
@@ -83,7 +83,7 @@ export function FindingPanel({ finding, siblings, others, onClose }: {
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [onClose, finding.id]);
-  const bar = rule.severity === 'critical' || rule.severity === 'high' ? 'bg-[#e5304f]' : rule.severity === 'medium' ? 'bg-[#f08c00]' : 'bg-[#8e96ab]';
+  const bar = SEV_CHIP[rule.severity].split(' ')[0];
   const path = [t('sec.kind.org'), t(`sec.kind.${resource.kind}`), resource.name];
   return (
     <>

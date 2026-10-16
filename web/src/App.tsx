@@ -65,6 +65,8 @@ const TeamsPage = lazy(() => import('./features/teams/TeamsPage').then((m) => ({
 const TracesPage = lazy(() => import('./features/traces/TracesPage').then((m) => ({ default: m.TracesPage })));
 const QueryPage = lazy(() => import('./features/query/QueryPage').then((m) => ({ default: m.QueryPage })));
 const ProcessesPage = lazy(() => import('./features/processes/ProcessesPage').then((m) => ({ default: m.ProcessesPage })));
+const SyntheticsCoveragePage = lazy(() => import('./features/synthetics/CoveragePage').then((m) => ({ default: m.SyntheticsCoveragePage })));
+const SyntheticsSettingsPage = lazy(() => import('./features/synthetics/SettingsPage').then((m) => ({ default: m.SyntheticsSettingsPage })));
 const SyntheticsPage = lazy(() => import('./features/synthetics/SyntheticsPage').then((m) => ({ default: m.SyntheticsPage })));
 const MonitorsPage = lazy(() => import('./features/monitors/MonitorsPage').then((m) => ({ default: m.MonitorsPage })));
 const SecurityPage = lazy(() => import('./features/security/SecurityPage').then((m) => ({ default: m.SecurityPage })));
@@ -258,6 +260,8 @@ export default function App() {
             <Route path="query" element={page(QueryPage)} />
             {enabled('processes') && <Route path="processes" element={page(ProcessesPage)} />}
             {enabled('synthetics') && <Route path="synthetics" element={page(SyntheticsPage)} />}
+            {enabled('synthetics') && <Route path="synthetics/coverage" element={page(SyntheticsCoveragePage)} />}
+            {enabled('synthetics') && <Route path="synthetics/settings" element={page(SyntheticsSettingsPage)} />}
             <Route path="security" element={page(SecurityPage)} />
             <Route path="security/issues" element={page(SecurityIssuesPage)} />
             <Route path="security/findings" element={page(SecurityFindingsPage)} />

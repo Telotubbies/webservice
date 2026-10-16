@@ -19,6 +19,18 @@
   /* ---- dark chrome (rail + topbar) ---- */
   --color-rail:       #292e39;                /* sidebar bg */
   --color-topbar:     #292e39;                /* global top bar — same chrome tone (measured) */
+  /* ---- severity ramp (chips, status pills). White text on crit/high/info, dark on amber/gold — all >=4.5:1 */
+  --color-sev-critical: #a31d1d;
+  --color-sev-high:     #d4213f;
+  --color-sev-medium:   #f5a524;
+  --color-sev-low:      #e7c04a;
+  --color-sev-info:     #5b647d;
+  --color-sev-ink:      #2b1d00;              /* text on medium / low */
+  --color-sev-critical-soft: #f6c9c9;
+  --color-sev-high-soft:     #fbc2c9;
+  --color-sev-medium-soft:   #fcdcae;
+  --color-sev-low-soft:      #f3e2ad;
+  --color-sev-info-soft:     #dfe2ea;
   --color-flyout:     #15171e;                /* mega-menu panel + its open rail row (one connected tab) */
   --color-rail-hover: #3b393d;                /* dark surface raised */
   --color-rail-line:  #65626a;                /* dark button border */
