@@ -2,14 +2,38 @@
 // localStorage is the offline cache; custom boards sync to the org's backend
 // store (see useDashboards) so they are shared across machines.
 
+import { EQUIPMENT, SIGNALS, equipmentOf } from '../../lib/plant';
+
 export type VizKind =
   | 'timeseries' | 'stat' | 'value' | 'gauge' | 'bargauge'
   | 'stateline' | 'histogram' | 'table'
   | 'toplist' | 'pie' | 'alarms' | 'note'
-  | 'change' | 'slo' | 'monitors' | 'group' | 'treemap';
+  | 'change' | 'slo' | 'monitors' | 'group' | 'treemap'
+  | 'incidents' | 'alarmkpi';
 export type Agg = 'last' | 'avg' | 'min' | 'max';
 export type RangeKey = '15m' | '1h' | '4h' | '24h';
 export const RANGE_MIN: Record<RangeKey, number> = { '15m': 15, '1h': 60, '4h': 240, '24h': 1440 };
+
+/* ---- template variables (dd `$var` chips) ------------------------------
+ * A board declares named variables; each is a pick-list over a real signal
+ * segment. Selected values live in the URL (?var_<name>=<value>), '*' = All.
+ * Alarm-family widgets (alarms/toplist/pie/treemap/monitors) filter by them
+ * automatically; tag widgets opt in via `varTag`, a tag template whose
+ * `$name` placeholders are substituted with the selected values. */
+export type VarKind = 'equipment' | 'line';
+export interface DashVar { name: string; kind: VarKind }
+export const ALL_VAR = '*';
+
+export type GroupTone = 'blue' | 'purple' | 'orange' | 'green';
+export const GROUP_TONES: GroupTone[] = ['blue', 'purple', 'orange', 'green'];
+/** Pastel header + ink per tone (dd themed group bars). Single source —
+ *  the editor swatch and the board's group bar both read this. */
+export const GROUP_TONE_STYLE: Record<GroupTone, { header: string; ink: string }> = {
+  blue: { header: '#dbeafe', ink: '#1d4e9e' },
+  purple: { header: '#e9e4fb', ink: '#4f3fb8' },
+  orange: { header: '#fdefdc', ink: '#8a5a00' },
+  green: { header: '#e3f3e7', ink: '#1c6b45' },
+};
 
 /** Fixed categorical order (dataviz rule: assign in order, never cycle past it).
  *  ISA-101: no red / orange / amber / green — those mean abnormal or running.
@@ -28,8 +52,11 @@ export interface Widget {
   // data
   tags: string[];                 // timeseries: 1..6, value: 1
   agg: Agg;                       // value
-  groupBy: 'tag' | 'rule' | 'severity'; // toplist (alarm counts)
+  groupBy: 'tag' | 'rule' | 'severity' | 'eq'; // toplist/pie/treemap (alarm counts)
   range: RangeKey | 'inherit';
+  /** tag template with $var placeholders — when set and every referenced var
+   *  has a concrete value, it replaces `tags` (widgets opt in to template vars) */
+  varTag?: string;
   // display
   unit: string;                   // '' = signal's own unit
   decimals: number;
@@ -38,9 +65,14 @@ export interface Widget {
   yMin: number | null; yMax: number | null;
   legend: boolean;
   warn: number | null; crit: number | null; // thresholds (value tint / timeseries markers)
-  note: string;                   // note widget body
+  note: string;                   // note widget body; group widget description
   /** value tiles: solid fill in the threshold colour (dd conditional formatting) */
   fill?: boolean;
+  /** group headers: pastel theme tint */
+  tone?: GroupTone;
+  /** timeseries: append a linear-fit projection past the window end
+   *  (client-side estimate, same formula as the backend `forecast` rule) */
+  forecast?: boolean;
 }
 
 export interface Dashboard {
@@ -48,6 +80,7 @@ export interface Dashboard {
   preset: 'builtin' | 'custom'; author: string; updatedAt: string;
   range: RangeKey; widgets: Widget[];
   shared?: boolean; // custom boards: visible to the whole org (default true)
+  vars?: DashVar[];  // template variables, stored in the opaque board body
 }
 
 export const newId = () => crypto.randomUUID(); // dashboards use it as the server row id
@@ -58,15 +91,55 @@ export function makeWidget(kind: VizKind, over: Partial<Widget> = {}): Widget {
     stateline: [6, 2], histogram: [4, 3], table: [6, 3],
     toplist: [4, 3], pie: [4, 3], alarms: [6, 3], note: [3, 2],
     change: [3, 2], slo: [4, 2], monitors: [4, 2], group: [6, 0.5], treemap: [3, 3],
+    incidents: [6, 3], alarmkpi: [12, 3],
   };
   return {
     // y is set by the caller (bottom of the board); not Infinity — JSON turns it into null
     id: newId(), kind, title: '', x: 0, y: 0, w: size[kind][0], h: size[kind][1],
     tags: [], agg: 'last', groupBy: 'tag', range: 'inherit',
     unit: '', decimals: 1, colors: [...SERIES_COLORS], lineWidth: 2, yMin: null, yMax: null, legend: true,
-    warn: null, crit: null, note: '',
+    warn: null, crit: null, note: '', tone: 'blue',
     ...over,
   };
+}
+
+/** Pick-list values for a template variable, derived from the real signal
+ *  set — never an invented list. */
+export function varValues(kind: VarKind): string[] {
+  if (kind === 'equipment') return EQUIPMENT.map((e) => e.id);
+  const segs = new Set<string>();
+  for (const tag of Object.keys(SIGNALS)) {
+    const seg = tag.split('.')[2];
+    if (seg) segs.add(seg);
+  }
+  return [...segs].sort();
+}
+
+/** Does an alarm's tag pass the selected variables? Unknown tags are
+ *  excluded only when a filter is actually narrowing. */
+export function alarmMatchesVars(tag: string, defs: DashVar[] | undefined, vals: Record<string, string>): boolean {
+  for (const d of defs ?? []) {
+    const v = vals[d.name];
+    if (!v || v === ALL_VAR) continue;
+    if (d.kind === 'equipment' && equipmentOf(tag) !== v) return false;
+    if (d.kind === 'line' && tag.split('.')[2] !== v) return false;
+  }
+  return true;
+}
+
+/** Substitute `$name` placeholders in a tag template with the selected
+ *  values. Returns null when no placeholder matched or a referenced var is
+ *  still 'All' — the widget then keeps its authored tags. */
+export function resolveVarTag(tpl: string, vals: Record<string, string>): string | null {
+  let out = tpl;
+  let hit = false;
+  for (const m of tpl.matchAll(/\$(\w+)/g)) {
+    const v = vals[m[1]];
+    if (!v || v === ALL_VAR) return null;
+    out = out.split(m[0]).join(v);
+    hit = true;
+  }
+  return hit ? out : null;
 }
 
 const T = {
@@ -124,6 +197,47 @@ const SEEDS: Dashboard[] = [
       makeWidget('timeseries', { id: 'v2', title: 'Gravel ratio (%)', tags: [T.gravel], decimals: 0, x: 3, y: 0, w: 9 }),
       makeWidget('toplist', { id: 'v3', title: 'Alarms by severity', groupBy: 'severity', x: 0, y: 3, w: 4 }),
       makeWidget('note', { id: 'v4', title: 'How to read this', note: 'Gravel ratio is the share of gravel in the last camera frames. Below 40 % means the screen is clogging.', x: 4, y: 3, w: 4 }),
+    ],
+  },
+  {
+    // dd "incident management overview" shape: pastel themed group headers
+    // with a one-line description, KPI tiles, top-N lists and the alarm feed.
+    id: 'incident-overview', title: 'Incident management overview',
+    description: 'Open incidents, response times and the alarm load behind them.',
+    preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-18T00:00:00Z', range: '24h',
+    vars: [
+      { name: 'line', kind: 'line' },
+      { name: 'equipment', kind: 'equipment' },
+    ],
+    widgets: [
+      makeWidget('group', { id: 'ih1', title: 'Summary', tone: 'purple', note: 'Where the plant stands right now: open incidents, availability and signal health.', x: 0, y: 0, w: 12, h: 0.75 }),
+      makeWidget('incidents', { id: 'i1', title: 'Incidents', x: 0, y: 0.75, w: 6, h: 3 }),
+      makeWidget('slo', { id: 'i2', title: 'Availability SLO', x: 6, y: 0.75, w: 3, h: 3 }),
+      makeWidget('monitors', { id: 'i3', title: 'Signal status', x: 9, y: 0.75, w: 3, h: 3 }),
+      makeWidget('group', { id: 'ih2', title: 'Alarm context', tone: 'blue', note: 'Open alarms feeding the incident load — group bars filter with the variables above.', x: 0, y: 3.75, w: 12, h: 0.75 }),
+      makeWidget('toplist', { id: 'i4', title: 'Alarms by equipment', groupBy: 'eq', x: 0, y: 4.5, w: 4, h: 3 }),
+      makeWidget('treemap', { id: 'i5', title: 'Alarms by rule', groupBy: 'rule', x: 4, y: 4.5, w: 4, h: 3 }),
+      makeWidget('alarms', { id: 'i6', title: 'Open alarms', x: 8, y: 4.5, w: 4, h: 3 }),
+      makeWidget('note', { id: 'i7', title: 'About this board', note: 'Counts come from the incidents API and the live alarm set — nothing is sampled or estimated.', x: 0, y: 7.5, w: 12, h: 1 }),
+    ],
+  },
+  {
+    // ISA-18.2 alarm-system health (Tier-2 differentiator): rate, flood
+    // windows, standing alarms and where the load concentrates.
+    id: 'alarm-kpis', title: 'Alarm management KPIs',
+    description: 'ISA-18.2 alarm load: rate per 10 minutes, flood windows and the worst offenders.',
+    preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-18T00:00:00Z', range: '4h',
+    vars: [
+      { name: 'line', kind: 'line' },
+      { name: 'equipment', kind: 'equipment' },
+    ],
+    widgets: [
+      makeWidget('group', { id: 'kh1', title: 'Alarm load', tone: 'orange', note: 'Rate per 10 minutes and flood windows over the alarms seen in this session.', x: 0, y: 0, w: 12, h: 0.75 }),
+      makeWidget('alarmkpi', { id: 'k1', title: 'ISA-18.2 KPIs', x: 0, y: 0.75, w: 12, h: 3 }),
+      makeWidget('group', { id: 'kh2', title: 'Offenders', tone: 'green', note: 'Where the alarm load concentrates — by rule, equipment and severity.', x: 0, y: 3.75, w: 12, h: 0.75 }),
+      makeWidget('toplist', { id: 'k2', title: 'Top offending rules', groupBy: 'rule', x: 0, y: 4.5, w: 4, h: 3 }),
+      makeWidget('treemap', { id: 'k3', title: 'Alarms by equipment', groupBy: 'eq', x: 4, y: 4.5, w: 4, h: 3 }),
+      makeWidget('alarms', { id: 'k4', title: 'Standing alarms', x: 8, y: 4.5, w: 4, h: 3 }),
     ],
   },
 ];

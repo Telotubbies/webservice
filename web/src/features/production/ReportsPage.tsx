@@ -11,6 +11,8 @@ import { EmptyState, ErrorState, Notice, PermissionNotice, SkeletonRows } from '
 import { Confirm } from '../../shared/ui/Confirm';
 import { Toggle } from '../../shared/ui/Toggle';
 import { useAdminOrg, useAdminSite, canAdmin } from '../admin/admin';
+import { useNow } from '../../lib/hooks';
+import { fmtAge } from '../../lib/format';
 import { prodApi, type ReportTemplate, type ScheduleInput, type ScheduleRow } from './api';
 import './i18n';
 
@@ -57,6 +59,7 @@ export function ReportsPage() {
   });
 
   const err = schedQ.error ?? save.error ?? toggle.error ?? delM.error;
+  const now = useNow();
 
   return (
     <div className="flex min-h-[calc(100svh-36px)] flex-col">
@@ -88,6 +91,7 @@ export function ReportsPage() {
               </li>
             ))}
           </ul>
+          <p className="mt-3 border-t border-line pt-2 text-[11px] text-ink-46">{t('prod.fmtNote')}</p>
         </Card>
 
         <Card title={t('prod.schedules')}
@@ -99,7 +103,7 @@ export function ReportsPage() {
             <EmptyState compact title={t('prod.noSchedules')} body={t('prod.noSchedulesHint')} />
           ) : (
             <div className="overflow-x-auto">
-              <Table head={[t('prod.template'), t('prod.to'), t('prod.frequency'), t('prod.enabled'), '']}>
+              <Table head={[t('prod.template'), t('prod.to'), t('prod.frequency'), t('prod.lastRun'), t('prod.enabled'), '']}>
                 {schedQ.data!.items.map((row) => (
                   <tr key={row.id}>
                     <td>{t(`prod.tmpl_${row.template}`)}</td>
@@ -107,6 +111,9 @@ export function ReportsPage() {
                     <td className="text-[12px] text-ink-68">
                       {t('prod.dailyAt')} <span className="font-mono tabular-nums">{row.send_time}</span>
                       {row.send_day != null && ` · ${t('prod.day')} ${row.send_day}`}
+                    </td>
+                    <td className="whitespace-nowrap text-[12px] text-ink-68">
+                      {row.last_run_at ? fmtAge(row.last_run_at, now) : t('prod.never')}
                     </td>
                     <td>
                       {canEdit
