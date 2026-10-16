@@ -52,30 +52,17 @@ const commands: Record<string, unknown>[] = [];
 
 // ---- WP-E: incidents + notification fixtures (in-memory, CONTRACT shapes) --
 const UID = (n: string) => `00000000-0000-4000-8000-${n.padStart(12, '0')}`;
-const MOCK_TAGS = [
-  { id: UID('a1'), path: 'sort.line1.motor1.running', name: 'drive motor running', type: 'bool', unit: null },
-  { id: UID('a2'), path: 'sort.line1.conv1.temp_c', name: 'conveyor temp', type: 'number', unit: '°C' },
-  { id: UID('a3'), path: 'sort.line1.bin1.level_pct', name: 'bin level', type: 'number', unit: '%' },
-  { id: UID('a4'), path: 'sort.vision.cam1.gravel_ratio', name: 'gravel ratio', type: 'number', unit: '%' },
-];
-const MOCK_RULES = [
-  { id: UID('b1'), tag_id: UID('a2'), name: 'conveyor temp HiHi', kind: 'hihi', threshold: 75, stale_s: null, window_s: null, deadband: 1, severity: 'critical', enabled: true },
-  { id: UID('b2'), tag_id: UID('a3'), name: 'bin level Hi', kind: 'hi', threshold: 90, stale_s: null, window_s: null, deadband: 2, severity: 'warning', enabled: true },
-  { id: UID('b3'), tag_id: UID('a4'), name: 'vision stale', kind: 'stale', threshold: null, stale_s: 30, window_s: null, deadband: 0, severity: 'info', enabled: true },
-];
-const MOCK_V2_ALARMS = [
-  { id: UID('c1'), tag_id: UID('a2'), rule_id: UID('b1'), rule: 'conveyor temp HiHi', severity: 'critical', state: 'active', raised_at: iso(T0 - 7 * 60e3), acked_at: null, acked_by: null, cleared_at: null, version: 1 },
-  { id: UID('c2'), tag_id: UID('a3'), rule_id: UID('b2'), rule: 'bin level Hi', severity: 'warning', state: 'acked', raised_at: iso(T0 - 25 * 60e3), acked_at: iso(T0 - 20 * 60e3), acked_by: 'demo-operator', cleared_at: null, version: 2 },
-  { id: UID('c3'), tag_id: UID('a4'), rule_id: UID('b3'), rule: 'vision stale', severity: 'info', state: 'cleared', raised_at: iso(T0 - 180 * 60e3), acked_at: iso(T0 - 175 * 60e3), acked_by: 'demo-operator', cleared_at: iso(T0 - 150 * 60e3), version: 3 },
-];
+// site tags/rules/channels/policies use the v2 fixtures below (dd-a block);
+// site alarms are derived live from the v1 `alarms` list — incident alarm_id
+// values therefore point at v1 alarm ids ('101', '102', …).
 const MOCK_TEAMS = [
   { id: 'team-ops', name: 'Ops', description: 'shift operators', members: [{ user_id: 'u1', name: 'Demo operator' }] },
   { id: 'team-maint', name: 'Maintenance', description: 'mechanical & electrical', members: [] },
 ];
 const mockIncidents: Record<string, unknown>[] = [
-  { id: UID('d1'), title: 'Conveyor overheating above HiHi', severity: 'critical', status: 'active', created_at: iso(T0 - 6 * 60e3), acked_at: null, resolved_at: null, alarm_id: UID('c1'), team_id: 'team-ops', team: 'Ops', mine: true },
-  { id: UID('d2'), title: 'Bin 1 filling faster than discharge', severity: 'warning', status: 'acknowledged', created_at: iso(T0 - 40 * 60e3), acked_at: iso(T0 - 30 * 60e3), resolved_at: null, alarm_id: UID('c2'), team_id: 'team-maint', team: 'Maintenance', mine: false },
-  { id: UID('d3'), title: 'Vision feed went stale mid-shift', severity: 'info', status: 'resolved', created_at: iso(T0 - 26 * 3600e3), acked_at: iso(T0 - 25 * 3600e3), resolved_at: iso(T0 - 24 * 3600e3), alarm_id: UID('c3'), team_id: null, team: null, mine: false },
+  { id: UID('d1'), title: 'Conveyor overheating above HiHi', severity: 'critical', status: 'active', created_at: iso(T0 - 6 * 60e3), acked_at: null, resolved_at: null, alarm_id: '101', team_id: 'team-ops', team: 'Ops', mine: true },
+  { id: UID('d2'), title: 'Bin 1 filling faster than discharge', severity: 'warning', status: 'acknowledged', created_at: iso(T0 - 40 * 60e3), acked_at: iso(T0 - 30 * 60e3), resolved_at: null, alarm_id: '102', team_id: 'team-maint', team: 'Maintenance', mine: false },
+  { id: UID('d3'), title: 'Vision feed went stale mid-shift', severity: 'info', status: 'resolved', created_at: iso(T0 - 26 * 3600e3), acked_at: iso(T0 - 25 * 3600e3), resolved_at: iso(T0 - 24 * 3600e3), alarm_id: '104', team_id: null, team: null, mine: false },
   { id: UID('d4'), title: 'Manual declare — belt slip observed', severity: 'warning', status: 'active', created_at: iso(T0 - 3 * 3600e3), acked_at: null, resolved_at: null, alarm_id: null, team_id: 'team-ops', team: 'Ops', mine: false },
 ];
 const mockIncEvents: Record<string, Record<string, unknown>[]> = {
@@ -97,16 +84,42 @@ const mockIncEvents: Record<string, Record<string, unknown>[]> = {
     { kind: 'note', body: 'Operator on shift 2 reported slipping sounds at conv1.', at: iso(T0 - 2 * 3600e3), who: 'demo-operator' },
   ],
 };
-const mockChannels: Record<string, unknown>[] = [
-  { id: 'ch-1', name: 'Ops email', type: 'email', team_id: 'team-ops', enabled: true, has_secrets: false, config: { to: ['ops@demo.local'] }, created_at: iso(T0 - 20 * 86400e3) },
-  { id: 'ch-2', name: 'LINE shift group', type: 'line', team_id: null, enabled: true, has_secrets: true, config: {}, created_at: iso(T0 - 19 * 86400e3) },
+// ---- v2 fixtures (WP-A: monitor templates, settings sections) — the v1
+// `rules`/`alarms` lists stay the v1 mirror; these carry ids for the
+// org-scoped contract. Mutable so POST/PATCH persist for the session.
+const v2tags = [
+  { id: 'tag-temp', path: 'plant1.sort.line1.conv1.temp_c', name: 'temp_c', type: 'float', unit: '°C' },
+  { id: 'tag-speed', path: 'plant1.sort.line1.conv1.speed_mps', name: 'speed_mps', type: 'float', unit: 'm/s' },
+  { id: 'tag-level', path: 'plant1.sort.line1.bin1.level_pct', name: 'level_pct', type: 'float', unit: '%' },
+  { id: 'tag-ratio', path: 'plant1.sort.vision.cam1.gravel_ratio', name: 'gravel_ratio', type: 'float', unit: '%' },
+  { id: 'tag-run', path: 'plant1.sort.line1.motor1.running', name: 'running', type: 'bool' },
+  { id: 'tag-sp', path: 'plant1.sort.line1.motor1.speed_sp', name: 'speed_sp', type: 'float', unit: 'Hz' },
 ];
-const mockPolicies: Record<string, unknown>[] = [
-  { id: 'pol-1', name: 'Night escalation', rule_id: null, enabled: true, created_at: iso(T0 - 15 * 86400e3),
-    levels: [
-      { after_minutes: 15, channel_ids: ['ch-1'], team_ids: [], oncall_team: 'team-ops' },
-      { after_minutes: 45, channel_ids: ['ch-2'], team_ids: ['team-maint'], oncall_team: null },
-    ] },
+const tagPath = (id: string) => v2tags.find((x) => x.id === id)?.path ?? '';
+const pathTag = (path: string) => v2tags.find((x) => x.path === path)?.id ?? '';
+const v2rules: Record<string, unknown>[] = [
+  { id: 'r-1', tag_id: 'tag-temp', name: 'conveyor temp HiHi', kind: 'hihi', threshold: 75, stale_s: null, window_s: null, deadband: 1, severity: 'critical', enabled: true },
+  { id: 'r-2', tag_id: 'tag-level', name: 'bin level Hi', kind: 'hi', threshold: 90, stale_s: null, window_s: null, deadband: 2, severity: 'warning', enabled: true },
+  { id: 'r-3', tag_id: 'tag-ratio', name: 'vision stale', kind: 'stale', threshold: null, stale_s: 30, window_s: null, deadband: 0, severity: 'info', enabled: true },
+  { id: 'r-4', tag_id: 'tag-sp', name: 'motor setpoint drift', kind: 'roc', threshold: 5, stale_s: null, window_s: 600, deadband: 0.5, severity: 'info', enabled: false },
+];
+const v2channels: Record<string, unknown>[] = [
+  { id: 'c-1', name: 'Ops email', type: 'email', team_id: 'team-ops', enabled: true, has_secrets: false, config: { to: 'ops@demo.local' }, created_at: iso(T0 - 90 * 86400e3) },
+  { id: 'c-2', name: 'LINE night shift', type: 'line', team_id: 'team-maint', enabled: true, has_secrets: true, config: {}, created_at: iso(T0 - 40 * 86400e3) },
+  { id: 'c-3', name: 'SCADA webhook', type: 'webhook', team_id: null, enabled: false, has_secrets: true, config: { url: 'https://hooks.demo.local/alarm' }, created_at: iso(T0 - 12 * 86400e3) },
+];
+const v2policies: Record<string, unknown>[] = [
+  { id: 'p-1', name: 'Shift escalation', rule_id: null, enabled: true, created_at: iso(T0 - 60 * 86400e3), levels: [
+    { after_minutes: 15, channel_ids: ['c-1'], team_ids: [], oncall_team: 'team-ops' },
+    { after_minutes: 45, channel_ids: ['c-1', 'c-2'], team_ids: [], oncall_team: 'team-maint' },
+  ] },
+  { id: 'p-2', name: 'Critical fast path', rule_id: 'r-1', enabled: false, created_at: iso(T0 - 20 * 86400e3), levels: [
+    { after_minutes: 5, channel_ids: ['c-3'], team_ids: [], oncall_team: null },
+  ] },
+];
+const v2downtimes: Record<string, unknown>[] = [
+  { id: 'd-1', rule_id: 'r-3', rule: 'vision stale', description: 'Camera lens cleaning', starts_at: iso(T0 - 3600e3), ends_at: iso(T0 + 3 * 3600e3), recurring: false, mine: true },
+  { id: 'd-2', rule_id: null, rule: null, description: 'Weekly preventive maintenance', starts_at: iso(T0 + 2 * 86400e3), ends_at: iso(T0 + 2 * 86400e3 + 4 * 3600e3), recurring: true, mine: false },
 ];
 
 function roleOf(req: IncomingMessage): string | null {
@@ -214,9 +227,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     const rest = v2[2] ?? '';
     if (rest === '') return send(200, { id: v2[1], name: 'Demo Plant', role, created_at: iso(T0 - 30 * 86400e3) });
     if (rest === '/sites') return send(200, list([{ id: 'site-1', name: 'Plant 1', code: 'plant1', timezone: 'Asia/Bangkok' }]));
-    if (/\/sites\/[^/]+\/tags$/.test(rest)) return send(200, list(MOCK_TAGS));
-    if (/\/sites\/[^/]+\/alarm-rules$/.test(rest)) return send(200, list(MOCK_RULES));
-    if (/\/sites\/[^/]+\/alarms$/.test(rest)) return send(200, list(MOCK_V2_ALARMS));
+    // site tags / alarm-rules / alarms are served by the config block below
+    // (v2tags / v2rules with full CRUD; alarms derived live from v1 `alarms`)
 
     // --- WP-E: incidents (member read; operator+ writes) ---
     if (rest === '/incidents' && req.method === 'GET') {
@@ -258,29 +270,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     }
     if (rest === '/teams' && req.method === 'GET') return send(200, { teams: MOCK_TEAMS });
 
-    // --- WP-E: notification channels / escalation / on-call ---
-    if (rest === '/notification-channels' && req.method === 'GET') return send(200, list(mockChannels));
-    const chMut = /^\/notification-channels\/([^/]+)$/.exec(rest);
-    if (chMut && req.method === 'PATCH') {
-      const c = mockChannels.find((x) => x.id === chMut[1]);
-      if (!c) return send(404, { detail: 'channel not found' });
-      Object.assign(c, await body(req));
-      return send(200, { channel: c });
-    }
-    if (rest === '/escalation-policies' && req.method === 'GET') return send(200, list(mockPolicies));
-    if (rest === '/escalation-policies' && req.method === 'POST') {
-      const b = await body(req);
-      const pol = { id: `pol-${mockPolicies.length + 1}`, name: b.name, rule_id: b.rule_id ?? null, enabled: true, created_at: iso(t), levels: b.levels ?? [] };
-      mockPolicies.push(pol);
-      return send(201, { policy: pol });
-    }
-    const polMut = /^\/escalation-policies\/([^/]+)$/.exec(rest);
-    if (polMut) {
-      const pol = mockPolicies.find((x) => x.id === polMut[1]);
-      if (!pol) return send(404, { detail: 'policy not found' });
-      if (req.method === 'PATCH') { Object.assign(pol, await body(req)); return send(200, { policy: pol }); }
-      if (req.method === 'DELETE') { mockPolicies.splice(mockPolicies.indexOf(pol), 1); return send(204, {}); }
-    }
+    // --- WP-E: on-call (notification-channels / escalation-policies are
+    // served by the v2 config block below with admin-gated writes) ---
     if (rest === '/oncall') {
       return send(200, list([{ team_id: 'team-ops', team: 'Ops', user_id: 'u1', name: 'Demo operator', source: 'rotation', rotation: ['u1'] }]));
     }
@@ -310,6 +301,108 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       return send(200, list(Array.from({ length: 60 }, (_, i) => ({
         seq: 60 - i, at: iso(T0 - i * 3 * 3600e3), actor: i % 4 === 0 ? 'user:admin' : 'user:operator', action: acts[i % acts.length], target: {}, detail: {}, hash: `h${i}`,
       }))));
+    }
+    // config surfaces — writes are admin|owner only (mirrors the backend's
+    // config:write gate; the mock grants operators no config role)
+    const siteTags = /^\/sites\/[^/]+\/tags$/.exec(rest);
+    if (siteTags) return send(200, list(v2tags));
+    const siteRules = /^\/sites\/[^/]+\/alarm-rules(\/[^/]+)?$/.exec(rest);
+    if (siteRules) {
+      const config = role === 'admin' || role === 'owner';
+      if (req.method !== 'GET' && !config) return send(403, { detail: 'admin role required' });
+      const id = siteRules[1]?.slice(1);
+      if (id) {
+        const r = v2rules.find((x) => x.id === id);
+        if (!r) return send(404, { detail: 'unknown rule' });
+        if (req.method === 'PATCH') {
+          Object.assign(r, await body(req));
+          const v1 = rules.find((x) => x.name === r.name);
+          if (v1) Object.assign(v1, { enabled: r.enabled });
+          return send(200, { rule: r });
+        }
+        if (req.method === 'DELETE') {
+          v2rules.splice(v2rules.indexOf(r), 1);
+          const i = rules.findIndex((x) => x.name === r.name);
+          if (i >= 0) rules.splice(i, 1);
+          return send(200, { deleted: id });
+        }
+        return send(200, { rule: r });
+      }
+      if (req.method === 'POST') {
+        const b = await body(req);
+        if (v2rules.some((x) => x.tag_id === b.tag_id && x.name === b.name)) {
+          return send(409, { detail: 'a rule with this name already exists on that tag' });
+        }
+        const r = {
+          id: `r-${v2rules.length + 1}-${Math.floor(t % 1000)}`,
+          tag_id: String(b.tag_id ?? ''), name: String(b.name ?? 'rule'),
+          kind: String(b.kind ?? 'hi'), threshold: b.threshold ?? null,
+          stale_s: b.stale_s ?? null, window_s: b.window_s ?? null,
+          deadband: Number(b.deadband ?? 0), severity: String(b.severity ?? 'info'),
+          enabled: b.enabled !== false,
+        };
+        v2rules.push(r);
+        rules.push({ tag: tagPath(r.tag_id), name: r.name, kind: r.kind as never, threshold: r.threshold as never, stale_s: r.stale_s as never, deadband: r.deadband, severity: r.severity as never, enabled: r.enabled });
+        return send(200, { rule: r });
+      }
+      return send(200, list(v2rules));
+    }
+    const siteAlarms = /^\/sites\/[^/]+\/alarms$/.exec(rest);
+    if (siteAlarms) {
+      return send(200, list(alarms.map((a) => ({
+        id: String(a.id), tag_id: pathTag(a.tag), rule_id: v2rules.find((r) => r.name === a.rule.split(' >')[0].split(' <')[0])?.id ?? 'r-1',
+        rule: a.rule, severity: a.severity, state: a.state, raised_at: a.ts,
+        acked_at: a.acked_at, acked_by: a.acked_by, cleared_at: a.cleared_at,
+        version: a.version, shelved_until: null, assigned_to: null, assigned_name: null,
+      }))));
+    }
+    const ch = /^\/notification-channels(\/[^/]+)?$/.exec(rest);
+    if (ch) {
+      const config = role === 'admin' || role === 'owner';
+      if (req.method !== 'GET' && !config) return send(403, { detail: 'admin role required' });
+      const id = ch[1]?.slice(1);
+      if (id) {
+        const c = v2channels.find((x) => x.id === id);
+        if (!c) return send(404, { detail: 'unknown channel' });
+        if (req.method === 'PATCH') { Object.assign(c, await body(req)); return send(200, { channel: c }); }
+        if (req.method === 'DELETE') { v2channels.splice(v2channels.indexOf(c), 1); return send(200, { deleted: id }); }
+      }
+      if (req.method === 'POST') {
+        const b = await body(req);
+        const c = { id: `c-${v2channels.length + 1}`, name: String(b.name ?? 'channel'), type: String(b.type ?? 'email'), team_id: b.team_id ?? null, enabled: b.enabled !== false, has_secrets: false, config: b.config ?? {}, created_at: iso(t) };
+        v2channels.push(c);
+        return send(200, { channel: c });
+      }
+      return send(200, list(v2channels));
+    }
+    const pol = /^\/escalation-policies(\/[^/]+)?$/.exec(rest);
+    if (pol) {
+      const config = role === 'admin' || role === 'owner';
+      if (req.method !== 'GET' && !config) return send(403, { detail: 'admin role required' });
+      const id = pol[1]?.slice(1);
+      if (id) {
+        const x = v2policies.find((e) => e.id === id);
+        if (!x) return send(404, { detail: 'unknown policy' });
+        if (req.method === 'PATCH') { Object.assign(x, await body(req)); return send(200, { policy: x }); }
+        if (req.method === 'DELETE') { v2policies.splice(v2policies.indexOf(x), 1); return send(200, { deleted: id }); }
+      }
+      if (req.method === 'POST') {
+        const b = await body(req);
+        const x = { id: `p-${v2policies.length + 1}`, name: String(b.name ?? 'policy'), rule_id: b.rule_id ?? null, levels: b.levels ?? [], enabled: b.enabled !== false, created_at: iso(t) };
+        v2policies.push(x);
+        return send(200, { policy: x });
+      }
+      return send(200, list(v2policies));
+    }
+    if (rest === '/downtimes') {
+      if (req.method === 'POST') {
+        if (role === 'viewer') return send(403, { detail: 'operator role required' });
+        const b = await body(req);
+        const d = { id: `d-${v2downtimes.length + 1}`, rule_id: b.rule_id ?? null, rule: v2rules.find((r) => r.id === b.rule_id)?.name ?? null, description: String(b.description ?? ''), starts_at: String(b.starts_at), ends_at: String(b.ends_at), recurring: !!b.recurring, mine: true };
+        v2downtimes.push(d);
+        return send(200, { downtime: d });
+      }
+      return send(200, { downtimes: v2downtimes, rules: v2rules.map((r) => ({ id: r.id, name: r.name })) });
     }
     return send(200, list([]));
   }

@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { EQUIPMENT, T, type EquipmentId } from '../../lib/plant';
 import { STALE_MS, live } from '../../lib/live';
 import { normSeverity } from '../../shared/ui/Status';
@@ -114,6 +115,8 @@ const box = (w: number, h: number, d: number, mat: THREE.Material) =>
 /* ------------------------------------------------------------------ */
 
 const MODEL_DIR = '/models';
+const YARD_FOOTPRINT = 22; // world units across the plant's long side
+const YARD_Z = -10;        // centre of the yard, behind the line
 
 /** Clone every mesh material once per model instance so per-equipment
  *  shade-tinting never bleeds across shared GLB materials. Returns the
@@ -189,8 +192,8 @@ export async function buildScene(canvas: HTMLCanvasElement): Promise<LineSceneVi
   // line spans x ∈ [-5.4, 5.4], tops out ~y 3 (labels ride above the
   // anchors); at iso 30°/45° that content projects to screen-y ≈ [-3.0, +2.9]
   // around this target — half-height 5.2 fills the panel without clipping
-  const VIEW_H = 5.2; // world half-height
-  const target0 = new THREE.Vector3(0.2, 0.7, 0);
+  const VIEW_H = 11; // world half-height
+  const target0 = new THREE.Vector3(2, 3, -5);
   const camera = new THREE.OrthographicCamera(-VIEW_H, VIEW_H, VIEW_H, -VIEW_H, 0.1, 90);
   camera.position.set(
     target0.x + Math.cos(Math.PI / 6) * Math.SQRT1_2 * 26,
@@ -248,7 +251,7 @@ export async function buildScene(canvas: HTMLCanvasElement): Promise<LineSceneVi
   };
 
   /* ---------- load the real models (Kenney Factory Kit, CC0) ---------- */
-  const loader = new GLTFLoader();
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const load = (file: string) => loader.loadAsync(`${MODEL_DIR}/${file}.glb`).then((g) => g.scene);
   let motorM: THREE.Group, convM: THREE.Group, camM: THREE.Group,
     binM: THREE.Group, boxM: THREE.Group, cogM: THREE.Group;
@@ -279,11 +282,11 @@ export async function buildScene(canvas: HTMLCanvasElement): Promise<LineSceneVi
     throw err;
   }
 
-  /* Scenery backdrop — real plant structures from 3D Warehouse (optimized/
-     quantized copies in /models). Optional by design: each load has its own
-     catch so a missing file drops that structure, never the scene. */
-  const sceneryNames = ['batching-plant', 'cement-plant', 'colliery-tower', 'cement-mixer'] as const;
-  const scenery = await Promise.all(sceneryNames.map((n) => load(n).catch(() => null)));
+  /* Scenery backdrop — the Centrale à Béton plant layout, converted from the
+     SketchUp model (CentraleBeton.skp → GLB via openskp, then gltf-transform:
+     weld, 50% simplify, WebP textures, quantize + meshopt). Optional by design: a failed load
+     drops the yard, never the scene. */
+  const yard = await load('centrale-beton').catch(() => null);
 
   const pickRoots: THREE.Object3D[] = [];
   const equipment: EquipRefs[] = [];
@@ -446,30 +449,30 @@ export async function buildScene(canvas: HTMLCanvasElement): Promise<LineSceneVi
   }
 
   /* ---------- backdrop: the plant yard the line lives in ---------- */
-  // file units vary (some real-world mm) — normalize each footprint, then
-  // ground-place around the line. Scenery only: raycast disabled, never
-  // pickable, never label-anchored.
-  const placeBackdrop = (m: THREE.Object3D, footprint: number, x: number, z: number, rotY = 0) => {
-    m.rotation.y = rotY;
-    const bb0 = new THREE.Box3().setFromObject(m);
+  // Source is in mm — normalize the footprint, then ground-place centred
+  // behind the line. Scenery only: raycast disabled, never pickable, never
+  // label-anchored.
+  if (yard) {
+    yard.traverse((o) => {
+      o.raycast = () => {};
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        sm.roughness = 0.9;
+        sm.metalness = 0;
+        if (sm.transparent) sm.depthWrite = false;
+        sm.needsUpdate = true;
+      }
+    });
+    const bb0 = new THREE.Box3().setFromObject(yard);
     const sz0 = bb0.getSize(new THREE.Vector3());
-    m.scale.setScalar(footprint / Math.max(sz0.x, sz0.z, 1e-6));
-    const bb1 = new THREE.Box3().setFromObject(m);
+    yard.scale.setScalar(YARD_FOOTPRINT / Math.max(sz0.x, sz0.z, 1e-6));
+    const bb1 = new THREE.Box3().setFromObject(yard);
     const ctr = bb1.getCenter(new THREE.Vector3());
-    m.position.set(x - ctr.x, -bb1.min.y, z - ctr.z);
-    m.traverse((o) => { o.raycast = () => {}; });
-    scene.add(m);
-  };
-  /* real bounding boxes were inspected (ref/models/batching): BM120 is a
-     ~square site (~158m²), so it owns the whole back yard centered behind
-     the line; the tower and silo row stand clear on each flank; the mixer
-     truck sits mid-field at believable scale. steel-depot is a flat slab —
-     dropped, it only added clutter. */
-  const [plantM, cementM, towerM, mixerM] = scenery;
-  if (plantM) placeBackdrop(plantM, 16, 0, -10.5);          // z −18.5…−2.5
-  if (cementM) placeBackdrop(cementM, 8, 12, -8, 0.15);     // narrow silo row, right flank
-  if (towerM) placeBackdrop(towerM, 6, -13, -9, 0.2);       // winding tower, left flank
-  if (mixerM) placeBackdrop(mixerM, 2.4, -5.5, -3.5, -0.5); // truck scale vs the plant
+    yard.position.set(-ctr.x, -bb1.min.y, YARD_Z - ctr.z);
+    scene.add(yard);
+  }
 
   /* ---------- HTML label anchors (world positions, model-only bboxes) ---------- */
   const motorBb = motor.bb!, convBb = conveyor.bb!, camBb = cameraEq.bb!, binBb = bin.bb!;
@@ -537,6 +540,7 @@ export async function buildScene(canvas: HTMLCanvasElement): Promise<LineSceneVi
         for (const e of equipment) if (e.alarmPulse) e.glow.material.opacity = pulse;
         changed = true;
       }
+      if (changed) renderer.render(scene, camera);
       return changed;
     },
     dispose() {

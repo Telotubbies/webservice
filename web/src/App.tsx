@@ -70,6 +70,7 @@ const SyntheticsCoveragePage = lazy(() => import('./features/synthetics/Coverage
 const SyntheticsSettingsPage = lazy(() => import('./features/synthetics/SettingsPage').then((m) => ({ default: m.SyntheticsSettingsPage })));
 const SyntheticsPage = lazy(() => import('./features/synthetics/SyntheticsPage').then((m) => ({ default: m.SyntheticsPage })));
 const MonitorsPage = lazy(() => import('./features/monitors/MonitorsPage').then((m) => ({ default: m.MonitorsPage })));
+const TemplatesPage = lazy(() => import('./features/monitors/TemplatesPage').then((m) => ({ default: m.TemplatesPage })));
 const SecurityPage = lazy(() => import('./features/security/SecurityPage').then((m) => ({ default: m.SecurityPage })));
 const SecurityIssuesPage = lazy(() => import('./features/security/IssuesPage').then((m) => ({ default: m.IssuesPage })));
 const SecurityFindingsPage = lazy(() => import('./features/security/FindingsPage').then((m) => ({ default: m.FindingsPage })));
@@ -215,6 +216,7 @@ export default function App() {
             <Route path="line" element={page(LinePage)} />
             <Route path="line3d" element={page(Line3DPage)} />
             <Route path="monitors" element={page(MonitorsPage)} />
+            <Route path="monitors/templates" element={page(TemplatesPage)} />
             <Route path="alarms" element={page(AlarmsPage)} />
             <Route path="alarms/:id" element={page(AlarmDetailPage)} />
             <Route path="trends" element={page(TrendsPage)} />
@@ -249,7 +251,8 @@ export default function App() {
             <Route path="settings/org" element={page(DangerZone)} />
             <Route path="orgs/new" element={<CreateOrgPage />} />
             <Route path="alarms/quality" element={page(AlarmQualityPage)} />
-            {enabled('alarmsettings') && <Route path="alarms/settings" element={page(AlarmSettingsPage)} />}
+            {enabled('alarmsettings') && <Route path="alarms/settings" element={<Navigate to="/alarms/settings/general" replace />} />}
+            {enabled('alarmsettings') && <Route path="alarms/settings/:section" element={page(AlarmSettingsPage)} />}
             <Route path="events" element={page(EventsPage)} />
             {enabled('incidents') && <Route path="incidents" element={page(IncidentsPage)} />}
             {enabled('incidents') && <Route path="incidents/settings" element={page(IncidentSettingsPage)} />}

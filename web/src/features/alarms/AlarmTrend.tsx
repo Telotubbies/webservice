@@ -21,9 +21,14 @@ const MAX_MS = 8 * 3600_000;
 const LIMIT_STROKE = {
   critical: 'var(--color-danger-bright)', warning: 'var(--color-caution)', info: 'var(--color-muted-pill)',
 } as const;
+const BAND_FILL = {
+  critical: 'var(--color-danger-soft)', warning: 'var(--color-caution-soft)', info: 'var(--color-neutral-soft)',
+} as const;
 
-export function AlarmTrend({ tag, raisedAt, limit, unit, decimals = 1, severity }: {
+export function AlarmTrend({ tag, raisedAt, limit, unit, decimals = 1, severity, band }: {
   tag: string; raisedAt: string; limit?: number | null; unit?: string; decimals?: number; severity: string;
+  /** shade the violation side of the limit — 'above' for hi/hihi, 'below' for lo/lolo */
+  band?: 'above' | 'below' | null;
 }) {
   const { t, i18n } = useTranslation();
   const raised = Date.parse(raisedAt);
@@ -129,6 +134,16 @@ export function AlarmTrend({ tag, raisedAt, limit, unit, decimals = 1, severity 
               <line x1={x(raised)} x2={x(raised)} y1={PAD.t} y2={H - PAD.b} stroke="var(--color-ink-46)" strokeDasharray="2 3" strokeWidth={1} />
               <text x={x(raised) + 4} y={PAD.t + 9} fontSize={10} fill="var(--color-ink-68)">{t('alx.trendRaised')}</text>
             </g>
+          )}
+          {limitIn && band && (
+            <rect
+              x={PAD.l}
+              width={W - PAD.l - PAD.r}
+              y={band === 'above' ? PAD.t : y(limit!)}
+              height={band === 'above' ? y(limit!) - PAD.t : H - PAD.b - y(limit!)}
+              fill={BAND_FILL[sev]}
+              opacity={0.55}
+            />
           )}
           {limitIn && (
             <g>

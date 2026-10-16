@@ -59,6 +59,10 @@ const ALL_NAV: NavGroup[] = [
     { to: '/events', key: 'nav.events', icon: 'events' },
     { to: '/activity', key: 'nav.activity', icon: 'bell' },
   ], sections: [
+    { title: 'nav.secMonitors', items: [
+      { to: '/monitors', key: 'nav.monitors', icon: 'monitor' },
+      { to: '/monitors/templates', key: 'nav.monTemplates', icon: 'books' },
+    ] },
     { title: 'nav.secAlarms', items: [
       { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
       { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },
