@@ -283,6 +283,7 @@ services:
       - ./backend/alarm_rules.yaml:/config/alarm_rules.yaml:ro
       - video-data:/data/videos   # uploaded demo videos (plan M1-03)
       - model-data:/data/models   # ONNX model versions (plan M1-04)
+      - plant-data:/data/plant    # uploaded plant models (.glb); Garage/S3 when PLANT_S3_ENDPOINT is set
       - convert-spool:/data/convert   # .pt jobs for the sandboxed converter
       # Dev CA for the TLS listener (infra/gen-certs.sh — `make certs`).
       - ${CERTS_DIR:-./infra/certs}:/mosquitto-certs:ro
@@ -337,6 +338,7 @@ services:
 
 volumes:
   pgdata:
+  plant-data:
   edge-state:
   # Dynsec plugin state — a CACHE of Postgres, not a source of truth
   # (doc 17 §6). To rebuild ONLY this cache: `docker compose stop mosquitto`

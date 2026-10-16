@@ -1,76 +1,92 @@
-// 3D line twin — lazy three.js scene bound to the live store. buildScene
-// returns a view handle; applyState shades equipment on each store flush.
+// Plant twin — the site's .glb (or the bundled demo) in 3D, plus a 2D plan
+// and front elevation derived from the same model, all driven by the
+// operator's node→equipment mapping. Lazy three.js scene bound to the live
+// store: buildScene returns a view handle; applyState shades parts on each
+// store flush.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { live, STALE_MS } from '../../lib/live';
-import { useNow, useStore } from '../../lib/hooks';
-import { EQUIPMENT, formatSignal, unitOf, type EquipmentId } from '../../lib/plant';
-import { QualityMark } from '../../shared/ui/Status';
+import { live } from '../../lib/live';
+import { useStore } from '../../lib/hooks';
+import { liveValue, truthy, type PlantPart } from '../../lib/plantModel';
+import { canAdmin, useRole } from '../../app/session';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { ErrorState, Skeleton } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
-import type { LineSceneView } from './scene';
+import type { LineSceneView, PlanImage, PlanKind } from './scene';
+import { PartPanel } from './PartPanel';
+import { useSceneSource } from './useSceneSource';
+
+type Mode = '3d' | 'top' | 'front';
 
 export function Line3DPage() {
-  const { t, i18n } = useTranslation();
-  const now = useNow();
+  const { t } = useTranslation();
+  const role = useRole();
+  const src = useSceneSource();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<LineSceneView | null>(null);
-  const [sel, setSel] = useState<EquipmentId | null>(null);
+  const applyRef = useRef<typeof import('./scene').applyState | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [sceneView, setSceneView] = useState<LineSceneView | null>(null);
   const [fail, setFail] = useState(false);
-  const [attempt, setAttempt] = useState(0);
+  const [mode, setMode] = useState<Mode>('3d');
+  const [plans, setPlans] = useState<Partial<Record<PlanKind, PlanImage>>>({});
   const ver = useStore(() => live.version);
+  const reduced = useMemo(() => matchMedia('(prefers-reduced-motion: reduce)').matches, []);
 
   useEffect(() => {
+    if (src.status !== 'ready') return;
     let dead = false;
     let view: LineSceneView | null = null;
     let raf = 0;
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let ro: ResizeObserver | null = null;
+    setReady(false); setFail(false); setPlans({}); setSel(null);
     void import('./scene').then(({ buildScene, applyState }) => {
       if (dead || !canvasRef.current) return;
-      return buildScene(canvasRef.current).then((v) => {
+      return buildScene(canvasRef.current, { url: src.url, parts: src.parts }).then((v) => {
         if (dead) { v.dispose(); return; }
         view = v;
         viewRef.current = v;
+        applyRef.current = applyState;
         const host = canvasRef.current!.parentElement!;
         const size = () => view?.setSize(host.clientWidth, host.clientHeight);
         size();
-        const ro = new ResizeObserver(size);
+        ro = new ResizeObserver(size);
         ro.observe(host);
-        const loop = (tPrev: number) => {
-          let last = tPrev;
-          raf = requestAnimationFrame(function tick(now) {
-            const dt = now - last;
-            last = now;
-            if (view?.tick(dt)) return void (raf = requestAnimationFrame(tick));
-            // idle — still keep the loop so motion resumes on state change
-            raf = requestAnimationFrame(tick);
-          });
+        const tick = (now: number, last: number) => {
+          view?.tick(now - last);
+          raf = requestAnimationFrame((n) => tick(n, now));
         };
-        raf = requestAnimationFrame(loop);
+        raf = requestAnimationFrame((n) => tick(n, n));
+        setSceneView(v);
         setReady(true);
         applyState(v, live, { reduceMotion: reduced });
-        // keep applyState reachable on each store flush
-        (viewRef as { _apply?: typeof applyState })._apply = applyState;
-        return () => ro.disconnect();
       });
     }).catch(() => { if (!dead) setFail(true); });
     return () => {
       dead = true;
       cancelAnimationFrame(raf);
+      ro?.disconnect();
       view?.dispose();
       viewRef.current = null;
+      setSceneView(null);
     };
-  }, [attempt]);
+  }, [src.status, src.url, src.parts, reduced]);
 
   // shade the scene on every live flush
   useEffect(() => {
     const v = viewRef.current;
-    const apply = (viewRef as { _apply?: (v: LineSceneView, s: typeof live, o?: object) => void })._apply;
-    if (v && apply) apply(v, live, { selected: sel, reduceMotion: matchMedia('(prefers-reduced-motion: reduce)').matches });
-  }, [ver, sel]);
+    if (v && applyRef.current) applyRef.current(v, live, { selected: sel, reduceMotion: reduced });
+  }, [ver, sel, ready, reduced]);
+
+  // 2D views are rendered once per kind from the loaded scene
+  useEffect(() => {
+    const v = viewRef.current;
+    if (mode === '3d' || !ready || !v || plans[mode]) return;
+    setPlans((p) => ({ ...p, [mode]: v.plan(mode, 1800) }));
+  }, [mode, ready, plans]);
 
   const pick = (e: React.MouseEvent) => {
     const v = viewRef.current;
@@ -79,23 +95,44 @@ export function Line3DPage() {
     setSel(v.pick(e.clientX, e.clientY));
   };
 
-  const eq = sel && EQUIPMENT.find((e) => e.id === sel);
+  const part = sel !== null ? src.parts[Number(sel)] : undefined;
+  const failed = src.status === 'error' || fail;
 
   return (
     <>
       <PageBar
-        title={t('line3d.title')}
-        lede={t('line3d.lede')}
+        title={t('plant.title')}
+        lede={t('plant.lede')}
         actions={
-          <button className="btn btn-sm btn-ghost" onClick={() => viewRef.current?.resetView()}>
-            <Icon name="refresh" size={13} /> {t('line3d.resetView')}
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex overflow-hidden rounded border border-line" role="group" aria-label={t('plant.view')}>
+              {(['3d', 'top', 'front'] as Mode[]).map((m) => (
+                <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
+                  className={`h-7 px-2.5 text-[11px] font-semibold ${mode === m ? 'bg-info-soft text-blue' : 'text-ink-68 hover:bg-subtle'}`}>
+                  {t(`plant.mode.${m}`)}
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-sm btn-ghost" onClick={() => viewRef.current?.resetView()} disabled={mode !== '3d'}>
+              <Icon name="refresh" size={13} /> {t('line3d.resetView')}
+            </button>
+            {canAdmin(role) && (
+              <Link to="/line3d/map" className="btn btn-sm">
+                <Icon name="tag" size={13} /> {t('plant.editMapping')}
+              </Link>
+            )}
+          </div>
         }
       />
+      {src.status === 'ready' && !src.model && (
+        <p className="mx-4 mt-3 rounded border border-line bg-subtle px-3 py-2 text-[12px] text-ink-68">
+          {t('plant.demoBanner')}
+        </p>
+      )}
       <div className="flex h-[calc(100svh-88px)] gap-3 p-4">
         <div className="relative h-full min-w-0 flex-1 overflow-hidden rounded-[5px] border border-line bg-white shadow-card">
-          {fail ? (
-            <ErrorState onRetry={() => { setFail(false); setReady(false); setAttempt((n) => n + 1); }} />
+          {failed ? (
+            <ErrorState onRetry={() => { setFail(false); setReady(false); src.reload(); }} />
           ) : (
             <>
               {!ready && (
@@ -105,56 +142,92 @@ export function Line3DPage() {
               )}
               <canvas
                 ref={canvasRef}
-                className="h-full w-full cursor-grab"
+                className={`h-full w-full cursor-grab ${mode === '3d' ? '' : 'invisible'}`}
                 aria-label={t('line3d.canvasLabel')}
                 onClick={pick}
               />
-              <p className="pointer-events-none absolute bottom-2 left-3 text-[11px] text-ink-46">{t('line3d.selectHint')}</p>
+              {mode !== '3d' && plans[mode] && (
+                <PlanView kind={mode} img={plans[mode]!} view={sceneView} parts={src.parts} sel={sel} onSelect={setSel} />
+              )}
+              {mode === '3d' && (
+                <p className="pointer-events-none absolute bottom-2 left-3 text-[11px] text-ink-46">{t('line3d.selectHint')}</p>
+              )}
             </>
           )}
         </div>
-        <Card title={eq ? t(eq.labelKey) : t('faceplate.title')}>
-          {/* canvas picking is pointer-only — this group is the keyboard
-              path to the same selection (and the cage highlight) */}
-          <div className="mb-3 flex flex-wrap gap-1" role="group" aria-label={t('palette.equipment')}>
-            {EQUIPMENT.map((e) => (
-              <button
-                key={e.id}
-                type="button"
-                aria-pressed={sel === e.id}
-                onClick={() => setSel(sel === e.id ? null : e.id)}
-                className={`h-6 rounded border px-2 text-[11px] font-semibold focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue ${
-                  sel === e.id
-                    ? 'border-blue bg-info-soft text-blue'
-                    : 'border-line text-ink-68 hover:bg-subtle'
-                }`}
-              >
-                {t(e.labelKey)}
-              </button>
+        <div className="w-[340px] shrink-0 overflow-auto">
+        <Card title={part ? part.label : t('faceplate.title')}>
+          {/* canvas picking is pointer-only — this list is the keyboard path to
+              the same selection (and the cage highlight) */}
+          <ul className="mb-3 flex max-h-56 flex-wrap gap-1 overflow-auto" aria-label={t('palette.equipment')}>
+            {src.parts.map((p, i) => (
+              <li key={`${p.label}-${i}`}>
+                <button
+                  type="button"
+                  aria-pressed={sel === String(i)}
+                  onClick={() => setSel(sel === String(i) ? null : String(i))}
+                  className={`h-6 rounded border px-2 text-[11px] font-semibold focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue ${
+                    sel === String(i) ? 'border-blue bg-info-soft text-blue' : 'border-line text-ink-68 hover:bg-subtle'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              </li>
             ))}
-          </div>
-          {eq ? (
-            <ul className="flex flex-col gap-1.5">
-              {eq.signals.map((tag) => {
-                const tv = live.latest.get(tag);
-                const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
-                return (
-                  <li key={tag} className="flex justify-between gap-2 text-[12px]">
-                    <span className="font-mono text-ink-68">{tag.split('.').slice(-1)[0]}</span>
-                    <span className="flex items-center gap-1.5 font-mono font-semibold">
-                      {tv && !stale ? formatSignal(tag, tv.v, i18n.language) : '—'}
-                      {unitOf(tag) && <span className="font-sans text-[10px] font-normal text-ink-46">{unitOf(tag)}</span>}
-                      <QualityMark q={tv?.q} stale={stale} />
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="text-[12px] text-ink-46">{t('line.selectHint')}</p>
-          )}
+          </ul>
+          {part ? <PartPanel part={part} kind={src.kinds[part.kind]} /> : <p className="text-[12px] text-ink-46">{t('line.selectHint')}</p>}
         </Card>
+        </div>
       </div>
     </>
+  );
+}
+
+/** 2D plan / front elevation: the model's flat render with each mapped part
+ *  as a live hotspot (tinted while active, amber/red on alarm). */
+function PlanView({ kind, img, view, parts, sel, onSelect }: {
+  kind: PlanKind; img: PlanImage; view: LineSceneView | null; parts: PlantPart[];
+  sel: string | null; onSelect: (k: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  useStore(() => live.version);
+  const [w, h] = [img.max[0] - img.min[0], img.max[1] - img.min[1]];
+  const boxes = view?.partBoxes() ?? [];
+  const ax = (x: number) => x - img.min[0];
+  // top: image row 0 = min z; front: image row 0 = max y
+  const ay = (v: number) => (kind === 'top' ? v - img.min[1] : img.max[1] - v);
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="absolute inset-0 h-full w-full bg-white" preserveAspectRatio="xMidYMid meet"
+      role="group" aria-label={t(`plant.mode.${kind}`)} onClick={() => onSelect(null)}>
+      <image href={img.url} x="0" y="0" width={w} height={h} />
+      {boxes.map((b) => {
+        const p = parts[Number(b.key)];
+        const [x0, x1] = [ax(b.min[0]), ax(b.max[0])];
+        const [y0, y1] = kind === 'top' ? [ay(b.min[2]), ay(b.max[2])] : [ay(b.max[1]), ay(b.min[1])];
+        const flag = p.bindings.run ?? p.bindings.open ?? p.bindings.state;
+        const active = truthy(liveValue(flag));
+        const lvl = p.bindings.level ? Number(liveValue(p.bindings.level)) : NaN;
+        const selected = sel === b.key;
+        const label = Math.max(h / 55, 0.35);
+        return (
+          <g key={b.key} role="button" tabIndex={0} aria-label={p.label} aria-pressed={selected}
+            className="cursor-pointer focus-visible:outline-none"
+            onClick={(e) => { e.stopPropagation(); onSelect(selected ? null : b.key); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(selected ? null : b.key); } }}>
+            <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0}
+              fill={active ? '#1c9a67' : '#5e6dd6'} fillOpacity={active ? 0.35 : 0.14}
+              stroke={selected ? '#149eb4' : active ? '#1c9a67' : '#5e6dd6'} strokeWidth={selected ? h / 300 : h / 700} />
+            {Number.isFinite(lvl) && (
+              <rect x={x0} y={y1 - (y1 - y0) * (Math.min(Math.max(lvl, 0), 100) / 100)} width={x1 - x0}
+                height={(y1 - y0) * (Math.min(Math.max(lvl, 0), 100) / 100)} fill="#149eb4" fillOpacity={0.45} />
+            )}
+            <text x={(x0 + x1) / 2} y={y0 - label * 0.3} textAnchor="middle" fontSize={label}
+              className="fill-ink-68 font-semibold" style={{ paintOrder: 'stroke', stroke: '#fff', strokeWidth: label / 5 }}>
+              {p.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }

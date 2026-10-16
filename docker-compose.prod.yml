@@ -58,8 +58,17 @@ services:
       # G9: secret from a mounted file, never env (docker inspect)
       GOOGLE_CLIENT_SECRET: ""
       GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
+      # plant models (.glb): Garage/S3 when PLANT_S3_ENDPOINT is set, else the
+      # plant-data volume. Key/secret from files, never env.
+      PLANT_S3_ENDPOINT: "${PLANT_S3_ENDPOINT:-}"
+      PLANT_S3_BUCKET: "${PLANT_S3_BUCKET:-wds-plant-models}"
+      PLANT_S3_REGION: "${PLANT_S3_REGION:-garage}"
+      PLANT_S3_KEY_ID_FILE: /run/secrets/plant_s3_key_id
+      PLANT_S3_SECRET_FILE: /run/secrets/plant_s3_secret
     secrets:
       - google_client_secret
+      - plant_s3_key_id
+      - plant_s3_secret
 
   web:
     ports: !reset []
@@ -128,6 +137,11 @@ secrets:
     file: ${SECRETS_DIR:-./infra/secrets}/backup_s3_key_id
   backup_s3_secret:
     file: ${SECRETS_DIR:-./infra/secrets}/backup_s3_secret
+  # empty files = plant models stay on the local volume (gen-secrets.sh writes them)
+  plant_s3_key_id:
+    file: ${SECRETS_DIR:-./infra/secrets}/plant_s3_key_id
+  plant_s3_secret:
+    file: ${SECRETS_DIR:-./infra/secrets}/plant_s3_secret
   # empty file = Google sign-in off (gen-secrets.sh writes it)
   google_client_secret:
     file: ${SECRETS_DIR:-./infra/secrets}/google_client_secret

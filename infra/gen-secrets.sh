@@ -92,6 +92,15 @@ if [ ! -s "$DIR/data_source_key" ] || [ "${FORCE:-0}" = "1" ]; then
 fi
 
 # Google OAuth client secret (G9) — never random: empty = Google sign-in off.
+# plant-model object storage (Garage): empty = keep .glb files on the local volume.
+# Fill both (from deploy/garage/init.sh) and set PLANT_S3_ENDPOINT to move them.
+for f in plant_s3_key_id plant_s3_secret; do
+  if [ ! -e "$DIR/$f" ]; then
+    : > "$DIR/$f"
+    chmod 0644 "$DIR/$f"
+    echo "  wrote $DIR/$f (empty)"
+  fi
+done
 if [ ! -e "$DIR/google_client_secret" ] || [ "${FORCE:-0}" = "1" ]; then
   printf '%s' "${GOOGLE_CLIENT_SECRET:-}" > "$DIR/google_client_secret"
   chmod 0644 "$DIR/google_client_secret"

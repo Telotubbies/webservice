@@ -66,6 +66,11 @@ def make_source_adapter(source: dict, site: str, now=None) -> TagAdapter:
             meta = {"behavior": addr.get("behavior", "random_walk"),
                     "initial": addr.get("initial", 0.0),
                     "writable": bool(t.get("writable", False))}
+            for k in ("invert", "gain", "offset", "lag", "period", "lo", "hi"):
+                if k in addr:
+                    meta[k] = addr[k]
+            if addr.get("follows"):
+                meta["follows"] = f"{site}.{str(addr['follows']).replace('/', '.')}"
             for k in ("min", "max"):
                 if t.get(k) is not None:
                     meta[k] = t[k]

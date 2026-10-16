@@ -43,6 +43,236 @@ sim:
       initial: 0.3
       behavior: random_walk      # slow random walk 0..1 (vision stub)
 
+  # --- Centrale a Beton (concrete batching plant) -- area `batch` ---------------
+  # Dynamics live in adapters/batching_sim.py. Writable flags are operator
+  # controls; everything else derives from them. `plant.auto.enabled` runs a
+  # repeating batch cycle. Real PLC addresses go in the modbus map when wired.
+    batch.plant.auto.enabled:
+      writable: true
+      initial: true
+      behavior: state
+      unit: bool
+    batch.plant.auto.cycle_count:
+      writable: false
+      initial: 0.0
+      behavior: derived
+    batch.plant.auto.stage:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: s
+    batch.agg.belt1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.belt1.speed_mps:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m/s
+    batch.agg.weigh1.weight_kg:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: kg
+    batch.cem.weigh1.weight_kg:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: kg
+    batch.liq.weigh1.weight_kg:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: kg
+    batch.liq.water1.open:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.liq.pump1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.liq.pump1.flow_lpm:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: L/min
+    batch.liq.admix1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.liq.admix1.flow_lpm:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: L/min
+    batch.air.blower1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.air.blower1.pressure_bar:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: bar
+    batch.mix.mixer1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.mix.mixer1.current_a:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: A
+    batch.mix.mixer1.door_open:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.bin1.level_pct:
+      writable: false
+      initial: 72.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.agg.bin1.gate_open:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.bin2.level_pct:
+      writable: false
+      initial: 64.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.agg.bin2.gate_open:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.bin3.level_pct:
+      writable: false
+      initial: 81.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.agg.bin3.gate_open:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.bin4.level_pct:
+      writable: false
+      initial: 55.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.agg.bin4.gate_open:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.cem.silo1.level_pct:
+      writable: false
+      initial: 78.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.cem.silo1.high_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.silo1.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.screw1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.cem.silo2.level_pct:
+      writable: false
+      initial: 64.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.cem.silo2.high_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.silo2.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.screw2.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.cem.silo3.level_pct:
+      writable: false
+      initial: 9.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.cem.silo3.high_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.silo3.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.screw3.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.cem.silo4.level_pct:
+      writable: false
+      initial: 88.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.cem.silo4.high_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.silo4.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.screw4.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+
 # ---------------------------------------------------------------------------
 modbus:                          # used only when ADAPTER=modbus (Factory I/O / PLC); host = MODBUS_HOST env
   host: 127.0.0.1                # Factory I/O / OpenPLC / PLC address

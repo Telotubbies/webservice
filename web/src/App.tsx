@@ -25,6 +25,7 @@ import { enabled } from './lib/features';
 // Route-level code splitting: every non-index page lazy-loads so the main
 // chunk stays small (three ~160KB gz and chart code stay out of it).
 const LinePage = lazy(() => import('./features/line/LinePage').then((m) => ({ default: m.LinePage })));
+const MapEditor = lazy(() => import('./features/line3d/MapEditor').then((m) => ({ default: m.MapEditor })));
 const Line3DPage = lazy(() => import('./features/line3d/Line3DPage').then((m) => ({ default: m.Line3DPage })));
 const AlarmsPage = lazy(() => import('./features/alarms/AlarmsPage').then((m) => ({ default: m.AlarmsPage })));
 const AlarmDetailPage = lazy(() => import('./features/alarms/AlarmDetailPage').then((m) => ({ default: m.AlarmDetailPage })));
@@ -216,6 +217,7 @@ export default function App() {
             <Route index element={<RouteBoundary><OverviewPage /></RouteBoundary>} />
             <Route path="line" element={page(LinePage)} />
             <Route path="line3d" element={page(Line3DPage)} />
+            <Route path="line3d/map" element={page(MapEditor)} />
             <Route path="monitors" element={page(MonitorsPage)} />
             <Route path="monitors/templates" element={page(TemplatesPage)} />
             <Route path="alarms" element={page(AlarmsPage)} />

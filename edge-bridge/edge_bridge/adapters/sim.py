@@ -23,6 +23,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable
 
+from . import batching_sim
 from .base import Quality, TagAdapter, TagValue, WriteResult
 
 # Contract tag table — used when tags.yaml has no sim section. Keys are the
@@ -155,7 +156,55 @@ class SimAdapter(TagAdapter):
     def _tag(self, tail: str) -> str:
         return f"{self._site}.{tail}"
 
+    def _batch_tag(self, tail: str) -> str:
+        return f"{self._site}.batch.{tail.replace('/', '.')}"
+
+    def _tick_generic(self, dt: float) -> None:
+        """Behaviours for tags made from the plant-model editor (`follow`,
+        `cycle`, `wander`). `follows` names another tag of this adapter; the
+        value tracks it, so a running flag makes its flow/current/level move.
+        Source tags are read from last tick's values (no ordering needed)."""
+        t = time.monotonic()
+        for tag, meta in self._tags.items():
+            beh = meta.get("behavior")
+            if beh not in ("follow", "cycle", "wander"):
+                continue
+            src = meta.get("follows")
+            on = True
+            if src is not None:
+                sv = self._values.get(src)
+                on = bool(sv) if isinstance(sv, (bool, int, float)) else False
+                if isinstance(sv, (int, float)) and not isinstance(sv, bool) and beh == "follow":
+                    on = sv > 0
+            if meta.get("invert"):
+                on = not on
+            cur = self._values[tag]
+            if isinstance(meta.get("initial"), bool):
+                if beh == "follow":
+                    self._values[tag] = on
+                continue
+            lo = float(meta.get("lo", 0.0))
+            hi = float(meta["hi"]) if "hi" in meta else (float("inf") if beh == "follow" else 100.0)
+            if beh == "follow":
+                gain, off = float(meta.get("gain", 1.0)), float(meta.get("offset", 0.0))
+                target = (gain if on else 0.0) + off
+                if src is not None and isinstance(self._values.get(src), (int, float)) \
+                        and not isinstance(self._values.get(src), bool):
+                    target = float(self._values[src]) * gain + off
+                v = float(cur) + (target - float(cur)) * min(dt / max(float(meta.get("lag", 2.0)), 0.1), 1.0)
+                v += random.uniform(-0.002, 0.002) * max(abs(target), 1.0)
+            elif beh == "cycle":
+                period = max(float(meta.get("period", 20.0)), 1.0)
+                f = (t % period) / period
+                v = lo + (hi - lo) * (1.0 - abs(2.0 * f - 1.0)) if on else float(cur)
+            else:  # wander
+                v = float(cur) + random.uniform(-0.01, 0.01) * (hi - lo)
+            self._values[tag] = round(min(max(v, lo), hi), 4)
+
     def _tick(self, dt: float) -> None:
+        self._tick_generic(dt)
+        if all(self._batch_tag(t) in self._values for t in batching_sim.tails()):
+            batching_sim.tick(self._values, self._batch_tag, dt, random.uniform)
         if self._tag("sort.line1.motor1.running") in self._values and all(
                 self._tag(t) in self._values for t in _LEGACY_TAILS):
             self._tick_sorting_line(dt)

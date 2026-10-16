@@ -67,6 +67,23 @@ CONVERT_SPOOL = os.environ.get("CONVERT_SPOOL", "/data/convert")
 
 # --- uploaded demo videos (plan M1-03) ------------------------------------------
 VIDEO_DIR = os.environ.get("VIDEO_DIR", "/data/videos")
+# --- uploaded plant models (.glb) — disk, or Garage/S3 when PLANT_S3_ENDPOINT is set
+PLANT_DIR = os.environ.get("PLANT_DIR", "/data/plant")
+PLANT_S3_ENDPOINT = os.environ.get("PLANT_S3_ENDPOINT") or None
+PLANT_S3_BUCKET = os.environ.get("PLANT_S3_BUCKET", "wds-plant-models")
+PLANT_S3_REGION = os.environ.get("PLANT_S3_REGION", "garage")
+
+
+def _secret(name: str) -> str | None:
+    f = os.environ.get(f"{name}_FILE")
+    if f:
+        with open(f, encoding="utf-8") as fh:
+            return fh.read().strip()
+    return os.environ.get(name) or None
+
+
+PLANT_S3_KEY_ID = _secret("PLANT_S3_KEY_ID")
+PLANT_S3_SECRET = _secret("PLANT_S3_SECRET")
 # --- owner data exports + lifecycle (roadmap §12 8.2/8.3, §10/11) -----------
 EXPORT_DIR = os.environ.get("EXPORT_DIR", "/data/exports")
 EXPORT_MAX_BYTES = int(os.environ.get("EXPORT_MAX_BYTES", str(512 * 1024 * 1024)))

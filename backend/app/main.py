@@ -71,6 +71,7 @@ from .vision.models import router as models_router
 from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
+from .plant.routes import router as plant_router
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
@@ -1721,6 +1722,7 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
 # module lazily, so including here (after the helpers exist) is safe.
 app.include_router(datasources_router)
 app.include_router(videos_router)
+app.include_router(plant_router)
 app.include_router(cameras_router)
 app.include_router(models_router)
 app.include_router(classes_router)

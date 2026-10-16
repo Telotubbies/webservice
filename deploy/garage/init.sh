@@ -13,3 +13,11 @@ $G bucket create wds-backups
 $G key create wds-backup
 $G bucket allow --read --write wds-backups --key wds-backup
 echo "Done. The key above (Key ID + Secret key) goes into the console's backup secrets."
+
+# Plant models (.glb uploads) — its own bucket + key, so the app can never
+# touch the backups. Key id + secret -> plant_s3_key_id / plant_s3_secret,
+# PLANT_S3_ENDPOINT -> this Garage's S3 URL.
+$G bucket create wds-plant-models
+$G key create wds-plant
+$G bucket allow --read --write wds-plant-models --key wds-plant
+echo "Plant-model key printed above goes into plant_s3_key_id / plant_s3_secret."

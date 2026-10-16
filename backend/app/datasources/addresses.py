@@ -7,6 +7,7 @@ can return a field-level 422.
 
 from __future__ import annotations
 
+import math
 import re
 
 
@@ -221,9 +222,21 @@ def _opcua(raw: object, tag_type: str) -> dict:
 def _sim(raw: object, tag_type: str) -> dict:
     if not isinstance(raw, dict):
         raise AddressError("address", "must be an object")
-    _check_keys(raw, {"behavior", "initial"}, "address")
+    _check_keys(raw, {"behavior", "initial", "follows", "invert", "gain", "offset",
+                      "lag", "period", "lo", "hi"}, "address")
     if not isinstance(raw.get("behavior"), str) or not raw["behavior"]:
         raise AddressError("address.behavior", "required string")
+    for k in ("gain", "offset", "lag", "period", "lo", "hi"):
+        v = raw.get(k)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))
+                              or not math.isfinite(v)):
+            raise AddressError(f"address.{k}", "must be a finite number")
+    f = raw.get("follows")
+    if f is not None and (not isinstance(f, str)
+                          or not re.fullmatch(r"[a-z0-9_]+(/[a-z0-9_]+){1,7}", f)):
+        raise AddressError("address.follows", "must be a tag path")
+    if "invert" in raw and not isinstance(raw["invert"], bool):
+        raise AddressError("address.invert", "must be true or false")
     return dict(raw)
 
 

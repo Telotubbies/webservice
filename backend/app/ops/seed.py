@@ -22,6 +22,7 @@ import contextlib
 from ..core import config
 from ..db.context import global_tx, tenant_tx, user_tx
 from ..db.pool import Pools, create_pools
+from ..datasources.routes import bump_config
 from ..edge.dynsec import edge_client_name
 
 log = logging.getLogger("backend.seed")
@@ -68,6 +69,8 @@ def load_tag_specs(path: str | None = None) -> list[dict]:
             "min": spec.get("min"),
             "max": spec.get("max"),
             "description": str(spec.get("behavior") or ""),
+            "behavior": spec.get("behavior") or "state",
+            "initial": spec.get("initial", 0.0),
         })
     return specs
 
@@ -155,6 +158,7 @@ async def seed(pools: Pools) -> None:
                 "  description=excluded.description, edge_id=excluded.edge_id",
                 _tag_id(t["path"]), org, site, edge, t["path"], t["name"], t["type"], t["unit"],
                 t["writable"], t["min"], t["max"], t["description"])
+        await _attach_batching_source(tc, org, site, edge)
         for r in load_rule_specs():
             tag_id = await tc.fetchval("SELECT id FROM tags WHERE site_id=$1 AND path=$2",
                                        site, r["path"])
@@ -167,6 +171,32 @@ async def seed(pools: Pools) -> None:
                 "  threshold=excluded.threshold, severity=excluded.severity",
                 org, tag_id, r["name"], r["kind"], r["threshold"], r["severity"])
     log.info("dev seed applied", extra={"org_id": str(org), "site_id": str(site)})
+
+
+BATCH_SOURCE = "Batching plant (sim)"
+
+
+async def _attach_batching_source(tc, org, site, edge) -> None:
+    """The `batch/...` tags (Centrale a Beton) run in their own sim source so the
+    edge simulates the whole plant together. Idempotent; bumps the edge cfg
+    version only when something changed."""
+    specs = {t["path"]: t for t in load_tag_specs() if t["path"].startswith("batch/")}
+    if not specs:
+        return
+    sid = await tc.fetchval(
+        "INSERT INTO data_sources(org_id, site_id, edge_id, name, protocol)"
+        " VALUES ($1,$2,$3,$4,'sim') ON CONFLICT (org_id, edge_id, name)"
+        " DO UPDATE SET name = excluded.name RETURNING id", org, site, edge, BATCH_SOURCE)
+    changed = 0
+    for path, t in specs.items():
+        addr = {"behavior": t["behavior"], "initial": t["initial"]}  # jsonb codec encodes
+        r = await tc.execute(
+            "UPDATE tags SET source_id=$3, address=$4::jsonb"
+            " WHERE site_id=$1 AND path=$2 AND (source_id IS DISTINCT FROM $3"
+            " OR address IS DISTINCT FROM $4::jsonb)", site, path, sid, addr)
+        changed += int(r.rsplit(" ", 1)[-1])
+    if changed:
+        await bump_config(tc, edge)
 
 
 async def _main() -> None:
