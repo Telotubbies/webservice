@@ -143,6 +143,9 @@ class FakeConn:
     async def fetchval(self, sql, *args):
         if "FROM sites" in sql:
             return self.site_row
+        if "INSERT INTO jobs" in sql:  # jobs.enqueue uses fetchval ... RETURNING id
+            self.jobs.append(args)
+            return len(self.jobs)
         return None
 
     async def fetchrow(self, sql, *args):
