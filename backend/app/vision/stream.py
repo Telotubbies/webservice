@@ -15,6 +15,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from ..db.context import global_tx, tenant_tx
 from ..db.util import iso_z
+from .material import RETENTION_DAYS
 from .relay import STREAM_URL_TTL_S, parse_stat, stream_sig, verify_stream_sig
 
 log = logging.getLogger("wds.vision")
@@ -27,6 +28,7 @@ STAT_MIN_INTERVAL_S = 10.0
 
 _streams = 0
 _last_stat: dict[UUID, float] = {}
+_last_prune: dict[UUID, float] = {}
 
 
 def _m():
@@ -65,10 +67,21 @@ async def handle_stat(st, msg, edge) -> None:
         if now - _last_stat.get(cid, -1e9) < STAT_MIN_INTERVAL_S:
             continue
         _last_stat[cid] = now
+        mat = stat.material or {}
         async with tenant_tx(st.pools.system, edge.org_id) as tc:
             await tc.execute(
                 "UPDATE cameras SET status=$2, status_detail=$3, status_at=now() WHERE id=$1",
                 cid, stat.status, stat.detail or None)
+            # AI-inference history for the dashboard; one row per camera per period
+            await tc.execute(
+                "INSERT INTO vision_metrics(org_id, camera_id, fps, latency_ms, infer_n, det_n, gate,"
+                " sand_frac, coverage) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING",
+                edge.org_id, cid, stat.fps, stat.latency_ms, stat.infer_n, stat.det_n,
+                mat.get("gate"), mat.get("sand_frac"), mat.get("coverage"))
+            if now - _last_prune.get(cid, -1e9) > 3600:
+                _last_prune[cid] = now
+                await tc.execute("DELETE FROM vision_metrics WHERE camera_id=$1 AND ts < now() - make_interval(days => $2)",
+                                 cid, RETENTION_DAYS)
 
 
 CAPS_MAX_BYTES = 64 * 1024

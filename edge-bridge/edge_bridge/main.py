@@ -135,6 +135,7 @@ def main() -> int:
         publish_stat=lambda doc: bridge.publish_json(cfg.vision_stat_topic, doc, qos=0),
         publish_caps=lambda doc: bridge.publish_json(cfg.vision_caps_topic, doc, qos=0),
         on_detections=rules.on_detections,
+        on_material=rules.on_material,
         model_client=model_client,
         state_dir=cfg.state_dir)
     cfg_client = CfgClient(cfg, holder, bridge, cfg.site_code, now=clock.now, vision=vision)

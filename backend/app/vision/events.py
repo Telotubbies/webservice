@@ -36,7 +36,7 @@ log = logging.getLogger("wds.vision.events")
 
 router = APIRouter()
 
-KINDS = ("rule_fire", "blocked", "dry_run", "alert_object")
+KINDS = ("rule_fire", "blocked", "dry_run", "alert_object", "material")
 SEVERITIES = ("info", "warning", "critical")
 MAX_EVENT_BYTES = 128 * 1024          # transport cap; thumb must decode to <= this
 MAX_THUMB_BYTES = 128 * 1024

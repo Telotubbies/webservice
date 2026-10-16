@@ -21,6 +21,7 @@ from ..datasources.routes import bump_config
 from ..db import audit
 from ..db.context import tenant_tx
 from ..db.util import iso_z
+from .material import MaterialCfg, check_output_tags
 from .videos import media_sig
 
 router = APIRouter()
@@ -50,6 +51,7 @@ class CameraPatch(BaseModel):
     video_id: UUID | None = None
     fps_sample: float | None = Field(default=None, ge=0.5, le=15)
     enabled: bool | None = None
+    material: MaterialCfg | None = None    # explicit null switches the decision off
 
 
 def _check_rtsp(url: str | None) -> str:
@@ -67,6 +69,7 @@ def camera_json(r, runtime: dict | None = None) -> dict:
         "fps_sample": r["fps_sample"], "enabled": r["enabled"], "status": r["status"],
         "status_detail": r["status_detail"],
         "status_at": iso_z(r["status_at"]) if r["status_at"] else None,
+        "material": r["material"],
         "created_at": iso_z(r["created_at"]), "updated_at": iso_z(r["updated_at"]),
     }
     if runtime:
@@ -80,6 +83,8 @@ def camera_cfg(r, *, rtsp_url: str | None, video: dict | None, base_url: str, mo
            "fps_sample": r["fps_sample"], "enabled": r["enabled"]}
     if model is not None:
         out["model"] = model
+    if r["material"] and r["material"].get("enabled"):
+        out["material"] = r["material"]
     if r["kind"] == "rtsp":
         out["rtsp_url"] = rtsp_url
     else:
@@ -218,6 +223,11 @@ async def patch_camera(org: str, edge: str, camera: str, body: CameraPatch, requ
         for f in ("name", "fps_sample", "enabled"):
             if f in ch and ch[f] is not None:
                 put(f, ch[f])
+        if "material" in ch:
+            mat = ch["material"]
+            if mat is not None:
+                await check_output_tags(tc, cur["site_id"], mat["outputs"])
+            put("material", mat)
         if "rtsp_url" in ch:
             if cur["kind"] != "rtsp":
                 raise HTTPException(422, "rtsp_url only applies to rtsp cameras")

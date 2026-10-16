@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..adapters.base import Quality
+from .material import parse_cfg as parse_material_cfg
 from .track import IoUTracker
 
 log = logging.getLogger("edge_bridge.vision.rules")
@@ -409,6 +410,54 @@ class RuleEngine:
         for rule in st.rules:
             self._eval_rule(cam, st, rule, tracks, frame, eff_placement)
 
+    def on_material(self, cam: dict, pkg: dict, frame, detector=None) -> None:
+        """A truck visit closed: record the decision package and write it to
+        the configured PLC tags through the same gate/audit as any rule."""
+        st = self._cam_state(cam)
+        cfg = parse_material_cfg(cam.get("material"))
+        if cfg is None:
+            return
+        o = cfg["outputs"]
+        code = {"gravel": o["gravel_value"], "sand": o["sand_value"]}.get(pkg["decision"], o["none_value"])
+        acts = []
+        if o["code"]:
+            acts.append({"kind": "plc_write", "tag_path": o["code"], "value": code, "pulse_ms": None})
+        if o["margin_pct"]:
+            acts.append({"kind": "plc_write", "tag_path": o["margin_pct"], "value": round(pkg["margin"] * 100), "pulse_ms": None})
+        if o["uncertain"]:
+            acts.append({"kind": "plc_write", "tag_path": o["uncertain"], "value": bool(pkg["uncertain"]), "pulse_ms": None})
+        if o["trigger"]:       # last, and delayed: the PLC latches the data tags on this edge
+            acts.append({"kind": "plc_write", "tag_path": o["trigger"], "value": True,
+                         "pulse_ms": o["pulse_ms"], "delay_ms": 150})
+        rule = _Rule(id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"material:{cam['id']}")), name="material decision",
+                     enabled=True, dry_run=cfg["dry_run"], allow_cloud_write=False,
+                     offline_write_window_s=None, cond={}, actions=acts)
+        placement = getattr(detector, "placement", None) or ("edge" if st.placement in ("auto", "edge") else "cloud")
+        thumb = None
+        if frame is not None and self._encode_thumb is not None:
+            try:
+                thumb = self._encode_thumb(frame)
+            except Exception:                       # noqa: BLE001
+                thumb = None
+        results, blocked = [], None
+        for a in acts:
+            if cfg["dry_run"]:
+                results.append({"action": "plc_write", "tag_path": a["tag_path"], "value": a["value"], "result": "would_write"})
+                continue
+            reason = self._gate_write(cam, st, rule, a, placement)
+            if reason is None:
+                ok = self._submit_write(cam, rule, a)
+                reason = None if ok else "queue_full"
+            if reason is not None:
+                blocked = blocked or reason
+                results.append({"action": "plc_write", "tag_path": a["tag_path"], "result": "blocked", "reason": reason})
+            else:
+                results.append({"action": "plc_write", "tag_path": a["tag_path"], "value": a["value"], "result": "submitted"})
+        detail = dict(pkg, dry_run=cfg["dry_run"], outputs=results)
+        self._emit(cam, None, "material", None, st, thumb, detail,
+                   severity="warning" if pkg["uncertain"] else None, score=pkg["margin"],
+                   blocked_reason=blocked)
+
     def _match_tracks(self, rule: _Rule, tracks: list) -> list:
         c = rule.cond
         out = []
@@ -638,6 +687,8 @@ class RuleEngine:
                     res = adapter.write(name, value)
                     ok, detail = res.ok, res.detail
             else:
+                if action.get("delay_ms"):
+                    time.sleep(action["delay_ms"] / 1000.0)
                 res = adapter.write(name, action["value"])
                 ok, detail = res.ok, res.detail
                 if ok and action.get("pulse_ms"):

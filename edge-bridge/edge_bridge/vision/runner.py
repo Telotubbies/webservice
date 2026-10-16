@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .detector import ModelNotReady, NullDetector
+from .material import MaterialDecider, Window, draw_hud, preprocess
 from .overlay import draw_overlay
 from .source import FileSource, RtspSource, SourceError, encode_jpeg
 
@@ -81,6 +82,8 @@ class _Worker(threading.Thread):
         self.frames = 0
         self._detector = runner.detector_factory(cam)
         self._class_config = (cam.get("model") or {}).get("class_config") or {}
+        self._mat = MaterialDecider()
+        self._win = Window()
 
     def _open(self):
         c = self.cam
@@ -102,8 +105,12 @@ class _Worker(threading.Thread):
                 while not self.stop_ev.is_set():
                     frame = src.read()
                     out, dets = frame, []
+                    cfgc = self.r.cam_cfg(self.cam["id"]) or self.cam
+                    mat_on = self._mat.configure(cfgc.get("material"))
                     try:
-                        dets = self._detector.detect(frame)
+                        # conditioning (ROI / CLAHE / gamma) is for the model only; the picture stays original
+                        dets = self._detector.detect(preprocess(frame, self._mat.cfg["preprocess"]) if mat_on else frame)
+                        self._win.add(len(dets))
                         if dets:
                             out = draw_overlay(frame, dets, self._class_config)
                     except ModelNotReady:
@@ -111,6 +118,14 @@ class _Worker(threading.Thread):
                     except Exception as exc:  # noqa: BLE001 — a detector bug must not stop the picture
                         log.warning("detector failed on %s: %s", self.cam.get("name"), exc)
                         self._detector.state, self._detector.detail = "error", _clean(str(exc))
+                    if mat_on and self._detector.state == "ready":
+                        pkg = self._mat.feed(dets)
+                        out = draw_hud(out if out is not frame else frame.copy(), self._mat.status(), self._mat.cfg["dry_run"])
+                        if pkg is not None and self.r.on_material is not None:
+                            try:
+                                self.r.on_material(cfgc, pkg, frame, detector=self._detector)
+                            except Exception:  # noqa: BLE001
+                                log.exception("on_material failed")
                     if self.r.on_detections is not None:
                         # EVERY frame — including empty dets: edge-triggered
                         # rules re-arm only when they see the cleared frame
@@ -149,13 +164,14 @@ def _ram_mb() -> int | None:
 class VisionRunner:
     def __init__(self, publish_frame, publish_stat, state_dir, fetch=download_to_cache,
                  detector_factory=lambda cam: NullDetector(), stat_period_s: float = 10.0,
-                 on_detections=None, publish_caps=None, model_client=None,
+                 on_detections=None, on_material=None, publish_caps=None, model_client=None,
                  caps_period_s: float = 300.0):
         self.publish_frame = publish_frame
         self.publish_stat = publish_stat
         self.state_dir = state_dir
         self.fetch = fetch
         self.detector_factory = detector_factory
+        self.on_material = on_material             # (camera_cfg, decision package, frame) -> None
         self.on_detections = on_detections         # (camera_cfg, detections, frame) -> None; rules arrive in M1-06
         self.publish_caps = publish_caps           # optional: vision/caps reporter (M1-05 T4)
         self._client = model_client                # ModelClient | None — health() feeds caps
@@ -274,6 +290,10 @@ class VisionRunner:
                             "engine": getattr(d, "engine", None), "latency_ms": getattr(d, "latency_ms", None),
                             "bench_fps": getattr(d, "bench_fps", None), "model_version": getattr(d, "version", None),
                             "placement": getattr(d, "placement", None)}
+                infer_n, det_n = w._win.take()
+                doc[cid]["infer_n"], doc[cid]["det_n"] = infer_n, det_n
+                if w._mat.cfg is not None:
+                    doc[cid]["material"] = w._mat.status()
                 last[cid] = w.frames
             t0 = now
             if doc:

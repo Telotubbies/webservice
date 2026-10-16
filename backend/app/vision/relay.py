@@ -17,6 +17,7 @@ from typing import AsyncIterator, Awaitable, Callable, NamedTuple
 from uuid import UUID
 
 from ..core import config
+from .material import clean_material_stat
 
 MAX_FRAME_BYTES = 150_000
 STREAM_URL_TTL_S = 60
@@ -40,6 +41,9 @@ class CameraStat(NamedTuple):
     model_detail: str = ""
     model_version: str | None = None
     placement: str | None = None          # 'edge' | 'cloud' — V5 badge
+    infer_n: int | None = None            # inferences / detections since the last stat
+    det_n: int | None = None
+    material: dict | None = None          # gate + running decision (vision.material.clean_material_stat)
 
 
 def _finite(v, lo: float, hi: float):
@@ -53,6 +57,10 @@ def _finite(v, lo: float, hi: float):
     if not math.isfinite(f):
         return None
     return max(lo, min(hi, f))
+
+
+def _count(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 10_000_000 else None
 
 
 def _str(v, limit: int):
@@ -110,7 +118,9 @@ def parse_stat(raw: bytes) -> dict[UUID, CameraStat]:
             model_detail=_str(v.get("model_detail"), 200) or "",
             model_version=_str(v.get("model_version"), 80),
             placement=(v.get("placement") if isinstance(v.get("placement"), str)
-                       and v["placement"] in _PLACEMENTS else None))
+                       and v["placement"] in _PLACEMENTS else None),
+            infer_n=_count(v.get("infer_n")), det_n=_count(v.get("det_n")),
+            material=clean_material_stat(v.get("material")))
     return out
 
 
@@ -149,7 +159,8 @@ class FrameRelay:
         return {k: v for k, v in {
             "engine": s.engine, "latency_ms": s.latency_ms, "bench_fps": s.bench_fps,
             "model_state": s.model_state, "model_detail": s.model_detail or None,
-            "model_version": s.model_version, "placement": s.placement}.items() if v is not None}
+            "model_version": s.model_version, "placement": s.placement,
+            "fps": s.fps, "material": s.material}.items() if v is not None}
 
     def note_count(self, camera_id: UUID, counts: dict) -> None:
         """Latest per-minute class-count rollup (vision/count, roadmap 9.8)."""
