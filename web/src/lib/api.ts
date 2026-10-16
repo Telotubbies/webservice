@@ -149,8 +149,12 @@ export interface AdminSite { id: string; name: string; code: string; timezone: s
 export interface AdminTag { id: string; path: string; name: string; type: string; unit?: string }
 export interface AdminRule {
   id: string; tag_id: string; name: string; kind: string;
-  threshold: number | null; stale_s: number | null; deadband: number;
+  threshold: number | null; stale_s: number | null; window_s?: number | null; deadband: number;
   severity: string; enabled: boolean;
+}
+export interface ApiKey {
+  id: string; name: string; prefix: string; role: string; created_at: string;
+  expires_at: string | null; last_used_at: string | null; revoked_at: string | null;
 }
 export interface Member {
   user_id: string; role: string; sub: string;
@@ -176,7 +180,7 @@ export interface SiteHealth {
 }
 export interface RuleInput {
   name: string; tag_id: string; kind: string;
-  threshold?: number | null; stale_s?: number | null;
+  threshold?: number | null; stale_s?: number | null; window_s?: number | null;
   deadband?: number; severity: string; enabled?: boolean;
 }
 
@@ -189,6 +193,27 @@ export interface DashboardRow {
 }
 export type DashboardInput = Pick<DashboardRow, 'title' | 'description' | 'shared' | 'body'> & { id?: string };
 
+export interface SloCorrection { id: string; starts_at: string; ends_at: string; reason: string }
+export interface SloDef {
+  id: string; name: string; description: string; tag: string | null; tag_id: string;
+  target: number; warning: number; updated_at: string; corrections: SloCorrection[];
+}
+export interface SloInput { name: string; tag: string; target: number; warning?: number; description?: string }
+export interface SloStatus { id: string; samples: number; excluded: number; sli: number | null; covered_s: number }
+export const sloApi = {
+  list: (org: string) => request<V2List<SloDef>>(v2(org, '/slos')),
+  status: (org: string, days: number) => request<{ days: number; items: SloStatus[] }>(v2(org, `/slos/status?days=${days}`)),
+  create: (org: string, body: SloInput) =>
+    request<{ slo: SloDef }>(v2(org, '/slos'), { method: 'POST', body: JSON.stringify(body) }),
+  patch: (org: string, id: string, body: Partial<SloInput>) =>
+    request<{ slo: SloDef }>(v2(org, `/slos/${id}`), { method: 'PATCH', body: JSON.stringify(body) }),
+  remove: (org: string, id: string) => request<void>(v2(org, `/slos/${id}`), { method: 'DELETE' }),
+  addCorrection: (org: string, id: string, body: { starts_at: string; ends_at: string; reason: string }) =>
+    request<{ correction: SloCorrection }>(v2(org, `/slos/${id}/corrections`), { method: 'POST', body: JSON.stringify(body) }),
+  deleteCorrection: (org: string, id: string, cid: string) =>
+    request<void>(v2(org, `/slos/${id}/corrections/${cid}`), { method: 'DELETE' }),
+};
+
 export const dashboardApi = {
   list: (org: string) => request<{ dashboards: DashboardRow[] }>(v2(org, '/dashboards')),
   create: (org: string, b: DashboardInput) =>
@@ -197,6 +222,63 @@ export const dashboardApi = {
     request<unknown>(v2(org, `/dashboards/${id}`), { method: 'PUT', body: JSON.stringify(b) }),
   remove: (org: string, id: string) => request<void>(v2(org, `/dashboards/${id}`), { method: 'DELETE' }),
 };
+
+export interface DowntimeRow {
+  id: string; rule_id: string | null; rule: string | null; description: string;
+  starts_at: string; ends_at: string; recurring: boolean; mine: boolean;
+}
+export type DowntimeInput = Pick<DowntimeRow, 'rule_id' | 'description' | 'starts_at' | 'ends_at' | 'recurring'>;
+
+export const downtimeApi = {
+  list: (org: string) =>
+    request<{ downtimes: DowntimeRow[]; rules: { id: string; name: string }[] }>(v2(org, '/downtimes')),
+  create: (org: string, b: DowntimeInput) =>
+    request<unknown>(v2(org, '/downtimes'), { method: 'POST', body: JSON.stringify(b) }),
+  end: (org: string, id: string) => request<unknown>(v2(org, `/downtimes/${id}/end`), { method: 'POST' }),
+  remove: (org: string, id: string) => request<void>(v2(org, `/downtimes/${id}`), { method: 'DELETE' }),
+};
+
+export interface NotebookRow { id: string; title: string; body: string; shared: boolean; mine: boolean; updated_at: string }
+export const notebookApi = {
+  list: (org: string) => request<{ notebooks: NotebookRow[] }>(v2(org, '/notebooks')),
+  create: (org: string, b: Pick<NotebookRow, 'title' | 'body' | 'shared'> & { id?: string }) =>
+    request<{ notebook: NotebookRow }>(v2(org, '/notebooks'), { method: 'POST', body: JSON.stringify(b) }),
+  update: (org: string, id: string, b: Pick<NotebookRow, 'title' | 'body' | 'shared'> & { base_updated_at?: string }) =>
+    request<unknown>(v2(org, `/notebooks/${id}`), { method: 'PUT', body: JSON.stringify(b) }),
+  remove: (org: string, id: string) => request<void>(v2(org, `/notebooks/${id}`), { method: 'DELETE' }),
+};
+
+export interface TeamRow { id: string; name: string; description: string; members: { user_id: string; name: string }[] }
+export const teamApi = {
+  list: (org: string) => request<{ teams: TeamRow[] }>(v2(org, '/teams')),
+  create: (org: string, b: { name: string; description: string }) =>
+    request<{ id: string }>(v2(org, '/teams'), { method: 'POST', body: JSON.stringify(b) }),
+  setMembers: (org: string, id: string, user_ids: string[]) =>
+    request<unknown>(v2(org, `/teams/${id}/members`), { method: 'PUT', body: JSON.stringify({ user_ids }) }),
+  remove: (org: string, id: string) => request<void>(v2(org, `/teams/${id}`), { method: 'DELETE' }),
+};
+
+export type IncidentStatus = 'active' | 'acknowledged' | 'resolved';
+export type IncidentSeverity = 'info' | 'warning' | 'critical';
+export interface IncidentRow {
+  id: string; title: string; severity: IncidentSeverity; status: IncidentStatus; created_at: string;
+  acked_at: string | null; resolved_at: string | null; alarm_id: string | null; team_id: string | null; team: string | null; mine: boolean;
+}
+export interface IncidentEvent { kind: 'created' | 'status' | 'note'; body: string; at: string; who: string }
+export const incidentApi = {
+  list: (org: string) => request<{ incidents: IncidentRow[]; teams: { id: string; name: string }[] }>(v2(org, '/incidents')),
+  get: (org: string, id: string) => request<{ incident: IncidentRow; events: IncidentEvent[] }>(v2(org, `/incidents/${id}`)),
+  create: (org: string, b: { title: string; severity: IncidentSeverity; owner_team_id: string | null }) =>
+    request<unknown>(v2(org, '/incidents'), { method: 'POST', body: JSON.stringify(b) }),
+  setStatus: (org: string, id: string, status: 'acknowledged' | 'resolved') =>
+    request<unknown>(v2(org, `/incidents/${id}/status`), { method: 'POST', body: JSON.stringify({ status }) }),
+  note: (org: string, id: string, body: string) =>
+    request<unknown>(v2(org, `/incidents/${id}/notes`), { method: 'POST', body: JSON.stringify({ body }) }),
+};
+
+export interface InferenceResult { tag: string | null; label: string; score: number; severity: 'info' | 'warning' | 'critical'; detail: string }
+export interface InferenceState { configured: boolean; model?: string; ts?: number; latency_ms?: number; error?: string | null; results?: InferenceResult[] }
+export const inferenceApi = { get: (org: string) => request<InferenceState>(v2(org, '/inference')) };
 
 export const adminApi = {
   org: (org: string) => request<AdminOrg>(v2(org, '')),
@@ -215,6 +297,10 @@ export const adminApi = {
     }),
   deleteRule: (org: string, site: string, id: string) =>
     request<void>(v2(org, `/sites/${site}/alarm-rules/${id}`), { method: 'DELETE' }),
+  apiKeys: (org: string) => request<V2List<ApiKey>>(v2(org, '/api-keys')),
+  createApiKey: (org: string, body: { name: string; role: string; expires_days: number | null }) =>
+    request<{ key: ApiKey; secret: string }>(v2(org, '/api-keys'), { method: 'POST', body: JSON.stringify(body) }),
+  revokeApiKey: (org: string, id: string) => request<void>(v2(org, `/api-keys/${id}`), { method: 'DELETE' }),
   members: (org: string) => request<V2List<Member>>(v2(org, '/members')),
   patchMember: (org: string, uid: string, body: { role?: string; disabled?: boolean }) =>
     request<{ member: Member }>(v2(org, `/members/${uid}`), {

@@ -1,25 +1,33 @@
-// SLOs — production service-level objectives over tag availability
-// (GET /api/tags/{name}/availability). Status tiles, facet panel, table with
-// target, status and error budget left; window switch 7d / 30d / 90d.
+// SLOs — service-level objectives over tag availability, stored per org
+// (/api/v1/orgs/{org}/slos). Status tiles, facet panel, table with target,
+// status and error budget left; window switch 7d / 30d / 90d. Admins create,
+// edit and delete SLOs and add correction windows whose samples are excluded.
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQueries } from '@tanstack/react-query';
-import { api } from '../../lib/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Pencil, Plus, Trash2, Wrench } from 'lucide-react';
+import { sloApi, type SloDef } from '../../lib/api';
+import { equipmentOf } from '../../lib/plant';
 import { Icon } from '../../shared/ui/Icon';
-import { EmptyState, Notice } from '../../shared/ui/Feedback';
+import { EmptyState, ErrorState, Notice, Skeleton } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
+import { Confirm } from '../../shared/ui/Confirm';
 import { FacetGroup, ProductHeader, facetOptions, toggleIn } from '../../shared/ui/Product';
+import { canAdmin, useAdminOrg } from '../admin/admin';
+import { CorrectionsDialog, SloEditor } from './SloDialogs';
 
-// shortcut: SLO definitions are static until the backend has SLO CRUD.
-export const SLOS = [
+/** Starter set offered by "Add the default SLOs" on an empty org. */
+export const DEFAULT_SLOS = [
   { id: 'slo-belt', name: 'Conveyor belt availability', tag: 'plant1.sort.line1.conv1.speed_mps', target: 99.9, warning: 99.95, equipment: 'conveyor' },
   { id: 'slo-temp', name: 'Belt temperature telemetry', tag: 'plant1.sort.line1.conv1.temp_c', target: 99.5, warning: 99.7, equipment: 'conveyor' },
   { id: 'slo-bin', name: 'Bin level sensor uptime', tag: 'plant1.sort.line1.bin1.level_pct', target: 99.0, warning: 99.5, equipment: 'bin' },
   { id: 'slo-vision', name: 'Vision camera frames', tag: 'plant1.sort.vision.cam1.gravel_ratio', target: 99.5, warning: 99.8, equipment: 'camera' },
 ];
 
-type Status = 'breached' | 'warning' | 'ok' | 'nodata';
+export type Status = 'breached' | 'warning' | 'ok' | 'nodata';
+export const sloStatus = (sli: number | null, target: number, warning: number): Status =>
+  sli == null ? 'nodata' : sli < target ? 'breached' : sli < warning ? 'warning' : 'ok';
 const WINDOWS = { '7d': 7, '30d': 30, '90d': 90 } as const;
 type Win = keyof typeof WINDOWS;
 
@@ -33,38 +41,55 @@ const GLYPH: Record<Status, string> = { breached: '▲', warning: '◆', ok: '�
 
 export function SloPage() {
   const { t } = useTranslation();
+  const qc = useQueryClient();
+  const { orgId, orgRole } = useAdminOrg();
+  const admin = canAdmin(orgRole ?? 'none');
   const [win, setWin] = useState<Win>('30d');
   const [q, setQ] = useState('');
   const [offStatus, setOffStatus] = useState<Set<string>>(new Set());
   const [offEq, setOffEq] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<SloDef | 'new' | null>(null);
+  const [fixing, setFixing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<SloDef | null>(null);
+  const [err, setErr] = useState('');
 
-  const from = useMemo(() => new Date(Date.now() - WINDOWS[win] * 86400e3).toISOString(), [win]);
-  const results = useQueries({
-    queries: SLOS.map((s) => ({
-      queryKey: ['availability', s.tag, win],
-      queryFn: () => api.availability(s.tag, { from }),
-      staleTime: 60_000,
-    })),
+  const defs = useQuery({ queryKey: ['slos', orgId], queryFn: () => sloApi.list(orgId!), enabled: !!orgId });
+  const stat = useQuery({
+    queryKey: ['slo-status', orgId, win, defs.data?.items.length],
+    queryFn: () => sloApi.status(orgId!, WINDOWS[win]),
+    enabled: !!orgId && (defs.data?.items.length ?? 0) > 0, staleTime: 60_000,
   });
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ['slos'] }); void qc.invalidateQueries({ queryKey: ['slo-status'] }); };
 
-  const rows = SLOS.map((s, i) => {
-    const up = results[i].data?.uptime;
-    const sli = up == null ? null : up * 100;
-    const status: Status = sli == null ? 'nodata' : sli < s.target ? 'breached' : sli < s.warning ? 'warning' : 'ok';
+  const byId = new Map((stat.data?.items ?? []).map((x) => [x.id, x]));
+  const rows = (defs.data?.items ?? []).map((s) => {
+    const st = byId.get(s.id);
+    const sli = st?.sli ?? null;
+    const status = sloStatus(sli, s.target, s.warning);
     // budget = allowed bad fraction; left = share of it not yet spent
     const budgetLeft = sli == null ? null : (1 - (100 - sli) / (100 - s.target)) * 100;
-    return { ...s, sli, status, budgetLeft, loading: results[i].isLoading, error: results[i].isError };
+    const equipment = (s.tag && equipmentOf(s.tag)) || 'other';
+    return { ...s, tag: s.tag ?? '', sli, status, budgetLeft, equipment, excluded: st?.excluded ?? 0, loading: stat.isLoading };
   });
+
+  const importDefaults = async () => {
+    setErr('');
+    try {
+      for (const d of DEFAULT_SLOS) await sloApi.create(orgId!, { name: d.name, tag: d.tag, target: d.target, warning: d.warning });
+      refresh();
+    } catch { setErr(t('slos.errSave')); refresh(); }
+  };
 
   const shown = rows
     .filter((r) => !offStatus.has(r.status) && !offEq.has(r.equipment))
     .filter((r) => `${r.name} ${r.tag} ${r.equipment}`.toLowerCase().includes(q.toLowerCase()));
   const count = (s: Status) => rows.filter((r) => r.status === s).length;
-  const anyError = rows.some((r) => r.error);
+  const anyError = stat.isError;
 
   return (
     <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="status-page" title={t('slos.title')} tabs={[{ to: '/slos', label: t('slos.tabList'), end: true }]} />
+      <ProductHeader icon="status-page" title={t('slos.title')} tabs={[{ to: '/slos', label: t('slos.tabList'), end: true }]}
+        actions={admin ? <button type="button" className="btn btn-sm" onClick={() => setEditing('new')}><Plus size={14} aria-hidden /> {t('slos.new')}</button> : undefined} />
       <div className="border-b border-line bg-white px-4 py-2">
         <div className="relative">
           <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
@@ -109,9 +134,20 @@ export function SloPage() {
           </div>
 
           {anyError && <div className="mt-2"><Notice tone="error">{t('slos.loadError')}</Notice></div>}
+          {err && <div className="mt-2"><Notice tone="error">{err}</Notice></div>}
 
           <section className="mt-2 overflow-x-auto rounded-[5px] border border-line bg-white">
-            {shown.length === 0 ? (
+            {defs.isLoading ? <div className="p-4"><Skeleton h={80} /></div> : defs.isError ? (
+              <ErrorState onRetry={() => void defs.refetch()} />
+            ) : rows.length === 0 ? (
+              <EmptyState title={t('slos.none')} body={admin ? t('slos.noneBody') : t('slos.noneViewer')} icon="search"
+                action={admin ? (
+                  <span className="flex gap-2">
+                    <button type="button" className="btn btn-sm" onClick={() => setEditing('new')}>{t('slos.new')}</button>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => void importDefaults()}>{t('slos.importDefaults')}</button>
+                  </span>
+                ) : undefined} />
+            ) : shown.length === 0 ? (
               <EmptyState title={t('slos.empty')} icon="search" />
             ) : (
               <table className="w-full border-collapse text-[13px]">
@@ -120,6 +156,7 @@ export function SloPage() {
                     {['colType', 'colName', 'colWindow', 'colTarget', 'colSli', 'colStatus', 'colBudget', 'colTags'].map((c) => (
                       <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t(`slos.${c}`)}</th>
                     ))}
+                    {admin && <th scope="col" className="h-8 px-3"><span className="sr-only">{t('access.colActions')}</span></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -147,6 +184,15 @@ export function SloPage() {
                         )}
                       </td>
                       <td className="px-3"><span className="rounded border border-line px-1.5 py-0.5 font-mono text-[11px] text-ink-68">equipment:{r.equipment}</span></td>
+                      {admin && (
+                        <td className="whitespace-nowrap px-3 text-right">
+                          <button type="button" className="btn btn-sm btn-ghost" aria-label={`${t('slos.edit')} ${r.name}`} onClick={() => setEditing(defs.data!.items.find((x) => x.id === r.id)!)}><Pencil size={13} aria-hidden /></button>
+                          <button type="button" className="btn btn-sm btn-ghost" aria-label={`${t('slos.fix')} ${r.name}`} title={r.excluded ? t('slos.excludedN', { count: r.excluded }) : t('slos.fix')} onClick={() => setFixing(r.id)}>
+                            <Wrench size={13} aria-hidden />{r.corrections.length > 0 && <span className="ml-1 text-[11px]">{r.corrections.length}</span>}
+                          </button>
+                          <button type="button" className="btn btn-sm btn-ghost text-[var(--color-danger)]" aria-label={`${t('slos.delete')} ${r.name}`} onClick={() => setDeleting(defs.data!.items.find((x) => x.id === r.id)!)}><Trash2 size={13} aria-hidden /></button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -156,6 +202,18 @@ export function SloPage() {
           <p className="mt-2 text-[11px] text-ink-46">{t('slos.footnote')}</p>
         </div>
       </div>
+      {editing && orgId && (
+        <SloEditor org={orgId} initial={editing === 'new' ? null : editing} onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); refresh(); }} />
+      )}
+      {fixing && orgId && defs.data?.items.find((x) => x.id === fixing) && (
+        <CorrectionsDialog org={orgId} slo={defs.data.items.find((x) => x.id === fixing)!} onClose={() => setFixing(null)} onChanged={refresh} />
+      )}
+      {deleting && orgId && (
+        <Confirm title={t('slos.deleteTitle', { name: deleting.name })} body={t('slos.deleteBody')} confirm={t('slos.delete')}
+          onNo={() => setDeleting(null)}
+          onYes={() => { const d = deleting; setDeleting(null); sloApi.remove(orgId, d.id).then(refresh).catch(() => setErr(t('slos.errSave'))); }} />
+      )}
     </div>
   );
 }

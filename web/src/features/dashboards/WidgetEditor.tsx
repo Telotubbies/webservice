@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, ChartBarBig, ChartLine, Hash, StickyNote, X, type LucideIcon } from 'lucide-react';
+import { Bell, ChartBar, ChartColumn, ChartLine, CircleGauge, Activity, Gauge, GitCompareArrows, Hash, ListOrdered, PieChart, SquareActivity, StickyNote, Table2, TrendingUp, X, type LucideIcon } from 'lucide-react';
 import { api } from '../../lib/api';
 import { SIGNALS } from '../../lib/plant';
 import { WidgetBody, seriesColor } from './widgets';
@@ -13,19 +13,37 @@ import { SERIES_COLORS, type Agg, type RangeKey, type VizKind, type Widget } fro
 
 const KINDS: { kind: VizKind; icon: LucideIcon }[] = [
   { kind: 'timeseries', icon: ChartLine },
+  { kind: 'stat', icon: TrendingUp },
   { kind: 'value', icon: Hash },
-  { kind: 'toplist', icon: ChartBarBig },
+  { kind: 'gauge', icon: CircleGauge },
+  { kind: 'bargauge', icon: ChartBar },
+  { kind: 'stateline', icon: SquareActivity },
+  { kind: 'histogram', icon: ChartColumn },
+  { kind: 'table', icon: Table2 },
+  { kind: 'toplist', icon: ListOrdered },
+  { kind: 'pie', icon: PieChart },
   { kind: 'alarms', icon: Bell },
+  { kind: 'change', icon: GitCompareArrows },
+  { kind: 'slo', icon: Gauge },
+  { kind: 'monitors', icon: Activity },
   { kind: 'note', icon: StickyNote },
 ];
 const MAX_SERIES = SERIES_COLORS.length;
+/** kinds fed by exactly one tag → radio pick */
+const SINGLE: VizKind[] = ['change', 'value', 'stat', 'gauge', 'stateline', 'histogram'];
+/** kinds fed by 1..N tags → checkbox pick */
+const MULTI: VizKind[] = ['timeseries', 'bargauge', 'table'];
+/** kinds that group the open-alarm set */
+const ALARM_GROUPS: VizKind[] = ['toplist', 'pie'];
+const HAS_THRESHOLDS: VizKind[] = ['value', 'stat', 'gauge', 'bargauge', 'stateline'];
+const HAS_RANGE: VizKind[] = ['gauge', 'bargauge', 'timeseries'];
 
 const numOrNull = (s: string) => (s.trim() === '' || Number.isNaN(Number(s)) ? null : Number(s));
 
 export function validate(w: Widget): Partial<Record<'tags' | 'thresholds' | 'yaxis' | 'note', string>> {
   const e: Partial<Record<'tags' | 'thresholds' | 'yaxis' | 'note', string>> = {};
-  if (w.kind === 'timeseries' && (w.tags.length < 1 || w.tags.length > MAX_SERIES)) e.tags = 'dash.errSeries';
-  if (w.kind === 'value' && w.tags.length !== 1) e.tags = 'dash.errOneMetric';
+  if (MULTI.includes(w.kind) && (w.tags.length < 1 || w.tags.length > MAX_SERIES)) e.tags = 'dash.errSeries';
+  if (SINGLE.includes(w.kind) && w.tags.length !== 1) e.tags = 'dash.errOneMetric';
   if (w.warn != null && w.crit != null && w.warn >= w.crit) e.thresholds = 'dash.errThresholds';
   if (w.yMin != null && w.yMax != null && w.yMin >= w.yMax) e.yaxis = 'dash.errYaxis';
   if (w.kind === 'note' && !w.note.trim()) e.note = 'dash.errNote';
@@ -43,12 +61,14 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
   const set = (p: Partial<Widget>) => setW((cur) => ({ ...cur, ...p }));
   const errs = validate(w);
   const ok = Object.keys(errs).length === 0;
-  const usesTags = w.kind === 'timeseries' || w.kind === 'value';
+  const isSingle = SINGLE.includes(w.kind);
+  const usesTags = isSingle || MULTI.includes(w.kind);
+  const hasThresholds = HAS_THRESHOLDS.includes(w.kind);
 
   useEffect(() => { dlg.current?.showModal(); }, []);
 
   const toggleTag = (tag: string) => set({
-    tags: w.kind === 'value' ? [tag]
+    tags: isSingle ? [tag]
       : w.tags.includes(tag) ? w.tags.filter((x) => x !== tag) : [...w.tags, tag],
   });
 
@@ -85,7 +105,7 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
               <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('dash.stepViz')}>
                 {KINDS.map(({ kind, icon: Ico }) => (
                   <button key={kind} type="button" role="radio" aria-checked={w.kind === kind}
-                    onClick={() => set({ kind, tags: kind === 'value' ? w.tags.slice(0, 1) : w.tags })}
+                    onClick={() => set({ kind, tags: SINGLE.includes(kind) ? w.tags.slice(0, 1) : w.tags })}
                     className={`flex h-16 w-28 flex-col items-center justify-center gap-1 rounded border text-[12px] focus-visible:outline-2 focus-visible:outline-blue ${
                       w.kind === kind ? 'border-blue bg-info-soft font-semibold text-blue' : 'border-line hover:border-ink-35'}`}>
                     <Ico size={18} aria-hidden /> {t(`dash.kind.${kind}`)}
@@ -95,17 +115,17 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
             </fieldset>
 
             {/* 2. data */}
-            {w.kind !== 'note' && w.kind !== 'alarms' && (
+            {w.kind !== 'note' && w.kind !== 'alarms' && w.kind !== 'slo' && w.kind !== 'monitors' && (
               <fieldset>
                 <legend className="mb-2 text-[13px] font-semibold"><Step n={2} />{t('dash.stepData')}</legend>
                 {usesTags && (
                   <>
-                    <p className={field}>{w.kind === 'value' ? t('dash.metricOne') : t('dash.metricMany', { max: MAX_SERIES })}</p>
+                    <p className={field}>{isSingle ? t('dash.metricOne') : t('dash.metricMany', { max: MAX_SERIES })}</p>
                     <div className="mt-1 grid max-h-44 grid-cols-2 gap-1 overflow-y-auto rounded border border-line p-2">
                       {(tags.data ?? []).map((g) => (
                         <label key={g.name} className="flex items-center gap-2 text-[12px]">
-                          <input type={w.kind === 'value' ? 'radio' : 'checkbox'} name="we-tag" checked={w.tags.includes(g.name)} onChange={() => toggleTag(g.name)}
-                            disabled={w.kind === 'timeseries' && !w.tags.includes(g.name) && w.tags.length >= MAX_SERIES} />
+                          <input type={isSingle ? 'radio' : 'checkbox'} name="we-tag" checked={w.tags.includes(g.name)} onChange={() => toggleTag(g.name)}
+                            disabled={!isSingle && !w.tags.includes(g.name) && w.tags.length >= MAX_SERIES} />
                           <span className="truncate font-mono">{g.name.split('.').slice(-2).join('.')}</span>
                           {g.unit && <span className="text-ink-46">{g.unit}</span>}
                         </label>
@@ -115,14 +135,14 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
                   </>
                 )}
                 <div className="mt-3 grid grid-cols-3 gap-3">
-                  {w.kind === 'value' && (
+                  {(w.kind === 'value' || w.kind === 'stat') && (
                     <label className={field}>{t('dash.aggregation')}
                       <select className="input mt-1 w-full" value={w.agg} onChange={(e) => set({ agg: e.target.value as Agg })}>
                         {(['last', 'avg', 'min', 'max'] as Agg[]).map((a) => <option key={a} value={a}>{t(`dash.agg.${a}`)}</option>)}
                       </select>
                     </label>
                   )}
-                  {w.kind === 'toplist' && (
+                  {ALARM_GROUPS.includes(w.kind) && (
                     <label className={field}>{t('dash.groupBy')}
                       <select className="input mt-1 w-full" value={w.groupBy} onChange={(e) => set({ groupBy: e.target.value as Widget['groupBy'] })}>
                         <option value="tag">{t('dash.group.tag')}</option>
@@ -166,34 +186,44 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
                     <input className="input mt-1 w-full" type="number" min={0} max={4} value={w.decimals} onChange={(e) => set({ decimals: Math.max(0, Math.min(4, Number(e.target.value) || 0)) })} />
                   </label>
                   <span />
-                  <label className={field}>{t('dash.warn')}
-                    <input className="input mt-1 w-full" type="number" step="any" value={w.warn ?? ''} onChange={(e) => set({ warn: numOrNull(e.target.value) })} />
-                  </label>
-                  <label className={field}>{t('dash.crit')}
-                    <input className="input mt-1 w-full" type="number" step="any" value={w.crit ?? ''} onChange={(e) => set({ crit: numOrNull(e.target.value) })} />
-                  </label>
+                  {hasThresholds && (
+                    <>
+                      <label className={field}>{t('dash.warn')}
+                        <input className="input mt-1 w-full" type="number" step="any" value={w.warn ?? ''} onChange={(e) => set({ warn: numOrNull(e.target.value) })} />
+                      </label>
+                      <label className={field}>{t('dash.crit')}
+                        <input className="input mt-1 w-full" type="number" step="any" value={w.crit ?? ''} onChange={(e) => set({ crit: numOrNull(e.target.value) })} />
+                      </label>
+                    </>
+                  )}
                 </div>
               )}
               {err('thresholds')}
-              {w.kind === 'timeseries' && (
-                <>
-                  <div className="mt-3 grid grid-cols-3 gap-3">
-                    <label className={field}>{t('dash.yMin')}
-                      <input className="input mt-1 w-full" type="number" step="any" value={w.yMin ?? ''} placeholder={t('dash.auto')} onChange={(e) => set({ yMin: numOrNull(e.target.value) })} />
-                    </label>
-                    <label className={field}>{t('dash.yMax')}
-                      <input className="input mt-1 w-full" type="number" step="any" value={w.yMax ?? ''} placeholder={t('dash.auto')} onChange={(e) => set({ yMax: numOrNull(e.target.value) })} />
-                    </label>
+              {HAS_RANGE.includes(w.kind) && (
+                <div className="mt-3 grid grid-cols-3 gap-3">
+                  <label className={field}>{w.kind === 'timeseries' ? t('dash.yMin') : t('dash.min')}
+                    <input className="input mt-1 w-full" type="number" step="any" value={w.yMin ?? ''} placeholder={t('dash.auto')} onChange={(e) => set({ yMin: numOrNull(e.target.value) })} />
+                  </label>
+                  <label className={field}>{w.kind === 'timeseries' ? t('dash.yMax') : t('dash.max')}
+                    <input className="input mt-1 w-full" type="number" step="any" value={w.yMax ?? ''} placeholder={t('dash.auto')} onChange={(e) => set({ yMax: numOrNull(e.target.value) })} />
+                  </label>
+                  {w.kind === 'timeseries' && (
                     <label className={field}>{t('dash.lineWidth')}
                       <select className="input mt-1 w-full" value={w.lineWidth} onChange={(e) => set({ lineWidth: Number(e.target.value) })}>
                         {[1, 1.5, 2, 3].map((n) => <option key={n} value={n}>{n}px</option>)}
                       </select>
                     </label>
-                  </div>
-                  {err('yaxis')}
-                  <label className="mt-3 flex items-center gap-2 text-[13px]">
-                    <input type="checkbox" checked={w.legend} onChange={(e) => set({ legend: e.target.checked })} /> {t('dash.legend')}
-                  </label>
+                  )}
+                </div>
+              )}
+              {err('yaxis')}
+              {(w.kind === 'timeseries' || w.kind === 'pie') && (
+                <label className="mt-3 flex items-center gap-2 text-[13px]">
+                  <input type="checkbox" checked={w.legend} onChange={(e) => set({ legend: e.target.checked })} /> {t('dash.legend')}
+                </label>
+              )}
+              {w.kind === 'timeseries' && (
+                <>
                   {w.tags.length > 0 && (
                     <div className="mt-3">
                       <p className={field}>{t('dash.seriesColors')}</p>
@@ -249,6 +279,9 @@ function Step({ n }: { n: number }) {
 export function autoTitle(w: Widget): string {
   if (w.kind === 'note') return 'Note';
   if (w.kind === 'alarms') return 'Active alarms';
-  if (w.kind === 'toplist') return `Alarms by ${w.groupBy}`;
+  if (w.kind === 'slo') return 'SLO summary';
+  if (w.kind === 'monitors') return 'Monitor summary';
+  if (w.kind === 'table') return 'Latest values';
+  if (w.kind === 'toplist' || w.kind === 'pie') return `Alarms by ${w.groupBy}`;
   return w.tags.map((x) => x.split('.').slice(-2).join('.')).join(', ') || 'New widget';
 }

@@ -18,6 +18,7 @@ const SECTIONS: { headKey: string; items: { to: string; key: string; icon: DdIco
   ] },
   { headKey: 'admin.navAccess', items: [
     { to: '/admin/audit', key: 'nav.adminAudit', icon: 'audit-trail' },
+    { to: '/admin/keys', key: 'nav.adminKeys', icon: 'key' },
   ] },
 ];
 

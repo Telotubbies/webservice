@@ -44,9 +44,10 @@ export interface Insight {
 export interface AlarmRule {
   tag: string | null;
   name: string;
-  kind: 'hi' | 'hihi' | 'lo' | 'lolo' | 'stale';
+  kind: 'hi' | 'hihi' | 'lo' | 'lolo' | 'stale' | 'roc' | 'anomaly' | 'forecast';
   threshold: number | null;
   stale_s: number | null;
+  window_s?: number | null;
   deadband: number;
   severity: 'info' | 'warning' | 'critical';
   enabled: boolean;

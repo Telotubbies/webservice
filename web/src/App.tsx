@@ -32,6 +32,7 @@ const TagsPage = lazy(() => import('./features/tags/TagsPage').then((m) => ({ de
 const CommandsPage = lazy(() => import('./features/commands/CommandsPage').then((m) => ({ default: m.CommandsPage })));
 const HealthPage = lazy(() => import('./features/health/HealthPage').then((m) => ({ default: m.HealthPage })));
 const AdminPage = lazy(() => import('./features/admin/AdminPage').then((m) => ({ default: m.AdminPage })));
+const ApiKeysPage = lazy(() => import('./features/admin/ApiKeysPage').then((m) => ({ default: m.ApiKeysPage })));
 const AlarmRulesPage = lazy(() => import('./features/admin/AlarmRulesPage').then((m) => ({ default: m.AlarmRulesPage })));
 const RuleCreatePage = lazy(() => import('./features/admin/RuleCreatePage').then((m) => ({ default: m.RuleCreatePage })));
 const UsersPage = lazy(() => import('./features/admin/UsersPage').then((m) => ({ default: m.UsersPage })));
@@ -43,6 +44,8 @@ const DowntimesPage = lazy(() => import('./features/downtimes/DowntimesPage').th
 const DashboardsPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardsPage })));
 const DashboardViewPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardViewPage })));
 const DevicesPage = lazy(() => import('./features/devices/DevicesPage').then((m) => ({ default: m.DevicesPage })));
+const NetworkMapPage = lazy(() => import('./features/devices/NetworkMapPage').then((m) => ({ default: m.NetworkMapPage })));
+const ProfilesPage = lazy(() => import('./features/devices/ProfilesPage').then((m) => ({ default: m.ProfilesPage })));
 const AddDeviceWizard = lazy(() => import('./features/devices/AddDeviceWizard').then((m) => ({ default: m.AddDeviceWizard })));
 const AlarmQualityPage = lazy(() => import('./features/alarmquality/AlarmQualityPage').then((m) => ({ default: m.AlarmQualityPage })));
 const AlarmSettingsPage = lazy(() => import('./features/alarmsettings/AlarmSettingsPage').then((m) => ({ default: m.AlarmSettingsPage })));
@@ -187,6 +190,7 @@ export default function App() {
             <Route path="admin/rules/new" element={page(RuleCreatePage)} />
             <Route path="admin/users" element={page(UsersPage)} />
             <Route path="admin/audit" element={page(AuditPage)} />
+            <Route path="admin/keys" element={page(ApiKeysPage)} />
             <Route path="activity" element={page(ActivityPage)} />
             {enabled('errors') && <Route path="errors" element={page(ErrorTrackingPage)} />}
             <Route path="slos" element={page(SloPage)} />
@@ -195,13 +199,15 @@ export default function App() {
             <Route path="dashboards/:id" element={page(DashboardViewPage)} />
             <Route path="infrastructure" element={page(DevicesPage)} />
             <Route path="infrastructure/add" element={page(AddDeviceWizard)} />
+            <Route path="infrastructure/map" element={page(NetworkMapPage)} />
+            <Route path="infrastructure/profiles" element={page(ProfilesPage)} />
             <Route path="settings" element={page(SettingsPage)} />
             {enabled('alarmquality') && <Route path="alarms/quality" element={page(AlarmQualityPage)} />}
             {enabled('alarmsettings') && <Route path="alarms/settings" element={page(AlarmSettingsPage)} />}
             {enabled('events') && <Route path="events" element={page(EventsPage)} />}
             {enabled('incidents') && <Route path="incidents" element={page(IncidentsPage)} />}
-            {enabled('notebooks') && <Route path="notebooks" element={page(NotebooksPage)} />}
-            {enabled('notebooks') && <Route path="notebooks/:id" element={page(NotebookViewPage)} />}
+            <Route path="notebooks" element={page(NotebooksPage)} />
+            <Route path="notebooks/:id" element={page(NotebookViewPage)} />
             {enabled('catalog') && <Route path="catalog" element={page(CatalogPage)} />}
             {enabled('logs') && <Route path="logs" element={page(LogsPage)} />}
             {enabled('teams') && <Route path="teams" element={page(TeamsPage)} />}

@@ -21,10 +21,13 @@ import { Icon } from '../../shared/ui/Icon';
 import { AdminFrame, OrgScope } from './access';
 import { explainError } from './access-util';
 
-type Kind = 'hi' | 'lo' | 'stale';
-type Field = 'name' | 'tag' | 'threshold' | 'stale' | 'deadband';
+type Kind = 'hi' | 'lo' | 'stale' | 'roc' | 'anomaly' | 'forecast';
+type Field = 'name' | 'tag' | 'threshold' | 'stale' | 'deadband' | 'window';
 const SEVERITIES = ['critical', 'warning', 'info'];
-const METHODS: Kind[] = ['hi', 'lo', 'stale'];
+const METHODS: Kind[] = ['hi', 'lo', 'stale', 'roc', 'anomaly', 'forecast'];
+const isTrend = (k: Kind) => k === 'roc' || k === 'anomaly' || k === 'forecast';
+// trend kinds read a lookback window from history; the threshold is a delta / sigma / projected value
+const thresholdHint = (k: Kind) => (k === 'hi' ? 'access.thresholdHintHi' : k === 'lo' ? 'access.thresholdHintLo' : `access.thresholdHint_${k}`);
 
 function StepHead({ n, title, as: As = 'h2' }: { n: number; title: string; as?: 'h2' | 'legend' }) {
   return (
@@ -61,6 +64,7 @@ export function RuleCreatePage() {
   const [tagId, setTagId] = useState('');
   const [threshold, setThreshold] = useState('');
   const [staleS, setStaleS] = useState('60');
+  const [windowS, setWindowS] = useState('300');
   const [deadband, setDeadband] = useState('0');
   const [severity, setSeverity] = useState('warning');
   const [enabled, setEnabled] = useState(true);
@@ -101,6 +105,10 @@ export function RuleCreatePage() {
       if (!Number.isInteger(s) || s <= 0) e.stale = t('access.staleRequired');
     } else {
       if (threshold.trim() === '' || !Number.isFinite(Number(threshold))) e.threshold = t('access.thresholdRequired');
+      if (isTrend(kind)) {
+        const w = Number(windowS);
+        if (!Number.isInteger(w) || w < 30 || w > 86400) e.window = t('access.windowInvalid');
+      }
       const d = Number(deadband || '0');
       if (!Number.isFinite(d) || d < 0) e.deadband = t('access.deadbandInvalid');
     }
@@ -111,7 +119,7 @@ export function RuleCreatePage() {
     if (busy) return;
     const e = validate();
     setErrors(e);
-    const order: Field[] = ['name', 'tag', 'threshold', 'stale', 'deadband'];
+    const order: Field[] = ['name', 'tag', 'threshold', 'window', 'stale', 'deadband'];
     const first = order.find((f) => e[f]);
     if (first) { formRef.current?.querySelector<HTMLElement>(`[id="${id(first)}"]`)?.focus(); return; }
     setBusy(true);
@@ -119,6 +127,7 @@ export function RuleCreatePage() {
       name: name.trim(), tag_id: tagId, kind,
       threshold: kind !== 'stale' ? Number(threshold) : null,
       stale_s: kind === 'stale' ? Number(staleS) : null,
+      window_s: isTrend(kind) ? Number(windowS) : null,
       deadband: Number(deadband) || 0,
       severity, enabled,
     }).then(() => {
@@ -215,10 +224,22 @@ export function RuleCreatePage() {
                             {...a11y('threshold', true)}
                           />
                           <span id={id('threshold-hint')} className="text-[11px] text-ink-68">
-                            {t(kind === 'hi' ? 'access.thresholdHintHi' : 'access.thresholdHintLo')}
+                            {t(thresholdHint(kind))}
                           </span>
                           <FieldError id={id('threshold-err')} msg={errors.threshold} />
                         </div>
+                        {isTrend(kind) && (
+                          <div className="field">
+                            <label className="field-label" htmlFor={id('window')}>{t('admin.ruleWindow')}</label>
+                            <input
+                              className="input num h-8" type="number" min="30" max="86400" step="1" inputMode="numeric"
+                              value={windowS} onChange={(e) => { setWindowS(e.target.value); clear('window'); }}
+                              {...a11y('window', true)}
+                            />
+                            <span id={id('window-hint')} className="text-[11px] text-ink-68">{t('access.windowHint')}</span>
+                            <FieldError id={id('window-err')} msg={errors.window} />
+                          </div>
+                        )}
                         <div className="field">
                           <label className="field-label" htmlFor={id('deadband')}>
                             {t('admin.ruleDeadband')}{unit ? ` (${unit})` : ''}
@@ -272,7 +293,9 @@ export function RuleCreatePage() {
                     <p className="text-ink-68">{t(`admin.kind_${kind}`)}</p>
                     <p className="font-mono text-[11px] text-ink-68">{tag?.path ?? t('admin.ruleTagPick')}</p>
                     <p className="font-mono text-[12px]">
-                      {kind === 'stale' ? t('admin.stalePreview', { s: staleS }) : `${kind === 'hi' ? '>' : '<'} ${threshold || '…'} ± ${deadband}${unit ? ` ${unit}` : ''}`}
+                      {kind === 'stale' ? t('admin.stalePreview', { s: staleS })
+                        : isTrend(kind) ? t(`admin.trendPreview_${kind}`, { thr: threshold || '…', s: windowS, u: unit ? ` ${unit}` : '' })
+                        : `${kind === 'hi' ? '>' : '<'} ${threshold || '…'} ± ${deadband}${unit ? ` ${unit}` : ''}`}
                     </p>
                     <SeverityBadge severity={severity} />
                   </div>
