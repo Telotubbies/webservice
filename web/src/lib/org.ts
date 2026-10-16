@@ -18,6 +18,11 @@ function readStored(): string | null {
   try { return localStorage.getItem(STORE_KEY); } catch { return null; }
 }
 
+/** Make `orgId` the org the next scope initialisation selects (e.g. right after creating it). */
+export function rememberOrg(orgId: string): void {
+  writeStored(orgId);
+}
+
 function writeStored(orgId: string): void {
   try { localStorage.setItem(STORE_KEY, orgId); } catch { /* private mode */ }
 }

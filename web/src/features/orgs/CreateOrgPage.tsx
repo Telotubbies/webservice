@@ -4,10 +4,12 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { ApiError, orgApi } from '../../lib/api';
 import { setLang } from '../../lib/i18n';
 import { refreshSession, signOut } from '../../app/session';
+import { rememberOrg } from '../../lib/org';
 import { Icon } from '../../shared/ui/Icon';
 import '../landing/landing.css';
 import '../auth/auth.css';
@@ -25,6 +27,7 @@ type Err = 'taken' | 'format' | 'reserved' | 'email' | 'generic' | null;
 export function CreateOrgPage({ standalone = true }: { standalone?: boolean }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [edited, setEdited] = useState(false);
@@ -41,7 +44,9 @@ export function CreateOrgPage({ standalone = true }: { standalone?: boolean }) {
     setBusy(true);
     setErr(null);
     try {
-      await orgApi.create({ name: name.trim(), slug: effSlug, timezone: tz, language: lang });
+      const created = await orgApi.create({ name: name.trim(), slug: effSlug, timezone: tz, language: lang });
+      rememberOrg(created.org.id);
+      await qc.invalidateQueries({ queryKey: ['me'] });
       await refreshSession(); // picks up the new membership and selects it
       navigate('/', { replace: true });
     } catch (e) {
@@ -110,7 +115,7 @@ export function CreateOrgPage({ standalone = true }: { standalone?: boolean }) {
         <div className="signin-actions">
           <button type="button" className="signin-choice" onClick={signOut}>
             <Icon name="logout" size={15} />
-            {t('auth.signOut')}
+            {t('shell.signOut')}
           </button>
         </div>
       </main>

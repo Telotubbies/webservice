@@ -208,7 +208,7 @@ export default function App() {
             <Route path="infrastructure/map" element={page(NetworkMapPage)} />
             <Route path="infrastructure/profiles" element={page(ProfilesPage)} />
             <Route path="settings" element={page(SettingsPage)} />
-            <Route path="orgs/new" element={<CreateOrgPage standalone={false} />} />
+            <Route path="orgs/new" element={<CreateOrgPage />} />
             {enabled('alarmquality') && <Route path="alarms/quality" element={page(AlarmQualityPage)} />}
             {enabled('alarmsettings') && <Route path="alarms/settings" element={page(AlarmSettingsPage)} />}
             {enabled('events') && <Route path="events" element={page(EventsPage)} />}
