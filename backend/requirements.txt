@@ -13,3 +13,5 @@ prometheus-client==0.26.0
 alembic==1.20.0
 SQLAlchemy==2.0.54
 psycopg[binary]==3.3.6
+# vision model inspection (plan M1-04): protobuf parser only, run in a bounded subprocess
+onnx==1.17.0
