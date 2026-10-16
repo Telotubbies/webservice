@@ -16,6 +16,7 @@ import { Sparkline } from '../../shared/ui/Sparkline';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { EmptyState, PageSkeleton, ErrorState } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
+import { OnboardingCard } from '../onboarding/OnboardingCard';
 
 function signalState(tag: string, now: number): RunState {
   const tv = live.latest.get(tag);
@@ -98,6 +99,9 @@ export function OverviewPage() {
         }
       />
       <div className="flex flex-col gap-3 p-4">
+        {/* first-run checklist — self-hides when dismissed/complete */}
+        <OnboardingCard />
+
         {/* line state banner */}
         <Card pad={false}>
           <div className="flex h-12 items-center gap-3 px-3">

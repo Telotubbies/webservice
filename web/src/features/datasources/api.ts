@@ -1,6 +1,6 @@
 // REST client for data sources / tags / test / browse (backend/app/datasources/routes.py).
 
-import { ApiError, getToken } from '../../lib/api';
+import { ApiError, request } from '../../lib/api';
 import type { Protocol } from './logic';
 
 export interface DataSource {
@@ -26,21 +26,7 @@ export interface TagInput {
 export interface TestResult { ok: boolean; detail?: string; sample?: unknown }
 export interface BrowseItem { node_id: string; name: string; node_class: string; data_type: string | null; writable: boolean }
 
-async function call<T>(path: string, init: RequestInit = {}, contentType = 'application/json'): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (init.body != null) headers['Content-Type'] = contentType;
-  const res = await fetch(path, { ...init, headers });
-  const text = await res.text();
-  let data: unknown = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!res.ok) {
-    const d = data && typeof data === 'object' && 'detail' in data ? String((data as { detail: unknown }).detail) : undefined;
-    throw new ApiError(res.status, data, d ?? `HTTP ${res.status}`);
-  }
-  return data as T;
-}
+const call = request;
 
 const edge = (org: string, e: string) => `/api/v1/orgs/${encodeURIComponent(org)}/edges/${encodeURIComponent(e)}`;
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
@@ -61,7 +47,8 @@ export const dsApi = {
   deleteTag: (org: string, e: string, s: string, id: string) =>
     call<void>(`${edge(org, e)}/sources/${s}/tags/${id}`, { method: 'DELETE' }),
   bulkTags: (org: string, e: string, s: string, csv: string) =>
-    call<{ created: number }>(`${edge(org, e)}/sources/${s}/tags:bulk`, { method: 'POST', body: csv }, 'text/csv'),
+    call<{ created: number }>(`${edge(org, e)}/sources/${s}/tags:bulk`,
+      { method: 'POST', body: csv, headers: { 'Content-Type': 'text/csv' } }),
   test: (org: string, e: string, b: { protocol: Protocol; connection: Record<string, unknown>; secrets?: Record<string, unknown> | null; tags?: unknown[] }) =>
     call<TestResult>(`${edge(org, e)}/sources:test`, json('POST', b)),
   latest: (org: string, site: string) =>

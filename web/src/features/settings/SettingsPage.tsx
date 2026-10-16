@@ -13,6 +13,7 @@ import { setLang } from '../../lib/i18n';
 import { signOut } from '../../app/session';
 import { RoleBadge } from '../admin/access';
 import { roleDesc } from '../admin/access-util';
+import '../platform/i18n'; // registers the `plat` bundle for the links below
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -94,6 +95,17 @@ export function SettingsPage() {
                 <span className="flex flex-wrap gap-x-4 gap-y-1">
                   <Link to="/activity" className="text-[12px] font-semibold text-blue hover:underline">
                     {t('settings.activityLink')}
+                  </Link>
+                  {/* plan/usage + lifecycle — routes land with the platform
+                      feature wiring (App.tsx is frozen this change) */}
+                  <Link to="/settings/plan" className="text-[12px] font-semibold text-blue hover:underline">
+                    {t('plat.planTitle')}
+                  </Link>
+                  <Link to="/settings/org" className="text-[12px] font-semibold text-blue hover:underline">
+                    {t('plat.dangerTitle')}
+                  </Link>
+                  <Link to="/platform" className="text-[12px] font-semibold text-blue hover:underline">
+                    {t('plat.platformTitle')}
                   </Link>
                   {/* opens the same `?` overlay the shell keyboard handler owns */}
                   <button

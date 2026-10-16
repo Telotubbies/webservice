@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, adminApi, teamApi, type TeamRow } from '../../lib/api';
 import { useAdminOrg } from '../admin/admin';
+import { OnCallPanel } from './OnCallPanel';
 import { canAdmin, useRole } from '../../app/session';
 import { EmptyState, Notice } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
@@ -39,7 +40,7 @@ export function TeamsPage() {
         {teams.length === 0 ? <EmptyState title={t('team.empty')} icon="search" /> : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {teams.map((tm) => (
-              <TeamCard key={tm.id} team={tm} admin={admin}
+              <TeamCard key={tm.id} team={tm} admin={admin} orgId={orgId!}
                 all={(members.data?.items ?? []).filter((m) => !m.disabled)}
                 onSave={(ids) => setMembers.mutate({ id: tm.id, ids })} onDelete={() => remove.mutate(tm.id)} />
             ))}
@@ -50,8 +51,9 @@ export function TeamsPage() {
   );
 }
 
-function TeamCard({ team, admin, all, onSave, onDelete }: {
-  team: TeamRow; admin: boolean; all: { user_id: string; display_name: string | null; sub: string }[];
+function TeamCard({ team, admin, orgId, all, onSave, onDelete }: {
+  team: TeamRow; admin: boolean; orgId: string;
+  all: { user_id: string; display_name: string | null; sub: string }[];
   onSave: (ids: string[]) => void; onDelete: () => void;
 }) {
   const { t } = useTranslation();
@@ -90,6 +92,7 @@ function TeamCard({ team, admin, all, onSave, onDelete }: {
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => { if (confirm(t('team.confirmDelete', { name: team.name }))) onDelete(); }}>{t('team.delete')}</button>
             </div>
           )}
+          <OnCallPanel orgId={orgId} team={team} admin={admin} all={all} />
         </>
       )}
     </section>

@@ -102,6 +102,15 @@ export function ModelPanel({ orgId, cam, admin, onClose }: { orgId: string; cam:
           )}
           {sum && <div className="mt-3"><Notice tone="warn">{t('vis.diffNote', sum)}</Notice></div>}
           {pinned && (
+            // measured speed only — only when this camera's live stat reports the
+            // SAME pinned version and a finite benchmark result; never estimated
+            <p className="mt-3 text-[13px] text-ink-68">
+              {cam.model_version === pin.data!.model_version_id && Number.isFinite(cam.bench_fps)
+                ? t('vis.benchFps', { fps: (cam.bench_fps as number).toFixed(1) })
+                : t('vis.benchPending')}
+            </p>
+          )}
+          {pinned && (
             <>
               <h3 className="mt-4 text-[13px] font-semibold">{t('vis.classTable')}</h3>
               <div className="mt-1 overflow-x-auto">

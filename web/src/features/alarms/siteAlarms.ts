@@ -21,6 +21,9 @@ export interface SiteAlarm {
   acked_by: string | null;
   cleared_at: string | null;
   version: number;
+  shelved_until?: string | null;
+  assigned_to?: string | null;
+  assigned_name?: string | null;
 }
 
 async function getJson<T>(path: string): Promise<T> {

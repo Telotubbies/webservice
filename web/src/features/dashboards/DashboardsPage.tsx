@@ -134,8 +134,8 @@ export function DashboardsPage() {
     <div className="flex min-h-[calc(100svh-36px)] flex-col">
       <ProductHeader icon="dashboard" title={t('dash.title')} tabs={[{ to: '/dashboards', label: t('dash.tabList'), end: true }]}
         actions={<button type="button" className="btn btn-sm" onClick={create}><Plus size={14} aria-hidden /> {t('dash.new')}</button>} />
-      <div className="flex flex-1 gap-4 p-4">
-        <aside className="w-[220px] shrink-0">
+      <div className="flex flex-1 flex-col gap-4 p-4 md:flex-row">
+        <aside className="w-full shrink-0 md:w-[220px]">
           <div className="relative">
             <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" aria-hidden />
             <input className="input w-full pl-7" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('dash.searchPh')} aria-label={t('dash.searchPh')} />

@@ -10,6 +10,8 @@ export const DEVICE_TABS = (t: TFunction): PageTab[] => [
   { to: '/infrastructure/sources', label: t('ds.tab') },
   { to: '/infrastructure/cameras', label: t('cam.tab') },
   { to: '/infrastructure/models', label: t('vis.tab') },
+  { to: '/infrastructure/rules', label: t('vis.rulesTab') },
+  { to: '/infrastructure/events', label: t('vis.eventsTab') },
   { to: '/infrastructure/map', label: t('dev.tabMap') },
   { to: '/infrastructure/profiles', label: t('dev.tabProfiles') },
 ];

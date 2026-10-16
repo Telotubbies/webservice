@@ -11,6 +11,8 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { adminApi } from '../../lib/api';
+import { notifyApi, type RuleNotify } from '../notify/api';
+import { RuleNotifyEditor, EMPTY_NOTIFY } from './RuleNotifyEditor';
 import { useAdminOrg, useAdminSite, canAdmin } from './admin';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { PageSkeleton, Notice, ErrorState } from '../../shared/ui/Feedback';
@@ -68,6 +70,7 @@ export function RuleCreatePage() {
   const [deadband, setDeadband] = useState('0');
   const [severity, setSeverity] = useState('warning');
   const [enabled, setEnabled] = useState(true);
+  const [notify, setNotify] = useState<RuleNotify>(EMPTY_NOTIFY);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
@@ -130,7 +133,15 @@ export function RuleCreatePage() {
       window_s: isTrend(kind) ? Number(windowS) : null,
       deadband: Number(deadband) || 0,
       severity, enabled,
-    }).then(() => {
+    }).then(async ({ rule }) => {
+      const wantsNotify = notify.channel_ids.length > 0 || notify.team_ids.length > 0
+        || notify.oncall_team != null || notify.on_clear;
+      if (wantsNotify) {
+        // rule row must exist before routing can attach — PUT, then nav
+        await notifyApi.setRuleNotify(orgId, rule.id, notify).catch(() => {
+          setErr(t('rn.failed'));
+        });
+      }
       void qc.invalidateQueries({ queryKey: ['admin-rules'] });
       nav('/admin/rules');
     }).catch((x) => { setErr(explainError(t, x)); setBusy(false); });
@@ -280,6 +291,16 @@ export function RuleCreatePage() {
                     </div>
                   </div>
                   )}
+                </Card>
+              </section>
+
+              <section className="mb-6" aria-labelledby={id('step3')}>
+                <h2 id={id('step3')} className="mb-2 flex items-center gap-2 text-[15px] font-semibold">
+                  <span aria-hidden className="grid h-5 w-5 place-items-center rounded-full bg-purple-dd text-[11px] font-bold text-white">3</span>
+                  {t('rn.step')}
+                </h2>
+                <Card>
+                  <RuleNotifyEditor orgId={orgId} value={notify} onChange={setNotify} />
                 </Card>
               </section>
             </div>

@@ -3,6 +3,9 @@
 // banner under the bar. Nav model shared with the palette via ./nav.
 
 import { OrgSwitcher } from '../features/orgs/OrgSwitcher';
+import { ConsentBanner } from '../features/onboarding/ConsentBanner';
+import { ShiftBadge } from '../features/production/ShiftBadge';
+import { getScope } from '../lib/scope';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
@@ -597,6 +600,7 @@ export function Shell() {
         </button>
         <div className="ml-auto flex min-w-0 items-center gap-2 md:ml-0">
           <OrgSwitcher />
+          <ShiftBadge orgId={getScope()?.orgId ?? null} siteId={getScope()?.siteId ?? null} />
           <CriticalChip />
           <TopClock />
           <LivePill />
@@ -618,6 +622,7 @@ export function Shell() {
         <LinkStrip />
         <AlarmBanner />
         <main id="main" tabIndex={-1} className="min-h-[calc(100svh-36px-26px)] outline-none">
+          <ConsentBanner />
           <Outlet />
         </main>
         {/* footer bar — dd chrome pattern */}

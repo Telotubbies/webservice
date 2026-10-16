@@ -2,9 +2,10 @@ import i18n from '../../lib/i18n';
 
 i18n.addResourceBundle('en', 'translation', { aq: {
   product: 'Alarms', tabList: 'Alarms', tabRules: 'Rules', tabQuality: 'Quality', tabSettings: 'Settings',
-  lede: 'ISA-18.2 alarm-system performance computed from the last {{n}} alarm records.',
+  lede: 'ISA-18.2 alarm-system performance computed from {{n}} alarm records on the server.',
   window: 'Window: {{from}} → {{to}}',
-  kpiRate: 'Avg alarms / hour', kpiRateHint: 'ISA-18.2: ≤6 manageable, >12 overloaded',
+  windowLabel: 'Window', hours: 'Last {{n}} h',
+  kpiRate: 'Alarms / operator / hour', kpiRateHint: 'ISA-18.2: ≤6 manageable, >12 overloaded ({{n}} operators)',
   kpiPeak: 'Peak alarms / 10 min', kpiPeakHint: 'Flood when >10 in 10 min',
   kpiStanding: 'Standing > 24 h', kpiStandingHint: 'Active alarms older than 24 h',
   kpiUnacked: 'Unacknowledged', kpiUnackedHint: 'Active and never acknowledged',
@@ -27,9 +28,10 @@ i18n.addResourceBundle('en', 'translation', { aq: {
 
 i18n.addResourceBundle('th', 'translation', { aq: {
   product: 'สัญญาณเตือน', tabList: 'สัญญาณเตือน', tabRules: 'กฎ', tabQuality: 'คุณภาพ', tabSettings: 'ตั้งค่า',
-  lede: 'ประสิทธิภาพระบบสัญญาณเตือนตาม ISA-18.2 คำนวณจาก {{n}} รายการล่าสุด',
+  lede: 'ประสิทธิภาพระบบสัญญาณเตือนตาม ISA-18.2 คำนวณจาก {{n}} รายการบนเซิร์ฟเวอร์',
   window: 'ช่วงเวลา: {{from}} → {{to}}',
-  kpiRate: 'สัญญาณเตือนเฉลี่ย / ชม.', kpiRateHint: 'ISA-18.2: ≤6 จัดการได้, >12 เกินภาระ',
+  windowLabel: 'ช่วงเวลา', hours: '{{n}} ชม. ล่าสุด',
+  kpiRate: 'สัญญาณเตือน / ผู้ควบคุม / ชม.', kpiRateHint: 'ISA-18.2: ≤6 จัดการได้, >12 เกินภาระ (ผู้ควบคุม {{n}} คน)',
   kpiPeak: 'สูงสุด / 10 นาที', kpiPeakHint: 'น้ำท่วมสัญญาณเมื่อ >10 ใน 10 นาที',
   kpiStanding: 'ค้างเกิน 24 ชม.', kpiStandingHint: 'สัญญาณที่ยังทำงานนานกว่า 24 ชม.',
   kpiUnacked: 'ยังไม่รับทราบ', kpiUnackedHint: 'ยังทำงานและไม่เคยรับทราบ',

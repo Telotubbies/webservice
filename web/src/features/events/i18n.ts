@@ -15,6 +15,7 @@ i18n.addResourceBundle('en', 'translation', { evx: {
   fSource: 'Source', fSeverity: 'Severity', fAction: 'What happened', fEquipment: 'Equipment',
   clearFacets: 'Clear filters',
   sAlarm: 'Alarm', sInsight: 'Insight', sCommand: 'Command', sSystem: 'System',
+  sConfig: 'Config change', sIncident: 'Incident',
   sevNone: 'Normal',
   act: {
     raised: 'Raised', acked: 'Acknowledged', cleared: 'Cleared', opened: 'Insight opened',
@@ -40,6 +41,14 @@ i18n.addResourceBundle('en', 'translation', { evx: {
       edgeDown: 'Edge gateway stopped reporting',
       edgeUp: 'Edge gateway back online',
       session: 'Session expired',
+    },
+    config: {
+      config: 'Config change: {{subject}}',
+    },
+    incident: {
+      created: 'Incident opened: {{subject}}',
+      status: 'Incident status changed: {{subject}}',
+      note: 'Incident note: {{subject}}',
     },
   },
   view: 'View', viewList: 'List', viewCorr: 'Correlated', corrBy: 'Group by', corrGap: 'Within',
@@ -91,6 +100,7 @@ i18n.addResourceBundle('th', 'translation', { evx: {
   fSource: 'แหล่งที่มา', fSeverity: 'ระดับความรุนแรง', fAction: 'สิ่งที่เกิดขึ้น', fEquipment: 'อุปกรณ์',
   clearFacets: 'ล้างตัวกรอง',
   sAlarm: 'อะลาร์ม', sInsight: 'อินไซต์', sCommand: 'คำสั่ง', sSystem: 'ระบบ',
+  sConfig: 'เปลี่ยนค่าตั้ง', sIncident: 'เหตุการณ์ใหญ่',
   sevNone: 'ปกติ',
   act: {
     raised: 'เกิดขึ้น', acked: 'รับทราบ', cleared: 'หายแล้ว', opened: 'พบอินไซต์',
@@ -116,6 +126,14 @@ i18n.addResourceBundle('th', 'translation', { evx: {
       edgeDown: 'edge gateway หยุดส่งข้อมูล',
       edgeUp: 'edge gateway กลับมาออนไลน์',
       session: 'เซสชันหมดอายุ',
+    },
+    config: {
+      config: 'เปลี่ยนการตั้งค่า: {{subject}}',
+    },
+    incident: {
+      created: 'เปิดเหตุการณ์: {{subject}}',
+      status: 'เปลี่ยนสถานะเหตุการณ์: {{subject}}',
+      note: 'บันทึกเหตุการณ์: {{subject}}',
     },
   },
   view: 'มุมมอง', viewList: 'รายการ', viewCorr: 'จัดกลุ่มเหตุการณ์', corrBy: 'จัดกลุ่มตาม', corrGap: 'ห่างไม่เกิน',

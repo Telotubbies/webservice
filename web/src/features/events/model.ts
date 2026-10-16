@@ -11,23 +11,26 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../../lib/api';
+import { api, eventsApi, type FeedEvent } from '../../lib/api';
+import { getScope } from '../../lib/scope';
 import { live } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
 import { equipmentOf, type EquipmentId } from '../../lib/plant';
 import { canOperate, useRole } from '../../app/session';
 import { normSeverity, type Severity } from '../../shared/ui/Status';
+import { useAdminOrg } from '../admin/admin';
 import { useAlarmHistory } from './alarmHistory';
 import type { Alarm, Command, Insight } from '../../types';
 
-export type EventSource = 'alarm' | 'insight' | 'command' | 'system';
+export type EventSource = 'alarm' | 'insight' | 'command' | 'system' | 'config' | 'incident';
 export type EventAction =
   | 'raised' | 'acked' | 'cleared'
   | 'opened' | 'closed'
   | 'issued' | 'done' | 'failed'
-  | 'edgeDown' | 'edgeUp' | 'session';
+  | 'edgeDown' | 'edgeUp' | 'session'
+  | 'config' | 'created' | 'status' | 'note';
 
-export const SOURCES: readonly EventSource[] = ['alarm', 'insight', 'command', 'system'];
+export const SOURCES: readonly EventSource[] = ['alarm', 'insight', 'command', 'config', 'incident', 'system'];
 
 export interface PlantEvent {
   id: string;
@@ -129,9 +132,66 @@ export interface EventStream {
   commandsVisible: boolean;
   /** v2 alarm times loaded — ack/clear rows are complete */
   alarmTimesKnown: boolean;
+  /** the server org event feed is reachable (Phase-4 endpoint mounted) */
+  serverFeed: boolean;
   loading: boolean;
   error: boolean;
   retry: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Server feed (Phase 4): /api/v1/orgs/{org}/events — alarms, command_events,
+// audit_log and incident_events persisted org-wide. Until the route is
+// mounted the query 404s and the stream falls back to the client-side
+// sources (v1 alarms + REST + session journal).
+// ---------------------------------------------------------------------------
+
+const CMD_ACTION: Record<string, EventAction> = {
+  accepted: 'issued', dispatched: 'issued', acknowledged: 'done',
+  rejected: 'failed', failed: 'failed', timeout: 'failed',
+};
+
+const FEED_HREF: Record<FeedEvent['type'], (ref: string) => string> = {
+  alarm: (ref) => `/alarms/${encodeURIComponent(ref)}`,
+  command: () => '/commands',
+  config: () => '/admin/audit',
+  incident: () => '/incidents',
+};
+
+export function feedToEvent(f: FeedEvent): PlantEvent {
+  const ref = f.id.split(':')[1] ?? '';
+  const action: EventAction =
+    f.type === 'command' ? (CMD_ACTION[f.action] ?? 'issued')
+    : f.type === 'config' ? 'config'
+    : (f.action as EventAction);
+  return {
+    id: f.id, at: Date.parse(f.ts) || 0,
+    source: f.type, action,
+    severity: f.action === 'raised' || f.type === 'incident'
+      ? normSeverity(f.severity ?? 'info') : null,
+    subject: f.subject ?? f.action,
+    tag: f.tag ?? undefined,
+    equipment: f.tag ? equipmentOf(f.tag) : undefined,
+    actor: f.actor ?? undefined,
+    href: FEED_HREF[f.type](ref),
+    ref,
+  };
+}
+
+/** Paginated read of the org event feed. `available=false` means the route
+ *  is not mounted — callers fall back to client sources. */
+export function useServerFeed(limit = 500): { rows: PlantEvent[]; available: boolean; loading: boolean; refetch: () => void } {
+  const { orgId } = useAdminOrg();
+  const q = useQuery({
+    queryKey: ['events-feed', orgId, limit],
+    queryFn: () => eventsApi.list(orgId!, { limit }),
+    enabled: orgId != null,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: 1,
+  });
+  const rows = useMemo(() => (q.data?.items ?? []).map(feedToEvent), [q.data]);
+  return { rows, available: !!q.data && !q.isError, loading: q.isLoading, refetch: () => void q.refetch() };
 }
 
 /** All events from every source, newest first. Mount once per page. */
@@ -141,16 +201,20 @@ export function useEventStream(): EventStream {
   const cmdRev = useStore(() => live.cmdRev);
   const journalRev = useStore(() => live.journalRev);
   const history = useAlarmHistory();
+  const feed = useServerFeed();
+  // v1 endpoints read org/site from the scope headers — the key must carry
+  // them or an org switch shows the previous org's rows until refetch.
+  const scope = getScope();
 
   const insightsQ = useQuery({
-    queryKey: ['events-insights'],
+    queryKey: ['events-insights', scope?.orgId, scope?.siteId],
     queryFn: () => api.insights(),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
   // operator-only endpoint: `enabled` keeps viewers from ever requesting it
   const commandsQ = useQuery({
-    queryKey: ['events-commands'],
+    queryKey: ['events-commands', scope?.orgId, scope?.siteId],
     queryFn: () => api.listCommands(100),
     enabled: operable,
     staleTime: 30_000,
@@ -175,21 +239,28 @@ export function useEventStream(): EventStream {
 
   const events = useMemo(() => {
     const out: PlantEvent[] = [];
-    for (const a of history.alarms) out.push(...alarmEvents(a));
+    if (feed.available) {
+      // Server feed covers alarm/command/config/incident (org-wide, persisted);
+      // client sources only add insights + this-tab journal rows.
+      out.push(...feed.rows);
+    } else {
+      for (const a of history.alarms) out.push(...alarmEvents(a));
+      for (const c of commandRows) out.push(...commandEvents(c));
+    }
     for (const i of insightRows) out.push(...insightEvents(i));
-    for (const c of commandRows) out.push(...commandEvents(c));
     out.push(...journalEvents());
     return out.filter((e) => e.at > 0).sort((a, b) => b.at - a.at);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history.alarms, insightRows, commandRows, journalRev]);
+  }, [feed.available, feed.rows, history.alarms, insightRows, commandRows, journalRev]);
 
   return {
     events,
-    commandsVisible: operable,
-    alarmTimesKnown: history.timesKnown,
-    loading: (history.loading && !live.alarmsSeeded) || insightsQ.isLoading,
-    error: insightsQ.isError && history.error,
-    retry: () => { history.refetch(); void insightsQ.refetch(); if (operable) void commandsQ.refetch(); },
+    commandsVisible: operable || feed.available,
+    alarmTimesKnown: feed.available || history.timesKnown,
+    serverFeed: feed.available,
+    loading: (history.loading && !live.alarmsSeeded && !feed.available) || insightsQ.isLoading || feed.loading,
+    error: insightsQ.isError && history.error && !feed.available,
+    retry: () => { feed.refetch(); history.refetch(); void insightsQ.refetch(); if (operable) void commandsQ.refetch(); },
   };
 }
 

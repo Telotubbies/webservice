@@ -55,6 +55,20 @@ export function CameraTile({ orgId, cam, admin, onToggle, onDelete, onModel }: {
         <div className="min-w-0">
           <p className="truncate text-[13px] font-medium">{cam.name}</p>
           <p className={`text-[12px] ${tone}`}>{label}{cam.status === 'error' && cam.status_detail ? ` — ${cam.status_detail}` : ''}</p>
+          {/* model runtime is reported separately from the camera source status;
+              absent/stale metadata renders nothing rather than a stale value */}
+          {cam.model_state === 'ready' && (cam.engine != null || cam.latency_ms != null) && (
+            <p className="text-[12px] text-ink-68">
+              {cam.engine ?? ''}{cam.engine && cam.latency_ms != null ? ' · ' : ''}
+              {cam.latency_ms != null ? t('vis.tileLatency', { ms: Math.round(cam.latency_ms) }) : ''}
+            </p>
+          )}
+          {cam.model_state === 'loading' && <p className="text-[12px] text-ink-46">{t('vis.modelLoading')}</p>}
+          {cam.model_state === 'error' && (
+            <p className="text-[12px] text-[var(--color-danger)]">
+              {t('vis.modelError')}{cam.model_detail ? ` — ${cam.model_detail}` : ''}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 gap-1">
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => onModel(cam)}>{t('vis.panelTitle')}</button>

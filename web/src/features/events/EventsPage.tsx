@@ -10,6 +10,7 @@ import { Segmented } from '../../shared/ui/Segmented';
 import { FacetGroup, ProductHeader, facetOptions, toggleIn } from '../../shared/ui/Product';
 import { SeverityBadge } from '../../shared/ui/Status';
 import { matchQuery, parseQuery } from '../../lib/query';
+import { saveBlob } from '../../lib/saveBlob';
 import { EQUIPMENT } from '../../lib/plant';
 import { GAPS, correlate, isCluster, loadCorr, saveCorr, type CorrBy, type Cluster } from './correlate';
 import { EventHistogram, type HistBucket } from './EventHistogram';
@@ -76,11 +77,8 @@ export function EventsPage() {
   const exportCsv = () => {
     const rows = [['time', 'source', 'event', 'signal', 'by'].join(',')];
     for (const e of shown) rows.push([new Date(e.at).toISOString(), e.source, eventTitle(t, e), e.tag ?? '', e.actor ?? ''].map(csvCell).join(','));
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
-    a.download = `events-${new Date().toISOString().slice(0, 16)}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    saveBlob(`events-${new Date().toISOString().slice(0, 16)}.csv`,
+      new Blob([rows.join('\n')], { type: 'text/csv' }));
   };
 
   const filtered = q !== '' || offSource.size > 0 || offSev.size > 0 || !!picked;

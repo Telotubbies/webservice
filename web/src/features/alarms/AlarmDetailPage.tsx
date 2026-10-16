@@ -13,6 +13,8 @@ import { useNow, useStore } from '../../lib/hooks';
 import { SIGNALS, equipmentOf } from '../../lib/plant';
 import { fmtAge, fmtDuration } from '../../lib/format';
 import { canOperate, useRole } from '../../app/session';
+import { useAdminOrg } from '../admin/admin';
+import { AlarmActions } from './AlarmActions';
 import { useAlarms } from './alarms';
 import { AlarmLifecycle } from './AlarmLifecycle';
 import { AlarmTrend } from './AlarmTrend';
@@ -30,7 +32,8 @@ export function AlarmDetailPage() {
   const { id } = useParams();
   const now = useNow();
   const role = useRole();
-  const operable = canOperate(role);
+  const { orgId, orgRole } = useAdminOrg();
+  const operable = canOperate(role) || canOperate(orgRole ?? 'none');
   const { all } = useAlarms();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -50,6 +53,9 @@ export function AlarmDetailPage() {
       acked_at: a.acked_at ?? v2.acked_at,
       acked_by: a.acked_by ?? v2.acked_by,
       cleared_at: a.cleared_at ?? v2.cleared_at,
+      shelved_until: a.shelved_until ?? v2.shelved_until,
+      assigned_to: a.assigned_to ?? v2.assigned_to,
+      assigned_name: a.assigned_name ?? v2.assigned_name,
     } : a;
   }, [all, id, site.data]);
   const meta = alarm ? SIGNALS[alarm.tag] : undefined;
@@ -162,6 +168,11 @@ export function AlarmDetailPage() {
         <Card>
           <AlarmLifecycle alarm={alarm} now={now} />
         </Card>
+
+        {/* §3.5 lifecycle: shelve / assign / comments + §3.4 mobile ack link */}
+        <div className="mt-3">
+          <AlarmActions alarm={alarm} orgId={orgId} operable={operable} />
+        </div>
 
         <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_288px]">
           <div className="min-w-0 space-y-3">

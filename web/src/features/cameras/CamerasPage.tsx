@@ -88,7 +88,9 @@ export function CamerasPage() {
               </div>
             )}
             {modelFor && orgId && (
-              <ModelPanel orgId={orgId} cam={modelFor} admin={admin} onClose={() => setModelFor(null)} />
+              // resolve the freshest polled row so runtime metadata updates while open
+              <ModelPanel orgId={orgId} cam={items.find((i) => i.id === modelFor.id) ?? modelFor}
+                admin={admin} onClose={() => setModelFor(null)} />
             )}
           </>
         )}

@@ -1,29 +1,20 @@
 // REST client for cameras, demo videos and the signed stream URL
 // (backend/app/vision/{cameras,videos,stream}.py).
 
-import { ApiError, getToken } from '../../lib/api';
+import { request, requestBlob } from '../../lib/api';
 
 export interface Camera {
   id: string; edge_id: string; name: string; kind: 'rtsp' | 'upload'; has_rtsp_url: boolean;
   video_id: string | null; fps_sample: number; enabled: boolean;
   status: 'unknown' | 'ok' | 'error'; status_detail: string | null; status_at: string | null;
+  // live model metadata merged from the edge's last vision/stat (absent when stale)
+  engine?: string; latency_ms?: number; bench_fps?: number;
+  model_state?: 'none' | 'loading' | 'ready' | 'error';
+  model_detail?: string; model_version?: string;
 }
 export interface Video { id: string; filename: string; size_bytes: number; sha256: string; created_at: string }
 
-async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(path, { ...init, headers });
-  const text = await res.text();
-  let data: unknown = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!res.ok) {
-    const d = data && typeof data === 'object' && 'detail' in data ? String((data as { detail: unknown }).detail) : undefined;
-    throw new ApiError(res.status, data, d ?? `HTTP ${res.status}`);
-  }
-  return data as T;
-}
+const call = request;
 
 const org = (o: string) => `/api/v1/orgs/${encodeURIComponent(o)}`;
 const json = (method: string, body: unknown): RequestInit => ({
@@ -45,4 +36,6 @@ export const camApi = {
     call<void>(`${org(o)}/sites/${site}/videos/${id}`, { method: 'DELETE' }),
   streamUrl: (o: string, id: string) =>
     call<{ url: string; expires_in: number }>(`${org(o)}/cameras/${id}/stream-url`, { method: 'POST' }),
+  snapshot: (o: string, id: string, signal?: AbortSignal) =>
+    requestBlob(`${org(o)}/cameras/${id}/snapshot`, { signal }).then((r) => r.blob),
 };

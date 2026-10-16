@@ -3,12 +3,14 @@
 // change), so it confirms; enabling does not. Read-only sessions see the
 // rule state as text plus one notice that names their role and who can edit.
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink } from 'react-router';
 import { DdIcon } from '../../shared/ui/DdIcon';
 import { adminApi, type AdminRule } from '../../lib/api';
+import { notifyApi, type RuleNotify } from '../notify/api';
+import { RuleNotifyEditor, EMPTY_NOTIFY } from './RuleNotifyEditor';
 import { useAdminOrg, useAdminSite, canAdmin } from './admin';
 import { SeverityBadge } from '../../shared/ui/Status';
 import { PageBar, Card, Table } from '../../shared/ui/Page';
@@ -27,6 +29,7 @@ export function AlarmRulesPage() {
   const [msg, setMsg] = useState('');
   const [del, setDel] = useState<AdminRule | null>(null);
   const [off, setOff] = useState<AdminRule | null>(null);
+  const [routing, setRouting] = useState<AdminRule | null>(null);
 
   const rules = useQuery({
     queryKey: ['admin-rules', orgId, site?.id],
@@ -104,7 +107,8 @@ export function AlarmRulesPage() {
                   const tag = tagById.get(r.tag_id);
                   const unit = tag?.unit ? ` ${tag.unit}` : '';
                   return (
-                    <tr key={r.id}>
+                    <Fragment key={r.id}>
+                    <tr>
                       <td className="font-medium">{r.name}</td>
                       <td className="max-w-56 truncate font-mono text-[12px] text-ink-68" title={tag?.path ?? r.tag_id}>{tag?.path ?? r.tag_id}</td>
                       <td className="whitespace-nowrap text-[12px]">{t(`admin.kind_${r.kind}`, { defaultValue: r.kind })}</td>
@@ -130,17 +134,36 @@ export function AlarmRulesPage() {
                       </td>
                       {mutable && (
                         <td className="text-right">
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-ghost text-[var(--color-danger)]"
-                            aria-label={`${t('admin.delete')} ${r.name}`}
-                            onClick={() => setDel(r)}
-                          >
-                            {t('admin.delete')}
-                          </button>
+                          <div className="flex justify-end gap-1">
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              aria-expanded={routing?.id === r.id}
+                              onClick={() => setRouting(routing?.id === r.id ? null : r)}
+                            >
+                              {t('rn.edit')}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost text-[var(--color-danger)]"
+                              aria-label={`${t('admin.delete')} ${r.name}`}
+                              onClick={() => setDel(r)}
+                            >
+                              {t('admin.delete')}
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>
+                    {mutable && routing?.id === r.id && (
+                      <tr className="bg-subtle">
+                        <td colSpan={8} className="px-3 py-3">
+                          <RuleRoutingRow orgId={orgId} rule={r}
+                            onClose={() => setRouting(null)} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </Table>
@@ -172,5 +195,42 @@ export function AlarmRulesPage() {
         />
       )}
     </>
+  );
+}
+
+/** Inline routing editor for one rule — loads the current PUT body, edits
+ * it through the shared RuleNotifyEditor, saves back over the same path. */
+function RuleRoutingRow({ orgId, rule, onClose }: {
+  orgId: string; rule: AdminRule; onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const cur = useQuery({
+    queryKey: ['rule-notify', orgId, rule.id],
+    queryFn: () => notifyApi.ruleNotify(orgId, rule.id),
+  });
+  const [v, setV] = useState<RuleNotify | null>(null);
+  const [err, setErr] = useState('');
+  const [saved, setSaved] = useState(false);
+  const value = v ?? cur.data?.notify ?? EMPTY_NOTIFY;
+
+  const save = useMutation({
+    mutationFn: () => notifyApi.setRuleNotify(orgId, rule.id, value),
+    onSuccess: () => { setSaved(true); setErr(''); },
+    onError: () => { setErr(t('rn.failed')); setSaved(false); },
+  });
+
+  return (
+    <div>
+      <RuleNotifyEditor orgId={orgId} value={value} onChange={(x) => { setV(x); setSaved(false); }} />
+      <div className="mt-2 flex items-center gap-2">
+        <button type="button" className="btn btn-sm" disabled={save.isPending || cur.isLoading}
+          onClick={() => save.mutate()}>
+          {t('rn.save')}
+        </button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>{t('common.close')}</button>
+        {saved && <span className="text-[12px] text-[var(--color-ok)]" role="status">✓ {t('rn.saved')}</span>}
+        {err && <span className="text-[12px] text-[var(--color-danger)]" role="alert">{err}</span>}
+      </div>
+    </div>
   );
 }

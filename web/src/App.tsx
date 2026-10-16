@@ -11,7 +11,7 @@ import { startWS, stopWS } from './lib/ws';
 import { canOperate, getSessionRole, hasToken, refreshSession, useDenied, useNoOrg } from './app/session';
 import { CreateOrgPage } from './features/orgs/CreateOrgPage';
 import { getScope } from './lib/scope';
-import { initAuth, restoreSession, completeRedirectCallback, isCallbackPath, authConfig } from './features/auth/oidc';
+import { initAuth, restoreSession, completeRedirectCallback, isCallbackPath, authConfig, takeReturnTo } from './features/auth/oidc';
 import { signIn } from './app/session';
 import { Shell } from './app/Shell';
 import { SignInWall } from './features/auth/SignInWall';
@@ -71,6 +71,21 @@ const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then(
 const MetricsSummaryPage = lazy(() => import('./features/metrics/MetricsSummaryPage').then((m) => ({ default: m.MetricsSummaryPage })));
 const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })));
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const VisionRulesPage = lazy(() => import('./features/vision/RulesPage').then((m) => ({ default: m.RulesPage })));
+const VisionEventsPage = lazy(() => import('./features/vision/EventsPage').then((m) => ({ default: m.EventsPage })));
+const OeePage = lazy(() => import('./features/production/OeePage').then((m) => ({ default: m.OeePage })));
+const ShiftsPage = lazy(() => import('./features/production/ShiftsPage').then((m) => ({ default: m.ShiftsPage })));
+const ProductionDowntimesPage = lazy(() => import('./features/production/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
+const ReportsPage = lazy(() => import('./features/production/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+const ChannelsPage = lazy(() => import('./features/notify/ChannelsPage').then((m) => ({ default: m.ChannelsPage })));
+const AckLinkPage = lazy(() => import('./features/notify/AckLinkPage').then((m) => ({ default: m.AckLinkPage })));
+const PlanPage = lazy(() => import('./features/platform/PlanPage').then((m) => ({ default: m.PlanPage })));
+const DangerZone = lazy(() => import('./features/platform/DangerZone').then((m) => ({ default: m.DangerZone })));
+const PlatformPage = lazy(() => import('./features/platform/PlatformPage').then((m) => ({ default: m.PlatformPage })));
+const PlatformOrgPage = lazy(() => import('./features/platform/PlatformOrgPage').then((m) => ({ default: m.PlatformOrgPage })));
+const PlatformSupportPage = lazy(() => import('./features/platform/PlatformOpsPage').then((m) => ({ default: m.PlatformSupportPage })));
+const PlatformAnnouncementsPage = lazy(() => import('./features/platform/PlatformOpsPage').then((m) => ({ default: m.PlatformAnnouncementsPage })));
+const StatusPage = lazy(() => import('./features/status/StatusPage').then((m) => ({ default: m.StatusPage })));
 
 // One wrapper for every page route: error boundary + lazy-load skeleton.
 const page = (P: ComponentType) => <RouteBoundary><Suspense fallback={<PageSkeleton />}><P /></Suspense></RouteBoundary>;
@@ -144,7 +159,8 @@ function Boot() {
       if (isCallbackPath(loc.pathname)) {
         await completeRedirectCallback(loc.pathname);
         if (loc.pathname !== '/auth/silent-callback') {
-          navigate('/', { replace: true });
+          // deep link stashed before signinRedirect (ack links etc.)
+          navigate(takeReturnTo(), { replace: true });
         }
       } else {
         await restoreSession();
@@ -182,6 +198,8 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
+          {/* public status page — reachable signed-out (roadmap 8.4) */}
+          <Route path="status" element={page(StatusPage)} />
           {/* Boot gates everything: walls render instead of the shell when
               unauthenticated, so no API traffic fires before a token exists */}
           <Route element={<Boot />} errorElement={<RouteError />}>
@@ -204,7 +222,7 @@ export default function App() {
             <Route path="activity" element={page(ActivityPage)} />
             {enabled('errors') && <Route path="errors" element={page(ErrorTrackingPage)} />}
             <Route path="slos" element={page(SloPage)} />
-            {enabled('downtimes') && <Route path="downtimes" element={page(DowntimesPage)} />}
+            <Route path="downtimes" element={page(DowntimesPage)} />
             <Route path="dashboards" element={page(DashboardsPage)} />
             <Route path="dashboards/:id" element={page(DashboardViewPage)} />
             <Route path="infrastructure" element={page(DevicesPage)} />
@@ -212,28 +230,45 @@ export default function App() {
             <Route path="infrastructure/sources/:edgeId" element={page(GatewayPage)} />
             <Route path="infrastructure/cameras" element={page(CamerasPage)} />
             <Route path="infrastructure/models" element={page(ModelsPage)} />
+            <Route path="infrastructure/rules" element={page(VisionRulesPage)} />
+            <Route path="infrastructure/events" element={page(VisionEventsPage)} />
             <Route path="infrastructure/add" element={page(AddDeviceWizard)} />
             <Route path="infrastructure/map" element={page(NetworkMapPage)} />
             <Route path="infrastructure/profiles" element={page(ProfilesPage)} />
             <Route path="settings" element={page(SettingsPage)} />
+            <Route path="settings/plan" element={page(PlanPage)} />
+            <Route path="settings/org" element={page(DangerZone)} />
             <Route path="orgs/new" element={<CreateOrgPage />} />
-            {enabled('alarmquality') && <Route path="alarms/quality" element={page(AlarmQualityPage)} />}
+            <Route path="alarms/quality" element={page(AlarmQualityPage)} />
             {enabled('alarmsettings') && <Route path="alarms/settings" element={page(AlarmSettingsPage)} />}
-            {enabled('events') && <Route path="events" element={page(EventsPage)} />}
+            <Route path="events" element={page(EventsPage)} />
             {enabled('incidents') && <Route path="incidents" element={page(IncidentsPage)} />}
             <Route path="notebooks" element={page(NotebooksPage)} />
             <Route path="notebooks/:id" element={page(NotebookViewPage)} />
             {enabled('catalog') && <Route path="catalog" element={page(CatalogPage)} />}
-            {enabled('logs') && <Route path="logs" element={page(LogsPage)} />}
+            <Route path="logs" element={page(LogsPage)} />
             {enabled('teams') && <Route path="teams" element={page(TeamsPage)} />}
             {enabled('traces') && <Route path="traces" element={page(TracesPage)} />}
-            {enabled('query') && <Route path="query" element={page(QueryPage)} />}
+            <Route path="query" element={page(QueryPage)} />
             {enabled('processes') && <Route path="processes" element={page(ProcessesPage)} />}
             {enabled('synthetics') && <Route path="synthetics" element={page(SyntheticsPage)} />}
-            {enabled('security') && <Route path="security" element={page(SecurityPage)} />}
+            <Route path="security" element={page(SecurityPage)} />
             {enabled('sessions') && <Route path="sessions" element={page(SessionsPage)} />}
-            {enabled('metrics') && <Route path="metrics" element={page(MetricsSummaryPage)} />}
+            <Route path="metrics" element={page(MetricsSummaryPage)} />
             {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
+            {/* production KPIs (Phase 5) */}
+            <Route path="oee" element={page(OeePage)} />
+            <Route path="stops" element={page(ProductionDowntimesPage)} />
+            <Route path="shifts" element={page(ShiftsPage)} />
+            <Route path="reports" element={page(ReportsPage)} />
+            {/* notifications + signed ack link (Phase 3) */}
+            <Route path="notifications/channels" element={page(ChannelsPage)} />
+            <Route path="ack/:token" element={page(AckLinkPage)} />
+            {/* platform back-office (Phase 7) — page enforces platform admin */}
+            <Route path="platform" element={page(PlatformPage)} />
+            <Route path="platform/orgs/:id" element={page(PlatformOrgPage)} />
+            <Route path="platform/support" element={page(PlatformSupportPage)} />
+            <Route path="platform/announcements" element={page(PlatformAnnouncementsPage)} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

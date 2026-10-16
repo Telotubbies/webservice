@@ -4,15 +4,16 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
-import { ApiError, orgApi } from '../../lib/api';
+import { ApiError, consentApi, orgApi } from '../../lib/api';
 import { setLang } from '../../lib/i18n';
 import { refreshSession, signOut } from '../../app/session';
 import { rememberOrg } from '../../lib/org';
 import { Icon } from '../../shared/ui/Icon';
 import '../landing/landing.css';
 import '../auth/auth.css';
+import '../onboarding/i18n';
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -22,7 +23,7 @@ export function slugify(name: string): string {
 
 const ZONES = ['Asia/Bangkok', 'Asia/Singapore', 'Asia/Tokyo', 'Europe/London', 'America/New_York', 'UTC'];
 
-type Err = 'taken' | 'format' | 'reserved' | 'email' | 'generic' | null;
+type Err = 'taken' | 'format' | 'reserved' | 'email' | 'generic' | 'consent' | null;
 
 export function CreateOrgPage({ standalone = true }: { standalone?: boolean }) {
   const { t, i18n } = useTranslation();
@@ -35,15 +36,25 @@ export function CreateOrgPage({ standalone = true }: { standalone?: boolean }) {
   const [lang, setLangSel] = useState<'en' | 'th'>(i18n.language === 'th' ? 'th' : 'en');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<Err>(null);
+  const [consentOk, setConsentOk] = useState(false);
+  // Roadmap 8.1: the org-create gate requires current ToS/Privacy consent —
+  // the checkbox records it right before the create call.
+  const consents = useQuery({ queryKey: ['consents'], queryFn: consentApi.get });
+  const missing = consents.data?.missing ?? [];
+  const required = consents.data?.required ?? {};
 
   const effSlug = edited ? slug : slugify(name);
   const slugOk = SLUG_RE.test(effSlug) && effSlug.length >= 3;
+  const consentBlock = missing.length > 0;
 
   const submit = async () => {
-    if (busy || !name.trim() || !slugOk) return;
+    if (busy || !name.trim() || !slugOk || (consentBlock && !consentOk)) return;
     setBusy(true);
     setErr(null);
     try {
+      for (const doc of missing) {
+        await consentApi.post(doc, required[doc]);
+      }
       const created = await orgApi.create({ name: name.trim(), slug: effSlug, timezone: tz, language: lang });
       rememberOrg(created.org.id);
       await qc.invalidateQueries({ queryKey: ['me'] });
@@ -55,6 +66,7 @@ export function CreateOrgPage({ standalone = true }: { standalone?: boolean }) {
       else if (body.includes('email_not_verified')) setErr('email');
       else if (body.includes('slug_reserved')) setErr('reserved');
       else if (body.includes('slug_format')) setErr('format');
+      else if (body.includes('consent_required')) setErr('consent');
       else setErr('generic');
     } finally {
       setBusy(false);
@@ -85,13 +97,25 @@ export function CreateOrgPage({ standalone = true }: { standalone?: boolean }) {
         <option value="th">ไทย</option>
       </select>
 
-      <button type="submit" className="signin-choice signin-primary" disabled={busy || !name.trim() || !slugOk}>
+      {consentBlock && (
+        <label className="hint" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+          <input type="checkbox" checked={consentOk} onChange={(e) => setConsentOk(e.target.checked)} style={{ marginTop: 2 }} />
+          <span>
+            {t('cons.checkbox', {
+              docs: missing.map((d) => t(`cons.${d}`)).join(` ${t('auth.termsAnd')} `),
+              version: missing.map((d) => required[d]).join(' / '),
+            })}
+          </span>
+        </label>
+      )}
+
+      <button type="submit" className="signin-choice signin-primary" disabled={busy || !name.trim() || !slugOk || (consentBlock && !consentOk)}>
         {busy ? t('org.creating') : t('org.submit')}
       </button>
       {err && (
         <p className="signin-denied" role="alert">
           <Icon name="warn" size={14} />
-          <span>{t(`org.err.${err}`)}</span>
+          <span>{err === 'consent' ? t('cons.required') : t(`org.err.${err}`)}</span>
         </p>
       )}
     </form>

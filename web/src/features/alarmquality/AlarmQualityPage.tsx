@@ -1,81 +1,25 @@
-// Alarm quality — ISA-18.2 style performance over the loaded alarm history:
-// rate, peak flood, standing and never-acked alarms, plus per-rule bad actors.
+// Alarm quality — ISA-18.2 performance from the backend's real alarm table
+// (GET /api/v1/orgs/{org}/alarm-quality): rate per operator-hour, 10-minute
+// flood peak, standing + never-acked counts, per-rule bad actors. The demo
+// client-side computation was removed — this page shows server numbers.
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { Search } from 'lucide-react';
 import { EmptyState, Notice } from '../../shared/ui/Feedback';
 import { FacetGroup, ProductHeader, facetOptions, toggleIn } from '../../shared/ui/Product';
 import { SeverityBadge } from '../../shared/ui/Status';
-import { useAlarmHistory } from '../events/alarmHistory';
+import { notifyApi } from '../notify/api';
+import { usePrimaryScope } from '../admin/admin';
 import { enabled } from '../../lib/features';
-import type { Alarm } from '../../types';
 import './i18n';
 
 const H = 3600_000;
-const CHATTER_MS = 10 * 60_000;
-const STANDING_MS = 24 * H;
 const FLOOD_10M = 10;
 const TOP_N = 10;
-
-type Flag = 'frequent' | 'chatter' | 'standing' | 'unacked';
-interface RuleRow {
-  rule: string; severity: string; count: number; share: number;
-  chatter: number; standing: number; unacked: number; mtta: number | null; flags: Flag[];
-}
-
-const ms = (iso?: string | null) => (iso ? Date.parse(iso) || 0 : 0);
-
-export function computeQuality(alarms: Alarm[], now: number) {
-  const times = alarms.map((a) => ms(a.ts)).filter(Boolean).sort((a, b) => a - b);
-  const span = times.length ? Math.max(H, now - times[0]) : H;
-  const perHour = (times.length / span) * H;
-
-  // peak count in any sliding 10-minute window
-  let peak = 0;
-  for (let i = 0, j = 0; i < times.length; i++) {
-    while (times[i] - times[j] > CHATTER_MS) j++;
-    peak = Math.max(peak, i - j + 1);
-  }
-
-  const hourly = Array.from({ length: 24 }, () => 0);
-  for (const t of times) {
-    const back = Math.floor((now - t) / H);
-    if (back >= 0 && back < 24) hourly[23 - back]++;
-  }
-
-  const byRule = new Map<string, Alarm[]>();
-  for (const a of alarms) byRule.set(a.rule, [...(byRule.get(a.rule) ?? []), a]);
-
-  const standingNow = alarms.filter((a) => a.state === 'active' && now - ms(a.ts) > STANDING_MS);
-  const unackedNow = alarms.filter((a) => a.state === 'active' && !a.acked_at && !a.acked_by);
-
-  const rows: RuleRow[] = [...byRule.entries()].map(([rule, list]) => {
-    const asc = [...list].sort((a, b) => ms(a.ts) - ms(b.ts));
-    let chatter = 0;
-    for (let i = 1; i < asc.length; i++) {
-      const cleared = ms(asc[i - 1].cleared_at);
-      if (cleared && ms(asc[i].ts) - cleared < CHATTER_MS) chatter++;
-    }
-    const acks = list.filter((a) => ms(a.acked_at) && ms(a.ts)).map((a) => ms(a.acked_at) - ms(a.ts));
-    return {
-      rule, severity: list[0].severity, count: list.length, share: alarms.length ? list.length / alarms.length : 0,
-      chatter, standing: list.filter((a) => standingNow.includes(a)).length,
-      unacked: list.filter((a) => unackedNow.includes(a)).length,
-      mtta: acks.length ? acks.reduce((s, x) => s + x, 0) / acks.length : null, flags: [],
-    };
-  }).sort((a, b) => b.count - a.count);
-
-  const topShare = rows.slice(0, TOP_N).reduce((s, r) => s + r.share, 0);
-  rows.forEach((r, i) => {
-    if (i < TOP_N && rows.length > TOP_N) r.flags.push('frequent');
-    if (r.chatter > 0) r.flags.push('chatter');
-    if (r.standing > 0) r.flags.push('standing');
-    if (r.unacked > 0) r.flags.push('unacked');
-  });
-  return { perHour, peak, hourly, rows, topShare, standing: standingNow.length, unacked: unackedNow.length, from: times[0], to: now };
-}
+const WINDOWS = [24, 72, 168] as const;
 
 const rateLevel = (r: number) => (r > 12 ? 'overloaded' : r > 6 ? 'manageable' : 'ok');
 
@@ -92,29 +36,40 @@ function Kpi({ label, value, hint, tone }: { label: string; value: string; hint:
 
 export function AlarmQualityPage() {
   const { t } = useTranslation();
-  const history = useAlarmHistory();
+  const { orgId, siteId } = usePrimaryScope();
+  const [hours, setHours] = useState<number>(24);
   const [q, setQ] = useState('');
   const [offSev, setOffSev] = useState<Set<string>>(new Set());
   const [offFlag, setOffFlag] = useState<Set<string>>(new Set());
 
-  const m = useMemo(() => computeQuality(history.alarms, Date.now()), [history.alarms]);
-  const mins = (ms_: number | null) => (ms_ == null ? '—' : ms_ >= H ? t('aq.hrs', { n: (ms_ / H).toFixed(1) }) : t('aq.mins', { n: Math.max(1, Math.round(ms_ / 60_000)) }));
+  const qy = useQuery({
+    queryKey: ['alarm-quality', orgId, siteId, hours],
+    queryFn: () => notifyApi.quality(orgId!, hours, siteId ?? undefined),
+    enabled: !!orgId,
+    staleTime: 30_000,
+  });
+  const m = qy.data;
+  const mins = (s: number | null) => {
+    if (s == null) return '—';
+    const ms = s * 1000;
+    return ms >= H ? t('aq.hrs', { n: (ms / H).toFixed(1) }) : t('aq.mins', { n: Math.max(1, Math.round(ms / 60_000)) });
+  };
 
-  const rows = m.rows
+  const rows = (m?.rules ?? [])
     .filter((r) => !offSev.has(r.severity))
     .filter((r) => r.flags.length === 0 ? !offFlag.has('none') : r.flags.some((f) => !offFlag.has(f)))
     .filter((r) => r.rule.toLowerCase().includes(q.toLowerCase()));
-  const max = Math.max(1, ...m.hourly);
-  const findings = [
-    m.rows.length > TOP_N && m.topShare > 0.8 && ['fFrequent', TOP_N, Math.round(m.topShare * 100)],
-    m.rows.some((r) => r.chatter) && ['fChatter', m.rows.filter((r) => r.chatter).length],
-    m.rows.some((r) => r.standing) && ['fStanding', m.rows.filter((r) => r.standing).length],
-    m.rows.some((r) => r.unacked) && ['fUnacked', m.rows.filter((r) => r.unacked).length],
-  ].filter(Boolean) as [string, number, number?][];
+  const max = Math.max(1, ...(m?.hourly ?? [0]));
+  const findings = m ? ([
+    m.rules.length > TOP_N && m.top10_share > 0.8 && ['fFrequent', TOP_N, Math.round(m.top10_share * 100)],
+    m.rules.some((r) => r.chatter) && ['fChatter', m.rules.filter((r) => r.chatter).length],
+    m.rules.some((r) => r.standing) && ['fStanding', m.rules.filter((r) => r.standing).length],
+    m.rules.some((r) => r.unacked) && ['fUnacked', m.rules.filter((r) => r.unacked).length],
+  ].filter(Boolean) as [string, number, number?][]) : [];
 
   return (
     <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="bell-curve" title={t('aq.product')} lede={t('aq.lede', { n: history.alarms.length })}
+      <ProductHeader icon="bell-curve" title={t('aq.product')} lede={t('aq.lede', { n: m?.total ?? 0 })}
         tabs={[
           { to: '/alarms', label: t('aq.tabList'), end: true },
           { to: '/admin/rules', label: t('aq.tabRules') },
@@ -122,14 +77,21 @@ export function AlarmQualityPage() {
           ...(enabled('alarmsettings') ? [{ to: '/alarms/settings', label: t('aq.tabSettings') }] : []),
         ]} />
       <div className="flex flex-1 flex-col gap-4 p-4">
-        {history.error && <Notice tone="warn">{t('common.loadFailed', { defaultValue: 'Could not load alarm history.' })}</Notice>}
-        {!history.loading && history.alarms.length === 0 ? (
+        <div className="flex items-center gap-2 text-[12px] text-ink-68">
+          <span>{t('aq.windowLabel')}</span>
+          <select className="input h-7 text-[12px]" aria-label={t('aq.windowLabel')}
+            value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+            {WINDOWS.map((h) => <option key={h} value={h}>{t('aq.hours', { n: h })}</option>)}
+          </select>
+        </div>
+        {qy.isError && <Notice tone="warn">{t('common.loadFailed', { defaultValue: 'Could not load alarm history.' })}</Notice>}
+        {qy.isLoading ? null : !m || m.total === 0 ? (
           <EmptyState title={t('aq.empty')} body={t('aq.emptyBody')} icon="search" />
         ) : (
           <>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <Kpi label={t('aq.kpiRate')} value={m.perHour.toFixed(1)} tone={t(`aq.${rateLevel(m.perHour)}`)} hint={t('aq.kpiRateHint')} />
-              <Kpi label={t('aq.kpiPeak')} value={String(m.peak)} tone={m.peak > FLOOD_10M ? t('aq.flood') : t('aq.ok')} hint={t('aq.kpiPeakHint')} />
+              <Kpi label={t('aq.kpiRate')} value={m.alarms_per_operator_hour.toFixed(1)} tone={t(`aq.${rateLevel(m.alarms_per_operator_hour)}`)} hint={t('aq.kpiRateHint', { n: m.operators })} />
+              <Kpi label={t('aq.kpiPeak')} value={String(m.peak_10m)} tone={m.peak_10m > FLOOD_10M ? t('aq.flood') : t('aq.ok')} hint={t('aq.kpiPeakHint')} />
               <Kpi label={t('aq.kpiStanding')} value={String(m.standing)} hint={t('aq.kpiStandingHint')} />
               <Kpi label={t('aq.kpiUnacked')} value={String(m.unacked)} hint={t('aq.kpiUnackedHint')} />
             </div>
@@ -168,9 +130,9 @@ export function AlarmQualityPage() {
             <div className="flex gap-4">
               <aside className="w-[220px] shrink-0 self-start border border-line bg-white">
                 <FacetGroup title={t('aq.facetSev')} off={offSev} emptyLabel={t('aq.noValues')} onToggle={(v) => setOffSev((s) => toggleIn(s, v))}
-                  options={facetOptions(m.rows, (r) => r.severity, (v) => t(`alarms.${v}`, { defaultValue: v }))} />
+                  options={facetOptions(m.rules, (r) => r.severity, (v) => t(`alarms.${v}`, { defaultValue: v }))} />
                 <FacetGroup title={t('aq.facetFlag')} off={offFlag} emptyLabel={t('aq.noValues')} onToggle={(v) => setOffFlag((s) => toggleIn(s, v))}
-                  options={(['frequent', 'chatter', 'standing', 'unacked'] as Flag[]).map((f) => ({ value: f, label: t(`aq.flag.${f}`), count: m.rows.filter((r) => r.flags.includes(f)).length }))} />
+                  options={(['frequent', 'chatter', 'standing', 'unacked'] as const).map((f) => ({ value: f, label: t(`aq.flag.${f}`), count: m.rules.filter((r) => r.flags.includes(f)).length }))} />
               </aside>
               <section className="min-w-0 flex-1" aria-label={t('aq.badActors')}>
                 <div className="relative mb-2">
@@ -188,7 +150,7 @@ export function AlarmQualityPage() {
                     </thead>
                     <tbody>
                       {rows.map((r) => (
-                        <tr key={r.rule} className="h-10 border-b border-line last:border-0 hover:bg-info-soft">
+                        <tr key={r.rule_id} className="h-10 border-b border-line last:border-0 hover:bg-info-soft">
                           <td className="px-3 font-medium"><Link to={`/alarms?rule=${encodeURIComponent(r.rule)}`} className="hover:text-blue hover:underline">{r.rule}</Link></td>
                           <td className="px-3"><SeverityBadge severity={r.severity} /></td>
                           <td className="px-3 font-mono">{r.count}</td>
@@ -196,13 +158,13 @@ export function AlarmQualityPage() {
                           <td className="px-3 font-mono">{r.chatter}</td>
                           <td className="px-3 font-mono">{r.standing}</td>
                           <td className="px-3 font-mono">{r.unacked}</td>
-                          <td className="px-3 font-mono text-[12px]">{mins(r.mtta)}</td>
+                          <td className="px-3 font-mono text-[12px]">{mins(r.mtta_s)}</td>
                           <td className="px-3 text-[12px] text-ink-68">{r.flags.map((f) => t(`aq.flag.${f}`)).join(', ')}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  <p className="border-t border-line px-3 py-2 text-[12px] text-ink-68">{t('aq.showing', { shown: rows.length, total: m.rows.length })}</p>
+                  <p className="border-t border-line px-3 py-2 text-[12px] text-ink-68">{t('aq.showing', { shown: rows.length, total: m.rules.length })}</p>
                 </div>
               </section>
             </div>

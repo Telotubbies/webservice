@@ -15,6 +15,7 @@ import { PageSkeleton, Notice, ErrorState, EmptyState } from '../../shared/ui/Fe
 import { Icon } from '../../shared/ui/Icon';
 import { AdminFrame, OrgScope, NeedAdmin } from './access';
 import { explainError } from './access-util';
+import { saveBlob } from '../../lib/saveBlob';
 
 const SHOW_MAX = 300;
 const day = (d: Date) => d.toISOString().slice(0, 10);
@@ -90,11 +91,7 @@ export function AuditPage() {
   const exportCsv = () => {
     setExportErr('');
     void adminApi.auditCsv(orgId, range).then((blob) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `audit-${orgName ?? orgId}-${from || 'all'}.csv`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      saveBlob(`audit-${orgName ?? orgId}-${from || 'all'}.csv`, blob);
     }).catch((e) => setExportErr(explainError(t, e)));
   };
 

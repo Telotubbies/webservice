@@ -13,6 +13,7 @@ import { ProductHeader } from '../../shared/ui/Product';
 import { DEVICE_TABS } from '../devices/tabs';
 import { visionApi, type ModelVersion, type Task, type VisionModel } from './api';
 import { modelFileError, nameCountError, namesFromText } from './logic';
+import { TestPanel } from './TestPanel';
 import './i18n';
 
 const mb = (n: number | null) => (n == null ? '—' : `${(n / 1048576).toFixed(1)} MB`);
@@ -28,8 +29,9 @@ function useFail() {
   };
 }
 
-function VersionRow({ orgId, model, v, admin, onChanged, onError }: {
-  orgId: string; model: VisionModel; v: ModelVersion; admin: boolean; onChanged: () => void; onError: (m: string) => void;
+function VersionRow({ orgId, model, v, admin, testing, onTest, onChanged, onError }: {
+  orgId: string; model: VisionModel; v: ModelVersion; admin: boolean; testing: boolean;
+  onTest: () => void; onChanged: () => void; onError: (m: string) => void;
 }) {
   const { t } = useTranslation();
   const fail = useFail();
@@ -56,6 +58,10 @@ function VersionRow({ orgId, model, v, admin, onChanged, onError }: {
         <td className="px-3 py-2">{v.imgsz ? `${v.imgsz} px` : '—'}</td>
         <td className="px-3 py-2 text-right whitespace-nowrap">
           {admin && v.status === 'draft' && v.classes && <button type="button" className="btn btn-sm" onClick={() => setAttest(false)}>{t('vis.activate')}</button>}
+          {admin && ['draft', 'active'].includes(v.status) && (v.classes?.length ?? 0) > 0 && (
+            <button type="button" className="btn btn-sm btn-ghost" aria-expanded={testing}
+              onClick={onTest}>{t('vis.test')}</button>
+          )}
           {admin && v.status === 'active' && <button type="button" className="btn btn-sm btn-ghost" onClick={() => archive.mutate()}>{t('vis.archive')}</button>}
           {admin && ['draft', 'failed', 'archived'].includes(v.status) && (
             <button type="button" className="btn btn-sm btn-ghost" aria-label={`${t('vis.delete')} v${v.version}`} onClick={() => setDel(true)}><Trash2 size={14} aria-hidden /></button>
@@ -115,6 +121,12 @@ function ModelCard({ orgId, model, admin, onModelChanged, onError }: {
     onSuccess: () => { setDel(false); onModelChanged(); }, onError: (e) => { setDel(false); onError(fail(e)); },
   });
   const items = versions.data?.items ?? [];
+  // one test panel per model, selected by version row; resolved from the live
+  // list so a status/classes change (or loss of admin) closes it
+  const [testId, setTestId] = useState<string | null>(null);
+  const testV = admin && testId
+    ? items.find((v) => v.id === testId && ['draft', 'active'].includes(v.status) && (v.classes?.length ?? 0) > 0) ?? null
+    : null;
 
   return (
     <section className="rounded-[5px] border border-line bg-white" aria-label={model.name}>
@@ -139,8 +151,19 @@ function ModelCard({ orgId, model, admin, onModelChanged, onError }: {
             <thead><tr className="border-b border-line text-left">
               {['colVersion', 'colStatus', 'colClasses', 'colSize', 'colInput', 'colActions'].map((c) => <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t(`vis.${c}`)}</th>)}
             </tr></thead>
-            <tbody>{items.map((v) => <VersionRow key={v.id} orgId={orgId} model={model} v={v} admin={admin} onChanged={refresh} onError={onError} />)}</tbody>
+            <tbody>{items.map((v) => (
+              <VersionRow key={v.id} orgId={orgId} model={model} v={v} admin={admin}
+                testing={testId === v.id} onTest={() => setTestId((s) => (s === v.id ? null : v.id))}
+                onChanged={refresh} onError={onError} />
+            ))}</tbody>
           </table>
+        </div>
+      )}
+      {/* sibling of the scrollable table, not a <td> inside it — a row panel in
+          overflow-x-auto clips on narrow viewports (375px review finding) */}
+      {testV && (
+        <div className="border-t border-line px-3 py-3">
+          <TestPanel key={testV.id} orgId={orgId} model={model} version={testV} admin={admin} onClose={() => setTestId(null)} />
         </div>
       )}
       {del && <Confirm title={t('vis.deleteTitle', { name: model.name })} body={t('vis.deleteBody')} confirm={t('vis.delete')} onYes={() => remove.mutate()} onNo={() => setDel(false)} />}

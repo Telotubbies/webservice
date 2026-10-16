@@ -51,26 +51,28 @@ const ALL_NAV: NavGroup[] = [
   { cluster: 1, group: 'nav.monitoring', icon: 'monitor', items: [
     { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
     { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },
-    { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve', flag: 'alarmquality' },
+    { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
     { to: '/slos', key: 'nav.slos', icon: 'status-page' },
-    { to: '/events', key: 'nav.events', icon: 'events', flag: 'events' },
+    { to: '/events', key: 'nav.events', icon: 'events' },
     { to: '/activity', key: 'nav.activity', icon: 'bell' },
   ], sections: [
     { title: 'nav.secAlarms', items: [
       { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
       { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },
-      { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve', flag: 'alarmquality' },
+      { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
     ], secondary: [
       { to: '/admin/rules', key: 'nav.adminRules', icon: 'assert-list' },
+      { to: '/notifications/channels', key: 'nav.notifyChannels', icon: 'bell' },
       { to: '/alarms/settings', key: 'nav.alarmSettings', icon: 'cog', flag: 'alarmsettings' },
     ],
       action: { to: '/admin/rules/new', key: 'nav.actionNewRule' } },
     { title: 'nav.secReliability', items: [
       { to: '/slos', key: 'nav.slos', icon: 'status-page' },
       { to: '/activity', key: 'nav.activity', icon: 'bell' },
+      { to: '/notifications/channels', key: 'nav.notifyChannels', icon: 'bell' },
     ] },
     { title: 'nav.secEvents', items: [
-      { to: '/events', key: 'nav.events', icon: 'events', flag: 'events' },
+      { to: '/events', key: 'nav.events', icon: 'events' },
     ] },
   ] },
   { cluster: 2, group: 'nav.infrastructure', icon: 'server', items: [
@@ -81,12 +83,18 @@ const ALL_NAV: NavGroup[] = [
   ], action: { to: '/infrastructure/add', key: 'nav.addDevice' } },
   { cluster: 3, group: 'nav.metrics', icon: 'metric', items: [
     { to: '/trends', key: 'nav.trends', icon: 'graph-line' },
-    { to: '/metrics', key: 'nav.metricsSummary', icon: 'metric', flag: 'metrics' },
+    { to: '/metrics', key: 'nav.metricsSummary', icon: 'metric' },
     { to: '/tags', key: 'nav.tags', icon: 'list' },
-    { to: '/query', key: 'nav.query', icon: 'database', flag: 'query' },
+    { to: '/query', key: 'nav.query', icon: 'database' },
+  ] },
+  { cluster: 3, group: 'nav.production', icon: 'pause', items: [
+    { to: '/oee', key: 'nav.oee', icon: 'metric' },
+    { to: '/stops', key: 'nav.stops', icon: 'pause' },
+    { to: '/shifts', key: 'nav.shifts', icon: 'on-call' },
+    { to: '/reports', key: 'nav.reports', icon: 'download' },
   ] },
   { cluster: 3, group: 'nav.logs', icon: 'log-pipelines', items: [
-    { to: '/logs', key: 'nav.logs', icon: 'log-pipelines', flag: 'logs' },
+    { to: '/logs', key: 'nav.logs', icon: 'log-pipelines' },
   ] },
   { cluster: 3, group: 'nav.errors', icon: 'error-tracking', items: [
     { to: '/errors', key: 'nav.errors', icon: 'error-tracking', flag: 'errors' },
@@ -110,7 +118,7 @@ const ALL_NAV: NavGroup[] = [
     { to: '/synthetics', key: 'nav.synthetics', icon: 'multi-heartbeat', flag: 'synthetics' },
   ] },
   { cluster: 2, group: 'nav.security', icon: 'security-monitoring', items: [
-    { to: '/security', key: 'nav.security', icon: 'security-monitoring', flag: 'security' },
+    { to: '/security', key: 'nav.security', icon: 'security-monitoring' },
   ] },
   { cluster: 2, group: 'nav.intelligence', icon: 'watchdog', items: [
     { to: '/insights', key: 'nav.insights', icon: 'ai-search' },
@@ -135,6 +143,8 @@ const ALL_NAV: NavGroup[] = [
       { to: '/admin/keys', key: 'nav.adminKeys', icon: 'key' },
     ], secondary: [
       { to: '/settings', key: 'nav.settings', icon: 'cog' },
+      { to: '/settings/plan', key: 'nav.plan', icon: 'metric' },
+      { to: '/platform', key: 'nav.platform', icon: 'organization' },
     ] },
   ] },
 ];
@@ -144,7 +154,7 @@ const keep = (xs?: NavItem[]) => xs?.filter((i) => enabled(i.flag));
 // Rail order = Datadog's: clusters separated by a divider, fixed order within.
 const ORDER = ['nav.bitsAi', 'nav.dashboards', 'nav.monitoring', 'nav.devPortal', 'nav.incidentResponse', 'nav.automation',
   'nav.infrastructure', 'nav.apm', 'nav.digitalExperience', 'nav.security', 'nav.intelligence',
-  'nav.errors', 'nav.metrics', 'nav.logs', 'nav.admin'];
+  'nav.errors', 'nav.metrics', 'nav.production', 'nav.logs', 'nav.admin'];
 const rank = (g: NavGroup) => ORDER.indexOf(g.group);
 export const NAV: NavGroup[] = [...ALL_NAV].sort((a, b) => rank(a) - rank(b)).map((g) => ({
   ...g,

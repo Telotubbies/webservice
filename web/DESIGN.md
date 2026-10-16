@@ -189,3 +189,30 @@ with `background-clip: text`.
 - `--hx-pink`/`--hx-pink-dim` on `--hx-ink` ≥ 7:1 — body/link safe.
 - Focus: `:focus-visible` 1px `--hx-pink` outline + corner ticks on.
 - Marquees `aria-hidden` with a static sr list; ticker links real anchors.
+
+## 9. Console vision extension (M1-05)
+
+This file documents the landing world (`--hx-*`). The console pages added for
+edge inference deliberately do **not** adopt it — they extend the incumbent
+console system in `src/dd-theme.css`: paper surfaces (`bg-white` on
+`--color-paper`), hairline `border-line` dividers, `--color-blue` as the
+single accent, `--color-ink`/`text-ink-68`/`text-ink-46` text steps, IBM Plex,
+`.btn`/`.input`/`field-label`/`Notice`/`ErrorState` primitives. No new tokens, fonts,
+decorations, or motion were added.
+
+- **Inline panels, not modals:** the model test expands in place as a sibling
+  block directly under the version table (a padded section row, *not* a
+  `td[colspan]` inside the `overflow-x-auto` scroller — that clipped the panel
+  at 375 px); the per-camera model settings stay a flat section. Camera tiles
+  keep one hairline `figure`; model runtime is a second text line, not a chip
+  card.
+- **Image-led preview:** the test result renders on a single responsive
+  canvas (`w-full max-w-full`) painted at the image's natural resolution;
+  boxes/polygons use normalized coordinates scaled in `overlay.ts`.
+- **Accessibility:** every control is a native element — a real
+  `<input type=file>` sits beside drag-and-drop, labels are `htmlFor`/useId
+  pairs, results announce via `role=status`/`aria-live`, the Test button
+  exposes `aria-expanded`, and all copy is i18n EN+TH.
+- **Truthful states:** loading/error/empty are localized `Notice`/text, a
+  stale gateway selection silently re-derives to the first online edge, and
+  measured FPS is shown only when a benchmark actually reported one.

@@ -26,6 +26,29 @@ export interface AuthConfig {
 const SILENT_PATH = '/auth/silent-callback';
 const CALLBACK_PATH = '/auth/callback';
 
+// Deep-link preservation: signinRedirect leaves the app, so the intended
+// destination is stashed in sessionStorage (NOT a token — ADR-12's storage
+// ban is about credentials) and consumed by the /auth/callback handler.
+const RETURN_KEY = 'wds.returnTo';
+
+/** Same-origin check + stash of the current location before an SSO redirect. */
+function stashReturnTo(): void {
+  const p = location.pathname + location.search + location.hash;
+  if (!p.startsWith('/') || p.startsWith('//') || isCallbackPath(location.pathname)) return;
+  try { sessionStorage.setItem(RETURN_KEY, p); } catch { /* storage blocked */ }
+}
+
+/** Consume the stashed destination. Only relative paths ever come back —
+ * anything else (or nothing) falls through to '/'. */
+export function takeReturnTo(): string {
+  try {
+    const p = sessionStorage.getItem(RETURN_KEY);
+    sessionStorage.removeItem(RETURN_KEY);
+    if (p && p.startsWith('/') && !p.startsWith('//')) return p;
+  } catch { /* storage blocked */ }
+  return '/';
+}
+
 let cfg: AuthConfig | null = null;
 let mgr: UserManager | null = null;
 let initPromise: Promise<AuthConfig> | null = null;
@@ -158,20 +181,24 @@ export async function ensureFreshToken(): Promise<boolean> {
 }
 
 export function signInWithSSO(): Promise<void> | undefined {
+  stashReturnTo();
   return mgr?.signinRedirect();
 }
 
 /** kc_idp_hint makes Keycloak skip its chooser and go straight to the IdP. */
 /** Keycloak self-registration (OIDC prompt=create). */
 export function signUp(): Promise<void> | undefined {
+  stashReturnTo();
   return mgr?.signinRedirect({ prompt: 'create' });
 }
 
 export function signInWithGoogle(): Promise<void> | undefined {
+  stashReturnTo();
   return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'google' } });
 }
 
 export function signInWithMicrosoft(): Promise<void> | undefined {
+  stashReturnTo();
   return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'microsoft' } });
 }
 

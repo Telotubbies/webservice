@@ -48,7 +48,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -56,6 +56,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   // org-aware v1 endpoints read the active org/site from these headers;
   // /api/v1/orgs/... paths carry the org in the path and ignore them.
   if (!path.startsWith('/api/v1/')) Object.assign(headers, scopeHeaders());
+  // caller-supplied headers (e.g. an upload's real Content-Type) win.
+  Object.assign(headers, init.headers);
 
   const res = await fetch(path, { ...init, headers });
   const text = await res.text();
@@ -74,6 +76,28 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(res.status, data, detail ?? `HTTP ${res.status}`);
   }
   return data as T;
+}
+
+/** Binary variant of request(): same auth/scope/401 contract, resolves the
+ * raw Blob plus the Content-Disposition filename (null when absent). */
+export async function requestBlob(
+  path: string, init: RequestInit = {},
+): Promise<{ blob: Blob; filename: string | null }> {
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (!path.startsWith('/api/v1/')) Object.assign(headers, scopeHeaders());
+  const res = await fetch(path, { ...init, headers });
+  if (!res.ok) {
+    if (res.status === 401) onUnauthorized?.();
+    let detail: string | undefined;
+    try {
+      detail = String((await res.json() as { detail?: unknown }).detail);
+    } catch { /* non-JSON error body */ }
+    throw new ApiError(res.status, null, detail ?? `HTTP ${res.status}`);
+  }
+  const m = /filename="?([^";]+)"?/.exec(res.headers.get('content-disposition') ?? '');
+  return { blob: await res.blob(), filename: m?.[1] ?? null };
 }
 
 export interface CommandRequest {
@@ -189,7 +213,7 @@ export interface RuleInput {
   deadband?: number; severity: string; enabled?: boolean;
 }
 
-const v2 = (org: string, path: string) =>
+export const v2 = (org: string, path: string) =>
   `/api/v1/orgs/${encodeURIComponent(org)}${path}`;
 
 export interface DashboardRow {
@@ -214,6 +238,95 @@ export interface CreatedOrg {
 export const orgApi = {
   create: (body: { name: string; slug: string; timezone: string; language: 'en' | 'th' }) =>
     request<CreatedOrg>('/api/v1/orgs', { method: 'POST', body: JSON.stringify(body) }),
+};
+
+// ---------------------------------------------------------------------------
+// Onboarding checklist (roadmap 1.3) — six derived steps per org.
+// ---------------------------------------------------------------------------
+export interface OnboardingStep { id: string; done: boolean; href: string }
+export const onboardingApi = {
+  get: (org: string) =>
+    request<{ steps: OnboardingStep[]; done: number; total: number }>(
+      v2(org, '/onboarding')),
+};
+
+// ---------------------------------------------------------------------------
+// Legal consent (roadmap 8.1) — current required versions + this user's rows.
+// ---------------------------------------------------------------------------
+export interface ConsentStatus {
+  required: Record<string, string>;
+  given: Record<string, { version: string; at: string }>;
+  missing: string[];
+  current: boolean;
+}
+export const consentApi = {
+  get: () => request<ConsentStatus>('/api/v1/consents'),
+  post: (doc: string, version: string) =>
+    request<{ consent: { doc: string; version: string; at: string } }>(
+      '/api/v1/consents', { method: 'POST', body: JSON.stringify({ doc, version }) }),
+};
+
+// ---------------------------------------------------------------------------
+// Unified event feed + edge logs + tag query/stats + public status
+// (Phase 4 "make real" pages).
+// ---------------------------------------------------------------------------
+export interface FeedEvent {
+  id: string; ts: string; type: 'alarm' | 'command' | 'config' | 'incident';
+  action: string; severity: string | null;
+  site_id: string | null; tag_id: string | null; tag: string | null;
+  actor: string | null; subject: string | null;
+}
+export interface EventsQuery {
+  type?: string; site?: string; tag?: string; from?: string; to?: string;
+  cursor?: string; limit?: number;
+}
+const qs = (o: Record<string, string | number | undefined>) => {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== '') q.set(k, String(v));
+  const s = q.toString();
+  return s ? `?${s}` : '';
+};
+export const eventsApi = {
+  list: (org: string, p: EventsQuery = {}) =>
+    request<V2List<FeedEvent>>(v2(org, `/events${qs(p as Record<string, string | number | undefined>)}`)),
+};
+
+export interface EdgeLogRow {
+  id: number; ts: string; level: 'debug' | 'info' | 'warn' | 'error';
+  source: string; msg: string; edge_id: string; site_id: string;
+}
+export const edgeLogsApi = {
+  list: (org: string, p: EventsQuery & { edge?: string; level?: string; q?: string } = {}) =>
+    request<V2List<EdgeLogRow>>(v2(org, `/edge-logs${qs(p as Record<string, string | number | undefined>)}`)),
+};
+
+export interface TagHistoryRow { ts: string; v: number | boolean; q: string }
+export interface TagBucket { ts: string; min: number | null; max: number | null; avg: number | null; n: number }
+export interface TagRef { id: string; path: string; name: string; unit: string | null }
+export const tagQueryApi = {
+  history: (org: string, site: string, p: {
+    tag: string; from?: string; to?: string; agg?: 'raw' | 'min' | 'max' | 'avg';
+    bucket_s?: number; limit?: number;
+  }) =>
+    request<{ tag: TagRef; from: string; to: string; agg: string; bucket_s?: number;
+              truncated?: boolean; rows: (TagHistoryRow | TagBucket)[] }>(
+      v2(org, `/sites/${site}/tag-history${qs(p as Record<string, string | number | undefined>)}`)),
+  csvUrl: (org: string, site: string, p: Record<string, string | number | undefined>) =>
+    v2(org, `/sites/${site}/tag-history${qs({ ...p, format: 'csv' })}`),
+  stats: (org: string, site: string, p: { from?: string; to?: string } = {}) =>
+    request<{ from: string; to: string; gap_s: number; items: TagStat[] }>(
+      v2(org, `/sites/${site}/tag-stats${qs(p as Record<string, string | number | undefined>)}`)),
+};
+export interface TagStat {
+  tag_id: string; path: string; name: string; unit: string | null; type: string;
+  min: number | null; max: number | null; avg: number | null; count: number;
+  last: number | boolean; last_ts: string; gaps: number; max_gap_s: number;
+}
+
+export interface StatusComponent { name: string; ok: boolean; since: string | null }
+export const statusApi = {
+  get: () => request<{ status: string; env: string; components: StatusComponent[]; updated_at: string }>(
+    '/api/v1/status'),
 };
 
 export const sloApi = {
@@ -358,11 +471,8 @@ export const adminApi = {
     q.set('format', 'csv');
     if (params.from) q.set('from', params.from);
     if (params.to) q.set('to', params.to);
-    const res = await fetch(v2(org, `/audit?${q.toString()}`), {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    });
-    if (!res.ok) throw new ApiError(res.status, null, `HTTP ${res.status}`);
-    return res.blob();
+    const r = await requestBlob(v2(org, `/audit?${q.toString()}`));
+    return r.blob;
   },
   // Device (edge) lifecycle — doc 17 §5. config:write (admin|owner).
   // The MQTT secret is returned ONCE by provision/rotate; the server keeps

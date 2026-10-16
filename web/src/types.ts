@@ -25,6 +25,10 @@ export interface Alarm {
   acked_by?: string | null;
   cleared_at?: string | null;
   version?: number;
+  // lifecycle (migration 0030) — absent on stale v1 payloads
+  shelved_until?: string | null;
+  assigned_to?: string | null;
+  assigned_name?: string | null;
 }
 
 export type Severity = 'info' | 'warning' | 'critical';

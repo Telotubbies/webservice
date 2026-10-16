@@ -11,10 +11,12 @@ import './i18n';
 
 export const SOURCE_KEY: Record<EventSource, string> = {
   alarm: 'evx.sAlarm', insight: 'evx.sInsight', command: 'evx.sCommand', system: 'evx.sSystem',
+  config: 'evx.sConfig', incident: 'evx.sIncident',
 };
 
 const SOURCE_ICON: Record<EventSource, IconName> = {
   alarm: 'alarm', insight: 'sparkle', command: 'commands', system: 'health',
+  config: 'wrench', incident: 'warn',
 };
 
 /** Rail tint: red/orange only for abnormal (ISA-101); everything else grey. */
