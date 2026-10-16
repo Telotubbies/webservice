@@ -1,4 +1,4 @@
-"""Unit tests for `_org_tag_or_400` — the SLO endpoint's org-scoped tag
+﻿"""Unit tests for `_org_tag_or_400` โ€” the SLO endpoint's org-scoped tag
 name resolution (offline, no services needed). Uses a real `Registry`
 with hand-populated internals so `for_org`/`display_name` logic runs for
 real, and a spy `maybe_refresh` to pin the staleness contract: the lookup
@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
 from fastapi import HTTPException  # noqa: E402
 
-from app.main import _org_tag_or_400  # noqa: E402
+from app.api.slos import _org_tag_or_400  # noqa: E402
 from app.registry import Registry, Tag  # noqa: E402
 
 ORG_ID = UUID("0199d000-0000-7000-8000-00000000a001")
@@ -40,7 +40,7 @@ def _registry(*tags: Tag, site_code: str = "plant1") -> Registry:
     reg = Registry(pool=None)
     reg._by_key = {(t.site_id, t.path): t for t in tags}
     reg._sites = {t.site_id: (t.org_id, site_code) for t in tags}
-    reg._loaded_at = time.monotonic()  # fresh — refresh() itself never runs
+    reg._loaded_at = time.monotonic()  # fresh โ€” refresh() itself never runs
     return reg
 
 
@@ -85,7 +85,7 @@ def test_same_display_name_in_another_org_not_visible():
 
 
 def test_refresh_attempted_before_lookup():
-    # Even a hit on stale data must have waited on maybe_refresh first —
+    # Even a hit on stale data must have waited on maybe_refresh first โ€”
     # otherwise a tag provisioned seconds ago can never resolve here.
     reg = _registry()
     calls = []
