@@ -11,11 +11,12 @@ import { useNow, useStore } from '../../lib/hooks';
 import { T, SIGNALS, formatSignal, unitOf } from '../../lib/plant';
 import { fmtAge } from '../../lib/format';
 import { useAlarms } from '../alarms/alarms';
-import { StatePill, SeverityBadge, QualityMark, type RunState } from '../../shared/ui/Status';
+import { SeverityBadge, QualityMark, type RunState } from '../../shared/ui/Status';
 import { Sparkline } from '../../shared/ui/Sparkline';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { EmptyState, PageSkeleton, ErrorState } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
+import { LineStatusBar } from '../../shared/ui/LineStatusBar';
 import { OnboardingCard } from '../onboarding/OnboardingCard';
 
 function signalState(tag: string, now: number): RunState {
@@ -66,7 +67,8 @@ export function OverviewPage() {
   const seeded = useStore(() => live.tagRev);
   const seedError = useStore(() => live.seedRev);
   useStore(() => live.version);
-  const { active, critical } = useAlarms();
+  const ws = useStore(() => live.ws);
+  const { active } = useAlarms();
   const insightRev = useStore(() => live.insightRev);
   const openInsights = live.insights.filter((i) => i.state === 'open');
   const qc = useQueryClient();
@@ -85,8 +87,6 @@ export function OverviewPage() {
   if (seedError && !live.tagsSeeded) return <><PageBar title={t('overview.title')} /><ErrorState onRetry={retrySeed} /></>;
   if (!live.tagsSeeded && !seeded) return <><PageBar title={t('overview.title')} /><PageSkeleton /></>;
 
-  const runState = signalState(T.running, now);
-
   return (
     <>
       <PageBar
@@ -102,23 +102,7 @@ export function OverviewPage() {
         {/* first-run checklist — self-hides when dismissed/complete */}
         <OnboardingCard />
 
-        {/* line state banner */}
-        <Card pad={false}>
-          <div className="flex h-12 items-center gap-3 px-3">
-            <StatePill state={runState} />
-            <span className="text-[12px] text-ink-46">
-              {live.latest.get(T.running)?.ts
-                ? t('state.updated', { age: fmtAge(live.latest.get(T.running)!.ts, now) })
-                : t('state.never')}
-            </span>
-            <span className="flex-1" />
-            {critical.length > 0 && (
-              <Link to="/alarms" className="flex min-w-0 items-center gap-1 truncate rounded text-[12px] font-semibold text-[var(--color-danger)] focus-visible:outline-2 focus-visible:outline-blue">
-                <Icon name="warn" size={13} /> {t('shell.criticalActive', { count: critical.length, what: critical[0].rule || critical[0].tag })}
-              </Link>
-            )}
-          </div>
-        </Card>
+        <LineStatusBar />
 
         {/* KPI grid */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
@@ -137,7 +121,10 @@ export function OverviewPage() {
             pad={false}
           >
             {active.length === 0 ? (
-              <EmptyState title={t('overview.noActive')} body={t('overview.noActiveBody')} />
+              <EmptyState
+                title={ws !== 'open' ? t('alarms.emptyUnknown') : t('overview.noActive')}
+                body={ws !== 'open' ? t('alarms.emptyUnknownBody') : t('overview.noActiveBody')}
+              />
             ) : (
               <ul>
                 {active.slice(0, 6).map((a) => (

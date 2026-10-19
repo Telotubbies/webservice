@@ -159,13 +159,13 @@ function NotifyBell() {
     <div className="relative">
       <button
         className="relative grid h-6 w-6 place-items-center rounded text-white/70 hover:bg-blue hover:text-white"
-        aria-label={t('shell.alarmsButton', { count: unread })}
+        aria-label={`${t('nav.activity')} (${unread})`}
         aria-expanded={open} aria-haspopup="true"
         onClick={() => { setOpen((o) => !o); if (!open) setReadAt(markJournalRead(live.journal)); }}
       >
         <DdIcon name="bell" size={17} />
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-[var(--color-danger-bright)] px-1 text-[9px] font-bold text-white">
+          <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-blue px-1 text-[9px] font-bold text-white">
             {unread > 9 ? '9+' : unread}
           </span>
         )}

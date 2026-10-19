@@ -12,6 +12,7 @@ import './i18n';
 const TABS: { to: string; key: string; icon: DdIconName; end?: boolean; badge?: boolean }[] = [
   { to: '/', key: 'nav.overview', icon: 'home', end: true },
   { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled', badge: true },
+  { to: '/stops', key: 'nav.stops', icon: 'pause' },
   { to: '/trends', key: 'nav.trends', icon: 'graph-line' },
 ];
 

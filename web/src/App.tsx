@@ -130,6 +130,7 @@ const ReportsPage = lazy(() => import('./features/production/ReportsPage').then(
 
 // ── Notifications ──
 const ChannelsPage = lazy(() => import('./features/notify/ChannelsPage').then((m) => ({ default: m.ChannelsPage })));
+const WallPage = lazy(() => import('./features/wall/WallPage').then((m) => ({ default: m.WallPage })));
 const AckLinkPage = lazy(() => import('./features/notify/AckLinkPage').then((m) => ({ default: m.AckLinkPage })));
 
 // ── Platform back-office ──
@@ -255,6 +256,7 @@ export default function App() {
               unauthenticated, so no API traffic fires before a token exists */}
           <Route element={<Boot />} errorElement={<RouteError />}>
             <Route index element={<RouteBoundary><OverviewPage /></RouteBoundary>} />
+            <Route path="wall" element={page(WallPage)} />
             <Route path="line" element={page(LinePage)} />
             <Route path="line3d" element={page(Line3DPage)} />
             <Route path="line3d/map" element={page(MapEditor)} />

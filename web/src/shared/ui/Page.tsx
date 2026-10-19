@@ -68,7 +68,7 @@ export function PageBar({ title, lede, actions, icon, tabs, back, status }: Page
       )}
       {lede && <span className="hidden min-w-0 truncate text-[12px] text-ink-46 md:block">{lede}</span>}
       <div className="hidden flex-1 md:block" />
-      {actions && <div className="flex min-w-0 shrink-0 items-center gap-2">{actions}</div>}
+      {actions && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 pb-2 md:w-auto md:shrink-0 md:flex-nowrap md:pb-0">{actions}</div>}
     </div>
   );
 }

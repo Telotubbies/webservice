@@ -16,12 +16,15 @@ import { PageBar, Card } from '../../shared/ui/Page';
 import { Icon } from '../../shared/ui/Icon';
 import { Confirm } from '../../shared/ui/Confirm';
 import { ErrorState, PageSkeleton } from '../../shared/ui/Feedback';
+import { LineStatusBar } from '../../shared/ui/LineStatusBar';
 import { Mimic } from './Mimic';
 import { PlanView, usePlantPlan } from '../line3d/PlantPlan';
 import { PartPanel } from '../line3d/PartPanel';
 import { useSceneSource } from '../line3d/useSceneSource';
 import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 
+/** One equipment card — selectable, lists the equipment's live signals with
+ *  quality marks. */
 function EquipmentCard({ id, selected, onSelect }: { id: EquipmentId; selected: boolean; onSelect: () => void }) {
   const { t, i18n } = useTranslation();
   const now = useNow();
@@ -85,7 +88,7 @@ function Controls() {
     return (
       <div className="flex items-center gap-2 rounded border border-line bg-subtle px-3 py-2 text-[12px] text-ink-68">
         <Icon name="lock" size={14} />
-        {t(`control.reason${gate.reason ? gateReasonKey(gate.reason) : 'Role'}`, { defaultValue: t('control.unavailable') })}
+        {t(gate.reason ? gateReasonKey(gate.reason) : 'control.unavailable')}
       </div>
     );
   }
@@ -210,6 +213,7 @@ export function LinePage() {
     <>
       <PageBar title={t('line.title')} lede={t('line.lede')} actions={<EquipmentPicker />} />
       <div className="p-4">
+        <div className="mb-3"><LineStatusBar /></div>
         <p className="mb-3 text-[12px] text-ink-46">
           {t('line.selectHint')}
           {runTs && ` · ${t('state.updated', { age: fmtAge(runTs, now) })}`}

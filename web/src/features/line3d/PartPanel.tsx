@@ -20,6 +20,9 @@ function unitFor(name: string): string | undefined {
   return live.tags.find((t) => t.name === name)?.unit;
 }
 
+// One writable role's control: bool roles get start/stop (open/close for
+// doors) with a confirm on the destructive half; number roles get a
+// value box + apply.
 function Control({ name, role, type, send, busy }: {
   name: string; role: string; type: 'bool' | 'number';
   send: (tag: string, v: number | boolean) => Promise<void>; busy: boolean;
@@ -110,7 +113,7 @@ export function PartPanel({ part, kind }: { part: PlantPart; kind: KindSpec | un
         ) : (
           <div className="flex items-center gap-2 rounded border border-line bg-subtle px-3 py-2 text-[12px] text-ink-68">
             <Icon name="lock" size={14} />
-            {t(`control.reason${gate.reason ? gateReasonKey(gate.reason) : 'Role'}`, { defaultValue: t('control.unavailable') })}
+            {t(gate.reason ? gateReasonKey(gate.reason) : 'control.unavailable')}
           </div>
         )
       )}
