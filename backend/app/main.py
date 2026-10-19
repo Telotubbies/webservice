@@ -40,7 +40,8 @@ from .core import config
 from .iam import consents, orgguard
 from .edge import credpush, edgelogs, enroll_codes
 from .production import eventsfeed, rollup, statuspage, tagquery
-from .production.rollup import numeric_value
+from .production.derived import DerivedEngine
+from .production.ingest import flush_history as _flush_history, record_sample
 from .alarming import inference, notify
 from .tenancy import onboarding, orgapi, orgs as orgs_mod, plans, platform as platform_api, workers
 from .alarming.alarms import AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener
@@ -75,6 +76,7 @@ from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
 from .plant.hierarchy import router as hierarchy_router
+from .production.formulas import router as formulas_router
 from .plant.routes import router as plant_router
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
@@ -276,10 +278,14 @@ class State:
         self.insights = InsightEngine(pools, self.ws, self.registry)
         self.auth = Security(pools, self.ws)  # v4 T5 — OIDC verify + authz
         self.history_buf: list[tuple] = []
+        self.derived = DerivedEngine(pools, self.registry, self._emit_derived)
         self.edge = {"last_rx": None, "last_heartbeat_ts": None, "clock_ok": None,
                      "adapter": None}
         self.counters = new_ingest_counters()
         self.db_ok = True
+
+    async def _emit_derived(self, tag, org_id, site_id, v, q, ts) -> None:
+        await record_sample(self, tag, org_id, site_id, v, q, ts)
 
     def edge_status(self) -> str:
         last = self.edge["last_rx"]
@@ -401,28 +407,7 @@ async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
         return _count(st, "telemetry_too_old", "telemetry older than 8h — dropped",
                       topic=msg.topic)
 
-    v, q = payload.v, payload.q
-    async with tenant_tx(st.pools.system, edge.org_id) as tc:
-        # tag_latest is monotonic: a late/replayed sample never overwrites newer data
-        res = await tc.execute(
-            "INSERT INTO tag_latest(tag_id, org_id, v, q, ts) VALUES ($1,$2,$3,$4,$5)"
-            " ON CONFLICT (tag_id) DO UPDATE SET v=excluded.v, q=excluded.q, ts=excluded.ts"
-            " WHERE tag_latest.ts < excluded.ts",
-            tag.id, tc.org_id, v, q, ts)
-        await st.alarms.evaluate(tc, tag.id, v, q, ts)
-    st.history_buf.append((tag.id, ts, edge.org_id, v, q, numeric_value(v)))
-    if len(st.history_buf) >= config.HISTORY_FLUSH_ROWS:
-        await _flush_history(st)
-    if res.endswith(" 1"):
-        # Org-scoped fan-out (v4 T9): only members of edge.org_id see this.
-        # `name` is the real site code + path (== v1_name for the shim site);
-        # org/site/tag ids ride along for the CONTRACT.v2 §5 wire.
-        st.ws.broadcast(
-            {"type": "tag", "name": st.registry.display_name(tag),
-             "v": v, "q": q, "ts": payload.ts,
-             "org_id": str(edge.org_id), "site_id": str(edge.site_id),
-             "tag_id": str(tag.id), "path": tag.path},
-            org_id=edge.org_id)
+    await record_sample(st, tag, edge.org_id, edge.site_id, payload.v, payload.q, ts, payload.ts)
 
 
 async def _handle_heartbeat(st: State, msg, edge) -> None:
@@ -474,22 +459,6 @@ def _handle_cmd_resp(st: State, msg, org_id: UUID, edge_id: UUID) -> None:
     asyncio.ensure_future(st.commands.handle_response(
         cid, status, payload.get("reason") or payload.get("detail"),
         org_id, edge_id))
-
-
-async def _flush_history(st: State) -> None:
-    if not st.history_buf:
-        return
-    rows, st.history_buf = st.history_buf, []
-    # rows carry their own org (routed by topic, doc 17 §4) — group so each
-    # tenant_tx only ever writes its own tenant's rows
-    by_org: dict[UUID, list] = {}
-    for r in rows:
-        by_org.setdefault(r[2], []).append(r)
-    for org_id, batch in by_org.items():
-        async with tenant_tx(st.pools.system, org_id) as tc:
-            await tc.executemany(
-                "INSERT INTO tag_history(tag_id, ts, org_id, v, q, vn) VALUES ($1,$2,$3,$4,$5,$6)"
-                " ON CONFLICT (tag_id, ts) DO NOTHING", batch)  # QoS1 replay dedup (I10)
 
 
 async def _every(seconds: float, fn, name: str) -> None:
@@ -553,6 +522,7 @@ async def lifespan(app: FastAPI):
     tasks = [
         asyncio.create_task(ingest_worker(st)),
         asyncio.create_task(st.reconciler.run_forever()),
+        asyncio.create_task(st.derived.run_forever()),
         asyncio.create_task(_every(config.HISTORY_FLUSH_S, lambda: _flush_history(st),
                                    "history flush")),
         # per-org plan retention replaces the single global window (6.2)
@@ -1740,6 +1710,7 @@ app.include_router(datasources_router)
 app.include_router(videos_router)
 app.include_router(plant_router)
 app.include_router(hierarchy_router)
+app.include_router(formulas_router)
 app.include_router(cameras_router)
 app.include_router(material_router)
 app.include_router(artifacts_router)

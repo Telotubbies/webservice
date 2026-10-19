@@ -557,3 +557,33 @@ export const hierarchyApi = {
   setGrants: (org: string, user: string, area_ids: string[]) =>
     request<unknown>(v2(org, `/members/${user}/area-grants`), json('PUT', { area_ids })),
 };
+
+// ── Derived (calculated) tags (spec 2026-10-19 §7) ───────────────────────────
+
+export interface FormulaError { code: string; pos: number; name?: string; path?: string; token?: string; want?: string }
+export interface FormulaPreview {
+  ok: true; type: 'bool' | 'number'; value: number | boolean | null; quality: string | null;
+  inputs: { var: string; tag_id: string; path: string; value: unknown; q: string | null }[];
+  windows: number; max_window_s: number;
+}
+export interface DerivedTag {
+  id: string; path: string; name: string; unit: string | null; type: 'bool' | 'number';
+  expr: string; version: number; inputs: Record<string, string>; input_paths: Record<string, string>;
+  device_id: string | null; updated_at: string;
+}
+export interface DerivedBody { expr: string; inputs: Record<string, string> }
+
+const dSite = (org: string, site: string, path: string) => v2(org, `/sites/${site}${path}`);
+
+export const derivedApi = {
+  list: (org: string, site: string) => request<{ items: DerivedTag[] }>(dSite(org, site, '/derived-tags')),
+  /** Always 200: `ok: true` with a preview, or `ok: false` with the error to show. */
+  validate: (org: string, site: string, b: DerivedBody) =>
+    request<FormulaPreview | { ok: false; error: FormulaError }>(dSite(org, site, '/formulas/validate'), { method: 'POST', body: JSON.stringify(b) }),
+  create: (org: string, site: string, b: DerivedBody & { path: string; name?: string; unit?: string }) =>
+    request<DerivedTag>(dSite(org, site, '/derived-tags'), { method: 'POST', body: JSON.stringify(b) }),
+  update: (org: string, site: string, id: string, b: Partial<DerivedBody> & { name?: string; unit?: string }) =>
+    request<DerivedTag>(dSite(org, site, `/derived-tags/${id}`), { method: 'PATCH', body: JSON.stringify(b) }),
+  remove: (org: string, site: string, id: string) =>
+    request<void>(dSite(org, site, `/derived-tags/${id}`), { method: 'DELETE' }),
+};

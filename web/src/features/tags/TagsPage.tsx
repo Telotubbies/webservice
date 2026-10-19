@@ -19,10 +19,18 @@ import { useEquipment } from '../../lib/equipment';
 import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 import { canAdmin, useAdminOrg, useAdminSite } from '../admin/admin';
 import { MoveTags } from '../assets/MoveTags';
+import { FormulaDialog } from '../derived/FormulaDialog';
+import { Confirm } from '../../shared/ui/Confirm';
+import { derivedApi, type DerivedTag } from '../../lib/api';
+import { liveName } from '../../lib/plantModel';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import '../derived/i18n';
 
 /** Detail flyout for the selected tag — name with copy button, current
  *  value + unit, quality/age/access, and the sparkline. */
-function TagFlyout({ tag, onClose }: { tag: string; onClose: () => void }) {
+function TagFlyout({ tag, onClose, derived, canEdit, onEdit, onDelete }: {
+  tag: string; onClose: () => void; derived?: DerivedTag; canEdit?: boolean; onEdit?: () => void; onDelete?: () => void;
+}) {
   const { t, i18n } = useTranslation();
   const now = useNow();
   useStore(() => live.version);
@@ -60,6 +68,23 @@ function TagFlyout({ tag, onClose }: { tag: string; onClose: () => void }) {
           <dt className="text-ink-46">{t('tags.colUpdated')}</dt><dd className="font-mono">{tv ? fmtAge(tv.ts, now) : '—'}</dd>
           <dt className="text-ink-46">{t('tags.colAccess')}</dt><dd>{ti?.writable ? t('tags.writable') : t('tags.readonly')}</dd>
         </dl>
+        {derived && (
+          <div className="space-y-2 rounded-dd border border-line p-3">
+            <p className="text-[11px] font-semibold uppercase text-ink-46">{t('calc.formulaOf')}</p>
+            <code className="block break-words font-mono text-[12px]">{derived.expr}</code>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
+              {Object.entries(derived.input_paths).map(([k, path]) => (
+                <div key={k} className="contents"><dt className="font-mono text-ink-46">{k}</dt><dd className="truncate font-mono">{path}</dd></div>
+              ))}
+            </dl>
+            {canEdit && (
+              <div className="flex gap-2">
+                <button type="button" className="btn btn-sm btn-ghost" onClick={onEdit}>{t('calc.edit')}</button>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={onDelete}>{t('calc.delete')}</button>
+              </div>
+            )}
+          </div>
+        )}
         <div>
           <p className="mb-1 text-[11px] font-semibold uppercase text-ink-46">{t('faceplate.trend')}</p>
           <div className="rounded-dd border border-line p-2"><Sparkline tag={tag} /></div>
@@ -86,6 +111,12 @@ export function TagsPage() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [moving, setMoving] = useState(false);
   const [movedMsg, setMovedMsg] = useState<number | null>(null);
+  const qc = useQueryClient();
+  const derivedQ = useQuery({ queryKey: ['derived', orgId, site?.id], enabled: !!orgId && !!site, queryFn: () => derivedApi.list(orgId!, site!.id) });
+  const derivedBy = useMemo(() => new Map((derivedQ.data?.items ?? []).map((d) => [liveName(d.path), d])), [derivedQ.data]);
+  const [formula, setFormula] = useState<{ existing?: DerivedTag } | null>(null);
+  const [delAsk, setDelAsk] = useState<DerivedTag | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const togglePick = (n: string) => setPicked((s) => { const x = new Set(s); if (x.has(n)) x.delete(n); else x.add(n); return x; });
 
   // Esc closes the flyout — page-level, since the drawer has no focus trap.
@@ -135,7 +166,8 @@ export function TagsPage() {
 
   return (
     <>
-      <PageBar title={t('nav.tags')} lede={t('tags.showing', { shown: tags.length, total: live.tags.length })} actions={<EquipmentPicker />} />
+      <PageBar title={t('nav.tags')} lede={t('tags.showing', { shown: tags.length, total: live.tags.length })} actions={<><EquipmentPicker />{canMove && <button type="button" className="btn btn-sm" onClick={() => setFormula({})}>{t('calc.new')}</button>}</>} />
+      {notice && <div className="border-b border-line bg-info-soft px-4 py-1.5 text-[12px]" role="status">{notice}</div>}
       {canMove && (picked.size > 0 || movedMsg != null) && (
         <div className="flex items-center gap-3 border-b border-line bg-info-soft px-4 py-1.5 text-[12px]" role="status">
           {picked.size > 0 ? (
@@ -236,6 +268,7 @@ export function TagsPage() {
                       <span className="font-mono text-[12px]">{ti.name}</span>
                       {SIGNALS[ti.name] && <span className="ml-2 text-[11px] text-ink-46">{t(SIGNALS[ti.name].labelKey)}</span>}
                       {ti.writable && <span className="ml-2 rounded border border-line px-1 text-[9px] font-semibold uppercase text-ink-46" title={t('tags.writable')}>W</span>}
+                      {derivedBy.has(ti.name) && <span className="ml-2 rounded border border-line px-1 text-[10px] font-semibold text-blue" title={t('calc.badgeTip')}>{t('calc.badge')}</span>}
                     </td>
                     <td className="font-mono text-[13px] font-semibold">
                       {tv ? formatSignal(ti.name, tv.v, i18n.language) : '—'}
@@ -255,7 +288,19 @@ export function TagsPage() {
       </div>
 
       {/* right flyout — 400px drawer pinned under the topbar */}
-      {selTag && <TagFlyout tag={selTag} onClose={() => setSelTag(null)} />}
+      {selTag && (
+        <TagFlyout tag={selTag} onClose={() => setSelTag(null)} canEdit={canMove}
+          derived={derivedBy.get(selTag)}
+          onEdit={() => setFormula({ existing: derivedBy.get(selTag) })} onDelete={() => setDelAsk(derivedBy.get(selTag) ?? null)} />
+      )}
+      {formula && orgId && site && (
+        <FormulaDialog orgId={orgId} siteId={site.id} existing={formula.existing} onClose={() => setFormula(null)}
+          onDone={(m) => { setFormula(null); setNotice(m); void qc.invalidateQueries({ queryKey: ['derived', orgId, site.id] }); }} />
+      )}
+      {delAsk && orgId && site && (
+        <Confirm title={t('calc.confirmDelete')} body={t('calc.confirmDeleteBody')} confirm={t('calc.delete')} onNo={() => setDelAsk(null)}
+          onYes={() => { const d = delAsk; setDelAsk(null); setSelTag(null); void derivedApi.remove(orgId, site.id, d.id).then(() => qc.invalidateQueries({ queryKey: ['derived', orgId, site.id] })); }} />
+      )}
       {moving && orgId && site && (
         <MoveTags orgId={orgId} siteId={site.id} names={[...picked]} onClose={() => setMoving(false)}
           onDone={(n) => { setMoving(false); setPicked(new Set()); setMovedMsg(n); }} />

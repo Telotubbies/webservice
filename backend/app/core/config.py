@@ -219,6 +219,7 @@ HISTORY_FLUSH_ROWS = 500
 HISTORY_PRUNE_S = float(os.environ.get("HISTORY_PRUNE_S", "300"))      # G3 retention job
 HISTORY_PRUNE_BATCH = int(os.environ.get("HISTORY_PRUNE_BATCH", "10000"))
 ROLLUP_REFRESH_S = float(os.environ.get("ROLLUP_REFRESH_S", "60"))  # 1m/1h rollup refresh
+DERIVED_STALE_S = float(os.environ.get("DERIVED_STALE_S", "120"))   # input older than this -> derived tag uncertain
 HEALTH_WATCHDOG_S = 2.0
 STALE_RULE_CHECK_S = 5.0
 

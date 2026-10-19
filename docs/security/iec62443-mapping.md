@@ -58,7 +58,7 @@ Status: **Met** · **Partial** · **Gap**
 | 3.1 | Communication integrity | Met | TLS on HTTPS and MQTT 8883 (`infra/mosquitto.conf`) |
 | 3.2 | Malicious code protection | Partial | Pickle scan for uploaded `.pt` models (`vision/ptscan.py`), GLB validation (`plant/glb.py`) |
 | 3.3 | Security functionality verification | Met | `tests/security/` (auth bypass, BOLA, function-level), `tests/tenancy/` |
-| 3.5 | Input validation | Met | Pydantic models on every route; tag path grammar CHECK; telemetry validation `TelemetryMsg` |
+| 3.5 | Input validation | Met | Pydantic models on every route; tag path grammar CHECK; telemetry validation `TelemetryMsg`. P3: formulas are parsed by a hand-written parser with fixed limits and no `eval` (`production/formula.py`, AST-checked in `tests/contract/test_formula.py`); a non-finite result becomes quality `bad` |
 | 3.6 | Deterministic output | Partial | Edge holds last value on loss; command TTL 1–60 s; sequences go to Held on restart (P6) |
 
 ### FR4 — Data confidentiality

@@ -33,12 +33,15 @@ Spike ผลลัพธ์: hypertable ใช้กับ RLS ได้ แต�
 - ตัดออก: "บีบอัดแล้ว N เท่า" ใน Admin › Storage (ไม่มี compression); bool ใน agg แสดงเป็นสัดส่วน 0/1 แทน null
 - ยังไม่ทำ: widget บน Dashboard ยังจำกัด 8 ชม. (`RETENTION_MS`); ตรวจหน้า Trends 1y ด้วยภาพจริงไม่สำเร็จ (org switcher ใน dev เต็มไปด้วย org ทดสอบ) ตรวจผ่าน API + unit test แทน
 
-## P3 — Derived tags
-1. Migration 0053: `tags.source`, `tag_formulas`
-2. `production/formula.py` (lexer + Pratt parser + evaluator, ไม่มี eval) + unit tests เยอะ
-3. แยก ingest ออกจาก `main.py` → `production/ingest.py`; `production/derived.py` engine (index, window buffer, throttle, advisory lock)
-4. API validate + CRUD (admin, audit `formula.changed`)
-5. Web: formula editor แบบ Datadog (ตัวแปร a,b + preview + template), badge ƒ ในหน้า Tags
+## P3 — Derived tags ✅ เสร็จ
+1. [x] Migration 0053: `tags.source` (+ CHECK: derived = ไม่มี edge, ไม่ writable), `tag_formulas` + RLS
+2. [x] `production/formula.py`: lexer + Pratt parser + evaluator ไม่มี eval, จำกัด 500 ตัวอักษร / 200 node / ซ้อน 100 ชั้น, หน้าต่าง 1s–24h (120 unit tests รวม fuzz-style "ไม่มีทางหลุดไปทำอย่างอื่น" และเช็ค AST ว่าไม่เรียก eval/exec/import)
+3. [x] แยก ingest core ออกจาก `main.py` → `production/ingest.py` (`record_sample`, `flush_history`); `production/derived.py` engine: index input→derived, tick 1 วิ (= throttle), quality รวมแบบแย่สุด + input ที่เงียบเกิน 120 วิ → uncertain, leader ด้วย advisory lock, chaining derived→derived
+4. [x] API `formulas/validate` (200 พร้อม preview ค่าจริงจาก tag_latest หรือ `ok:false`+ตำแหน่งผิด), CRUD `derived-tags` (admin/owner, audit `formula.changed` เก็บ expr เก่า/ใหม่), ตรวจ cycle / ลึกเกิน 5 ชั้น / input ต่าง site, ลบ tag ที่ derived อื่นอ่านอยู่ไม่ได้ (409)
+5. [x] Web: dialog สร้าง/แก้ (เลือก tag ด้วย search, ค่าสดของตัวแปร, preview debounce 300 ms, ขีดชี้ตำแหน่งผิด + ข้อความ TH/EN, 5 template), badge ƒ ในหน้า Tags, flyout โชว์สูตรและตัวแปร
+- ต่างจาก spec: `avg(a - b, 5m)` ใช้ได้ (window ครอบ expression ได้ ไม่ใช่เฉพาะตัวแปรตรงๆ — ตรงกับตัวอย่างใน UI ของ spec เอง); validate ตอบ 200 `ok:false` แทน 422 (ไม่ให้เป็น request ล้มเหลวทุกครั้งที่พิมพ์ยังไม่จบ)
+- ยังไม่ทำ: warm-up window จาก rollup/raw ตอนเริ่ม (window เริ่มว่างหลัง restart); autocomplete ฟังก์ชัน; กราฟ dependency (มีแค่รายการตัวแปร); LISTEN `tags_changed` (ใช้ reload ทุก 30 วิ + reload ทันทีหลัง API เปลี่ยน)
+- Tests: contract `test_formula.py` (120), `test_derived_engine.py` (14); integration `test_derived_tags.py` (5, ยิง backend จริง); ตรวจ e2e ด้วยมือ: สร้าง derived→chain→cycle ถูกปฏิเสธ→history ถูกเขียน
 
 ## P4 — PWA + Web Push
 1. `vite-plugin-pwa`: manifest TH/EN, SW cache app shell เท่านั้น, ล้าง cache ตอน logout
