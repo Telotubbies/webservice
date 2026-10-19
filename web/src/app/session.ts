@@ -1,9 +1,9 @@
-// Session + control gating. This is UX only: the backend enforces every rule
+// Session + control gating. This is UX only — the backend enforces every rule
 // (CONTRACT.v2, doc 16). The gate exists to tell the operator *why* controls
 // are unavailable instead of silently hiding them (ADR-14).
 //
-// v4 T5: the session role comes from GET /api/me (memberships table), not
-// from parsing the token locally — the same answer for dev tokens and OIDC.
+// The session role comes from GET /api/me (the memberships table), not from
+// parsing the token locally, so dev tokens and OIDC get the same answer.
 
 import {
   api, getToken, setSessionToken, type SessionRole,
@@ -14,17 +14,26 @@ import { useStore, useViewport } from '../lib/hooks';
 import { oidcEnabled, signOutSSO } from '../features/auth/oidc';
 import { getScope, setScope, subscribeScope } from '../lib/scope';
 import { initScope } from '../lib/org';
+import { disablePush } from '../lib/push';
+import { wipeLocalCaches } from '../lib/pwa';
+import { useMobileControl } from '../lib/policy';
+
+// ── Module state ─────────────────────────────────────────────────────────────
 
 let sessionRole: SessionRole = 'none';
 let meResolved = false;
 let noOrg = false;
 
-// Switching org: drop the old org's data and reopen the socket on the new site.
+// ── Org switching ────────────────────────────────────────────────────────────
+
+// Switching org drops the old org's data and reopens the socket on the new site.
 subscribeScope(() => {
   live.resetData();
   live.bumpAuth();
   reconnectWS();
 });
+
+// ── Session state API ────────────────────────────────────────────────────────
 
 export function getSessionRole(): SessionRole {
   return sessionRole;
@@ -53,14 +62,14 @@ export function useRole(): SessionRole {
   return sessionRole;
 }
 
-/** Authenticated but no org membership — the wall shows the denied copy. */
+/** Authenticated but no org membership — the app shows the denied wall. */
 export function useDenied(): boolean {
   useStore(() => live.authRev);
   return meResolved && getToken() !== '' && sessionRole === 'none' && !noOrg;
 }
 
-/** Signed in, verified identity, but not a member of any org yet: the app
- *  shows "Create organization" instead of the denied wall. */
+/** Signed in with a verified identity but not a member of any org yet — the
+ *  app shows "Create organization" instead of the denied wall. */
 export function useNoOrg(): boolean {
   useStore(() => live.authRev);
   return meResolved && getToken() !== '' && noOrg;
@@ -68,16 +77,20 @@ export function useNoOrg(): boolean {
 
 export { getScope };
 
+// ── Role predicates ──────────────────────────────────────────────────────────
+
 export function canOperate(role: string): boolean {
   return role === 'operator' || role === 'admin' || role === 'owner';
 }
 
-/** admin|owner — config:write / member:manage / audit:read (CONTRACT.v2 §1). */
+/** admin|owner only — config:write / member:manage / audit:read (CONTRACT.v2 §1). */
 export function canAdmin(role: string): boolean {
   return role === 'admin' || role === 'owner';
 }
 
-/** APP_ENV=dev sign-in path — a demo bearer token. */
+// ── Sign in / sign out ───────────────────────────────────────────────────────
+
+/** Dev sign-in path (APP_ENV=dev) — a demo bearer token. */
 export function signIn(token: string): void {
   meResolved = false;
   setSessionToken(token.trim());
@@ -86,11 +99,27 @@ export function signIn(token: string): void {
   reconnectWS();
 }
 
+/** Leave nothing behind on the device: this browser's push subscription (so
+ *  the next person on a shared phone does not get this user's alarms) and the
+ *  worker's caches. Capped at 2 s so a dead network never blocks signing out. */
+async function teardownDevice(): Promise<void> {
+  const org = getScope()?.orgId;
+  const work = (async () => {
+    if (org) await disablePush(org).catch(() => undefined);
+    await wipeLocalCaches();
+  })();
+  await Promise.race([work, new Promise((r) => setTimeout(r, 2000))]);
+}
+
 export function signOut(): void {
+  void teardownDevice().finally(finishSignOut);
+}
+
+function finishSignOut(): void {
   meResolved = false;
   if (oidcEnabled()) {
-    // full SSO logout — the IdP calls the backend's backchannel logout,
-    // which revokes the session everywhere (≤5s)
+    // Full SSO logout: the IdP calls the backend's backchannel logout, which
+    // revokes the session everywhere (≤5 s).
     void signOutSSO();
     return;
   }
@@ -104,6 +133,8 @@ export function signOut(): void {
 export function hasToken(): boolean {
   return getToken() !== '';
 }
+
+// ── Control gating ───────────────────────────────────────────────────────────
 
 export type GateReason = 'guest' | 'role' | 'viewport' | 'edge' | 'clock';
 
@@ -129,9 +160,10 @@ export function useControlGate(): ControlGate {
   const vp = useViewport();
   const health = useStore(() => live.health);
   const sys = useStore(() => live.sysHealth);
+  const mobileControl = useMobileControl();
   if (!hasToken()) return { allowed: false, reason: 'guest' };
   if (!canOperate(role)) return { allowed: false, reason: 'role' };
-  if (vp === 'xs' || vp === 'tiny') return { allowed: false, reason: 'viewport' };
+  if ((vp === 'xs' || vp === 'tiny') && !mobileControl) return { allowed: false, reason: 'viewport' };
   if (health && health.edge !== 'up') return { allowed: false, reason: 'edge' };
   if (sys?.edge?.clock_ok === false) return { allowed: false, reason: 'clock' };
   return { allowed: true };

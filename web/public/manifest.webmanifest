@@ -1,0 +1,22 @@
+{
+  "name": "vissointan — Line console",
+  "short_name": "vissointan",
+  "description": "Plant monitoring and alarms · ระบบเฝ้าระวังโรงงานและสัญญาณเตือน",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "lang": "en",
+  "background_color": "#14141c",
+  "theme_color": "#14141c",
+  "icons": [
+    { "src": "/logo-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/logo-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Alarms · สัญญาณเตือน", "url": "/alarms", "icons": [{ "src": "/logo-192.png", "sizes": "192x192" }] },
+    { "name": "Trends · แนวโน้ม", "url": "/trends", "icons": [{ "src": "/logo-192.png", "sizes": "192x192" }] }
+  ]
+}

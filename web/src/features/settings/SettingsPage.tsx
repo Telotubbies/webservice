@@ -1,5 +1,5 @@
-// Account settings — dd account-preferences pattern: profile card with
-// identity fields, org membership list, per-browser preference toggles.
+// Account settings — profile card with identity fields, the org membership
+// list, and per-browser preference toggles.
 
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -13,6 +13,7 @@ import { setLang } from '../../lib/i18n';
 import { signOut } from '../../app/session';
 import { RoleBadge } from '../admin/access';
 import { roleDesc } from '../admin/access-util';
+import { MobileSettings } from '../mobile/MobileSettings';
 import '../platform/i18n'; // registers the `plat` bundle for the links below
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -77,6 +78,8 @@ export function SettingsPage() {
                 ))}
               </Table>
             </Card>
+
+            <MobileSettings />
 
             <Card title={t('settings.prefs')}>
               <Row label={t('shell.language')}>

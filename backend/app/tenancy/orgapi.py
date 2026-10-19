@@ -227,7 +227,8 @@ def _export_json(r) -> dict:
 
 
 class SecurityPatch(BaseModel):
-    mfa_required: bool
+    mfa_required: bool | None = None
+    mobile_control: bool | None = None
 
 
 @router.get(_O + "/security")
@@ -235,9 +236,10 @@ async def get_security(org: str, request: Request, p=Depends(_user)):
     m = _m()
     org_id = m._v2_org(org, p)
     async with tenant_tx(m.st(request).pools.app, org_id) as tc:
-        req = await tc.fetchval(
-            "SELECT mfa_required FROM organizations WHERE id=$1", org_id)
-    return {"mfa_required": bool(req), "you_have_mfa": p.acr == "mfa"}
+        row = await tc.fetchrow(
+            "SELECT mfa_required, mobile_control FROM organizations WHERE id=$1", org_id)
+    return {"mfa_required": bool(row["mfa_required"]), "you_have_mfa": p.acr == "mfa",
+            "mobile_control": bool(row["mobile_control"])}
 
 
 @router.patch(_O + "/security")
@@ -253,13 +255,23 @@ async def patch_security(org: str, body: SecurityPatch, request: Request,
     m.step_up(p)
     if body.mfa_required and p.kind == "oidc" and p.acr != "mfa":
         raise HTTPException(401, "step_up_required")
+    if body.mfa_required is None and body.mobile_control is None:
+        raise HTTPException(422, "nothing_to_change")
     await m._mutation_gate(request, p.user_id)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
-        await tc.execute("UPDATE organizations SET mfa_required=$2 WHERE id=$1",
-                         org_id, body.mfa_required)
-        await audit.append(tc, f"user:{p.user_id}", "mfa.policy_changed",
-                           {"org_id": str(org_id)}, {"mfa_required": body.mfa_required})
-    return {"mfa_required": body.mfa_required}
+        if body.mfa_required is not None:
+            await tc.execute("UPDATE organizations SET mfa_required=$2 WHERE id=$1",
+                             org_id, body.mfa_required)
+            await audit.append(tc, f"user:{p.user_id}", "mfa.policy_changed",
+                               {"org_id": str(org_id)}, {"mfa_required": body.mfa_required})
+        if body.mobile_control is not None:
+            await tc.execute("UPDATE organizations SET mobile_control=$2 WHERE id=$1",
+                             org_id, body.mobile_control)
+            await audit.append(tc, f"user:{p.user_id}", "mobile_control.changed",
+                               {"org_id": str(org_id)}, {"mobile_control": body.mobile_control})
+        row = await tc.fetchrow(
+            "SELECT mfa_required, mobile_control FROM organizations WHERE id=$1", org_id)
+    return {"mfa_required": bool(row["mfa_required"]), "mobile_control": bool(row["mobile_control"])}
 
 
 @router.post(_O + "/export", status_code=202)

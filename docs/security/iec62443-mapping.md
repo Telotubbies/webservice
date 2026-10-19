@@ -55,7 +55,7 @@ Status: **Met** · **Partial** · **Gap**
 
 | SR | Requirement | Status | Evidence |
 |---|---|---|---|
-| 3.1 | Communication integrity | Met | TLS on HTTPS and MQTT 8883 (`infra/mosquitto.conf`) |
+| 3.1 | Communication integrity | Met | TLS on HTTPS and MQTT 8883 (`infra/mosquitto.conf`). P4: push payloads are end-to-end encrypted (RFC 8291) and carry no process data |
 | 3.2 | Malicious code protection | Partial | Pickle scan for uploaded `.pt` models (`vision/ptscan.py`), GLB validation (`plant/glb.py`) |
 | 3.3 | Security functionality verification | Met | `tests/security/` (auth bypass, BOLA, function-level), `tests/tenancy/` |
 | 3.5 | Input validation | Met | Pydantic models on every route; tag path grammar CHECK; telemetry validation `TelemetryMsg`. P3: formulas are parsed by a hand-written parser with fixed limits and no `eval` (`production/formula.py`, AST-checked in `tests/contract/test_formula.py`); a non-finite result becomes quality `bad` |

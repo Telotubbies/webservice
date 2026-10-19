@@ -1,5 +1,6 @@
-// Palette — dd-style command/search modal. Ctrl/Cmd+K or the topbar search
-// pill opens it; nav items + live tag jump targets, grouped, keyboard-driven.
+// Palette — the command/search modal. Ctrl/Cmd+K or the topbar search pill
+// opens it. It lists nav items and live tag jump targets, grouped and
+// keyboard-driven.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +13,7 @@ import { useOperateAnyOrg } from '../features/admin/admin';
 
 interface Entry { label: string; to: string; icon: DdIconName; group: string }
 
-const MAX = 40; // rendered results cap
+const MAX = 40; // Cap on rendered results.
 
 export function Palette() {
   const { t } = useTranslation();
@@ -23,6 +24,7 @@ export function Palette() {
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Global Ctrl/Cmd+K toggles the modal; Esc closes it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -35,6 +37,7 @@ export function Palette() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Reset the query and highlight each time the modal opens.
   useEffect(() => { if (open) { setQ(''); setIdx(0); inputRef.current?.focus(); } }, [open]);
 
   const entries = useMemo<Entry[]>(() => {
@@ -50,7 +53,7 @@ export function Palette() {
 
   const go = (e: Entry) => { setOpen(false); navigate(e.to); };
 
-  // keep the highlighted row visible while arrowing through a long list
+  // Keep the highlighted row visible while arrowing through a long list.
   useEffect(() => {
     if (open) document.getElementById(`palette-opt-${idx}`)?.scrollIntoView({ block: 'nearest' });
   }, [idx, open]);
@@ -66,8 +69,8 @@ export function Palette() {
       >
         <div className="flex h-11 items-center gap-2 border-b border-line px-3">
           <DdIcon name="search" size={15} className="text-ink-46" />
-          {/* combobox + listbox: screen readers hear the highlighted result
-              while focus stays in the input */}
+          {/* combobox + listbox roles let screen readers announce the
+              highlighted result while focus stays in the input. */}
           <input
             ref={inputRef}
             className="palette-input min-w-0 flex-1 text-[14px] outline-none placeholder:text-ink-35"

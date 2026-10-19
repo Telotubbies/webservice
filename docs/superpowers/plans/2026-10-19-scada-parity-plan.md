@@ -43,10 +43,14 @@ Spike ผลลัพธ์: hypertable ใช้กับ RLS ได้ แต�
 - ยังไม่ทำ: warm-up window จาก rollup/raw ตอนเริ่ม (window เริ่มว่างหลัง restart); autocomplete ฟังก์ชัน; กราฟ dependency (มีแค่รายการตัวแปร); LISTEN `tags_changed` (ใช้ reload ทุก 30 วิ + reload ทันทีหลัง API เปลี่ยน)
 - Tests: contract `test_formula.py` (120), `test_derived_engine.py` (14); integration `test_derived_tags.py` (5, ยิง backend จริง); ตรวจ e2e ด้วยมือ: สร้าง derived→chain→cycle ถูกปฏิเสธ→history ถูกเขียน
 
-## P4 — PWA + Web Push
-1. `vite-plugin-pwa`: manifest TH/EN, SW cache app shell เท่านั้น, ล้าง cache ตอน logout
-2. Migration 0054: `push_subscriptions`; channel `webpush` ใน `alarming/notify.py` (VAPID, payload ไม่มีค่า process)
-3. Web: bottom nav มือถือ, alarm การ์ด + ack, install prompt, คำแนะนำ iOS
+## P4 — PWA + Web Push ✅ เสร็จ (ต่างจากแผนบางจุด)
+1. [x] PWA: `manifest.webmanifest` (192/512/maskable), `sw.js` เขียนเอง **ไม่ใช้ vite-plugin-pwa** (ควบคุมได้ชัดว่าแคชแค่ `/assets/` + หน้า offline, ไม่แตะ `/api` `/ws` ตรวจจริงว่า Cache Storage มีแต่ไฟล์ shell), nginx ให้ `sw.js`/manifest เป็น no-cache, logout → `disablePush` + `caches.delete` (จำกัด 2 วิ)
+2. [x] Migration 0054: `push_subscriptions` (RLS), channel type `webpush`, `organizations.mobile_control`
+3. [x] Web Push เขียนเองบน `cryptography` (RFC 8291 + VAPID RFC 8292) **ไม่ใช้ pywebpush**: ทดสอบกับตัวอย่างใน RFC (ecdh/IKM/CEK/nonce/ciphertext ตรงทุกค่า); VAPID key derive จาก `DATA_SOURCE_KEY` (ไม่มี secret ใหม่); endpoint ต้องเป็น https ของ push service ที่รู้จักเท่านั้น (กัน SSRF) + egress guard; payload มีแค่ "alarm ใหม่ระดับ X ที่ <area>" + ลิงก์ ไม่มีค่า/ชื่อ tag, แปลตามภาษาของผู้รับ, ส่งเฉพาะ raised/escalation, 404/410 ลบ subscription
+4. [x] API: `GET /push/vapid-key`, subscribe/list/unsubscribe/test ของตัวเอง (สูงสุด 5 เครื่อง/คน, สร้าง channel "Mobile push" อัตโนมัติ), `/security` เพิ่ม `mobile_control` (admin, audit)
+5. [x] Web: bottom nav 4 ปุ่ม (<768px, สูง 56px, badge alarm), offline banner, install hint (ครั้งที่ 3, iOS มีคำแนะนำ), การ์ด Settings › Mobile notifications (เปิด/ปิด/ทดสอบ/ขั้นตอน iOS), ปุ่ม Ack สูง ≥44px + ปัดซ้ายเพื่อ ack บนการ์ด alarm, ปุ่มสั่งงานบนจอแคบซ่อนตามเดิม เปิดได้ด้วย `mobile_control`
+- ยังไม่ทำ: ส่ง push จริงถึง Google/Apple (ทดสอบเข้ารหัสด้วย RFC vector และ mock การส่ง; ยังไม่ได้ลองกับอุปกรณ์จริง), รูปประกอบคำแนะนำ iOS (มีข้อความทีละขั้น), widget Dashboard 3D → การ์ด "เปิดบนคอมพิวเตอร์", ปุ่ม ack ใน notification (ต้องผ่านหน้า login)
+- Tests: contract `test_webpush.py` (29), integration `test_push_subscriptions.py` (7)
 
 ## P5 — BACnet + Sparkplug B (edge-bridge)
 1. Migration 0055: `data_sources.protocol` + `'bacnet','sparkplug'`; address validators

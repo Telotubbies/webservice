@@ -7,8 +7,9 @@ Request : {"org_id", "ts", "tags": [{"name", "v", "q", "ts"}]}
 Response: {"model": str, "results": [{"tag"?: str, "label": str, "score": 0..1,
            "severity"?: "info"|"warning"|"critical", "detail"?: str}]}
 
-shortcut: in-memory cache, single replica; stdlib urllib in a worker thread
-(no new dependency). Move to a shared cache when the backend scales out.
+Implementation notes: the cache is in-memory and per-process (single
+replica); HTTP uses stdlib urllib in a worker thread, so no new dependency.
+Move to a shared cache when the backend scales out.
 """
 
 from __future__ import annotations

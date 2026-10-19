@@ -189,7 +189,7 @@ class InsightEngine:
                 self.counters["insight_eval_errors"] += 1
                 log.exception("insight evaluation failed")
 
-    # ---------------------------------------------------------- evaluation
+    # ── Evaluation ──
     async def evaluate_once(self) -> None:
         """One evaluation pass over every numeric tag of every org (v4 T9 —
         multi-tenant). Exposed so tests can force a pass without waiting
@@ -352,7 +352,7 @@ class InsightEngine:
     def _sigma_floor(st: TagStats) -> float:
         return max(0.02 * abs(st.mu), _SIGMA_ABS_FLOOR, 1e-9)
 
-    # ---------------------------------------------------------- detectors
+    # ── Detectors ──
     async def _eval_anomaly(self, tc: TenantConn, tag, st: TagStats,
                             opens: dict, now: datetime,
                             events: list[dict]) -> None:
@@ -395,7 +395,7 @@ class InsightEngine:
     async def _eval_windowed(self, tc: TenantConn, tag, st: TagStats,
                              opens: dict, now: datetime, deadband_min: float,
                              all_tags, events: list[dict]) -> None:
-        # ---- drift: OLS on the 30-min good-sample window
+        # Drift: OLS on the 30-min good-sample window.
         cutoff = now - timedelta(seconds=_DRIFT_WIN_S)
         while st.win and st.win[0][0] < cutoff:
             st.win.popleft()
@@ -419,7 +419,7 @@ class InsightEngine:
             await self._close(tc, row["id"], tag,
                               st.win[-1][0] if st.win else now, events)
 
-        # ---- flatline: zero variance for INSIGHT_FLAT_S while a peer moved
+        # Flatline: zero variance for INSIGHT_FLAT_S while a peer moved.
         peer_moved = any(
             o.id != tag.id
             and (s := self._tags.get(o.id)) is not None
@@ -442,7 +442,7 @@ class InsightEngine:
         elif row is not None:
             await self._close(tc, row["id"], tag, st.last_good_ts or now, events)
 
-        # ---- flapping: good<->non-good quality transitions in INSIGHT_FLAP_S
+        # Flapping: good<->non-good quality transitions in INSIGHT_FLAP_S.
         cutoff = now - timedelta(seconds=config.INSIGHT_FLAP_S)
         while st.transitions and st.transitions[0] < cutoff:
             st.transitions.popleft()
@@ -473,7 +473,7 @@ class InsightEngine:
         return (st.last_ts is not None
                 and (utcnow() - st.last_ts).total_seconds() <= config.ALARM_FRESH_S)
 
-    # ------------------------------------------------------------- writes
+    # ── Writes ──
     async def _open(self, tc: TenantConn, tag, kind: str, severity: str,
                     score: float, ts_start: datetime, ts_end: datetime,
                     detail: dict, events: list[dict]) -> None:
@@ -523,7 +523,7 @@ class InsightEngine:
         self.counters["insights_closed"] += 1
         events.append(await self._serialize(tc, insight_id))
 
-    # -------------------------------------------------------------- queries
+    # ── Queries ──
     async def list_insights(self, tc: TenantConn, state: str | None,
                             kind: str | None, tag_id: UUID | None,
                             t_from: datetime | None, t_to: datetime | None,

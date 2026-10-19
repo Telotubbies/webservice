@@ -231,7 +231,7 @@ def test_test_send_failure_is_generic_502(monkeypatch):
 
 
 def test_test_send_success_records_delivery(monkeypatch):
-    async def ok(ch, subject, text):
+    async def ok(ch, subject, text, **kw):   # send_channel also takes tc/alarm_id/kind (webpush)
         return "hooks.example.com"
     monkeypatch.setattr(notify, "send_channel", ok)
     conn = FakeConn()

@@ -1,6 +1,6 @@
-// Shell — Datadog-pattern chrome: expanded dark sidebar (icon + label rows),
-// dark flyout per group, 44px topbar (search / live / bell / user), alarm
-// banner under the bar. Nav model shared with the palette via ./nav.
+// Shell — the app chrome: an expanded dark sidebar (icon + label rows), a
+// flyout per group, a 36px topbar (search / live / bell / user), and an alarm
+// banner under the bar. The nav model is shared with the palette via ./nav.
 
 import { OrgSwitcher } from '../features/orgs/OrgSwitcher';
 import { ConsentBanner } from '../features/onboarding/ConsentBanner';
@@ -9,6 +9,8 @@ import { getScope } from '../lib/scope';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
+import { InstallHint, MobileNav, OfflineBanner } from '../features/mobile/MobileChrome';
+import { loadOrgPolicy } from '../lib/policy';
 import { NAV, type NavGroup, type NavItem, type NavSection } from './nav';
 import { Palette } from './Palette';
 import { signOut, useRole } from './session';
@@ -17,11 +19,25 @@ import { useNow, useStore } from '../lib/hooks';
 import { setLang } from '../lib/i18n';
 import { Icon } from '../shared/ui/Icon';
 import { DdIcon } from '../shared/ui/DdIcon';
-import { useOperateAnyOrg } from '../features/admin/admin';
+import { useAdminOrg, useOperateAnyOrg } from '../features/admin/admin';
 import { journalIcon, journalTone, markJournalRead, isUnread } from '../features/notify/journal';
 import { useAlarms } from '../features/alarms/alarms';
 
-/** `?` overlay — dd keyboard-shortcuts pattern */
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Closes a popover on Escape (each popover owns its own layer). */
+function useEscape(open: boolean, close: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [open, close]);
+}
+
+// ── Overlays ─────────────────────────────────────────────────────────────────
+
+/** `?` overlay — the keyboard-shortcuts help panel. */
 function ShortcutOverlay({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const rows: [string, string][] = [
@@ -48,6 +64,8 @@ function ShortcutOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── Topbar pieces ────────────────────────────────────────────────────────────
+
 function LivePill() {
   const { t } = useTranslation();
   const ws = useStore(() => live.ws);
@@ -55,7 +73,7 @@ function LivePill() {
     : ws === 'auth_expired' ? t('shell.sessionExpired')
     : ws === 'closed' ? t('shell.offline') : t('shell.reconnecting');
   return (
-    /* .live-pill + data-ws: UAT hook and the tinted not-live styles (index.css) */
+    /* .live-pill + data-ws are the UAT hook and drive the tinted not-live styles (index.css). */
     <span
       className="live-pill flex h-6 shrink-0 items-center gap-1.5 rounded border border-rail-line bg-rail-hover px-2 text-[11px] font-semibold text-white/80"
       data-ws={ws} role="status" aria-live="polite"
@@ -83,7 +101,7 @@ function TopClock() {
 
 /** Persistent critical count in the always-visible topbar — the banner
  *  below scrolls away; this doesn't (ISA-18.2: critical stays in view).
- *  Red only when abnormal, with ▲ shape + text. */
+ *  Red only when abnormal, with a ▲ shape and text. */
 function CriticalChip() {
   const { t } = useTranslation();
   const { critical } = useAlarms();
@@ -101,13 +119,13 @@ function CriticalChip() {
 }
 
 /** Data-link strip — shown when the live feed has been down > 5 s, so
- *  values on screen can't be mistaken for live ones (honest status). */
+ *  values on screen can't be mistaken for live ones. */
 function LinkStrip() {
   const { t } = useTranslation();
   const ws = useStore(() => live.ws);
   const rev = useStore(() => live.wsRev);
-  // the strip appears once the *current* ws state has lasted 5 s — brief
-  // blips and the first connect never flash it
+  // The strip appears once the *current* ws state has lasted 5 s — brief
+  // blips and the first connect never flash it.
   const [shownRev, setShownRev] = useState(-1);
   useEffect(() => {
     if (ws === 'open') return;
@@ -123,16 +141,6 @@ function LinkStrip() {
       {msg}
     </div>
   );
-}
-
-/** Close a popover on Escape (each popover owns its own layer). */
-function useEscape(open: boolean, close: () => void) {
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [open, close]);
 }
 
 function NotifyBell() {
@@ -240,13 +248,13 @@ function UserMenu() {
             </NavLink>
             <button
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] hover:bg-subtle"
-              /* setLang persists the choice and updates <html lang> (Thai
-                 line-breaking + the :lang(th) type rules depend on it) */
+              /* setLang persists the choice and updates <html lang> — Thai
+                 line-breaking and the :lang(th) type rules depend on it. */
               onClick={() => setLang(i18n.language === 'th' ? 'en' : 'th')}
             >
               <DdIcon name="globe" size={14} /> {t('shell.language')}: {i18n.language.toUpperCase()}
             </button>
-            {/* sign-out is not abnormal — ink, not red (ISA-101 colour discipline) */}
+            {/* Sign-out is not an abnormal action — ink, not red (ISA-101 colour discipline). */}
             <button
               className="flex w-full items-center gap-2 border-t border-line px-3 py-1.5 text-left text-[12.5px] hover:bg-subtle"
               onClick={() => { setOpen(false); signOut(); }}
@@ -260,6 +268,8 @@ function UserMenu() {
   );
 }
 
+// ── Alarm banner ─────────────────────────────────────────────────────────────
+
 function AlarmBanner() {
   const { t } = useTranslation();
   const { critical, active } = useAlarms();
@@ -269,8 +279,8 @@ function AlarmBanner() {
     <div role="alert">
       <NavLink
         to="/alarms"
-        /* min-h + py: a long Thai rule name wraps on mobile instead of
-           spilling out of a fixed 32px bar */
+        /* min-h + py let a long Thai rule name wrap on mobile instead of
+           spilling out of a fixed 32px bar. */
         className="flex min-h-8 items-center gap-2 bg-[var(--color-danger)] px-4 py-1 text-[12px] font-semibold leading-snug text-white hover:bg-[var(--color-danger-hover)]"
       >
         <DdIcon name="attention-circled" size={14} className="shrink-0" />
@@ -280,6 +290,8 @@ function AlarmBanner() {
     </div>
   );
 }
+
+// ── Nav pieces ───────────────────────────────────────────────────────────────
 
 /** Nav leaf row — shared by the group flyout and the mobile drawer. */
 function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
@@ -298,7 +310,7 @@ function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate: () => vo
   );
 }
 
-/** Drawer group — same header as the rail row, items rendered inline-expanded
+/** Drawer group — same header as the rail row; items render inline-expanded
  *  (no flyout) so the overlay nav works on touch. */
 function DrawerGroup({ group, onNavigate }: { group: NavGroup; onNavigate: () => void }) {
   const { t } = useTranslation();
@@ -317,9 +329,11 @@ function DrawerGroup({ group, onNavigate }: { group: NavGroup; onNavigate: () =>
   );
 }
 
-/** Flyout leaf — dd mega-menu item. Rests dim; only the row under the pointer
- *  (or keyboard focus) brightens, gains a trailing arrow, and lights its own
- *  segment of the column guide line. */
+// ── Flyout ───────────────────────────────────────────────────────────────────
+
+/** Flyout leaf — a mega-menu item. It rests dim; only the row under the
+ *  pointer (or keyboard focus) brightens, gains a trailing arrow, and lights
+ *  its own segment of the column guide line. */
 function FlyoutItem({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
   const { t } = useTranslation();
   return (
@@ -345,7 +359,7 @@ function FlyoutItem({ item, onNavigate }: { item: NavItem; onNavigate: () => voi
   );
 }
 
-/** "+ New …" row — a blue plus sits on the column guide line, like dd. */
+/** "+ New …" row — a blue plus sits on the column guide line. */
 function FlyoutAction({ action, onNavigate }: { action: { to: string; key: string }; onNavigate: () => void }) {
   const { t } = useTranslation();
   return (
@@ -394,7 +408,9 @@ function FlyoutSection({ sec, onNavigate }: { sec: NavSection; onNavigate: () =>
   );
 }
 
-/* Sidebar row — icon + label; opens the dd mega-menu flyout on hover/focus.
+// ── Rail row ─────────────────────────────────────────────────────────────────
+
+/* Sidebar row — icon + label; opens the group's flyout on hover/focus.
  * Active when any child route matches. */
 function SideRow({ group, openId, setOpenId }: {
   group: NavGroup; openId: string | null;
@@ -406,21 +422,23 @@ function SideRow({ group, openId, setOpenId }: {
   const active = group.items.some((i) => i.to === '/' ? pathname === '/' : pathname.startsWith(i.to));
   const sections = group.sections ?? [{ items: group.items, action: group.action }];
   const flat = !group.sections && group.items.length >= 4;
-  /* the rail's overflow-y-auto clips absolutely-positioned children — the
-     flyout must be position:fixed, anchored to this row's rect */
+  /* The rail's overflow-y-auto clips absolutely positioned children, so the
+     flyout must be position:fixed, anchored to this row's rect. */
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const open_ = (e: React.SyntheticEvent) => {
     const r = e.currentTarget.getBoundingClientRect();
     const rail = e.currentTarget.closest('nav')?.getBoundingClientRect();
     setAnchor({ x: rail ? rail.right : r.right, y: r.top });
-    /* y = row top, so the panel's top edge lines up with the highlighted row;
-       the layout effect below clamps it by the panel's *measured* height */
+    /* anchor.y is the row's top, so the panel's top edge lines up with the
+       highlighted row; the layout effect below clamps it by the panel's
+       *measured* height. */
     setOpenId(group.group);
   };
   const close = () => setOpenId((id) => id === group.group ? null : id);
   const panelRef = useRef<HTMLDivElement>(null);
-  /* near the bottom, shift up just enough to fit — never detach from the row
-     (a fixed 440px guess left short panels floating far above their row) */
+  /* Near the bottom edge, the panel shifts up just enough to fit — it never
+     detaches from the row (a fixed-height guess once left short panels
+     floating far above their row). */
   useLayoutEffect(() => {
     const el = panelRef.current;
     if (!open || !anchor || !el) return;
@@ -433,7 +451,7 @@ function SideRow({ group, openId, setOpenId }: {
         className={`flex min-h-[31px] w-full items-center gap-2 px-2.5 py-1 text-left text-[13px] leading-[15px] transition-colors ${
           open ? 'relative z-[51] bg-flyout text-white' : active ? 'bg-white/10 text-white' :'text-nav-dim hover:bg-nav-hover hover:text-white'
         } ${active ? 'font-semibold shadow-[inset_3px_0_0_var(--color-blue-nav)]' : ''}`}
-        /* inset bar marks the group of the current page — "where am I" at a glance */
+        /* The inset bar marks the group of the current page — "where am I" at a glance. */
         aria-current={active ? 'true' : undefined}
         aria-expanded={open}
         aria-haspopup="true"
@@ -441,20 +459,23 @@ function SideRow({ group, openId, setOpenId }: {
         onClick={(e) => (open ? setOpenId(null) : open_(e))}
       >
         <DdIcon name={group.icon} size={15} />
-        {/* wrap at word boundaries (max 2 lines) instead of ellipsis; tight
-            tracking lets the longest single word ("Infrastructure") fit the 160px rail */}
+        {/* Wrap at word boundaries (max 2 lines) instead of ellipsis; the
+            tight tracking lets the longest single word ("Infrastructure")
+            fit the 160px rail. */}
         <span className="line-clamp-2 min-w-0 tracking-[-0.02em]">{t(group.group)}</span>
         {group.items.length > 1 && (
           <DdIcon name="caret-right" size={10} className={`ml-auto opacity-50 transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
         )}
       </button>
       {open && anchor && (
-        /* flush against the row (no gap) and the same colour as the open row,
-           so row + panel read as one connected tab */
+        /* Flush against the row (no gap) and the same colour as the open row,
+           so row + panel read as one connected tab. */
         <div ref={panelRef} className="fixed z-50" style={{ left: anchor.x, top: anchor.y }}>
           <div className="flyout-in w-[400px] rounded-r-md border border-l-0 border-white/10 bg-flyout pb-2 shadow-flyout">
-            {/* group title — larger than the rail label so the panel reads as its own surface */}
-            {/* the title is the group's own landing page: lights blue with an arrow on hover/focus (dd "Monitors →") */}
+            {/* The group title is larger than the rail label so the panel
+                reads as its own surface. */}
+            {/* The title links to the group's own landing page: it lights up
+                with an arrow on hover/focus. */}
             <div className="px-2 pt-2">
               <NavLink
                 to={group.href ?? group.items[0]?.to ?? '/'} onClick={() => setOpenId(null)}
@@ -465,7 +486,7 @@ function SideRow({ group, openId, setOpenId }: {
               </NavLink>
             </div>
             {flat ? (
-              /* ≥4 flat items → two guide-lined columns like dd's wide sections */
+              /* Groups with ≥4 flat items split into two guide-lined columns. */
               <div className="flex gap-5 px-4 pb-1 pt-1">
                 <FlyoutColumn items={group.items.slice(0, Math.ceil(group.items.length / 2))} onNavigate={() => setOpenId(null)} className="flex-1" />
                 <FlyoutColumn items={group.items.slice(Math.ceil(group.items.length / 2))} onNavigate={() => setOpenId(null)} className="flex-1" />
@@ -482,6 +503,8 @@ function SideRow({ group, openId, setOpenId }: {
   );
 }
 
+// ── Shell ────────────────────────────────────────────────────────────────────
+
 export function Shell() {
   const { t } = useTranslation();
   const showAdmin = useOperateAnyOrg();
@@ -491,8 +514,10 @@ export function Shell() {
   const drawerRef = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
   const groups = NAV.filter((g) => !g.gated || showAdmin);
+  const { orgId } = useAdminOrg();
+  useEffect(() => { if (orgId) void loadOrgPolicy(orgId); }, [orgId]);
 
-  // `?` opens the shortcut overlay (dd pattern); Esc closes overlays/drawer
+  // `?` opens the shortcut overlay; Esc closes overlays and the drawer.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === '?' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) setHelpOpen(true);
@@ -502,15 +527,15 @@ export function Shell() {
     return () => window.removeEventListener('keydown', h);
   }, []);
 
-  // focus the drawer on open; close it on route change (back/forward)
+  // Focus the drawer on open; close it on route change (back/forward).
   useEffect(() => { if (navOpen) drawerRef.current?.focus(); }, [navOpen]);
   useEffect(() => { setNavOpen(false); }, [pathname]);
   return (
     /* .app-shell scopes the reduced-motion override; .chrome marks dark
-       surfaces so focus rings switch to the light variant (index.css) */
+       surfaces so focus rings switch to the light variant (index.css). */
     <div className="app-shell min-h-svh bg-paper text-ink">
       <a href="#main" className="skip-link">{t('ui.skipToContent')}</a>
-      {/* sidebar — full height, expanded ~168px dark rail (measured layout:
+      {/* Sidebar — a full-height, expanded ~168px dark rail (measured layout:
           logo header inside the rail, icon+label rows, footer icons).
           Below md the rail hides and nav opens as a slide-over drawer. */}
       <nav className="side-nav chrome fixed bottom-0 left-0 top-0 z-30 hidden w-40 flex-col bg-rail pl-1.5 md:flex" aria-label={t('ui.mainNav')}>
@@ -531,7 +556,7 @@ export function Shell() {
             </Fragment>
           ))}
         </div>
-        {/* footer — invite / support / help with labels (dd bottom rail) */}
+        {/* Footer — invite / support / help entries with labels. */}
         <div className="flex items-stretch border-t border-white/10 px-1 py-1.5">
           <NavLink to="/admin/users" className="flex flex-1 flex-col items-center gap-0.5 rounded py-1 text-white/40 hover:bg-white/5 hover:text-white" aria-label={t('nav.adminUsers')}>
             <DdIcon name="users" size={15} />
@@ -548,8 +573,8 @@ export function Shell() {
         </div>
       </nav>
 
-      {/* mobile nav drawer — slide-over reusing the rail rows; items render
-          inline-expanded (no flyout) so it works on touch */}
+      {/* Mobile nav drawer — a slide-over reusing the rail rows; items render
+          inline-expanded (no flyout) so it works on touch. */}
       <div
         className={`fixed inset-0 z-40 bg-black/45 transition-opacity md:hidden ${navOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
         onClick={() => setNavOpen(false)}
@@ -589,8 +614,8 @@ export function Shell() {
         </div>
       </aside>
 
-      {/* top bar — 36px dark, starts after the sidebar (measured); hamburger
-          replaces the rail below md */}
+      {/* Top bar — 36px dark, starting after the sidebar (measured); a
+          hamburger replaces the rail below md. */}
       <header className="topbar chrome fixed left-0 right-0 top-0 z-20 flex h-9 items-center gap-2 bg-topbar pl-3 pr-3 md:left-40">
         <button
           className="grid h-6 w-6 shrink-0 place-items-center rounded text-white/70 hover:bg-white/10 hover:text-white md:hidden"
@@ -614,7 +639,8 @@ export function Shell() {
           <CriticalChip />
           <TopClock />
           <LivePill />
-          {/* the search pill is hidden below md — keep the palette reachable on touch */}
+          {/* The search pill is hidden below md — this icon keeps the palette
+              reachable on touch. */}
           <button
             className="grid h-6 w-6 shrink-0 place-items-center rounded text-white/70 hover:bg-white/10 hover:text-white md:hidden"
             aria-label={t('ui.search')}
@@ -627,21 +653,24 @@ export function Shell() {
         </div>
       </header>
 
-      {/* content */}
-      <div className="pt-9 md:pl-40">
+      {/* Content */}
+      <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] pt-9 md:pb-0 md:pl-40">
         <LinkStrip />
         <AlarmBanner />
         <main id="main" tabIndex={-1} className="min-h-[calc(100svh-36px-26px)] outline-none">
           <ConsentBanner />
           <Outlet />
         </main>
-        {/* footer bar — dd chrome pattern */}
+        {/* Footer bar. */}
         <footer className="flex h-[26px] items-center justify-center gap-3 border-t border-line text-[11px] text-ink-46">
           <span className="hidden sm:inline">vissointan</span>
           <NavLink to="/health" className="hover:text-ink">{t('nav.health')}</NavLink>
           <NavLink to="/admin/audit" className="hover:text-ink">{t('nav.adminAudit')}</NavLink>
         </footer>
       </div>
+      <OfflineBanner />
+      <InstallHint />
+      <MobileNav moreOpen={navOpen} onMore={() => setNavOpen((o) => !o)} />
       <Palette />
       {helpOpen && <ShortcutOverlay onClose={() => setHelpOpen(false)} />}
     </div>

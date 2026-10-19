@@ -1,5 +1,6 @@
-// Alarms — dd-pattern list: omnibar filter (key:value tokens via
-// matchAlarmQuery), state tabs, dense table, ack action gated by role.
+// Alarms — the operator's working list: an omnibar filter (key:value tokens
+// via matchAlarmQuery), state tabs, a dense grouped table, and ack actions
+// gated by role.
 
 import { Fragment, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,7 +29,28 @@ import { DdIcon } from '../../shared/ui/DdIcon';
 import { TriggeredOnboarding } from '../monitors/TriggeredOnboarding';
 import type { Alarm } from '../../types';
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 type StateFilter = 'active' | 'acked' | 'cleared' | 'all';
+
+/** Severity edge bar for unacknowledged rows (inset, no layout shift). */
+const EDGE: Record<'critical' | 'warning' | 'info', string> = {
+  critical: 'shadow-[inset_4px_0_0_var(--color-danger-bright)]',
+  warning: 'shadow-[inset_4px_0_0_var(--color-warn)]',
+  info: 'shadow-[inset_4px_0_0_var(--color-muted-pill)]',
+};
+
+/** Absolute time next to the relative one: clock today, date + clock otherwise. */
+function absTime(ts: string, lang: string): string {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  const today = new Date().toDateString() === d.toDateString();
+  return today
+    ? d.toLocaleTimeString(lang, { hour12: false })
+    : d.toLocaleString(lang, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+// ── Row pieces ───────────────────────────────────────────────────────────────
 
 function AckButton({ alarm }: { alarm: Alarm }) {
   const { t } = useTranslation();
@@ -41,7 +63,7 @@ function AckButton({ alarm }: { alarm: Alarm }) {
     <span className="flex flex-col items-start gap-0.5">
       <button
         type="button"
-        className="btn btn-sm btn-ack whitespace-nowrap"
+        className="btn btn-sm btn-ack whitespace-nowrap max-md:min-h-11 max-md:min-w-[5.5rem] max-md:px-4 max-md:text-[13px]"
         disabled={busy}
         aria-label={`${t('alarms.ack')}: ${alarm.rule}`}
         onClick={() => {
@@ -115,6 +137,24 @@ function ValueCell({ tag, now }: { tag: string; now: number }) {
     </span>
   );
 }
+
+/** Swipe a card left to acknowledge it. It presses the card's own Ack button,
+ *  so busy/error handling is the one place it already lives; the button stays
+ *  for anyone who cannot swipe. */
+function swipeToAck(enabled: boolean) {
+  if (!enabled) return {};
+  let x = 0; let y = 0;
+  return {
+    onTouchStart: (e: React.TouchEvent) => { x = e.touches[0].clientX; y = e.touches[0].clientY; },
+    onTouchEnd: (e: React.TouchEvent<HTMLElement>) => {
+      const dx = e.changedTouches[0].clientX - x;
+      const dy = e.changedTouches[0].clientY - y;
+      if (dx < -90 && Math.abs(dy) < 40) e.currentTarget.querySelector<HTMLButtonElement>('button.btn-ack')?.click();
+    },
+  };
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export function AlarmsPage() {
   const { t, i18n } = useTranslation();
@@ -275,7 +315,7 @@ export function AlarmsPage() {
           {tab('cleared', t('alarms.cleared'))}
           {tab('all', t('alarms.all'))}
         </div>
-        {/* full-width omnibar row — dd monitors pattern */}
+        {/* full-width omnibar row under the tabs — the filter is the primary tool */}
         <div className="px-4 pb-2">
           <div className="relative">
             <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
@@ -366,7 +406,8 @@ export function AlarmsPage() {
                         const unackedRow = a.state === 'active';
                         return (
                           <li key={a.id} data-alarm-id={id}
-                            className={`border-b border-line last:border-0 ${id === focusId ? 'bg-info-soft' : ''}`}>
+                            className={`border-b border-line last:border-0 ${id === focusId ? 'bg-info-soft' : ''}`}
+                            {...swipeToAck(unackedRow && operable)}>
                             <div
                               className="flex items-start gap-2 px-3 py-2.5"
                               role="button" tabIndex={0}
@@ -424,7 +465,7 @@ export function AlarmsPage() {
                 ].filter((h) => h !== null)}>
                   {buckets.map((b) => (
                     <Fragment key={b.key}>
-                      {/* group header row — dd monitor-pack pattern; colour + glyph + text */}
+                      {/* group header row — one collapsible row per bucket; colour + glyph + text */}
                       <tr className="bg-subtle">
                         <td colSpan={cols} className="p-0">
                           <button
@@ -511,23 +552,6 @@ export function AlarmsPage() {
       </div>
     </>
   );
-}
-
-/** Severity edge bar for unacknowledged rows (inset, no layout shift). */
-const EDGE: Record<'critical' | 'warning' | 'info', string> = {
-  critical: 'shadow-[inset_4px_0_0_var(--color-danger-bright)]',
-  warning: 'shadow-[inset_4px_0_0_var(--color-warn)]',
-  info: 'shadow-[inset_4px_0_0_var(--color-muted-pill)]',
-};
-
-/** Absolute time next to the relative one: clock today, date + clock otherwise. */
-function absTime(ts: string, lang: string): string {
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return '';
-  const today = new Date().toDateString() === d.toDateString();
-  return today
-    ? d.toLocaleTimeString(lang, { hour12: false })
-    : d.toLocaleString(lang, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 export { alarmStateKey };

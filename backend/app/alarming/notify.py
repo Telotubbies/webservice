@@ -61,6 +61,7 @@ from ..datasources import secretbox
 from ..db import audit
 from ..db.context import TenantConn, active_org_ids, global_tx, tenant_tx
 from ..db.util import iso_z, utcnow
+from . import push
 
 log = logging.getLogger("backend.notify")
 router = APIRouter()
@@ -76,16 +77,15 @@ async def _user(request: Request):
 
 
 SEV_RANK = {"info": 0, "warning": 1, "critical": 2}
-CHANNEL_TYPES = frozenset({"email", "line", "webhook", "teams", "slack"})
+CHANNEL_TYPES = frozenset({"email", "line", "webhook", "teams", "slack", "webpush"})
 MAX_RECIPIENTS = 20
 MAX_ATTACHMENTS = 5
 MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
 MAX_CHANNELS_PER_ORG = 50
 
 
-# ---------------------------------------------------------------------------
-# Channel config validation + secret split (write path)
-# ---------------------------------------------------------------------------
+# ── Channel config validation + secret split (write path) ──
+
 def _emails(v) -> list[str]:
     if not isinstance(v, list) or not (1 <= len(v) <= MAX_RECIPIENTS):
         raise ValueError("to must be 1..20 addresses")
@@ -141,6 +141,8 @@ def _split_config(type_: str, config: dict, secrets_in: dict | None,
             raise ValueError("line channel needs secrets.token (channel access token)")
         if isinstance(tok, str) and 10 <= len(tok) <= 400:
             sec["token"] = tok
+    elif type_ == "webpush":
+        pass            # subscriptions live in push_subscriptions; nothing to configure
     elif type_ in ("webhook", "teams", "slack"):
         if require_secrets or secrets_in.get("url"):
             sec["url"] = _url_secret(secrets_in.get("url"))
@@ -163,9 +165,8 @@ def _target_hint(type_: str, pub: dict, sec: dict) -> str:
     return u.hostname or "webhook"
 
 
-# ---------------------------------------------------------------------------
-# Blocking senders — always called via run_in_executor
-# ---------------------------------------------------------------------------
+# ── Blocking senders — always called via run_in_executor ──
+
 def _smtp_send(smtp: dict, to: list[str], subject: str, body: str,
                attachments: list[dict]) -> None:
     msg = EmailMessage()
@@ -225,12 +226,17 @@ def _smtp_from_channel(pub: dict, sec: dict) -> dict:
     }
 
 
-async def send_channel(channel: dict, subject: str, text: str) -> str:
+async def send_channel(channel: dict, subject: str, text: str, *, tc=None,
+                       alarm_id=None, kind: str = "raised") -> str:
     """Deliver one message through one channel row (dict with config +
     secrets_enc). Returns the redacted target hint; raises on failure."""
     pub = channel["config"] if isinstance(channel["config"], dict) else {}
     sec = secretbox.open_(channel["secrets_enc"]) if channel["secrets_enc"] else {}
     t = channel["type"]
+    if t == "webpush":
+        if tc is None:
+            raise RuntimeError("webpush needs a tenant transaction")
+        return await push.send_for_channel(tc, channel, kind, alarm_id)
     if t == "email":
         smtp = _smtp_from_channel(pub, sec)
         await _send_email_async(smtp, pub.get("to") or [], subject, text)
@@ -254,9 +260,8 @@ async def send_channel(channel: dict, subject: str, text: str) -> str:
     return _target_hint(t, pub, sec)
 
 
-# ---------------------------------------------------------------------------
-# Ack links (§3.4) — single-use HMAC token; jti row makes replay impossible
-# ---------------------------------------------------------------------------
+# ── Ack links (§3.4) — single-use HMAC token; jti row makes replay impossible ──
+
 def _ack_key() -> bytes:
     return hashlib.sha256(config.DATA_SOURCE_KEY + b"|ack-link").digest()
 
@@ -301,9 +306,8 @@ async def _issue_ack_link(tc: TenantConn, alarm_id: UUID, created_by: UUID | Non
     return f"/api/v1/ack/{make_ack_token(tc.org_id, alarm_id, jti, exp)}"
 
 
-# ---------------------------------------------------------------------------
-# On-call resolution + escalation policy shape
-# ---------------------------------------------------------------------------
+# ── On-call resolution + escalation policy shape ──
+
 async def resolve_oncall(tc: TenantConn, team_id: UUID) -> UUID | None:
     """Current on-call member of a team: an active override wins, else the
     weekly rotation index anchored at `anchor`."""
@@ -354,9 +358,8 @@ def _levels(v) -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Job workers — `notify_send` (alarm events) + `send_email` (contract kind)
-# ---------------------------------------------------------------------------
+# ── Job workers — `notify_send` (alarm events) + `send_email` (contract kind) ──
+
 JOB_KINDS = ("notify_send", "send_email")
 
 
@@ -460,7 +463,8 @@ async def _deliver_to_channels(tc: TenantConn, channels: list[dict], episode: st
         if await _dedup(tc, episode, ch["id"], dedup_kind):
             continue
         try:
-            target = await send_channel(ch, subject, text)
+            target = await send_channel(ch, subject, text, tc=tc, alarm_id=alarm_id,
+                                        kind=delivery_kind)
             await _record_delivery(tc.conn, tc.org_id, ch["id"], alarm_id,
                                    delivery_kind, target, "sent")
         except Exception as e:  # noqa: BLE001 — one bad channel must not stop the rest
@@ -651,9 +655,8 @@ async def notify_jobs_worker(st) -> None:
                 await jobs.fail(conn, job["id"], type(e).__name__)
 
 
-# ---------------------------------------------------------------------------
-# Sweeps — escalation levels, shelf expiry, built-in vision alarms
-# ---------------------------------------------------------------------------
+# ── Sweeps — escalation levels, shelf expiry, built-in vision alarms ──
+
 async def escalate_sweep(st) -> None:
     """Unacked + unshelved alarm past its policy level's after_minutes ->
     notify that level. An ack stops escalation because state leaves 'active'."""
@@ -803,9 +806,8 @@ async def vision_alarm_sweep(st) -> None:
                                        {"camera_id": str(cid), "condition": cond})
 
 
-# ---------------------------------------------------------------------------
-# API — channel CRUD / test / delivery log
-# ---------------------------------------------------------------------------
+# ── API — channel CRUD / test / delivery log ──
+
 class ChannelIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     type: str
@@ -818,7 +820,7 @@ class ChannelIn(BaseModel):
     @classmethod
     def _type(cls, v: str) -> str:
         if v not in CHANNEL_TYPES:
-            raise ValueError("type must be email|line|webhook|teams|slack")
+            raise ValueError("type must be email|line|webhook|teams|slack|webpush")
         return v
 
 
@@ -975,7 +977,7 @@ async def test_channel(org: str, channel: str, body: TestIn, request: Request,
             raise HTTPException(404, "channel not found")
         ch = (await _attach_secrets(m.st(request).pools, org_id, [dict(ch)]))[0]
         try:
-            target = await send_channel(ch, "WDS test", body.text)
+            target = await send_channel(ch, "WDS test", body.text, tc=tc, kind="test")
             status = "sent"
         except Exception as e:  # noqa: BLE001 — outward error is generic
             log.warning("test notify failed", extra={"channel_id": str(cid),
@@ -1016,9 +1018,8 @@ async def list_deliveries(org: str, request: Request,
         "attempts": r["attempts"], "at": iso_z(r["created_at"])} for r in rows]}
 
 
-# ---------------------------------------------------------------------------
-# API — per-rule notify routing (§3.2)
-# ---------------------------------------------------------------------------
+# ── API — per-rule notify routing (§3.2) ──
+
 class RuleNotifyIn(BaseModel):
     channel_ids: list[UUID] = Field(default_factory=list, max_length=20)
     team_ids: list[UUID] = Field(default_factory=list, max_length=20)
@@ -1079,9 +1080,8 @@ async def put_rule_notify(org: str, rule: str, body: RuleNotifyIn, request: Requ
     return {"notify": body.model_dump(mode="json")}
 
 
-# ---------------------------------------------------------------------------
-# API — ack links (§3.4) + lifecycle actions (§3.5)
-# ---------------------------------------------------------------------------
+# ── API — ack links (§3.4) + lifecycle actions (§3.5) ──
+
 class AckLinkIn(BaseModel):
     ttl_s: int | None = Field(default=None, ge=60, le=30 * 86400)
 
@@ -1251,9 +1251,8 @@ async def alarm_events(org: str, alarm: str, request: Request, p=Depends(_user))
                        "at": iso_z(r["at"])} for r in rows]}
 
 
-# ---------------------------------------------------------------------------
-# API — on-call rotations + overrides (§3.3)
-# ---------------------------------------------------------------------------
+# ── API — on-call rotations + overrides (§3.3) ──
+
 class RotationIn(BaseModel):
     user_ids: list[UUID] = Field(max_length=50)
     anchor: datetime | None = None
@@ -1382,9 +1381,8 @@ async def del_override(org: str, team: str, ov: str, request: Request, p=Depends
                            {"team_id": str(tid), "override_id": str(oid)})
 
 
-# ---------------------------------------------------------------------------
-# API — escalation policies (§3.3)
-# ---------------------------------------------------------------------------
+# ── API — escalation policies (§3.3) ──
+
 class PolicyIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     rule_id: UUID | None = None
@@ -1495,9 +1493,8 @@ async def delete_policy(org: str, policy: str, request: Request, p=Depends(_user
                            {"policy_id": str(pid)})
 
 
-# ---------------------------------------------------------------------------
-# API — ISA-18.2 alarm quality (§3.5 acceptance: real data, not demo)
-# ---------------------------------------------------------------------------
+# ── API — ISA-18.2 alarm quality (§3.5 acceptance: real data, not demo) ──
+
 def _quality(rows: list, hours: float, operators: int) -> dict:
     """ISA-18.2 metrics from raw alarm rows:
     (rule_id, rule, severity, state, raised_at, acked_at, cleared_at)."""

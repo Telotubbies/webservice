@@ -188,7 +188,7 @@ class AlarmEngine:
                     Rule(org_id=org_id, **dict(r)))
         self._rules = by_tag
 
-    # ------------------------------------------------------------ evaluation
+    # ── Evaluation ──
     async def evaluate(self, tc: TenantConn, tag_id: UUID, v, q: str, ts: datetime) -> None:
         if not is_evaluable(q, ts):
             return
@@ -320,7 +320,7 @@ class AlarmEngine:
         if rule.notify_on_clear and _rule_wants_notify(rule, rule.severity):
             await _enqueue_notify(tc, rule, alarm_id, "cleared")
 
-    # ------------------------------------------------------------ API side
+    # ── API side ──
     async def list_alarms(self, tc: TenantConn, state: str | None, severity: str | None,
                           limit: int, site_id: UUID | None = None) -> list[dict]:
         rows = await tc.fetch(
@@ -420,7 +420,6 @@ class AlarmEngine:
             if "assigned_name" in r.keys() else None,
         }
 
-
     async def close_for_rule(self, tc: TenantConn, rule: Rule) -> int:
         """Resolve every open alarm of a rule that was just disabled or
         deleted — an orphaned active alarm could never evaluate-clear again
@@ -434,11 +433,10 @@ class AlarmEngine:
         return len(rows)
 
 
-# ---------------------------------------------------------------------------
-# Rule-change reload (v4 T10): admin CRUD NOTIFYs `alarm_rules_changed` so an
-# edit takes effect without a backend restart (doc 20 §3.3). Mirrors the
-# wds_edges LISTEN pattern in dynsec.Reconciler._listen.
-# ---------------------------------------------------------------------------
+# ── Rule-change reload ──
+# v4 T10: admin CRUD NOTIFYs `alarm_rules_changed` so an edit takes effect
+# without a backend restart (doc 20 §3.3). Mirrors the wds_edges LISTEN
+# pattern in dynsec.Reconciler._listen.
 RULES_NOTIFY_CHANNEL = "alarm_rules_changed"
 
 

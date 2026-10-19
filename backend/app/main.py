@@ -77,6 +77,7 @@ from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
 from .plant.hierarchy import router as hierarchy_router
 from .production.formulas import router as formulas_router
+from .alarming.push import router as push_router
 from .plant.routes import router as plant_router
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
@@ -1711,6 +1712,7 @@ app.include_router(videos_router)
 app.include_router(plant_router)
 app.include_router(hierarchy_router)
 app.include_router(formulas_router)
+app.include_router(push_router)
 app.include_router(cameras_router)
 app.include_router(material_router)
 app.include_router(artifacts_router)
