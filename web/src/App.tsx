@@ -24,80 +24,119 @@ import { enabled } from './lib/features';
 
 // Route-level code splitting: every non-index page lazy-loads so the main
 // chunk stays small (three ~160KB gz and chart code stay out of it).
+// Declared in <Routes> order below; the index page and org creation stay
+// eagerly imported above.
+
+// ── Public ──
+const StatusPage = lazy(() => import('./features/status/StatusPage').then((m) => ({ default: m.StatusPage })));
+
+// ── Line views ──
 const LinePage = lazy(() => import('./features/line/LinePage').then((m) => ({ default: m.LinePage })));
-const MapEditor = lazy(() => import('./features/line3d/MapEditor').then((m) => ({ default: m.MapEditor })));
 const Line3DPage = lazy(() => import('./features/line3d/Line3DPage').then((m) => ({ default: m.Line3DPage })));
+const MapEditor = lazy(() => import('./features/line3d/MapEditor').then((m) => ({ default: m.MapEditor })));
+
+// ── Monitoring ──
+const MonitorsPage = lazy(() => import('./features/monitors/MonitorsPage').then((m) => ({ default: m.MonitorsPage })));
+const TemplatesPage = lazy(() => import('./features/monitors/TemplatesPage').then((m) => ({ default: m.TemplatesPage })));
 const AlarmsPage = lazy(() => import('./features/alarms/AlarmsPage').then((m) => ({ default: m.AlarmsPage })));
 const AlarmDetailPage = lazy(() => import('./features/alarms/AlarmDetailPage').then((m) => ({ default: m.AlarmDetailPage })));
+
+// ── Plant signals & operations ──
 const TrendsPage = lazy(() => import('./features/trends/TrendsPage').then((m) => ({ default: m.TrendsPage })));
 const InsightsPage = lazy(() => import('./features/insights/InsightsPage').then((m) => ({ default: m.InsightsPage })));
 const TagsPage = lazy(() => import('./features/tags/TagsPage').then((m) => ({ default: m.TagsPage })));
 const CommandsPage = lazy(() => import('./features/commands/CommandsPage').then((m) => ({ default: m.CommandsPage })));
 const HealthPage = lazy(() => import('./features/health/HealthPage').then((m) => ({ default: m.HealthPage })));
+
+// ── Admin ──
 const AdminPage = lazy(() => import('./features/admin/AdminPage').then((m) => ({ default: m.AdminPage })));
-const ApiKeysPage = lazy(() => import('./features/admin/ApiKeysPage').then((m) => ({ default: m.ApiKeysPage })));
 const AlarmRulesPage = lazy(() => import('./features/admin/AlarmRulesPage').then((m) => ({ default: m.AlarmRulesPage })));
 const RuleCreatePage = lazy(() => import('./features/admin/RuleCreatePage').then((m) => ({ default: m.RuleCreatePage })));
 const UsersPage = lazy(() => import('./features/admin/UsersPage').then((m) => ({ default: m.UsersPage })));
-const StoragePage = lazy(() => import('./features/storage/StoragePage').then((m) => ({ default: m.StoragePage })));
 const AuditPage = lazy(() => import('./features/admin/AuditPage').then((m) => ({ default: m.AuditPage })));
+const StoragePage = lazy(() => import('./features/storage/StoragePage').then((m) => ({ default: m.StoragePage })));
+const ApiKeysPage = lazy(() => import('./features/admin/ApiKeysPage').then((m) => ({ default: m.ApiKeysPage })));
+
+// ── Reliability ──
 const ActivityPage = lazy(() => import('./features/notify/ActivityPage').then((m) => ({ default: m.ActivityPage })));
 const ErrorTrackingPage = lazy(() => import('./features/errors/ErrorTrackingPage').then((m) => ({ default: m.ErrorTrackingPage })));
 const SloPage = lazy(() => import('./features/slo/SloPage').then((m) => ({ default: m.SloPage })));
 const SloSettingsPage = lazy(() => import('./features/slo/SloSettingsPage').then((m) => ({ default: m.SloSettingsPage })));
 const DowntimesPage = lazy(() => import('./features/downtimes/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
+
+// ── Dashboards ──
 const DashboardsPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardsPage })));
 const DashboardViewPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardViewPage })));
+
+// ── Infrastructure ──
 const DevicesPage = lazy(() => import('./features/devices/DevicesPage').then((m) => ({ default: m.DevicesPage })));
+const DataSourcesPage = lazy(() => import('./features/datasources/DataSourcesPage').then((m) => ({ default: m.DataSourcesPage })));
+const GatewayPage = lazy(() => import('./features/datasources/GatewayPage').then((m) => ({ default: m.GatewayPage })));
+const CamerasPage = lazy(() => import('./features/cameras/CamerasPage').then((m) => ({ default: m.CamerasPage })));
+const ModelsPage = lazy(() => import('./features/vision/ModelsPage').then((m) => ({ default: m.ModelsPage })));
+const VisionRulesPage = lazy(() => import('./features/vision/RulesPage').then((m) => ({ default: m.RulesPage })));
+const VisionEventsPage = lazy(() => import('./features/vision/EventsPage').then((m) => ({ default: m.EventsPage })));
+const AddDeviceWizard = lazy(() => import('./features/devices/AddDeviceWizard').then((m) => ({ default: m.AddDeviceWizard })));
 const NetworkMapPage = lazy(() => import('./features/devices/NetworkMapPage').then((m) => ({ default: m.NetworkMapPage })));
 const ProfilesPage = lazy(() => import('./features/devices/ProfilesPage').then((m) => ({ default: m.ProfilesPage })));
-const AddDeviceWizard = lazy(() => import('./features/devices/AddDeviceWizard').then((m) => ({ default: m.AddDeviceWizard })));
-const DataSourcesPage = lazy(() => import('./features/datasources/DataSourcesPage').then((m) => ({ default: m.DataSourcesPage })));
-const ModelsPage = lazy(() => import('./features/vision/ModelsPage').then((m) => ({ default: m.ModelsPage })));
-const CamerasPage = lazy(() => import('./features/cameras/CamerasPage').then((m) => ({ default: m.CamerasPage })));
-const GatewayPage = lazy(() => import('./features/datasources/GatewayPage').then((m) => ({ default: m.GatewayPage })));
+
+// ── Settings & org ──
+const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const PlanPage = lazy(() => import('./features/platform/PlanPage').then((m) => ({ default: m.PlanPage })));
+const DangerZone = lazy(() => import('./features/platform/DangerZone').then((m) => ({ default: m.DangerZone })));
+
+// ── Alarm quality & settings ──
 const AlarmQualityPage = lazy(() => import('./features/alarmquality/AlarmQualityPage').then((m) => ({ default: m.AlarmQualityPage })));
 const AlarmSettingsPage = lazy(() => import('./features/alarmsettings/AlarmSettingsPage').then((m) => ({ default: m.AlarmSettingsPage })));
+
+// ── Events & incidents ──
 const EventsPage = lazy(() => import('./features/events/EventsPage').then((m) => ({ default: m.EventsPage })));
 const IncidentsPage = lazy(() => import('./features/incidents/IncidentsPage').then((m) => ({ default: m.IncidentsPage })));
 const IncidentSettingsPage = lazy(() => import('./features/incidents/IncidentSettingsPage').then((m) => ({ default: m.IncidentSettingsPage })));
+
+// ── Notebooks ──
 const NotebooksPage = lazy(() => import('./features/notebooks/NotebooksPage').then((m) => ({ default: m.NotebooksPage })));
 const NotebookViewPage = lazy(() => import('./features/notebooks/NotebooksPage').then((m) => ({ default: m.NotebookViewPage })));
+
+// ── Feature pages ──
 const CatalogPage = lazy(() => import('./features/catalog/CatalogPage').then((m) => ({ default: m.CatalogPage })));
+const AssetTreePage = lazy(() => import('./features/assets/AssetTreePage').then((m) => ({ default: m.AssetTreePage })));
 const LogsPage = lazy(() => import('./features/logs/LogsPage').then((m) => ({ default: m.LogsPage })));
 const TeamsPage = lazy(() => import('./features/teams/TeamsPage').then((m) => ({ default: m.TeamsPage })));
 const TracesPage = lazy(() => import('./features/traces/TracesPage').then((m) => ({ default: m.TracesPage })));
 const QueryPage = lazy(() => import('./features/query/QueryPage').then((m) => ({ default: m.QueryPage })));
 const ProcessesPage = lazy(() => import('./features/processes/ProcessesPage').then((m) => ({ default: m.ProcessesPage })));
+const SyntheticsPage = lazy(() => import('./features/synthetics/SyntheticsPage').then((m) => ({ default: m.SyntheticsPage })));
 const SyntheticsCoveragePage = lazy(() => import('./features/synthetics/CoveragePage').then((m) => ({ default: m.SyntheticsCoveragePage })));
 const SyntheticsSettingsPage = lazy(() => import('./features/synthetics/SettingsPage').then((m) => ({ default: m.SyntheticsSettingsPage })));
-const SyntheticsPage = lazy(() => import('./features/synthetics/SyntheticsPage').then((m) => ({ default: m.SyntheticsPage })));
-const MonitorsPage = lazy(() => import('./features/monitors/MonitorsPage').then((m) => ({ default: m.MonitorsPage })));
-const TemplatesPage = lazy(() => import('./features/monitors/TemplatesPage').then((m) => ({ default: m.TemplatesPage })));
+
+// ── Security ──
 const SecurityPage = lazy(() => import('./features/security/SecurityPage').then((m) => ({ default: m.SecurityPage })));
 const SecurityIssuesPage = lazy(() => import('./features/security/IssuesPage').then((m) => ({ default: m.IssuesPage })));
 const SecurityFindingsPage = lazy(() => import('./features/security/FindingsPage').then((m) => ({ default: m.FindingsPage })));
 const SecurityApiPage = lazy(() => import('./features/security/ApiProtectionPage').then((m) => ({ default: m.ApiProtectionPage })));
 const SecurityAccessPage = lazy(() => import('./features/security/AccessPage').then((m) => ({ default: m.AccessPage })));
+
+// ── Sessions, metrics & assistant ──
 const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then((m) => ({ default: m.SessionsPage })));
 const MetricsSummaryPage = lazy(() => import('./features/metrics/MetricsSummaryPage').then((m) => ({ default: m.MetricsSummaryPage })));
 const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })));
-const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
-const VisionRulesPage = lazy(() => import('./features/vision/RulesPage').then((m) => ({ default: m.RulesPage })));
-const VisionEventsPage = lazy(() => import('./features/vision/EventsPage').then((m) => ({ default: m.EventsPage })));
+
+// ── Production ──
 const OeePage = lazy(() => import('./features/production/OeePage').then((m) => ({ default: m.OeePage })));
-const ShiftsPage = lazy(() => import('./features/production/ShiftsPage').then((m) => ({ default: m.ShiftsPage })));
 const ProductionDowntimesPage = lazy(() => import('./features/production/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
+const ShiftsPage = lazy(() => import('./features/production/ShiftsPage').then((m) => ({ default: m.ShiftsPage })));
 const ReportsPage = lazy(() => import('./features/production/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+
+// ── Notifications ──
 const ChannelsPage = lazy(() => import('./features/notify/ChannelsPage').then((m) => ({ default: m.ChannelsPage })));
 const AckLinkPage = lazy(() => import('./features/notify/AckLinkPage').then((m) => ({ default: m.AckLinkPage })));
-const PlanPage = lazy(() => import('./features/platform/PlanPage').then((m) => ({ default: m.PlanPage })));
-const DangerZone = lazy(() => import('./features/platform/DangerZone').then((m) => ({ default: m.DangerZone })));
+
+// ── Platform back-office ──
 const PlatformPage = lazy(() => import('./features/platform/PlatformPage').then((m) => ({ default: m.PlatformPage })));
 const PlatformOrgPage = lazy(() => import('./features/platform/PlatformOrgPage').then((m) => ({ default: m.PlatformOrgPage })));
 const PlatformSupportPage = lazy(() => import('./features/platform/PlatformOpsPage').then((m) => ({ default: m.PlatformSupportPage })));
 const PlatformAnnouncementsPage = lazy(() => import('./features/platform/PlatformOpsPage').then((m) => ({ default: m.PlatformAnnouncementsPage })));
-const StatusPage = lazy(() => import('./features/status/StatusPage').then((m) => ({ default: m.StatusPage })));
 
 // One wrapper for every page route: error boundary + lazy-load skeleton.
 const page = (P: ComponentType) => <RouteBoundary><Suspense fallback={<PageSkeleton />}><P /></Suspense></RouteBoundary>;
@@ -265,6 +304,7 @@ export default function App() {
             <Route path="notebooks" element={page(NotebooksPage)} />
             <Route path="notebooks/:id" element={page(NotebookViewPage)} />
             {enabled('catalog') && <Route path="catalog" element={page(CatalogPage)} />}
+            <Route path="structure" element={page(AssetTreePage)} />
             <Route path="logs" element={page(LogsPage)} />
             {enabled('teams') && <Route path="teams" element={page(TeamsPage)} />}
             {enabled('traces') && <Route path="traces" element={page(TracesPage)} />}

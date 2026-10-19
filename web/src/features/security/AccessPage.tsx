@@ -11,7 +11,8 @@
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, request } from '../../lib/api';
-import { useAdminOrg } from '../admin/admin';
+import { useAdminOrg, useAdminSite } from '../admin/admin';
+import { AreaAccess } from '../assets/AreaAccess';
 import { PageBar } from '../../shared/ui/Page';
 import { EmptyState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
 import { useEdgeFleet } from '../health/fleet';
@@ -50,6 +51,7 @@ export function AccessPage() {
         {!p.admin ? <Notice>{t('sec.needAdmin')}</Notice> : p.loading ? <SkeletonRows /> : (
           <>
             <MfaPolicy />
+            <AreaAccessSection />
             <section>
               <h2 className="mb-2 text-[13px] font-semibold">{t('sec.signins')}</h2>
               {signins.length === 0 ? <EmptyState title={t('sec.noSignins')} icon="search" action={<HelpLink doc="invite" />} /> : (
@@ -149,4 +151,10 @@ function MfaPolicy() {
       {err && <Notice tone="error">{err}</Notice>}
     </section>
   );
+}
+
+function AreaAccessSection() {
+  const { orgId } = useAdminOrg();
+  const { site } = useAdminSite(orgId);
+  return orgId && site ? <AreaAccess orgId={orgId} siteId={site.id} /> : null;
 }

@@ -43,7 +43,7 @@ Status: **Met** · **Partial** · **Gap**
 
 | SR | Requirement | Status | Evidence |
 |---|---|---|---|
-| 2.1 | Authorization enforcement | Met | Roles owner/admin/operator/viewer (`deps._v2_org`), Postgres RLS on every tenant table (`migrations/0001`), API keys cannot mint keys |
+| 2.1 | Authorization enforcement | Met | Roles owner/admin/operator/viewer (`deps._v2_org`), Postgres RLS on every tenant table (`migrations/0001`), API keys cannot mint keys. P1: per-area command rights (`area_grants`, `plant/hierarchy.area_allowed`, enforced in `CommandManager.issue`; tests `tests/tenancy/test_hierarchy.py`) |
 | 2.1 RE2 | Permission mapping to roles | Met | CONTRACT.v2 §1 permission levels (`_READ/_OPERATE/_CONFIG`) |
 | 2.1 RE4 | Dual approval | Planned P6 | Four-eyes approval for recipes and sequences |
 | 2.4 | Mobile code | Met | CSP `script-src 'self'` (`web/nginx.conf`) |

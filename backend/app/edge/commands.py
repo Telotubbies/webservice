@@ -26,6 +26,7 @@ from ..core import config
 from ..db import audit
 from ..db.context import TenantConn, active_org_ids, tenant_tx
 from ..db.util import iso_z, utcnow
+from ..plant.hierarchy import area_allowed
 from .mqtt_client import command_topic
 
 log = logging.getLogger("backend.commands")
@@ -88,6 +89,8 @@ class CommandManager:
                 # v1 contract: unknown tag is decided by the edge (not_writable)
                 # — but with no tag row there is nothing to reference. Reject.
                 return 404, {"detail": "unknown_tag"}
+            if not await area_allowed(tc, user_id, tag.id):
+                return 403, {"detail": "area_forbidden"}
             site_id = tag.site_id  # composite FK pins tag to its own site
             active = await tc.fetchval(
                 "SELECT id FROM commands WHERE tag_id=$1 AND status = ANY($2::text[])",

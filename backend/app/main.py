@@ -73,6 +73,7 @@ from .vision.models import router as models_router
 from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
+from .plant.hierarchy import router as hierarchy_router
 from .plant.routes import router as plant_router
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
@@ -1728,6 +1729,7 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
 app.include_router(datasources_router)
 app.include_router(videos_router)
 app.include_router(plant_router)
+app.include_router(hierarchy_router)
 app.include_router(cameras_router)
 app.include_router(material_router)
 app.include_router(artifacts_router)

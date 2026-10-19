@@ -525,3 +525,35 @@ export interface SiteCommand {
 export interface SiteCommandEvent {
   from: string | null; to: string; actor: string; reason: string | null; at: string;
 }
+
+// ── ISA-95 hierarchy (spec 2026-10-19 §5) ────────────────────────────────────
+
+export type LineKind = 'line' | 'cell' | 'unit';
+export interface HEquipment { id: string; name: string; kind: string | null; tags: number; alarms: number; parts: number; tag_paths?: string[] }
+export interface HLine { id: string; name: string; kind: LineKind; tags: number; alarms: number; equipment: HEquipment[] }
+export interface HArea { id: string; site_id: string; name: string; code: string; sort: number; tags: number; alarms: number; lines: HLine[] }
+
+const hSite = (org: string, site: string, path: string) => v2(org, `/sites/${site}${path}`);
+const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
+
+export const hierarchyApi = {
+  tree: (org: string, site: string, tags = false) =>
+    request<{ areas: HArea[] }>(hSite(org, site, `/hierarchy${tags ? '?tags=true' : ''}`)),
+  createArea: (org: string, site: string, b: { name: string; code: string }) =>
+    request<{ id: string }>(hSite(org, site, '/areas'), json('POST', b)),
+  deleteArea: (org: string, site: string, id: string) =>
+    request<void>(hSite(org, site, `/areas/${id}`), { method: 'DELETE' }),
+  createLine: (org: string, site: string, b: { name: string; area_id: string; kind?: LineKind }) =>
+    request<{ id: string }>(hSite(org, site, '/lines'), json('POST', b)),
+  moveLine: (org: string, site: string, id: string, b: { area_id?: string; kind?: LineKind }) =>
+    request<unknown>(hSite(org, site, `/lines/${id}`), json('PATCH', b)),
+  createDevice: (org: string, site: string, b: { name: string; line_id: string; kind?: string }) =>
+    request<{ id: string }>(hSite(org, site, '/devices'), json('POST', b)),
+  moveDevice: (org: string, site: string, id: string, b: { line_id?: string; kind?: string }) =>
+    request<unknown>(hSite(org, site, `/devices/${id}`), json('PATCH', b)),
+  moveTags: (org: string, site: string, b: { tag_ids: string[]; device_id: string }) =>
+    request<{ moved: number }>(hSite(org, site, '/tags/move'), json('POST', b)),
+  grants: (org: string) => request<{ grants: Record<string, string[]> }>(v2(org, '/area-grants')),
+  setGrants: (org: string, user: string, area_ids: string[]) =>
+    request<unknown>(v2(org, `/members/${user}/area-grants`), json('PUT', { area_ids })),
+};

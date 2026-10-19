@@ -13,12 +13,13 @@ Spec: `docs/superpowers/specs/2026-10-19-scada-parity-design.md`
 - [ ] **ค้าง:** ทดสอบ flow จริงกับ Keycloak (ต้องรัน docker) — สลับ realm แล้วต้อง re-import realm
 - ตัดจาก spec: ปุ่ม reset MFA ในแอป (ใช้ Keycloak console แทน backend ไม่ถือสิทธิ์ realm-admin), max-age ราย org, auto-resume คำสั่งหลัง step-up
 
-## P1 — ISA-95 hierarchy + area permissions
-1. Migration 0051: `areas`, `lines.area_id` (backfill area `default` ต่อ site แล้ว NOT NULL), `lines.kind`, `devices.kind`, `plant_parts.device_id`, `area_grants` + RLS policies
-2. Router `backend/app/plant/hierarchy.py`: CRUD areas, `GET /sites/{site}/hierarchy` (tree + tag/alarm count), area grants CRUD
-3. `commands.issue` path: หา area ของ tag → ตรวจ grant (`deps.area_gate`)
-4. Web: Asset tree ใน `features/catalog`, scope selector เพิ่ม Area/Line, bulk "ย้ายไป Equipment" ในหน้า Tags, matrix สิทธิ์ใน Users
-5. Tests: contract area_gate, tenancy cross-org areas/grants
+## P1 — ISA-95 hierarchy + area permissions ✅ เสร็จ
+1. [x] Migration 0051: `areas`, `lines.area_id` (backfill `default` แล้ว NOT NULL + trigger ใส่ default area ให้ INSERT เดิม), `lines.kind`, `devices.kind`, `plant_parts.device_id`, `area_grants` + RLS
+2. [x] `backend/app/plant/hierarchy.py`: CRUD areas/lines/devices, `GET /sites/{site}/hierarchy` (`?tags=true` ให้ path ต่อ equipment), `POST /tags/move`, area grants GET/PUT
+3. [x] `area_allowed` เรียกใน `CommandManager.issue` (403 `area_forbidden`) — recipe/sequence จะเรียกตัวเดียวกันใน P6
+4. [x] Web: หน้า Plant structure (`/structure`, ไม่ใช้ `/assets` เพราะชนกับ `/assets/` ของ Vite บน nginx), ย้ายด้วย select + confirm, quick start, scope picker เพิ่ม Area/Line, bulk "ย้ายไปที่เครื่องจักร" ในหน้า Tags, matrix สิทธิ์ใน Security › Access
+5. [x] Tests: contract `test_hierarchy.py`, tenancy `test_hierarchy.py` (cross-org, default area, FK, rule)
+- ยังไม่ทำ: drag-and-drop ในต้นไม้ (ใช้ select + confirm แทนเพื่อให้ใช้ด้วยคีย์บอร์ดได้); ยังไม่มี integration test ยิง command ผ่าน HTTP ด้วย operator ที่ถูกจำกัดพื้นที่
 
 ## P2 — TimescaleDB historian
 1. Spike: image `timescale/timescaledb:2.x-pg16`, ยืนยัน RLS บน hypertable + compressed chunk (`tests/tenancy`) — ไม่ผ่าน → native partition
