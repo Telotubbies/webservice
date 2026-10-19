@@ -388,8 +388,8 @@ export function AlarmsPage() {
             <Card pad={false}>
               {rows.length === 0 ? (
                 <EmptyState
-                  title={state === 'active' && !q ? t('alarms.emptyActive') : t('alarms.empty')}
-                  body={state === 'active' && !q ? t('alarms.emptyActiveBody') : t('alarms.emptyFilteredBody')}
+                  title={ws !== 'open' ? t('alarms.emptyUnknown') : state === 'active' && !q ? t('alarms.emptyActive') : t('alarms.empty')}
+                  body={ws !== 'open' ? t('alarms.emptyUnknownBody') : state === 'active' && !q ? t('alarms.emptyActiveBody') : t('alarms.emptyFilteredBody')}
                 />
               ) : (
                 <>

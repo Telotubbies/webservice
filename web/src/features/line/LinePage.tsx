@@ -64,12 +64,20 @@ function EquipmentCard({ id, selected, onSelect }: { id: EquipmentId; selected: 
   );
 }
 
+const SP_MIN = 0;
+const SP_MAX = 60;
+
+/** Gated write controls (start / stop / speed setpoint). When the role or
+ *  link can't operate, the whole card collapses to a reason note. */
 function Controls() {
   const { t, i18n } = useTranslation();
   const gate = useControlGate();
   const { send, tracked, error, busy } = useCommand();
   const [sp, setSp] = useState('40');
   const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmStart, setConfirmStart] = useState(false);
+  const [pendingSp, setPendingSp] = useState<number | null>(null);
+  const [spError, setSpError] = useState('');
   useStore(() => live.version);
   const currentSp = live.latest.get(T.speedSp);
 
@@ -85,12 +93,32 @@ function Controls() {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-2">
-        <button className="btn flex-1 justify-center" disabled={busy} onClick={() => void send(T.running, true)}>
+        <button className="btn flex-1 justify-center" disabled={busy} onClick={() => setConfirmStart(true)}>
           <Icon name="play" size={14} /> {t('control.start')}
         </button>
         <button className="btn btn-danger flex-1 justify-center" disabled={busy} onClick={() => setConfirmStop(true)}>
           <Icon name="stop" size={14} /> {t('control.stop')}
         </button>
+        {confirmStart && (
+          <Confirm
+            title={t('control.confirmStartTitle')}
+            body={t('control.startConsequence')}
+            confirm={t('control.start')}
+            danger={false}
+            onYes={() => { setConfirmStart(false); void send(T.running, true); }}
+            onNo={() => setConfirmStart(false)}
+          />
+        )}
+        {pendingSp !== null && (
+          <Confirm
+            title={t('control.confirmWriteTitle')}
+            body={`${t('control.writeConsequence')} ${t('control.to')}: ${pendingSp} Hz`}
+            confirm={t('control.confirm')}
+            danger={false}
+            onYes={() => { const v = pendingSp; setPendingSp(null); void send(T.speedSp, v); }}
+            onNo={() => setPendingSp(null)}
+          />
+        )}
         {confirmStop && (
           <Confirm
             title={t('control.confirmStopTitle')}
@@ -101,17 +129,32 @@ function Controls() {
           />
         )}
       </div>
-      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); const v = Number(sp); if (!Number.isNaN(v)) void send(T.speedSp, v); }}>
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          // Number('') === 0, so blank input must be rejected explicitly.
+          const v = sp.trim() === '' ? NaN : Number(sp);
+          if (!Number.isFinite(v) || v < SP_MIN || v > SP_MAX) {
+            setSpError(t('control.outOfRange', { min: SP_MIN, max: SP_MAX }));
+            return;
+          }
+          setSpError('');
+          setPendingSp(v);
+        }}
+      >
         <input
-          className="input num flex-1" value={sp} onChange={(e) => setSp(e.target.value)}
+          className="input num flex-1" value={sp} onChange={(e) => { setSp(e.target.value); setSpError(''); }}
+          aria-invalid={spError !== ''}
           aria-label={t('control.newValue')} inputMode="decimal"
         />
         <button className="btn btn-ghost" type="submit" disabled={busy}>{t('control.apply')}</button>
       </form>
       <p className="text-[10px] text-ink-46">
-        {t('control.range', { min: 0, max: 60, unit: 'Hz' })}
+        {t('control.range', { min: SP_MIN, max: SP_MAX, unit: 'Hz' })}
         {currentSp && ` · ${t('line.nowHz', { v: formatSignal(T.speedSp, currentSp.v, i18n.language) })}`}
       </p>
+      {spError && <p className="notice notice-error" role="alert">{spError}</p>}
       {tracked && (
         <p className="flex items-center gap-2 text-[11px] text-ink-46">
           {t('control.sent')} <LifecyclePill status={tracked.status} />

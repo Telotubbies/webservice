@@ -8,7 +8,7 @@
 //   410          -> already used or expired
 //   404          -> bad signature / unknown link
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { getToken, onUnauthorized } from '../../lib/api';
@@ -16,18 +16,23 @@ import { Card } from '../../shared/ui/Page';
 import { PageSkeleton } from '../../shared/ui/Feedback';
 import './i18n';
 
-type Phase = 'working' | 'acked' | 'auth' | 'gone' | 'used' | 'error';
+type Phase = 'ready' | 'working' | 'acked' | 'auth' | 'gone' | 'used' | 'error';
 
 export function AckLinkPage() {
   const { t } = useTranslation();
   const { token } = useParams();
-  const [phase, setPhase] = useState<Phase>('working');
+  const [phase, setPhase] = useState<Phase>('ready');
   const [alarmId, setAlarmId] = useState<string | null>(null);
+  // The token is single-use, so the effect must not fire twice — this ref
+  // survives StrictMode's double-invoke where a state flag would not.
   const fired = useRef(false);
 
-  useEffect(() => {
+  // Opening the link must never acknowledge: chat and SMS previewers fetch
+  // URLs on their own. Only the tap below sends the POST.
+  const commit = () => {
     if (fired.current || !token) return;
     fired.current = true;
+    setPhase('working');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const tk = getToken();
     if (tk) headers.Authorization = `Bearer ${tk}`;
@@ -41,14 +46,21 @@ export function AckLinkPage() {
         setPhase('error');
       })
       .catch(() => setPhase('error'));
-  }, [token]);
+  };
 
-  const retry = () => { fired.current = false; setPhase('working'); };
+  const retry = () => { fired.current = false; commit(); };
 
   return (
     <div className="grid min-h-[calc(100svh-36px)] place-items-center p-4">
       <div className="w-full max-w-sm">
       <Card>
+        {phase === 'ready' && (
+          <div className="text-center">
+            <p className="text-[14px] font-semibold">{t('ack.confirmTitle')}</p>
+            <p className="mt-1 text-[12px] text-ink-68">{t('ack.confirmBody')}</p>
+            <button type="button" className="btn mt-4 min-h-12 w-full justify-center text-[15px]" onClick={commit}>{t('ack.confirmBtn')}</button>
+          </div>
+        )}
         {phase === 'working' && <PageSkeleton rows={2} />}
         {phase === 'acked' && (
           <div className="text-center">
