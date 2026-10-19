@@ -12,7 +12,8 @@
 import {
   InMemoryWebStorage, User, UserManager, WebStorageStateStore,
 } from 'oidc-client-ts';
-import { getToken, setSessionToken, setUnauthorizedHandler } from '../../lib/api';
+import { getToken, setSessionToken, setStepUpHandler, setUnauthorizedHandler } from '../../lib/api';
+import i18n from '../../lib/i18n';
 import { live } from '../../lib/live';
 
 export interface AuthConfig {
@@ -109,6 +110,7 @@ export function initAuth(): Promise<AuthConfig> {
         setSessionToken('');
         live.bumpAuth();
       });
+      setStepUpHandler(stepUp);
     } else {
       setUnauthorizedHandler(() => {
         setSessionToken('');
@@ -166,7 +168,7 @@ export function restoreSession(): Promise<boolean> {
 
 /** For the WS 4401 path: get a fresh access token or report dead session. */
 export async function ensureFreshToken(): Promise<boolean> {
-  if (!mgr) return false; // dev tokens never expire — a 4401 means real failure
+  if (!mgr) return false; // Dev tokens never expire — a 4401 means real failure.
   try {
     const user = await mgr.signinSilent();
     if (user?.access_token) {
@@ -180,18 +182,41 @@ export async function ensureFreshToken(): Promise<boolean> {
   return false;
 }
 
+const STEPUP_KEY = 'wds.stepUpAt';
+
+/** Re-auth at acr=mfa. `step_up_required` also forces a fresh sign-in
+ * (max_age=0) so auth_time moves. A second bounce within 30s means the IdP
+ * can't satisfy the level — drop the session instead of looping. */
+function stepUp(reason: 'mfa_required' | 'step_up_required'): void {
+  if (!mgr) return;
+  try {
+    const last = Number(sessionStorage.getItem(STEPUP_KEY) || 0);
+    if (Date.now() - last < 30_000) {
+      sessionStorage.removeItem(STEPUP_KEY);
+      setSessionToken('');
+      live.bumpAuth();
+      return;
+    }
+    sessionStorage.setItem(STEPUP_KEY, String(Date.now()));
+  } catch { /* storage blocked — no loop guard, still ask */ }
+  if (reason === 'step_up_required' && !window.confirm(i18n.t('auth.stepUp'))) return;
+  stashReturnTo();
+  void mgr.signinRedirect(reason === 'step_up_required'
+    ? { acr_values: 'mfa', max_age: 0 } : { acr_values: 'mfa' });
+}
+
 export function signInWithSSO(): Promise<void> | undefined {
   stashReturnTo();
   return mgr?.signinRedirect();
 }
 
-/** kc_idp_hint makes Keycloak skip its chooser and go straight to the IdP. */
 /** Keycloak self-registration (OIDC prompt=create). */
 export function signUp(): Promise<void> | undefined {
   stashReturnTo();
   return mgr?.signinRedirect({ prompt: 'create' });
 }
 
+/** kc_idp_hint makes Keycloak skip its chooser and go straight to the IdP. */
 export function signInWithGoogle(): Promise<void> | undefined {
   stashReturnTo();
   return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'google' } });

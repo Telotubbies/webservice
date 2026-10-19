@@ -105,7 +105,8 @@ class FakePool:
 
 def key_row(**kw):
     row = {"id": uuid4(), "org_id": ORG, "user_id": UID, "name": "ci-bot",
-           "expires_at": None, "revoked_at": None, "last_used_at": None}
+           "expires_at": None, "revoked_at": None, "last_used_at": None,
+           "allow_control": False}
     row.update(kw)
     return row
 

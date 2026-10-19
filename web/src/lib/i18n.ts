@@ -8,6 +8,8 @@ export const LANGS = ['en', 'th'] as const;
 export type Lang = (typeof LANGS)[number];
 const LANG_KEY = 'wds.lang';
 
+// ── English dictionary ───────────────────────────────────────────────────────
+
 const en = {
   nav: {
     monitor: 'Monitor', operate: 'Operate', system: 'System',
@@ -88,6 +90,7 @@ const en = {
     body: 'Development sign-in. Paste a demo access token — this path only exists while the backend runs with APP_ENV=dev.',
     token: 'Access token', submit: 'Continue', cancel: 'Cancel',
     demoHint: 'Demo tokens: demo-operator (can operate), demo-viewer (read only).',
+    stepUp: "Confirm it's you. Sending commands to equipment needs a fresh code from your authenticator app.",
     wallTitle: 'Plant Operations Console',
     wallBody: 'Sign in to continue. Anonymous access is disabled.',
     sso: 'Sign in with SSO',
@@ -598,8 +601,7 @@ const en = {
     site: 'Site', create: 'Create device', creating: 'Creating…',
     installTitle: 'Install the edge bridge', 
     envFile: 'edge.env', runCmd: 'Start command', copyEnv: 'Copy edge.env', copyRun: 'Copy command',
-    
-    
+
     installedNext: 'I have started it',
     waiting: 'Waiting for the first heartbeat…', waitingBody: 'This page checks every 3 seconds. Most devices connect within a minute.',
     showInstall: 'Show install steps', finishLater: 'Finish later',
@@ -608,10 +610,7 @@ const en = {
     // technician workflow pass (wizard / list / detail)
     copyFail: 'Copy blocked — select the text and press Ctrl+C', secretOnceTitle: 'Shown only once.',
     stepOf: 'Step {{n}} of {{total}}', stepDone: 'done', cancel: 'Cancel', change: 'Change', typeChosen: 'Connection: {{type}}.',
-    
-    
-    
-    
+
     createNote: 'Creating the device gives you a one-time enrollment code on the next screen. It is valid for 30 minutes and can be re-issued.',
     errBroker: 'The message broker did not accept the change. Wait a minute and try again; if it keeps failing, open System health.',
     errNetwork: 'Cannot reach the server. Check the network connection and try again.',
@@ -629,8 +628,7 @@ const en = {
       s7: 'Once the gateway shows as connected, open Data sources and add the Siemens S7 connection and tags.',
     },
     download: 'Download',
-    
-    
+
     pollStatus: 'Waiting {{elapsed}} · last check {{ago}}',
     pollError: 'Cannot reach the server to check. Still retrying…',
     slowTitle: 'Not connected yet? Check on the gateway:',
@@ -717,6 +715,7 @@ const en = {
     deleteBody: '"{{name}}" will be permanently deleted.', body: 'Notebook body (markdown)', shareOrg: 'Share with the whole organization', emptyBody: 'Empty notebook. Edit to add notes.',
   },
   keys: {
+    allowControl: 'Allow this key to send commands to equipment (you will confirm with your authenticator)',
     title: 'API keys', lede: 'Service accounts for scripts and integrations. A key acts with the role you give it and can be revoked at any time.',
     new: 'New API key', name: 'Name', namePh: 'e.g. Grafana reader', role: 'Role', expires: 'Expires', prefix: 'Key',
     never: 'Never', d30: 'In 30 days', d90: 'In 90 days', d365: 'In 1 year', create: 'Create key', creating: 'Creating…',
@@ -859,6 +858,10 @@ const en = {
   share: { copy: 'Share view', copied: 'Link copied', png: 'Download PNG' },
 };
 
+// ── Thai dictionary ──────────────────────────────────────────────────────────
+// `Dict` ties th to en's shape, so an added English key fails typecheck until
+// it is translated here (and check-i18n catches it in CI either way).
+
 type Dict = typeof en;
 
 const th: Dict = {
@@ -941,6 +944,7 @@ const th: Dict = {
     body: 'การเข้าสู่ระบบสำหรับการพัฒนา วางโทเคนการเข้าถึงตัวอย่าง — วิธีนี้มีเฉพาะตอนที่แบ็กเอนด์รันด้วย APP_ENV=dev เท่านั้น',
     token: 'โทเคนการเข้าถึง', submit: 'ดำเนินการต่อ', cancel: 'ยกเลิก',
     demoHint: 'โทเคนทดลอง: demo-operator (ควบคุมได้), demo-viewer (ดูอย่างเดียว)',
+    stepUp: 'ยืนยันตัวตนอีกครั้ง การสั่งงานเครื่องจักรต้องใช้รหัสจากแอป Authenticator',
     wallTitle: 'คอนโซลปฏิบัติการโรงงาน',
     wallBody: 'เข้าสู่ระบบเพื่อใช้งานต่อ ปิดการเข้าถึงแบบไม่ระบุตัวตนแล้ว',
     sso: 'เข้าสู่ระบบด้วย SSO',
@@ -1450,8 +1454,7 @@ const th: Dict = {
     site: 'ไซต์', create: 'สร้างอุปกรณ์', creating: 'กำลังสร้าง…',
     installTitle: 'ติดตั้ง edge bridge', 
     envFile: 'edge.env', runCmd: 'คำสั่งเริ่มทำงาน', copyEnv: 'คัดลอก edge.env', copyRun: 'คัดลอกคำสั่ง',
-    
-    
+
     installedNext: 'เริ่มทำงานแล้ว',
     waiting: 'กำลังรอสัญญาณแรก…', waitingBody: 'หน้านี้ตรวจทุก 3 วินาที อุปกรณ์ส่วนใหญ่เชื่อมต่อภายในหนึ่งนาที',
     showInstall: 'แสดงขั้นตอนติดตั้ง', finishLater: 'ทำต่อภายหลัง',
@@ -1460,10 +1463,7 @@ const th: Dict = {
     // technician workflow pass (wizard / list / detail)
     copyFail: 'คัดลอกไม่ได้ — ให้เลือกข้อความแล้วกด Ctrl+C', secretOnceTitle: 'แสดงเพียงครั้งเดียว',
     stepOf: 'ขั้นที่ {{n}} จาก {{total}}', stepDone: 'เสร็จแล้ว', cancel: 'ยกเลิก', change: 'เปลี่ยน', typeChosen: 'การเชื่อมต่อ: {{type}}',
-    
-    
-    
-    
+
     createNote: 'เมื่อสร้างอุปกรณ์ คุณจะได้รหัสลงทะเบียนแบบใช้ครั้งเดียวในหน้าถัดไป อายุ 30 นาที และขอรหัสใหม่ได้',
     errBroker: 'โบรกเกอร์ข้อความไม่รับการเปลี่ยนแปลง รอสักครู่แล้วลองใหม่ ถ้ายังไม่ได้ให้เปิดหน้าสถานะระบบ',
     errNetwork: 'ติดต่อเซิร์ฟเวอร์ไม่ได้ ตรวจการเชื่อมต่อเครือข่ายแล้วลองใหม่',
@@ -1481,8 +1481,7 @@ const th: Dict = {
       s7: 'เมื่อเกตเวย์ขึ้นสถานะเชื่อมต่อแล้ว ไปที่ Data sources เพื่อเพิ่มการเชื่อมต่อ Siemens S7 และแท็ก',
     },
     download: 'ดาวน์โหลด',
-    
-    
+
     pollStatus: 'รอมาแล้ว {{elapsed}} · ตรวจล่าสุด {{ago}}',
     pollError: 'ติดต่อเซิร์ฟเวอร์เพื่อตรวจสอบไม่ได้ กำลังลองใหม่…',
     slowTitle: 'ยังไม่เชื่อมต่อ? ให้ตรวจที่เกตเวย์:',
@@ -1569,6 +1568,7 @@ const th: Dict = {
     deleteBody: 'จะลบ "{{name}}" ถาวร', body: 'เนื้อหา (markdown)', shareOrg: 'แชร์ทั้งองค์กร', emptyBody: 'สมุดบันทึกว่าง กดแก้ไขเพื่อเพิ่มบันทึก',
   },
   keys: {
+    allowControl: 'อนุญาตให้คีย์นี้สั่งงานเครื่องจักร (ต้องยืนยันด้วยแอป Authenticator)',
     title: 'คีย์ API', lede: 'บัญชีบริการสำหรับสคริปต์และระบบเชื่อมต่อ คีย์ทำงานตามบทบาทที่กำหนดและเพิกถอนได้ทุกเมื่อ',
     new: 'สร้างคีย์ API', name: 'ชื่อ', namePh: 'เช่น ตัวอ่านของ Grafana', role: 'บทบาท', expires: 'หมดอายุ', prefix: 'คีย์',
     never: 'ไม่หมดอายุ', d30: 'ใน 30 วัน', d90: 'ใน 90 วัน', d365: 'ใน 1 ปี', create: 'สร้างคีย์', creating: 'กำลังสร้าง…',
@@ -1710,6 +1710,8 @@ const th: Dict = {
 };
 
 export const resources = { en: { translation: en }, th: { translation: th } };
+
+// ── Init ─────────────────────────────────────────────────────────────────────
 
 function initialLang(): Lang {
   const saved = localStorage.getItem(LANG_KEY);

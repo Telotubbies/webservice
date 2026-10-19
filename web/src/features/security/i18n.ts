@@ -78,6 +78,7 @@ i18n.addResourceBundle('en', 'translation', { sec: {
   colWhen: 'When', colActor: 'Actor', colAction: 'Action', colName: 'Name', colPrefix: 'Prefix', colLastUsed: 'Last used', colExpires: 'Expires',
   colState: 'State', colMember: 'Member', colRole: 'Role', colKind: 'Sign-in', colMfa: 'MFA', active: 'Active', revoked: 'Revoked', disabled: 'Disabled',
   kindKey: 'Token', kindSso: 'SSO', mfaIdp: 'Enforced at IdP',
+  mfaRequire: 'Require two-factor authentication for everyone', mfaYouOn: 'Your current session used two-factor sign-in.', mfaYouOff: 'Your current session did not use two-factor sign-in. Turning this on will ask you to set up an authenticator app first.',
 } });
 
 i18n.addResourceBundle('th', 'translation', { sec: {
@@ -151,4 +152,5 @@ i18n.addResourceBundle('th', 'translation', { sec: {
   colWhen: 'เมื่อ', colActor: 'ผู้กระทำ', colAction: 'การกระทำ', colName: 'ชื่อ', colPrefix: 'คำนำหน้า', colLastUsed: 'ใช้ล่าสุด', colExpires: 'หมดอายุ',
   colState: 'สถานะ', colMember: 'สมาชิก', colRole: 'บทบาท', colKind: 'การเข้าสู่ระบบ', colMfa: 'MFA', active: 'ใช้งาน', revoked: 'เพิกถอนแล้ว', disabled: 'ปิดใช้งาน',
   kindKey: 'โทเคน', kindSso: 'SSO', mfaIdp: 'บังคับที่ IdP',
+  mfaRequire: 'บังคับให้ทุกคนใช้การยืนยันตัวตนสองขั้นตอน', mfaYouOn: 'เซสชันนี้เข้าสู่ระบบด้วยการยืนยันตัวตนสองขั้นตอนแล้ว', mfaYouOff: 'เซสชันนี้ยังไม่ได้ใช้การยืนยันตัวตนสองขั้นตอน เมื่อเปิดใช้ ระบบจะให้คุณตั้งค่าแอป Authenticator ก่อน',
 } });

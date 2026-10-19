@@ -50,6 +50,10 @@ class Principal:
     user_id: UUID | None = None
     org_roles: tuple = field(default_factory=tuple)  # ((org_id, role), ...)
     exp: float = 0.0   # JWT exp (epoch s); 0 = never expires (dev tokens)
+    acr: str = ""      # OIDC acr: "mfa" after a TOTP step (Keycloak LoA map)
+    auth_time: float = 0.0  # epoch s of the last interactive sign-in
+    mfa_orgs: frozenset = frozenset()  # member orgs with mfa_required
+    allow_control: bool = False  # API keys only: may issue commands
 
     ROLE_NONE = ROLE_NONE
 

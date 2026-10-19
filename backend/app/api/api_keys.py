@@ -1,4 +1,4 @@
-"""v2 admin API: api keys routes. Moved verbatim from main.py."""
+"""v2 admin API: API keys — service accounts for machine callers. Moved verbatim from main.py."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from pydantic import Field
 import hashlib
 import secrets
 import uuid
-from ..deps import _CONFIG, _mutation_gate, _uuid_or_404, _v2_org, org_tx, require_user
+from ..deps import _CONFIG, _mutation_gate, step_up, _uuid_or_404, _v2_org, org_tx, require_user
 from fastapi import APIRouter
 
 router = APIRouter()
@@ -38,11 +38,13 @@ class ApiKeyIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     role: str = "viewer"
     expires_days: int | None = Field(default=None, ge=1, le=730)
+    allow_control: bool = False  # may issue commands; creator must pass step-up
 
 
 def _key_json(r) -> dict:
     return {"id": str(r["id"]), "name": r["name"], "prefix": r["prefix"],
-            "role": r["role"], "created_at": iso_z(r["created_at"]),
+            "role": r["role"], "allow_control": r["allow_control"],
+            "created_at": iso_z(r["created_at"]),
             "expires_at": iso_z(r["expires_at"]) if r["expires_at"] else None,
             "last_used_at": iso_z(r["last_used_at"]) if r["last_used_at"] else None,
             "revoked_at": iso_z(r["revoked_at"]) if r["revoked_at"] else None}
@@ -60,7 +62,7 @@ async def v2_list_api_keys(org: str, request: Request,
     _no_service_accounts(p)
     async with org_tx(request, org_id) as tc:
         rows = await tc.fetch(
-            "SELECT k.id, k.name, k.prefix, k.created_at, k.expires_at,"
+            "SELECT k.id, k.name, k.prefix, k.created_at, k.expires_at, k.allow_control,"
             " k.last_used_at, k.revoked_at, m.role FROM api_keys k"
             " LEFT JOIN memberships m ON m.user_id = k.user_id"
             " ORDER BY k.created_at DESC LIMIT 500")
@@ -75,6 +77,10 @@ async def v2_create_api_key(org: str, body: ApiKeyIn, request: Request,
     _no_service_accounts(p)
     if body.role not in API_KEY_ROLES:
         raise HTTPException(400, "invalid_request: role")
+    if body.allow_control:
+        if body.role == "viewer":
+            raise HTTPException(400, "invalid_request: allow_control needs operator or admin")
+        step_up(p)
     await _mutation_gate(request, p.user_id)
     secret = API_KEY_PREFIX + secrets.token_urlsafe(32)
     expires = (utcnow() + timedelta(days=body.expires_days)) if body.expires_days else None
@@ -88,13 +94,17 @@ async def v2_create_api_key(org: str, body: ApiKeyIn, request: Request,
         await tc.execute("INSERT INTO memberships(org_id, user_id, role) VALUES ($1,$2,$3)",
                          org_id, uid, body.role)
         row = await tc.fetchrow(
-            "INSERT INTO api_keys(org_id, user_id, name, prefix, key_hash, created_by, expires_at)"
-            " VALUES ($1,$2,$3,$4,$5,$6,$7)"
-            " RETURNING id, name, prefix, created_at, expires_at, last_used_at, revoked_at",
+            "INSERT INTO api_keys(org_id, user_id, name, prefix, key_hash, created_by,"
+            " expires_at, allow_control) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"
+            " RETURNING id, name, prefix, created_at, expires_at, last_used_at, revoked_at,"
+            " allow_control",
             org_id, uid, body.name, secret[:len(API_KEY_PREFIX) + 6],
-            hashlib.sha256(secret.encode()).hexdigest(), p.user_id, expires)
+            hashlib.sha256(secret.encode()).hexdigest(), p.user_id, expires,
+            body.allow_control)
         await audit.append(tc, f"user:{p.user_id}", "api_key.created",
-                           {"key_id": str(row["id"])}, {"name": body.name, "role": body.role})
+                           {"key_id": str(row["id"])},
+                           {"name": body.name, "role": body.role,
+                            "allow_control": body.allow_control})
     return {"key": _key_json({**dict(row), "role": body.role}), "secret": secret}
 
 

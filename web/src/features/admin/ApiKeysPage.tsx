@@ -27,6 +27,7 @@ export function ApiKeysPage() {
   const [name, setName] = useState('');
   const [role, setRole] = useState('viewer');
   const [days, setDays] = useState('90');
+  const [control, setControl] = useState(false);
   const [err, setErr] = useState('');
   const [fresh, setFresh] = useState<{ key: ApiKey; secret: string } | null>(null);
   const [revoke, setRevoke] = useState<ApiKey | null>(null);
@@ -37,7 +38,7 @@ export function ApiKeysPage() {
     enabled: !!orgId && canAdmin(orgRole ?? 'none'),
   });
   const create = useMutation({
-    mutationFn: () => adminApi.createApiKey(orgId!, { name: name.trim(), role, expires_days: days ? Number(days) : null }),
+    mutationFn: () => adminApi.createApiKey(orgId!, { name: name.trim(), role, expires_days: days ? Number(days) : null, allow_control: control && role !== 'viewer' }),
     onSuccess: (r) => { setFresh({ key: r.key, secret: r.secret }); setName(''); setErr(''); void qc.invalidateQueries({ queryKey: ['api-keys'] }); },
     onError: (e) => setErr(explainError(t, e)),
   });
@@ -104,6 +105,11 @@ export function ApiKeysPage() {
                 {EXPIRY.map(([v, k]) => <option key={v} value={v}>{t(k)}</option>)}
               </select>
             </div>
+            <label className="flex items-center gap-2 text-[12px] sm:col-span-4">
+              <input type="checkbox" checked={control && role !== 'viewer'} disabled={role === 'viewer'}
+                onChange={(e) => setControl(e.target.checked)} />
+              {t('keys.allowControl')}
+            </label>
             <button type="submit" className="btn" aria-disabled={!name.trim() || create.isPending || undefined}>
               <DdIcon name="plus" size={12} /> {create.isPending ? t('keys.creating') : t('keys.create')}
             </button>

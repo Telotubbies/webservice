@@ -193,6 +193,10 @@ IDPS: list[str] = [
 JWKS_TTL_S = float(os.environ.get("JWKS_TTL_S", "600"))        # ADR-12 §5
 JWKS_REFETCH_MIN_S = float(os.environ.get("JWKS_REFETCH_MIN_S", "30"))
 AUTHZ_TTL_S = float(os.environ.get("AUTHZ_TTL_S", "5"))        # ≤5s revocation SLA
+# Step-up (spec 2026-10-19 §4): commands need acr=mfa signed in within this
+# window. Always on outside dev/test; dev/test opt in (password-grant harness).
+STEPUP_REQUIRED = APP_ENV not in ("dev", "test") or os.environ.get("STEPUP_REQUIRED") == "1"
+STEPUP_MAX_AGE_S = int(os.environ.get("STEPUP_MAX_AGE_S", "900"))
 # WS revalidation sweep (v4 T14, ADR-12 §7): a NOTIFY lost while the LISTEN
 # connection reconnects is gone forever — connected clients are re-checked
 # against revoked_sessions/disabled_at/memberships on this cadence, so the

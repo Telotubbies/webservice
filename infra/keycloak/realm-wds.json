@@ -24,9 +24,18 @@
   },
   "roles": {
     "realm": [
-      { "name": "wds-admin", "description": "WDS demo role marker" },
-      { "name": "wds-operator", "description": "WDS demo role marker" },
-      { "name": "wds-viewer", "description": "WDS demo role marker" }
+      {
+        "name": "wds-admin",
+        "description": "WDS demo role marker"
+      },
+      {
+        "name": "wds-operator",
+        "description": "WDS demo role marker"
+      },
+      {
+        "name": "wds-viewer",
+        "description": "WDS demo role marker"
+      }
     ]
   },
   "clients": [
@@ -80,12 +89,32 @@
             "access.token.claim": "true",
             "included.client.audience": "wds-api"
           }
+        },
+        {
+          "name": "auth_time",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usersessionmodel-note-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.session.note": "AUTH_TIME",
+            "claim.name": "auth_time",
+            "jsonType.label": "long",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ],
       "defaultClientScopes": [
-        "web-origins", "acr", "profile", "email", "roles"
+        "web-origins",
+        "acr",
+        "profile",
+        "email",
+        "roles"
       ],
-      "optionalClientScopes": ["offline_access"]
+      "optionalClientScopes": [
+        "offline_access"
+      ]
     },
     {
       "clientId": "wds-api",
@@ -108,7 +137,9 @@
       "emailVerified": true,
       "firstName": "Demo",
       "lastName": "Admin",
-      "realmRoles": ["wds-admin"]
+      "realmRoles": [
+        "wds-admin"
+      ]
     },
     {
       "username": "operator@demo",
@@ -117,7 +148,9 @@
       "emailVerified": true,
       "firstName": "Demo",
       "lastName": "Operator",
-      "realmRoles": ["wds-operator"]
+      "realmRoles": [
+        "wds-operator"
+      ]
     },
     {
       "username": "viewer@demo",
@@ -126,7 +159,131 @@
       "emailVerified": true,
       "firstName": "Demo",
       "lastName": "Viewer",
-      "realmRoles": ["wds-viewer"]
+      "realmRoles": [
+        "wds-viewer"
+      ]
     }
-  ]
+  ],
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "otpPolicyLookAheadWindow": 1,
+  "browserFlow": "browser-loa",
+  "attributes": {
+    "acr.loa.map": "{\"pwd\": 1, \"mfa\": 2}"
+  },
+  "authenticatorConfig": [
+    {
+      "alias": "loa1",
+      "config": {
+        "loa-condition-level": "1",
+        "loa-max-age": "36000"
+      }
+    },
+    {
+      "alias": "loa2",
+      "config": {
+        "loa-condition-level": "2",
+        "loa-max-age": "36000"
+      }
+    }
+  ],
+  "authenticationFlows": [
+    {
+      "alias": "browser-loa",
+      "description": "spec 2026-10-19 §4 step-up",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "auth-cookie"
+        },
+        {
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "authenticatorFlow": true,
+          "userSetupAllowed": false,
+          "flowAlias": "browser-loa forms"
+        }
+      ]
+    },
+    {
+      "alias": "browser-loa forms",
+      "description": "spec 2026-10-19 §4 step-up",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "CONDITIONAL",
+          "priority": 10,
+          "authenticatorFlow": true,
+          "userSetupAllowed": false,
+          "flowAlias": "browser-loa level1"
+        },
+        {
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "authenticatorFlow": true,
+          "userSetupAllowed": false,
+          "flowAlias": "browser-loa level2"
+        }
+      ]
+    },
+    {
+      "alias": "browser-loa level1",
+      "description": "spec 2026-10-19 §4 step-up",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "conditional-level-of-authentication",
+          "authenticatorConfig": "loa1"
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "auth-username-password-form"
+        }
+      ]
+    },
+    {
+      "alias": "browser-loa level2",
+      "description": "spec 2026-10-19 §4 step-up",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "conditional-level-of-authentication",
+          "authenticatorConfig": "loa2"
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "auth-otp-form"
+        }
+      ]
+    }
+  ],
+  "passwordPolicy": "length(12) and notUsername and notEmail"
 }

@@ -7,6 +7,7 @@ back into main (no import cycle). main re-exports every name for compat.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -86,6 +87,7 @@ async def _scope(request: Request) -> Scope:
     if org_h is None and site_h is None:
         if not p.member:
             raise ForbiddenError("not a member of this organization")
+        mfa_gate(p, config.V1_ORG_ID)
         return Scope(p, config.V1_ORG_ID, config.V1_SITE_ID, p.role)
     if not (org_h and site_h):
         raise HTTPException(400, "x-wds-org and x-wds-site go together")
@@ -93,6 +95,7 @@ async def _scope(request: Request) -> Scope:
     role = _effective_org_roles(p).get(org_id)
     if role is None:
         raise HTTPException(404, "not found")
+    mfa_gate(p, org_id)
     reg = st(request).registry
     await reg.maybe_refresh()
     if reg.site_org(site_id) is None:
@@ -161,11 +164,34 @@ def _v2_org(org: str, p: Principal, need: str = _READ) -> UUID:
     role = _effective_org_roles(p).get(org_id)
     if role is None:
         raise HTTPException(404, "not found")
+    mfa_gate(p, org_id)
     if need == _OPERATE and role not in OPERATOR_ROLES:
         raise ForbiddenError("operator role required in this org")
     if need == _CONFIG and role not in CONFIG_ROLES:
         raise ForbiddenError("config:write requires admin or owner")
     return org_id
+
+
+def mfa_gate(p: Principal, org_id: UUID) -> None:
+    """Org policy (spec 2026-10-19 §4): a member of an org that requires
+    MFA must hold an acr=mfa token for every route of that org. Only OIDC
+    users sign in interactively; API keys are governed by allow_control."""
+    if p.kind == "oidc" and org_id in p.mfa_orgs and p.acr != "mfa":
+        raise HTTPException(401, "mfa_required")
+
+
+def step_up(p: Principal) -> None:
+    """Fresh MFA before equipment-affecting actions (commands, recipe
+    download, sequence start). 401 step_up_required -> the web re-auths with
+    acr_values=mfa&max_age=0 and retries."""
+    if p.kind == "apikey":
+        if not p.allow_control:
+            raise ForbiddenError("apikey_not_allowed")
+        return
+    if p.kind != "oidc" or not config.STEPUP_REQUIRED:
+        return  # dev tokens exist only under APP_ENV=dev
+    if p.acr != "mfa" or time.time() - p.auth_time > config.STEPUP_MAX_AGE_S:
+        raise HTTPException(401, "step_up_required")
 
 
 def _v2_scope(org: str, site: str, p: Principal,

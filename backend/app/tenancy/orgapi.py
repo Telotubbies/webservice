@@ -226,6 +226,42 @@ def _export_json(r) -> dict:
             "expires_at": iso_z(r["expires_at"]) if r["expires_at"] else None}
 
 
+class SecurityPatch(BaseModel):
+    mfa_required: bool
+
+
+@router.get(_O + "/security")
+async def get_security(org: str, request: Request, p=Depends(_user)):
+    m = _m()
+    org_id = m._v2_org(org, p)
+    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
+        req = await tc.fetchval(
+            "SELECT mfa_required FROM organizations WHERE id=$1", org_id)
+    return {"mfa_required": bool(req), "you_have_mfa": p.acr == "mfa"}
+
+
+@router.patch(_O + "/security")
+async def patch_security(org: str, body: SecurityPatch, request: Request,
+                         p=Depends(_user)):
+    """Org-wide two-factor policy (spec 2026-10-19 §4). Turning it on needs
+    the caller's own token to be acr=mfa, so an admin can't lock themselves
+    out with a policy they can't satisfy."""
+    m = _m()
+    org_id = m._v2_org(org, p, m._CONFIG)
+    if p.kind == "apikey":
+        raise ForbiddenError("service accounts cannot change security policy")
+    m.step_up(p)
+    if body.mfa_required and p.kind == "oidc" and p.acr != "mfa":
+        raise HTTPException(401, "step_up_required")
+    await m._mutation_gate(request, p.user_id)
+    async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
+        await tc.execute("UPDATE organizations SET mfa_required=$2 WHERE id=$1",
+                         org_id, body.mfa_required)
+        await audit.append(tc, f"user:{p.user_id}", "mfa.policy_changed",
+                           {"org_id": str(org_id)}, {"mfa_required": body.mfa_required})
+    return {"mfa_required": body.mfa_required}
+
+
 @router.post(_O + "/export", status_code=202)
 async def request_export(org: str, request: Request, p=Depends(_user)):
     """Enqueue an export_zip job; the worker writes org data to EXPORT_DIR

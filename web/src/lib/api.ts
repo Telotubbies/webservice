@@ -10,6 +10,8 @@ import type {
 
 import { scopeHeaders } from './scope';
 
+// ── Session token ────────────────────────────────────────────────────────────
+
 let memToken = '';
 
 export function getToken(): string {
@@ -36,6 +38,15 @@ export let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn;
 }
+
+/** 401 `mfa_required` / `step_up_required` (spec 2026-10-19 §4): the session
+ * is fine but needs a (fresh) second factor — re-auth instead of logging out. */
+export let onStepUp: ((reason: 'mfa_required' | 'step_up_required') => void) | null = null;
+export function setStepUpHandler(fn: typeof onStepUp): void {
+  onStepUp = fn;
+}
+
+// ── Request plumbing ─────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
   status: number;
@@ -68,11 +79,14 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     data = text;
   }
   if (!res.ok) {
-    if (res.status === 401) onUnauthorized?.();
     const detail =
       data && typeof data === 'object' && 'detail' in data
         ? String((data as { detail: unknown }).detail)
         : undefined;
+    if (res.status === 401) {
+      if ((detail === 'mfa_required' || detail === 'step_up_required') && onStepUp) onStepUp(detail);
+      else onUnauthorized?.();
+    }
     throw new ApiError(res.status, data, detail ?? `HTTP ${res.status}`);
   }
   return data as T;
@@ -99,6 +113,8 @@ export async function requestBlob(
   const m = /filename="?([^";]+)"?/.exec(res.headers.get('content-disposition') ?? '');
   return { blob: await res.blob(), filename: m?.[1] ?? null };
 }
+
+// ── v1 API surface ───────────────────────────────────────────────────────────
 
 export interface CommandRequest {
   tag: string;
@@ -167,11 +183,10 @@ export const api = {
     request<Command[]>(`/api/commands?limit=${encodeURIComponent(String(limit))}`),
 };
 
-// ---------------------------------------------------------------------------
-// Admin surface (v4 T10, CONTRACT.v2 §3) — org-scoped member:manage /
-// config:write / audit:read routes. Mutations are admin|owner only; the UI
-// role-gates before fetching so an operator never trips a 403.
-// ---------------------------------------------------------------------------
+// ── Admin surface (v4 T10, CONTRACT.v2 §3) ───────────────────────────────────
+// Org-scoped member:manage / config:write / audit:read routes. Mutations are
+// admin|owner only; the UI role-gates before fetching so an operator never
+// trips a 403.
 export interface V2List<T> { items: T[]; next_cursor: string | null }
 export interface AdminOrg { id: string; name: string; role: string; created_at: string }
 export interface AdminSite { id: string; name: string; code: string; timezone: string }
@@ -240,9 +255,7 @@ export const orgApi = {
     request<CreatedOrg>('/api/v1/orgs', { method: 'POST', body: JSON.stringify(body) }),
 };
 
-// ---------------------------------------------------------------------------
-// Onboarding checklist (roadmap 1.3) — six derived steps per org.
-// ---------------------------------------------------------------------------
+// ── Onboarding checklist (roadmap 1.3) — six derived steps per org ───────────
 export interface OnboardingStep { id: string; done: boolean; href: string }
 export const onboardingApi = {
   get: (org: string) =>
@@ -250,9 +263,7 @@ export const onboardingApi = {
       v2(org, '/onboarding')),
 };
 
-// ---------------------------------------------------------------------------
-// Legal consent (roadmap 8.1) — current required versions + this user's rows.
-// ---------------------------------------------------------------------------
+// ── Legal consent (roadmap 8.1) — required versions + this user's rows ───────
 export interface ConsentStatus {
   required: Record<string, string>;
   given: Record<string, { version: string; at: string }>;
@@ -266,10 +277,8 @@ export const consentApi = {
       '/api/v1/consents', { method: 'POST', body: JSON.stringify({ doc, version }) }),
 };
 
-// ---------------------------------------------------------------------------
-// Unified event feed + edge logs + tag query/stats + public status
+// ── Unified event feed + edge logs + tag query/stats + public status ─────────
 // (Phase 4 "make real" pages).
-// ---------------------------------------------------------------------------
 export interface FeedEvent {
   id: string; ts: string; type: 'alarm' | 'command' | 'config' | 'incident';
   action: string; severity: string | null;
@@ -409,6 +418,8 @@ export interface InferenceResult { tag: string | null; label: string; score: num
 export interface InferenceState { configured: boolean; model?: string; ts?: number; latency_ms?: number; error?: string | null; results?: InferenceResult[] }
 export const inferenceApi = { get: (org: string) => request<InferenceState>(v2(org, '/inference')) };
 
+// ── Admin API calls ──────────────────────────────────────────────────────────
+
 export const adminApi = {
   org: (org: string) => request<AdminOrg>(v2(org, '')),
   sites: (org: string) => request<V2List<AdminSite>>(v2(org, '/sites')),
@@ -427,7 +438,7 @@ export const adminApi = {
   deleteRule: (org: string, site: string, id: string) =>
     request<void>(v2(org, `/sites/${site}/alarm-rules/${id}`), { method: 'DELETE' }),
   apiKeys: (org: string) => request<V2List<ApiKey>>(v2(org, '/api-keys')),
-  createApiKey: (org: string, body: { name: string; role: string; expires_days: number | null }) =>
+  createApiKey: (org: string, body: { name: string; role: string; expires_days: number | null; allow_control?: boolean }) =>
     request<{ key: ApiKey; secret: string }>(v2(org, '/api-keys'), { method: 'POST', body: JSON.stringify(body) }),
   revokeApiKey: (org: string, id: string) => request<void>(v2(org, `/api-keys/${id}`), { method: 'DELETE' }),
   members: (org: string) => request<V2List<Member>>(v2(org, '/members')),
@@ -453,8 +464,6 @@ export const adminApi = {
     if (params.limit != null) q.set('limit', String(params.limit));
     return request<V2List<AuditRow>>(v2(org, `/audit?${q.toString()}`));
   },
-  /** Audit CSV download — streams through fetch with the session token and
-   * hands the caller a Blob for an object-URL anchor. */
   siteHealth: (org: string, site: string) =>
     request<SiteHealth>(v2(org, `/sites/${site}/health`)),
   edges: (org: string, site: string) =>
@@ -466,6 +475,8 @@ export const adminApi = {
   siteCommand: (org: string, site: string, id: string) =>
     request<{ command: SiteCommand & { events: SiteCommandEvent[] } }>(
       v2(org, `/sites/${site}/commands/${encodeURIComponent(id)}`)),
+  /** Audit CSV download — streams through fetch with the session token and
+   * hands the caller a Blob for an object-URL anchor. */
   auditCsv: async (org: string, params: { from?: string; to?: string } = {}): Promise<Blob> => {
     const q = new URLSearchParams();
     q.set('format', 'csv');

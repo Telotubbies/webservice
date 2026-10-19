@@ -107,6 +107,7 @@ from .deps import (
     _authenticate,
     _effective_org_roles,
     _mutation_gate,
+    step_up,
     _scope,
     _site_or_404,
     _uuid_or_404,
@@ -1000,6 +1001,7 @@ async def tag_availability(
 @app.post("/api/commands", status_code=201)
 async def post_command(body: CommandIn, request: Request,
                        sc: Scope = Depends(v1_operate)):
+    step_up(sc.p)
     s = st(request)
     code, resp = await s.commands.issue(
         tag=s.registry.by_display_name(sc.site_id, body.tag),
@@ -1346,6 +1348,7 @@ async def v2_post_command(org: str, site: str, body: CommandInV2,
                           p: Principal = Depends(require_user)):
     """command:issue — operator+ in the PATH org (CONTRACT.v2 §1)."""
     org_id, site_id = _v2_scope(org, site, p, need=_OPERATE)
+    step_up(p)
     tag = await _v2_tag_or_404(request, org_id, site_id, body.tag_id)
     s = st(request)
     code, resp = await s.commands.issue(

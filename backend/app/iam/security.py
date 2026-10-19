@@ -74,9 +74,8 @@ class ForbiddenError(Exception):
         self.detail = detail
 
 
-# ---------------------------------------------------------------------------
-# JWKS
-# ---------------------------------------------------------------------------
+# ── JWKS ──
+
 class JwksCache:
     """Bounded JWKS cache — fail closed when the IdP is unreachable.
 
@@ -181,15 +180,15 @@ class JwtVerifier:
         return claims
 
 
-# ---------------------------------------------------------------------------
-# Authorization record (users + memberships)
-# ---------------------------------------------------------------------------
+# ── Authorization record (users + memberships) ──
+
 @dataclass
 class _AuthzRec:
     at: float
     user_id: UUID
     disabled: bool
     org_roles: dict[UUID, str]
+    mfa_orgs: frozenset = frozenset()
 
 
 class Security:
@@ -228,7 +227,7 @@ class Security:
         while len(self._revoked_sids) > self._REVOKED_SIDS_MAX:
             self._revoked_sids.pop(next(iter(self._revoked_sids)))
 
-    # ------------------------------------------------------------- authenticate
+    # ── Authenticate ──
     async def authenticate(self, token: str | None) -> Principal:
         """Bearer token -> Principal. Raises AuthError (401)."""
         if token and token.startswith(API_KEY_PREFIX):
@@ -281,7 +280,8 @@ class Security:
         try:
             async with key_tx(self.pools.app, h) as conn:
                 k = await conn.fetchrow(
-                    "SELECT id, org_id, user_id, name, expires_at, revoked_at, last_used_at"
+                    "SELECT id, org_id, user_id, name, expires_at, revoked_at, last_used_at,"
+                    " allow_control"
                     " FROM api_keys WHERE key_hash=$1", h)
                 if k is None or k["revoked_at"] is not None:
                     raise AuthError()
@@ -316,7 +316,8 @@ class Security:
             user=k["name"], role=role if org_id == config.V1_ORG_ID else Principal.ROLE_NONE,
             kind="apikey", sub=u["sub"], user_id=k["user_id"],
             org_roles=((org_id, role),),
-            exp=k["expires_at"].timestamp() if k["expires_at"] else 0.0)
+            exp=k["expires_at"].timestamp() if k["expires_at"] else 0.0,
+            allow_control=k["allow_control"])
 
     async def _authorize(self, claims: dict) -> Principal:
         sub, sid = claims["sub"], claims["sid"]
@@ -330,7 +331,10 @@ class Security:
             user=sub, role=role, kind="oidc", sub=sub, sid=sid,
             user_id=rec.user_id,
             org_roles=tuple(rec.org_roles.items()),
-            exp=float(claims.get("exp", 0) or 0))
+            exp=float(claims.get("exp", 0) or 0),
+            acr=str(claims.get("acr") or ""),
+            auth_time=float(claims.get("auth_time", 0) or 0),
+            mfa_orgs=rec.mfa_orgs)
 
     async def _is_revoked(self, sid: str) -> bool:
         if not sid:
@@ -392,17 +396,21 @@ class Security:
         uid = row["id"]
         disabled = row["disabled_at"] is not None
         org_roles: dict[UUID, str] = {}
+        mfa_orgs: frozenset = frozenset()
         if not disabled:
             try:
                 async with user_tx(self.pools.app, uid) as conn:
-                    rows = await conn.fetch("SELECT org_id, role FROM memberships")
+                    rows = await conn.fetch(
+                        "SELECT m.org_id, m.role, o.mfa_required FROM memberships m"
+                        " JOIN organizations o ON o.id = m.org_id")
                 org_roles = {r["org_id"]: r["role"] for r in rows}
+                mfa_orgs = frozenset(r["org_id"] for r in rows if r["mfa_required"])
             except Exception:  # noqa: BLE001
                 log.exception("membership lookup failed — failing closed")
                 raise AuthError("authorization store unavailable") from None
-        return _AuthzRec(time.monotonic(), uid, disabled, org_roles)
+        return _AuthzRec(time.monotonic(), uid, disabled, org_roles, mfa_orgs)
 
-    # ----------------------------------------------------- backchannel logout
+    # ── Backchannel logout ──
     async def verify_logout_token(self, token: str) -> dict:
         """OIDC back-channel logout_token (ADR-12 §7): RS256, iss, aud=wds-web,
         the backchannel event in `events`, NO nonce (spec: a logout token with
@@ -439,7 +447,7 @@ class Security:
         self.on_notify(json.dumps(
             {"type": "session_revoked", "sid": sid, "sub": sub}))
 
-    # --------------------------------------------------------- NOTIFY handling
+    # ── NOTIFY handling ──
     def _notify_cb(self, _conn, _pid, _channel, payload: str) -> None:
         self.on_notify(payload)
 
@@ -505,7 +513,7 @@ class Security:
                 with contextlib.suppress(Exception):
                     await client.ws.close(code=close)
 
-    # ------------------------------------------------ revalidation sweep
+    # ── Revalidation sweep ──
     async def revalidate_ws_clients(self) -> None:
         """Re-read the revocation tables for every connected WS client.
 
@@ -599,7 +607,7 @@ async def authz_listener(security: Security) -> None:
     reload-on-resubscribe pattern as the alarm_rules listener). The
     ``authz_sweep`` task covers the gap between reconnect attempts."""
     while True:
-        conn = None
+        conn = None  # bound up front so the finally clause can test it
         try:
             conn = await security.pools.system.acquire()
             await conn.add_listener(AUTHZ_CHANNEL, security._notify_cb)
