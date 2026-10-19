@@ -10,12 +10,14 @@ import { useAdminOrg } from '../admin/admin';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { PageSkeleton, ErrorState, Notice } from '../../shared/ui/Feedback';
 
+// API cap keys → copy keys; unknown keys fall through to `plat.<key>`.
 const CAP_LABEL: Record<string, string> = {
   max_sites: 'capSites', max_edges: 'capEdges', max_tags: 'capTags',
   max_users: 'capUsers', max_cameras: 'capCameras', max_vision_models: 'capModels',
   gpu_hours_monthly: 'capGpu',
 };
 
+/** One usage-vs-cap row; the bar turns red at 80% of a finite cap. */
 function UsageBar({ label, usage, cap, warn }: {
   label: string; usage: number; cap: number | null; warn: (s: string) => string;
 }) {
@@ -42,6 +44,10 @@ function UsageBar({ label, usage, cap, warn }: {
     </div>
   );
 }
+
+// Set VITE_SUPPORT_EMAIL at build time; without it the upgrade link is hidden
+// rather than pointing at a placeholder address.
+const SUPPORT_EMAIL = (import.meta.env.VITE_SUPPORT_EMAIL as string | undefined) ?? '';
 
 export function PlanPage() {
   const { t } = useTranslation();
@@ -84,10 +90,12 @@ export function PlanPage() {
                 {d.features.sms && <span>{t('plat.featSms')}</span>}
                 {d.features.assistant && <span>{t('plat.featAssistant')}</span>}
               </div>
-              <a className="btn btn-primary mt-3 inline-block h-9 text-[13px] font-semibold"
-                 href="mailto:support@example.com?subject=Plan%20upgrade">
-                {t('plat.upgradeCta')}
-              </a>
+              {SUPPORT_EMAIL && (
+                <a className="btn btn-primary mt-3 inline-block h-9 text-[13px] font-semibold"
+                   href={`mailto:${SUPPORT_EMAIL}?subject=Plan%20upgrade`}>
+                  {t('plat.upgradeCta')}
+                </a>
+              )}
             </Card>
           </>
         )}
