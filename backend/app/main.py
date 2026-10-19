@@ -39,7 +39,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .core import config
 from .iam import consents, orgguard
 from .edge import credpush, edgelogs, enroll_codes
-from .production import eventsfeed, statuspage, tagquery
+from .production import eventsfeed, rollup, statuspage, tagquery
+from .production.rollup import numeric_value
 from .alarming import inference, notify
 from .tenancy import onboarding, orgapi, orgs as orgs_mod, plans, platform as platform_api, workers
 from .alarming.alarms import AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener
@@ -409,7 +410,7 @@ async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
             " WHERE tag_latest.ts < excluded.ts",
             tag.id, tc.org_id, v, q, ts)
         await st.alarms.evaluate(tc, tag.id, v, q, ts)
-    st.history_buf.append((tag.id, ts, edge.org_id, v, q))
+    st.history_buf.append((tag.id, ts, edge.org_id, v, q, numeric_value(v)))
     if len(st.history_buf) >= config.HISTORY_FLUSH_ROWS:
         await _flush_history(st)
     if res.endswith(" 1"):
@@ -487,7 +488,7 @@ async def _flush_history(st: State) -> None:
     for org_id, batch in by_org.items():
         async with tenant_tx(st.pools.system, org_id) as tc:
             await tc.executemany(
-                "INSERT INTO tag_history(tag_id, ts, org_id, v, q) VALUES ($1,$2,$3,$4,$5)"
+                "INSERT INTO tag_history(tag_id, ts, org_id, v, q, vn) VALUES ($1,$2,$3,$4,$5,$6)"
                 " ON CONFLICT (tag_id, ts) DO NOTHING", batch)  # QoS1 replay dedup (I10)
 
 
@@ -545,6 +546,10 @@ async def lifespan(app: FastAPI):
         st.health_event(), org_id=config.V1_ORG_ID)
     st.mqtt.start(asyncio.get_running_loop())
     await st.commands.sweep_interrupted()  # I9 before accepting traffic
+    try:  # ingest must find its month's partition on the very first sample
+        await rollup.ensure_partitions(st.pools)
+    except Exception:  # noqa: BLE001 — rows fall into the default partition meanwhile
+        log.exception("initial history partitions failed — continuing")
     tasks = [
         asyncio.create_task(ingest_worker(st)),
         asyncio.create_task(st.reconciler.run_forever()),
@@ -554,6 +559,11 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_every(config.HISTORY_PRUNE_S,
                                    lambda: plans.retention_prune(st.pools),
                                    "retention prune")),
+        # historian: rollups every minute, next months' partitions daily
+        asyncio.create_task(_every(config.ROLLUP_REFRESH_S,
+                                   lambda: rollup.refresh_all(st.pools), "rollup refresh")),
+        asyncio.create_task(_every(86400.0, lambda: rollup.ensure_partitions(st.pools),
+                                   "history partitions")),
         asyncio.create_task(_every(config.STALE_RULE_CHECK_S, st.alarms.sweep_stale,
                                    "stale-rule sweep")),
         asyncio.create_task(st.insights.run_forever()),

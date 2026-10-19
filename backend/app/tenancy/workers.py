@@ -300,7 +300,7 @@ _EXPORT_QUERIES = {
         " FROM invites",
     "incidents": "SELECT * FROM incidents",
     "tag_history":
-        "SELECT * FROM tag_history"
+        "SELECT tag_id, ts, org_id, v, q FROM tag_history"
         " WHERE ts > now() - ($1 || ' days')::interval"
         " ORDER BY ts DESC LIMIT " + str(config.EXPORT_HISTORY_MAX_ROWS),
 }

@@ -16,7 +16,8 @@ from tenancy.conftest import SYSTEM_DSN, make_pools, run
 _TENANT_TABLES_SQL = """
 SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
 FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'org_id' AND NOT a.attisdropped
-WHERE c.relkind = 'r' AND c.relnamespace = 'public'::regnamespace
+WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition
+  AND c.relnamespace = 'public'::regnamespace
 ORDER BY 1
 """
 
@@ -93,3 +94,15 @@ def test_cross_org_read_and_write_blocked_on_every_table(two_orgs):
         finally:
             await pools.close()
     run(go())
+
+
+def test_history_partitions_are_not_directly_reachable():
+    """Partition children are exempt from the per-table RLS check above only
+    because no app role holds a privilege on them — they are reachable solely
+    through the parent, whose policy applies."""
+    rows = _catalog("""
+        SELECT c.relname, a.privilege_type, a.grantee::regrole::text AS grantee
+        FROM pg_class c, aclexplode(c.relacl) a
+        WHERE c.relispartition AND c.relnamespace = 'public'::regnamespace
+          AND a.grantee::regrole::text IN ('wds_app', 'wds_system')""")
+    assert not rows, f"partitions grant access to app roles: {[dict(r) for r in rows]}"

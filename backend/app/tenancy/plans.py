@@ -28,6 +28,7 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from ..core import config
+from ..production import rollup
 from ..db.context import tenant_tx
 
 log = logging.getLogger("wds.plans")
@@ -161,6 +162,16 @@ def retention_days(plan_row) -> int:
     return features(plan_row)["retention_days"]
 
 
+async def delete_history_batch(tc, cutoff: datetime, batch: int) -> int:
+    """Delete up to `batch` samples older than `cutoff` for the tenant in
+    `tc`. Keyed on the primary key: ctid is only unique within one partition."""
+    return int((await tc.execute(
+        "DELETE FROM tag_history h USING ("
+        "SELECT tag_id, ts FROM tag_history WHERE ts < $1 LIMIT $2) d"
+        " WHERE h.tag_id = d.tag_id AND h.ts = d.ts",
+        cutoff, batch)).split()[-1])
+
+
 async def retention_prune(pools, batch: int | None = None) -> int:
     """Per-org tag_history prune (roadmap §10 6.2): each org keeps its plan's
     retention_days instead of one global window. wds_system, one tx per org
@@ -170,6 +181,7 @@ async def retention_prune(pools, batch: int | None = None) -> int:
         orgs = [r["id"] for r in await conn.fetch(
             "SELECT id FROM organizations WHERE deleted_at IS NULL")]
     total = 0
+    longest = 0
     for org_id in orgs:
         async with tenant_tx(pools.system, org_id) as tc:
             row = await org_plan(tc, org_id)
@@ -179,13 +191,15 @@ async def retention_prune(pools, batch: int | None = None) -> int:
             days=retention_days(row))
         while True:
             async with tenant_tx(pools.system, org_id) as tc:
-                n = int((await tc.execute(
-                    "DELETE FROM tag_history WHERE ctid = ANY(ARRAY("
-                    "SELECT ctid FROM tag_history WHERE ts < $1 LIMIT $2))",
-                    cutoff, batch)).split()[-1])
+                n = await delete_history_batch(tc, cutoff, batch)
             total += n
             if n < batch:
                 break
+        async with tenant_tx(pools.system, org_id) as tc:
+            await rollup.prune_rollups(tc, retention_days(row), datetime.now(timezone.utc))
+        longest = max(longest, retention_days(row))
     if total:
         log.info("tag_history pruned by plan retention", extra={"rows": total})
+    if longest:  # whole months past every plan's window are dropped outright
+        await rollup.drop_expired_partitions(pools, longest)
     return total

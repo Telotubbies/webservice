@@ -69,6 +69,14 @@ Rollback = redeploy the previous revision and restore the pre-migrate dump.
 Migration downgrades are not a data-recovery path. Never edit an applied
 migration; add a new revision (ADR-0001).
 
+**Migration 0052 (historian)** rewrites `tag_history` into monthly partitions and
+copies every row, so it takes about a minute per few million samples and needs
+the free disk space of the table once more while it runs. It has no downgrade:
+the dump `make migrate` takes first is the way back. Postgres image and volume
+are unchanged (ADR-0002). Afterwards the backend refreshes the 1-minute and
+1-hour rollups every `ROLLUP_REFRESH_S` seconds (default 60) and creates the next
+three months of partitions at start-up and daily.
+
 ## 7. Not covered here
 
 Billing and payment, legal pages, and per-tenant retention are tracked in

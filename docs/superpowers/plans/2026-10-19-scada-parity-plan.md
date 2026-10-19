@@ -21,12 +21,17 @@ Spec: `docs/superpowers/specs/2026-10-19-scada-parity-design.md`
 5. [x] Tests: contract `test_hierarchy.py`, tenancy `test_hierarchy.py` (cross-org, default area, FK, rule)
 - ยังไม่ทำ: drag-and-drop ในต้นไม้ (ใช้ select + confirm แทนเพื่อให้ใช้ด้วยคีย์บอร์ดได้); ยังไม่มี integration test ยิง command ผ่าน HTTP ด้วย operator ที่ถูกจำกัดพื้นที่
 
-## P2 — TimescaleDB historian
-1. Spike: image `timescale/timescaledb:2.x-pg16`, ยืนยัน RLS บน hypertable + compressed chunk (`tests/tenancy`) — ไม่ผ่าน → native partition
-2. Migration 0052: extension, `tag_history.vn`, `create_hypertable(migrate_data)`, compression 7d, caggs `tag_rollup_1m/1h`, function `tag_rollup()` SECURITY DEFINER, revoke caggs จาก wds_app
-3. Ingest เขียน `vn`; `tagquery.py` เลือก raw/1m/1h + `"source"` ใน response
-4. compose ×3 + DEPLOY.md + ADR-0002; perf test trend 1 ปี
-5. Web: hint "ค่าเฉลี่ย 1 ชม." บน trend; ขนาดบีบอัดใน Admin › Storage
+## P2 — Historian (partition + rollup) ✅ เสร็จ — **เปลี่ยนจาก TimescaleDB เป็น native partition**
+Spike ผลลัพธ์: hypertable ใช้กับ RLS ได้ แต่ **compression และ continuous aggregate ถูกปฏิเสธบนตารางที่มี RLS**
+→ ใช้ fallback ของ spec ตาม `docs/adr/0002-historian-partitioning.md` (ไม่เปลี่ยน image, ไม่มี Timescale license)
+1. [x] Spike (timescale 2.17.2-pg16, throwaway container) — ผลข้างบน
+2. [x] Migration 0052: `tag_history` PARTITION BY RANGE(ts) รายเดือน + default partition, คอลัมน์ `vn`, `tag_rollup_1m/1h` (RLS ปกติ), ฟังก์ชัน `wds_history_ensure_partitions/drop_before` (SECURITY DEFINER; ย้ายแถวจาก default partition เข้าเดือนใหม่)
+3. [x] Ingest เขียน `vn`; `production/rollup.py` refresh ทุก 60 วิ (advisory lock, 1m←raw, 1h←1m, deep pass ทุกชั่วโมง); `tagquery` เลือก raw/1m/1h + `"source"`; retention ใช้ PK แทน `ctid` + drop partition เก่ากว่าแผนที่ยาวสุด
+4. [x] ADR-0002 + DEPLOY.md (ไม่ต้องเปลี่ยน compose)
+5. [x] Tests: tenancy `test_historian.py` / `test_historian_perf.py` (1 tag × 1 ปี p95 < 500 ms จาก rollup), contract `test_rollup.py`, bun `agg.test.ts`
+6. [x] Web: ช่วงเวลา 1d/7d/30d/1y ใน Trends ใช้ rollup + ข้อความ "แสดงค่าเฉลี่ยราย …"
+- ตัดออก: "บีบอัดแล้ว N เท่า" ใน Admin › Storage (ไม่มี compression); bool ใน agg แสดงเป็นสัดส่วน 0/1 แทน null
+- ยังไม่ทำ: widget บน Dashboard ยังจำกัด 8 ชม. (`RETENTION_MS`); ตรวจหน้า Trends 1y ด้วยภาพจริงไม่สำเร็จ (org switcher ใน dev เต็มไปด้วย org ทดสอบ) ตรวจผ่าน API + unit test แทน
 
 ## P3 — Derived tags
 1. Migration 0053: `tags.source`, `tag_formulas`

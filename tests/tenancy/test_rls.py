@@ -16,7 +16,7 @@ from tenancy.conftest import APP_DSN, SYSTEM_DSN, make_org, make_pools, run
 REPO = Path(__file__).resolve().parents[2]
 
 
-# ---------------------------------------------------------------- context
+# ── Tenant context ──
 
 def test_no_context_no_rows(two_orgs):
     async def go():
@@ -127,7 +127,7 @@ def test_single_call_site():
     assert [p.relative_to(REPO).as_posix() for p in hits] == ["backend/app/db/context.py"]
 
 
-# ---------------------------------------------------------------- catalog
+# ── Catalog ──
 
 def test_force_rls_on_every_tenant_table():
     async def go():
@@ -136,7 +136,8 @@ def test_force_rls_on_every_tenant_table():
             rows = await conn.fetch("""
                 SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
                 FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid
-                WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+                WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                  AND NOT c.relispartition  -- children: see test_rls_coverage
                   AND a.attname = 'org_id' AND NOT a.attisdropped""")
             names = {r["relname"] for r in rows}
             assert {"sites", "tags", "commands", "insights", "audit_log",
@@ -173,7 +174,7 @@ def test_runtime_roles_not_privileged():
     run(go())
 
 
-# ------------------------------------------------------- schema integrity
+# ── Schema integrity ──
 
 def test_composite_fk_rejects_cross_tenant_link(two_orgs):
     a, b = two_orgs
@@ -240,7 +241,7 @@ def test_alarm_rule_must_match_alarm_tag(two_orgs):
     run(go())
 
 
-# ------------------------------------------------------------- insights
+# ── Insights ──
 
 def test_insights_fail_closed_then_own_org_only(two_orgs):
     a, b = two_orgs
@@ -330,7 +331,7 @@ def test_system_role_has_full_insights_access(two_orgs):
     run(go())
 
 
-# --------------------------------------------------------- system role
+# ── System role ──
 
 def test_system_role_edge_lookup_is_column_limited(two_orgs):
     a, b = two_orgs
@@ -363,7 +364,7 @@ def test_app_role_has_no_system_lookup(two_orgs):
     run(go())
 
 
-# ------------------------------------------------------- user / invite
+# ── User / invite ──
 
 def test_user_context_sees_only_member_orgs(two_orgs):
     a, b = two_orgs

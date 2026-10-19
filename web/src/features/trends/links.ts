@@ -3,9 +3,15 @@
 //   /trends?tags=a,b&w=1h            live window
 //   /trends?tags=a&from=<ms>&to=<ms>  fixed window (insight / alarm evidence)
 
-export const WINDOWS = { '15m': 15 * 60e3, '1h': 3600e3, '4h': 4 * 3600e3, '8h': 8 * 3600e3 } as const;
+export const WINDOWS = {
+  '15m': 15 * 60e3, '1h': 3600e3, '4h': 4 * 3600e3, '8h': 8 * 3600e3,
+  // beyond 8 h the series comes from the rollup tables (averages), not raw samples
+  '1d': 24 * 3600e3, '7d': 7 * 24 * 3600e3, '30d': 30 * 24 * 3600e3, '1y': 365 * 24 * 3600e3,
+} as const;
 export type WindowKey = keyof typeof WINDOWS;
 
+/** `/trends` URL for a tag set: a named live window, or a fixed from/to
+ *  range when both epochs are given. */
 export function trendHref(tags: string[], opts: { w?: WindowKey; from?: number; to?: number } = {}): string {
   const p = new URLSearchParams();
   p.set('tags', tags.join(','));

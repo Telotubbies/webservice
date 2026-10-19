@@ -29,6 +29,10 @@ const PICKABLE = Object.keys(SIGNALS).filter((k) => k !== T.running);
 const labelOf = (tag: string, t: (k: string) => string) => (SIGNALS[tag] ? t(SIGNALS[tag].labelKey) : shortName(tag));
 const decimalsOf = (tag: string) => SIGNALS[tag]?.decimals;
 
+/** "1-hour" / "5-minute" for the rollup hint. */
+const bucketLabel = (s: number, t: (k: string, o?: Record<string, unknown>) => string) =>
+  s % 3600 === 0 ? t('viz.bucketHour', { count: s / 3600 }) : t('viz.bucketMin', { count: Math.round(s / 60) });
+
 /** Scale stored engineering values for display (ratio → %), same as tiles. */
 const scalePts = (tag: string, pts: Pt[]): Pt[] =>
   (displayNumber(tag, 1) === 1 ? pts : pts.map((p) => ({ t: p.t, v: displayNumber(tag, p.v) })));
@@ -69,6 +73,8 @@ export function TrendsPage() {
   const fixed = Number.isFinite(fromP) && Number.isFinite(toP) && fromP > 0 && toP > fromP;
   const win = fixed ? { fromMs: fromP, toMs: toP, spanMs: toP - fromP } : { fromMs: 0, toMs: null, spanMs: WINDOWS[w] };
 
+  // The URL is the single source of view state: patch merges keys, null
+  // deletes. `replace` keeps trend drags out of the history stack.
   const patch = (p: Record<string, string | null>) => setParams((prev) => {
     const n = new URLSearchParams(prev);
     for (const [k, v] of Object.entries(p)) { if (v == null) n.delete(k); else n.set(k, v); }
@@ -210,6 +216,7 @@ export function TrendsPage() {
           </div>
 
           {data.truncated && <Notice tone="warn">{t('viz.truncated')}</Notice>}
+          {data.bucketS != null && <Notice>{t('viz.rollupHint', { interval: bucketLabel(data.bucketS, t) })}</Notice>}
           {badCount > 0 && <Notice>{t('viz.badHidden', { count: badCount })}</Notice>}
 
           {sel.length === 0 ? (
@@ -255,6 +262,8 @@ export function TrendsPage() {
   );
 }
 
+// Full-resolution last/min/max/avg under the charts — the stats decimation
+// can't distort, plus a live quality column.
 function StatsTable({ series, colorOf, unitFor }: {
   series: TagSeries[]; colorOf: (tag: string) => string; unitFor: (tag: string) => string;
 }) {
@@ -299,6 +308,7 @@ function StatsTable({ series, colorOf, unitFor }: {
   );
 }
 
+// Grid-mode card: one plant signal, live 15-min window, compact states.
 function GridCard({ tag }: { tag: string }) {
   const { t } = useTranslation();
   const limits = useLimits();

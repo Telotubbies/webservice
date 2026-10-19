@@ -4,10 +4,12 @@
 // every flush so a live chart moves at the 1 Hz tag cadence.
 
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../../lib/api';
+import { api, tagQueryApi, type TagBucket } from '../../lib/api';
+import { getScope } from '../../lib/scope';
 import { live } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
 import { decimate, type Pt } from './viz';
+import { AGG_AFTER_MS, bucketFor, pathOf } from './agg';
 
 const CHUNK_MS = 80 * 60e3; // 4800 s — under the 5000-row cap at 1 Hz
 const ROW_CAP = 5000;
@@ -30,8 +32,36 @@ function statsOf(pts: Pt[]): TagSeries['stats'] {
   return { last: l.v, lastT: l.t, min, max, avg: sum / pts.length };
 }
 
-interface Fetched { series: TagSeries[]; truncated: boolean }
+interface Fetched { series: TagSeries[]; truncated: boolean; bucketS: number | null }
 
+export { AGG_AFTER_MS };
+
+async function fetchAgg(tag: string, from: number, to: number): Promise<{ s: TagSeries; bucketS: number }> {
+  const sc = getScope();
+  if (!sc) throw new Error('no scope');
+  const bucketS = bucketFor(to - from);
+  const r = await tagQueryApi.history(sc.orgId, sc.siteId, {
+    tag: pathOf(tag), from: new Date(from).toISOString(), to: new Date(to).toISOString(),
+    agg: 'avg', bucket_s: bucketS,
+  });
+  const rows = r.rows as TagBucket[];
+  const pts: Pt[] = [];
+  let min: number | null = null; let max: number | null = null; let sum = 0; let cnt = 0;
+  for (const b of rows) {
+    const t = Date.parse(b.ts);
+    if (b.avg == null || Number.isNaN(t)) continue;
+    pts.push({ t, v: b.avg });
+    min = b.min != null && (min == null || b.min < min) ? b.min : min;
+    max = b.max != null && (max == null || b.max > max) ? b.max : max;
+    sum += b.avg; cnt++;
+  }
+  const last = pts.length ? pts[pts.length - 1] : null;
+  return { s: { tag, pts, bad: 0, stats: { last: last?.v ?? null, lastT: last?.t ?? null, min, max, avg: cnt ? sum / cnt : null } }, bucketS };
+}
+
+// One tag's history, chunked to stay under the per-request row cap. Chunk
+// edges can overlap a sample, so points dedupe on timestamp; non-good
+// quality counts toward `bad` and drops out (renders as a gap).
 async function fetchTag(tag: string, from: number, to: number): Promise<{ s: TagSeries; truncated: boolean }> {
   const spans: [number, number][] = [];
   for (let a = from; a < to; a += CHUNK_MS) spans.push([a, Math.min(to, a + CHUNK_MS)]);
@@ -68,8 +98,12 @@ export function useSeries(tags: string[], win: { fromMs: number; toMs: number | 
     queryFn: async (): Promise<Fetched> => {
       const to = win.toMs ?? Date.now();
       const from = win.toMs == null ? to - win.spanMs : win.fromMs;
+      if (to - from > AGG_AFTER_MS) {
+        const res = await Promise.all(tags.map((t) => fetchAgg(t, from, to)));
+        return { series: res.map((r) => r.s), truncated: false, bucketS: res[0]?.bucketS ?? null };
+      }
       const res = await Promise.all(tags.map((t) => fetchTag(t, from, to)));
-      return { series: res.map((r) => r.s), truncated: res.some((r) => r.truncated) };
+      return { series: res.map((r) => r.s), truncated: res.some((r) => r.truncated), bucketS: null };
     },
     enabled: tags.length > 0,
     staleTime: isLive ? 60_000 : Infinity,
@@ -84,7 +118,7 @@ export function useSeries(tags: string[], win: { fromMs: number; toMs: number | 
   const series: TagSeries[] = tags.map((tag, i) => {
     const hist = q.data?.series[i]?.tag === tag ? q.data.series[i] : undefined;
     let pts = hist?.pts ?? [];
-    if (isLive) {
+    if (isLive && !q.data?.bucketS) {
       // extend with live samples newer than the last stored one
       const lastT = pts.length ? pts[pts.length - 1].t : -Infinity;
       const buf = live.buffers.get(tag) ?? [];
@@ -108,6 +142,8 @@ export function useSeries(tags: string[], win: { fromMs: number; toMs: number | 
     isLoading: q.isLoading && tags.length > 0,
     isError: q.isError,
     truncated: q.data?.truncated ?? false,
+    /** set when the series is rollup averages of this many seconds, not raw samples */
+    bucketS: q.data?.bucketS ?? null,
     refetch: () => void q.refetch(),
     /** raw (undecimated) stats source */
     hasData: series.some((s) => s.pts.length > 0),

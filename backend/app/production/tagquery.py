@@ -31,6 +31,7 @@ from fastapi.responses import Response
 
 from ..db.context import tenant_tx
 from ..db.util import finite_or_none, iso_z
+from .rollup import pick_source
 
 log = logging.getLogger("wds.tagquery")
 
@@ -124,22 +125,30 @@ async def tag_history(org: str, site: str, request: Request, p=Depends(_user),
             return {"tag": {"id": str(t["id"]), "path": t["path"],
                             "name": t["name"], "unit": t["unit"]},
                     "from": iso_z(t_from), "to": iso_z(t_to),
-                    "agg": "raw", "truncated": len(rows) == limit,
+                    "agg": "raw", "source": "raw", "truncated": len(rows) == limit,
                     "rows": data}
         # bucketed aggregation — numeric samples only; a bucket with no
         # numeric sample reports nulls rather than a misleading 0.
         b = bucket_s or max(1, int((t_to - t_from).total_seconds()) // 200 or 1)
         if (t_to - t_from).total_seconds() / b > MAX_BUCKETS:
             raise HTTPException(422, "too_many_buckets")
-        rows = await tc.fetch(
-            "SELECT to_timestamp(floor(extract(epoch from ts)/$4)*$4) AS bucket,"
-            " min((v::text)::float8) FILTER (WHERE jsonb_typeof(v)='number') AS mn,"
-            " max((v::text)::float8) FILTER (WHERE jsonb_typeof(v)='number') AS mx,"
-            " avg((v::text)::float8) FILTER (WHERE jsonb_typeof(v)='number') AS av,"
-            " count(*)::int AS n"
-            " FROM tag_history WHERE tag_id=$1 AND ts >= $2 AND ts <= $3"
-            " GROUP BY 1 ORDER BY 1",
-            t["id"], t_from, t_to, b)
+        source = pick_source(b, t_from, datetime.now(timezone.utc))
+        if source == "raw":
+            rows = await tc.fetch(
+                "SELECT to_timestamp(floor(extract(epoch from ts)/$4)*$4) AS bucket,"
+                " min(vn) AS mn, max(vn) AS mx, avg(vn) AS av, count(*)::int AS n"
+                " FROM tag_history WHERE tag_id=$1 AND ts >= $2 AND ts <= $3"
+                " GROUP BY 1 ORDER BY 1",
+                t["id"], t_from, t_to, b)
+        else:
+            # re-bucket the rollup rows; avg is sum/count so it stays exact
+            rows = await tc.fetch(
+                "SELECT to_timestamp(floor(extract(epoch from bucket)/$4)*$4) AS bucket,"
+                " min(mn) AS mn, max(mx) AS mx,"
+                " sum(sm) / NULLIF(sum(nn), 0) AS av, sum(n)::int AS n"
+                f" FROM tag_rollup_{source} WHERE tag_id=$1 AND bucket >= $2 AND bucket <= $3"
+                " GROUP BY 1 ORDER BY 1",
+                t["id"], t_from, t_to, b)
         data = [{"ts": iso_z(r["bucket"]), "min": finite_or_none(r["mn"]),
                  "max": finite_or_none(r["mx"]), "avg": finite_or_none(r["av"]),
                  "n": r["n"]} for r in rows]
@@ -148,7 +157,7 @@ async def tag_history(org: str, site: str, request: Request, p=Depends(_user),
         return {"tag": {"id": str(t["id"]), "path": t["path"],
                         "name": t["name"], "unit": t["unit"]},
                 "from": iso_z(t_from), "to": iso_z(t_to),
-                "agg": agg, "bucket_s": b, "rows": data}
+                "agg": agg, "bucket_s": b, "source": source, "rows": data}
 
 
 def _csv(name: str, cols: tuple[str, ...], rows: list[dict]) -> Response:
@@ -179,14 +188,12 @@ async def tag_stats(org: str, site: str, request: Request, p=Depends(_user),
         await _site_or_404(tc, site_id)
         rows = await tc.fetch(
             "WITH h AS ("
-            "  SELECT tag_id, ts, v,"
+            "  SELECT tag_id, ts, v, vn,"
             "    extract(epoch from ts - lag(ts) OVER (PARTITION BY tag_id"
             "                                        ORDER BY ts)) AS gap_s"
             "   FROM tag_history WHERE ts >= $2 AND ts <= $3)"
             "SELECT t.id, t.path, t.name, t.unit, t.type,"
-            " min((h.v::text)::float8) FILTER (WHERE jsonb_typeof(h.v)='number') AS mn,"
-            " max((h.v::text)::float8) FILTER (WHERE jsonb_typeof(h.v)='number') AS mx,"
-            " avg((h.v::text)::float8) FILTER (WHERE jsonb_typeof(h.v)='number') AS av,"
+            " min(h.vn) AS mn, max(h.vn) AS mx, avg(h.vn) AS av,"
             " count(*)::int AS n,"
             " (array_agg(h.v ORDER BY h.ts DESC))[1] AS last_v,"
             " max(h.ts) AS last_ts,"

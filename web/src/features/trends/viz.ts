@@ -34,9 +34,7 @@ const INK_68 = '#4f5b65';
 const GRID = '#e9ecf1';
 const TICK = '#d5dae2';
 
-/* ------------------------------------------------------------------ */
-/* limits from alarm rules                                             */
-/* ------------------------------------------------------------------ */
+// ── Limits from alarm rules ──────────────────────────────────────────────────
 
 export interface Limit {
   v: number;
@@ -47,6 +45,7 @@ export interface Limit {
 
 const LIMIT_KINDS = new Set(['hi', 'hihi', 'lo', 'lolo']);
 
+/** Enabled hi/hihi/lo/lolo rules → per-tag limit lines for the chart. */
 export function limitsFromRules(rules: AlarmRule[] | undefined): Map<string, Limit[]> {
   const m = new Map<string, Limit[]>();
   for (const r of rules ?? []) {
@@ -70,10 +69,9 @@ export function limitLabel(l: Limit, unit?: string, locale?: string, decimals?: 
   return `${l.kind.toUpperCase()} ${fmtNum(l.v, decimals, locale)}${unit ? ` ${unit}` : ''}`;
 }
 
-/* ------------------------------------------------------------------ */
-/* number + time formatting                                            */
-/* ------------------------------------------------------------------ */
+// ── Number + time formatting ─────────────────────────────────────────────────
 
+/** Locale-aware number; decimals follow magnitude (100s → 0, 10s → 1, else 2). */
 export function fmtNum(v: number | null | undefined, decimals?: number, locale?: string): string {
   if (v == null || !Number.isFinite(v)) return '—';
   const d = decimals ?? (Math.abs(v) >= 100 ? 0 : Math.abs(v) >= 10 ? 1 : 2);
@@ -91,6 +89,7 @@ export function fmtTime(ms: number, withSeconds = false): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}${withSeconds ? `:${pad(d.getSeconds())}` : ''}`;
 }
 
+/** "9 Aug 14:20–14:35" for a same-day window, dates on both ends otherwise. */
 export function fmtRange(fromMs: number, toMs: number, locale?: string): string {
   const a = new Date(fromMs);
   const b = new Date(toMs);
@@ -101,9 +100,7 @@ export function fmtRange(fromMs: number, toMs: number, locale?: string): string 
     : `${day(a)} ${fmtTime(fromMs)} – ${day(b)} ${fmtTime(toMs)}`;
 }
 
-/* ------------------------------------------------------------------ */
-/* uPlot options                                                       */
-/* ------------------------------------------------------------------ */
+// ── uPlot options ────────────────────────────────────────────────────────────
 
 export interface SeriesSpec {
   key: string;
@@ -134,6 +131,9 @@ export interface ChartSpec {
 
 const AXIS_FONT = '11px "IBM Plex Mono", "Roboto Mono", monospace';
 
+/** Assembles the full uPlot option object for a spec — axes, limit lines,
+ *  tooltip, drag-zoom. xRange is fixed in the spec so missing history draws
+ *  as empty space instead of stretching the data to fill. */
 export function chartOptions(spec: ChartSpec): uPlot.Options {
   const { series, limits = [], unit, locale } = spec;
   const decimals = series[0]?.decimals;
@@ -215,6 +215,8 @@ export function chartOptions(spec: ChartSpec): uPlot.Options {
   };
 }
 
+// Tick labels get just enough decimals to stay distinct at the current
+// split step — 1-unit steps label as integers, sub-0.01 steps get 3.
 function axisDecimals(splits: number[], fallback?: number): number {
   if (splits.length < 2) return fallback ?? 1;
   const step = Math.abs(splits[1] - splits[0]);
@@ -224,9 +226,7 @@ function axisDecimals(splits: number[], fallback?: number): number {
   return 3;
 }
 
-/* ------------------------------------------------------------------ */
-/* plugins                                                             */
-/* ------------------------------------------------------------------ */
+// ── Plugins ──────────────────────────────────────────────────────────────────
 
 /** Dashed limit lines with a right-aligned "HI 80 °C" tag. The tag text is
  *  ink, not the limit hue (text wears text tokens); the dash carries hue. */
@@ -323,9 +323,7 @@ function tooltipPlugin(series: SeriesSpec[], locale?: string): uPlot.Plugin {
   };
 }
 
-/* ------------------------------------------------------------------ */
-/* data shaping                                                        */
-/* ------------------------------------------------------------------ */
+// ── Data shaping ─────────────────────────────────────────────────────────────
 
 export interface Pt { t: number; v: number }
 
@@ -355,6 +353,8 @@ export function decimate(pts: Pt[], maxPts = 1400): Pt[] {
   return out;
 }
 
+// Typical gap between samples, estimated on a strided subset so a long
+// series doesn't sort 5 000 deltas. Feeds joinSeries's match tolerance.
 function medianStep(pts: Pt[]): number {
   if (pts.length < 2) return 1000;
   const steps: number[] = [];
