@@ -173,6 +173,7 @@ services:
     volumes:
       - edge-models:/models
     mem_limit: 3g
+    cpus: 4          # inference must not starve postgres/backend on a shared box
     restart: unless-stopped
     logging: *default-logging
 

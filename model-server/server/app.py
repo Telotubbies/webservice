@@ -34,6 +34,7 @@ class PutModel(BaseModel):
 
 
 def create_app(runtime, store, sync_loads: bool = False) -> FastAPI:
+    # sync_loads runs loads inline (tests) instead of through the single-worker pool.
     app = FastAPI(title="wds model server", docs_url=None, redoc_url=None, openapi_url=None)
     failed: dict[str, str] = {}
     loading: set[str] = set()
@@ -65,6 +66,7 @@ def create_app(runtime, store, sync_loads: bool = False) -> FastAPI:
     @app.put("/v1/models/{version_id}", status_code=202)
     def put_model(version_id: str, body: PutModel):
         vid = _vid(version_id)
+        # Idempotent: the same sha already loaded (or a load without a recorded sha) needs no reload.
         if vid in runtime.loaded() and getattr(runtime, "models", {}).get(vid, {}).get("sha256") in (None, body.sha256):
             return {"state": "loaded"}
         loading.add(vid)
@@ -121,7 +123,7 @@ def main() -> None:   # pragma: no cover — container entry point
     from .runtime import Runtime
     from .store import ModelStore
     uvicorn.run(create_app(Runtime(), ModelStore(os.environ.get("MODEL_DIR", "/models"))),
-                host="0.0.0.0", port=int(os.environ.get("PORT", "9000")), log_level="warning")
+                host="0.0.0.0", port=int(os.environ.get("PORT", "9000")), log_level=os.environ.get("LOG_LEVEL", "warning"))
 
 
 if __name__ == "__main__":  # pragma: no cover
