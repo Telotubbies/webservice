@@ -16,6 +16,8 @@ function tone(up: boolean | undefined) {
   return up === undefined ? 'text-ink-35' : up ? 'text-[var(--color-ok)]' : 'text-[var(--color-danger-bright)]';
 }
 
+/** One service card: status icon, name, mono detail, UP/DOWN word. `up`
+ *  undefined renders the neutral "n/a" state, not a guess. */
 function ServiceCard({ name, up, detail }: { name: string; up?: boolean; detail: string }) {
   const { t } = useTranslation();
   return (
@@ -39,6 +41,7 @@ function ServiceCard({ name, up, detail }: { name: string; up?: boolean; detail:
 const WS_KEY: Record<string, string> = {
   open: 'shell.live', connecting: 'shell.connecting', reconnecting: 'shell.reconnecting',
   closed: 'shell.offline', auth_expired: 'shell.sessionExpired',
+  resyncing: 'shell.reconnecting', forbidden: 'shell.offline',
 };
 
 export function HealthPage() {

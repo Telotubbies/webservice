@@ -15,6 +15,7 @@ import { NAV, type NavGroup, type NavItem, type NavSection } from './nav';
 import { Palette } from './Palette';
 import { signOut, useRole } from './session';
 import { live } from '../lib/live';
+import { reconnectWS } from '../lib/ws';
 import { useNow, useStore } from '../lib/hooks';
 import { setLang } from '../lib/i18n';
 import { Icon } from '../shared/ui/Icon';
@@ -134,11 +135,15 @@ function LinkStrip() {
   }, [ws, rev]);
   if (ws === 'open' || shownRev !== rev) return null;
   const msg = ws === 'auth_expired' ? t('ui.linkExpired')
+    : ws === 'forbidden' ? t('ui.linkForbidden')
     : ws === 'closed' ? t('ui.linkOffline') : t('ui.linkReconnecting');
   return (
     <div className="link-strip" data-ws={ws} role="status">
-      <span aria-hidden className="text-[10px]">{ws === 'closed' || ws === 'auth_expired' ? '▲' : '◆'}</span>
+      <span aria-hidden className="text-[10px]">{ws === 'closed' || ws === 'auth_expired' || ws === 'forbidden' ? '▲' : '◆'}</span>
       {msg}
+      {ws === 'forbidden' && (
+        <button type="button" className="ml-2 underline" onClick={() => reconnectWS()}>{t('common.retry')}</button>
+      )}
     </div>
   );
 }

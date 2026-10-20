@@ -25,9 +25,11 @@ log = logging.getLogger("backend.ws")
 
 QUEUE_MAX = 256
 _DROP_LOG_EVERY = 50
+RESYNC_MIN_S = 5.0  # at most one overflow `resync` notice per client per window
 AUTH_TIMEOUT_S = 5.0
 
 
+# ── Origin policy ───────────────────────────────────────────────────────────
 _LOOPBACK = {"localhost", "127.0.0.1", "::1", "[::1]"}
 
 
@@ -127,6 +129,7 @@ class OriginGuardMiddleware:
         await self.app(scope, receive, send)
 
 
+# ── First-frame auth ────────────────────────────────────────────────────────
 class WSAuthError(Exception):
     """First frame wasn't a well-formed {"type":"auth"} message in time."""
 
@@ -171,6 +174,7 @@ async def read_auth_frame(ws: WebSocket) -> dict:
     return {"token": token, "site_id": site_id}
 
 
+# ── Clients + fan-out ───────────────────────────────────────────────────────
 @dataclass(eq=False)  # identity hash — instances live in a set
 class Client:
     ws: WebSocket
@@ -184,6 +188,10 @@ class Client:
     org_roles: dict = field(default_factory=dict)
     queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(QUEUE_MAX))
     dropped: int = 0
+    # set when broadcast() had to drop an event for this client; pump() turns
+    # it into one {"type":"resync"} frame so the loss is never silent
+    resync_pending: bool = False
+    last_resync: float = field(default_factory=lambda: -RESYNC_MIN_S)
     connected_at: float = field(default_factory=time.monotonic)
 
 
@@ -241,11 +249,35 @@ class WSManager:
         log.info("ws client disconnected", extra={"clients": len(self._clients)})
 
     async def pump(self, client: Client) -> None:
-        """Drain the client's queue onto the socket. Runs as a task per client."""
+        """Drain the client's queue onto the socket. Runs as a task per client.
+
+        After an overflow drop the pump also sends one `resync` frame (rate
+        limited to RESYNC_MIN_S). It is written by the pump itself, not queued,
+        so it can never be the thing a full queue drops.
+        """
         try:
             while True:
-                event = await client.queue.get()
-                await client.ws.send_text(json.dumps(event, separators=(",", ":")))
+                timeout = None
+                if client.resync_pending:
+                    timeout = max(
+                        0.0, client.last_resync + RESYNC_MIN_S - time.monotonic())
+                try:
+                    if timeout is None:
+                        event = await client.queue.get()
+                    else:
+                        event = await asyncio.wait_for(
+                            client.queue.get(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    event = None
+                if event is not None:
+                    await client.ws.send_text(
+                        json.dumps(event, separators=(",", ":")))
+                if (client.resync_pending
+                        and time.monotonic() - client.last_resync >= RESYNC_MIN_S):
+                    client.resync_pending = False
+                    client.last_resync = time.monotonic()
+                    await client.ws.send_text(
+                        '{"type":"resync","reason":"overflow"}')
         except asyncio.CancelledError:
             raise
         except Exception:  # socket died mid-send; endpoint cleanup handles it
@@ -283,6 +315,7 @@ class WSManager:
                 except (asyncio.QueueEmpty, asyncio.QueueFull):
                     pass
                 client.dropped += 1
+                client.resync_pending = True
                 self.total_dropped += 1
                 if client.dropped % _DROP_LOG_EVERY == 1:
                     log.warning(

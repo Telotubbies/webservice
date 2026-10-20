@@ -93,7 +93,7 @@ export interface SystemHealth {
   backend: { uptime_s?: number };
 }
 
-// ---- WS event shapes (CONTRACT.md §WebSocket) ----
+// ── WS event shapes (CONTRACT.md §WebSocket) ──
 export type WSEvent =
   | { type: 'tag'; name: string; v: number | boolean; q: Quality; ts: string }
   | { type: 'alarm' } & { alarm?: Alarm } & Partial<Alarm>
@@ -101,6 +101,11 @@ export type WSEvent =
   | ({ type: 'insight' } & { insight?: Insight } & Partial<Insight>)
   | { type: 'command'; command_id: string; status: CommandStatus; tag?: string; detail?: string }
   | { type: 'health'; mqtt: string; edge: string }
+  | { type: 'resync'; reason?: string }
+  | { type: 'pong'; ts?: string }
   | { type: 'auth_expired' };
 
-export type WSState = 'connecting' | 'open' | 'reconnecting' | 'closed' | 'auth_expired';
+export type WSState =
+  | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'auth_expired'
+  | 'resyncing'   // socket up, REST snapshots being applied
+  | 'forbidden';  // 4403 — origin / site / per-IP cap; no auto-retry

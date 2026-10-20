@@ -189,6 +189,30 @@ class LiveStore {
     this.poke();
   }
 
+  /** Resync: fold fetched command rows in; fresher local rows are kept. */
+  mergeCommands(rows: Command[]) {
+    for (const c of rows) {
+      const prev = this.commands.get(c.id);
+      if (prev?.updated_at && c.updated_at && prev.updated_at > c.updated_at) continue;
+      this.commands.set(c.id, { ...prev, ...c });
+    }
+    this.cmdRev++;
+    this.poke();
+  }
+
+  /** Resync: splice fetched history into a tag's ring buffer, filling the gap
+   *  left by an outage. Sorted, de-duplicated on timestamp, capped. */
+  backfillTag(name: string, pts: BufferPoint[]) {
+    if (!pts.length) return;
+    const buf = this.buffers.get(name) ?? [];
+    const seen = new Set(buf.map((p) => p.t));
+    const merged = buf.concat(pts.filter((p) => !seen.has(p.t)));
+    merged.sort((a, b) => a.t - b.t);
+    if (merged.length > BUFFER_CAP) merged.splice(0, merged.length - BUFFER_CAP);
+    this.buffers.set(name, merged);
+    this.scheduleFlush();
+  }
+
   mergeCommand(c: Partial<Command> & { id: string }) {
     const prev = this.commands.get(c.id);
     this.commands.set(c.id, { ...prev, ...c } as Command);

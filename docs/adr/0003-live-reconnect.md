@@ -1,6 +1,6 @@
 # ADR-0003: Live reconnect — snapshot resync, heartbeat, no server replay
 
-Status: proposed (2026-10-20) · Touches: `web/src/lib/ws.ts`, `web/src/lib/live.ts`, `backend/app/edge/ws.py`, `backend/app/main.py` (`ws_endpoint`)
+Status: accepted, implemented (2026-10-20) · Touches: `web/src/lib/ws.ts`, `web/src/lib/live.ts`, `backend/app/edge/ws.py`, `backend/app/main.py` (`ws_endpoint`)
 
 ## Context
 
@@ -24,13 +24,13 @@ Why not a replay log: the backend runs as several replicas behind a load balance
 ### 1. Connection state machine (client)
 
 ```
-connecting ─open─▶ open ─no frame 30 s─▶ stale ─▶ (close) ─▶ reconnecting ─open─▶ resyncing ─done─▶ open
-                    │                                              ▲
-                    └──onclose──────────────────────────────────────┘
-auth_expired and forbidden are terminal until the user acts.
+connecting ─open─▶ open
+reconnecting ─open─▶ resyncing ─snapshots applied─▶ open
+open ─onclose / 30 s silence─▶ reconnecting
+4401 ─renew fails─▶ auth_expired      4403 ─▶ forbidden     (both terminal until the user acts)
 ```
 
-`WSState` gains `stale` and `resyncing` (today: connecting, open, reconnecting, closed, auth_expired). The banner shows only after 3 s outside `open`, so sub-second blips are invisible.
+`WSState` gains `resyncing` and `forbidden` (existing: connecting, open, reconnecting, closed, auth_expired). The link strip shows only after 5 s outside `open`, so sub-second blips are invisible; `forbidden` adds a Retry button.
 
 ### 2. Heartbeat
 
@@ -74,19 +74,19 @@ Health (`edge`/`mqtt`) is not fetched; the server already pushes `health_event()
 | 4403 | origin, per-IP cap, site not visible | terminal `forbidden`, no auto-retry; manual "Retry" only. (A per-IP cap can clear, so the manual button stays.) |
 | 1000/1001/1006/1011/1012/1013 and others | normal drop, restart, try-again-later | backoff as today |
 
-### 7. Stale data is visible
+### 7. Stale data
 
-After 2× the tag's expected period, or 30 s when unknown, with no frame, the tag's quality shown in the UI becomes `stale` (client-side only, never written back). Resync clears it. Values are never silently presented as live.
+Already handled per tag: pages compare each tag's `ts` against `STALE_MS` (15 s) and the link strip flags the whole feed. Nothing is added; resync refreshes `ts`, which clears it.
 
 ### 8. Trend backfill
 
-When a chart is mounted during a resync, it calls `/api/tags/{name}/history?from=<last point ts>&to=now` for its visible series and splices the result into its buffer. Charts not mounted do nothing; they fetch history on mount as they do now.
+Before applying snapshots the client records, for each tag with a ring buffer, where the buffer stops. If that is more than 10 s ago, the gap is filled from `/api/tags/{name}/history?from=<last point>` (at most 50 tags, 5 in flight) after the state is back to `open`, via `live.backfillTag` (sorted, de-duplicated on timestamp). Failures are ignored; a chart gap is cosmetic.
 
 ## Backend changes
 
 Small, all additive and backward compatible:
 
-- `ws.py`: overflow notice (§4).
+- `ws.py`: overflow notice (§4). `broadcast` sets `resync_pending` on a drop; `pump` writes the frame itself (not via the queue), at most once per 5 s, and wakes on a timer so it is sent even if no further event arrives.
 - Nothing else. The `/ws` and `/ws/v1` auth frame and `ping`/`pong` are unchanged, so CONTRACT.v2 §5 gains only one server→client message type, `resync`. Clients that ignore unknown types are unaffected.
 
 ## Consequences
@@ -98,10 +98,10 @@ Small, all additive and backward compatible:
 
 ## Tests
 
-- `web`: unit tests for the state machine with a fake WebSocket and fake timers: watchdog fires at 30 s, backoff curve, 4403 is terminal, `online`/`visible` skip the timer, resync orders subscribe → snapshot → drain, stale-event skip.
-- `tests/integration/test_ws.py`: slow consumer receives `resync` once per window; `ping` still returns `pong`.
+- `web/src/lib/wsPolicy.test.ts` (bun): close-code policy, backoff curve and cap, stale-event rules per event type, resync buffer order and bound. The policy lives in `wsPolicy.ts` precisely so it is testable without a DOM.
+- `tests/contract/test_ws_resync.py`: a drop marks `resync_pending`; `pump` sends exactly one `resync`, rate-limits a second, and delivers it once the window passes.
 - `tests/security/test_ws_admission.py` stays green: nothing here weakens origin, auth-frame, per-IP or org-scope checks, and the snapshots use the normal authenticated REST path.
-- Manual: kill the backend container for 20 s, restart it, confirm an alarm cleared during the outage disappears and the banner shows then clears.
+- Manual: stop the backend container for 20 s and restart it; an alarm cleared during the outage must disappear, the strip must show then clear. Not run in this change.
 
 ## Rollout
 

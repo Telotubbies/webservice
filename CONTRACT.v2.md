@@ -160,6 +160,8 @@ POST `/commands` body: `{ "tag_id", "value", "ttl_s"?: 1..60 (default 10), "idem
 8. `site_id` anchors the connection's authorization: the named site must belong to an org where the user has `site:read`, and switching anchor means closing the socket and opening a new one. The event stream itself is **org-membership-scoped** — a client receives events for every org it belongs to (each event carries `org_id`/`site_id`/`tag_id` for client-side filtering), not only the anchored site's org.
 9. The UI shows **LIVE** only after it has received a snapshot and the connection is open. Each tag is shown STALE when `now − ts > 15 s`.
 
+**Reconnect (ADR-0003).** Server→client `{"type":"resync","reason":"overflow"}` means events were dropped for this socket (slow consumer, at most one per 5 s): re-fetch `/api/tags/latest`, `/api/alarms`, `/api/commands`, `/api/insights?state=open` and replace local state. Clients also do this after every reconnect. Client→server `{"type":"ping"}` is answered by `{"type":"pong","ts"}`; a client treats 30 s without any frame as a dead socket. Close 4403 is not retried automatically.
+
 ## 6. MQTT
 
 Topics, identities and ACLs are defined in doc 17. Payloads:
