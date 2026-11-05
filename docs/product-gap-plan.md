@@ -45,19 +45,16 @@
 
 ### สถานะ ณ 2026-11-05
 
-- **ทำแล้ว:** ขั้นตอนเริ่มต้นข้อ 1 ถึง 3 สำรองงานแล้ว และ commit งานค้างเป็น 15 ชุดบน `feature/plant-twin-glb` พร้อม push แล้ว
+- **ฐานงาน:** ขั้นตอนเริ่มต้นเสร็จแล้ว งานรวมเข้า `ui-v4` และติด tag `baseline-2026-11`
+- **เริ่มงานใหม่จาก:** `integration/product-v1`
 - **จุดสำรอง:** `refs/backup/pre-plan-2026-11-05` และ `E:/03_Thesis/git-backups/webservice-pre-plan-2026-11-05.bundle`
-- **ขั้นต่อไป:** ข้อ 4 แก้เทสต์ที่ล้ม 5 ข้อ แล้วค่อยเปิด PR เข้า `ui-v4`
-- **เทสต์ที่ล้ม:** `test_derived_engine.py` 4 ข้อล้มอยู่แล้วก่อนงานชุดนี้ และ `test_realm_step_up_flow` ล้มเพราะ `e595d04` ลดนโยบายรหัสผ่าน
-- **Lint:** `web/src/features/vision/TestPanel.tsx:275` ผิดกฎ `rules-of-hooks`
-- **Migration:** ตรวจแล้วว่าเปลี่ยนเฉพาะ comment และเอกสาร
-- ยังไม่มี tag และ CI รันเฉพาะ `main` กับ `ui-v4`
-- `MIROFISH-50-SCADA-FULL-REPORT.md` ยังไม่ commit รอตัดสินใจ
+- **นโยบาย:** ไม่ใช้ PR ผู้ประสานงาน merge แบบ `--no-ff` หลังเทสต์ผ่าน แล้ว push ตรง
+- **ยังไม่ได้รัน:** integration test ต้องเปิด stack ก่อน
 
 ### โครงสร้าง branch
 
 ```text
-ui-v4                      branch หลัก รับงานผ่าน PR เท่านั้น
+ui-v4                      branch หลัก รับงานเมื่อจบรอบและเทสต์ผ่าน
 └─ integration/product-v1  รวมงานตามแผนนี้ทีละรอบ
    ├─ feat/F01-ai-plc-safety
    ├─ feat/F02-alarm-lifecycle
@@ -108,9 +105,9 @@ git update-ref refs/backup/pre-plan-2026-11-05 "$commit"
 
 **4. ตรวจผลรวม** รัน `bun test`, `bun run build`, `make test-contract` และเทสต์ `edge-bridge` commit ระหว่างทางอาจยัง build ไม่ผ่าน แต่จุดสุดท้ายต้องผ่าน
 
-**5. รวมเข้าหลัก** push แล้วเปิด PR จาก `feature/plant-twin-glb` เข้า `ui-v4` รอ CI ผ่านแล้ว merge และติด tag `baseline-2026-11`
+**5. รวมเข้าหลัก** merge `feature/plant-twin-glb` เข้า `ui-v4` แบบ `--no-ff`, push และติด tag `baseline-2026-11`
 
-**6. เริ่มงานตามแผน** สร้าง `integration/product-v1` จาก `ui-v4` และเพิ่ม branch นี้ใน `.github/workflows/ci.yml`
+**6. เริ่มงานตามแผน** สร้าง `integration/product-v1` จาก `ui-v4` โดย CI รัน branch นี้อยู่แล้ว
 
 ### การทำงานของแต่ละฟีเจอร์
 
@@ -128,7 +125,7 @@ git worktree add .claude/worktrees/F02 -b feat/F02-alarm-lifecycle integration/p
 1. รวมทีละ branch ตามลำดับรอบ
 2. ใช้ `git merge --no-ff` เพื่อให้ย้อนกลับทั้งฟีเจอร์ได้
 3. รันเทสต์หลังทุกการ merge และแก้ไฟล์ส่วนกลางตามบันทึกการเชื่อมต่อ
-4. ครบรอบแล้วติด tag เช่น `wave-1` และเปิด PR จาก integration เข้า `ui-v4`
+4. ครบรอบแล้วติด tag เช่น `wave-1` และ merge integration เข้า `ui-v4` แบบ `--no-ff`
 5. ลบ worktree กับ branch หลัง merge และยืนยันว่าไม่มีงานค้าง
 
 ### ข้อห้าม
@@ -195,9 +192,9 @@ git worktree add .claude/worktrees/F02 -b feat/F02-alarm-lifecycle integration/p
 - **เป็นเจ้าของ:** ทั้ง repo ทำก่อนงานอื่น และไม่มี subagent อื่นทำงานพร้อมกัน
 - **สกิล:** `using-git-worktrees`, `verification-before-completion`
 - **งาน**
-  - [ ] ทำตามหัวข้อ "ขั้นตอนเริ่มต้น" ใน "แผน Git" ครบ 6 ขั้น โดยถามเจ้าของก่อน push และก่อนลบไฟล์
-  - [ ] จัดการ branch และ worktree เก่าตามตาราง
-  - [ ] บันทึกผล `bun test`, `make test-contract` และเทสต์ใน `edge-bridge/tests`
+  - [x] ทำตามหัวข้อ "ขั้นตอนเริ่มต้น" ใน "แผน Git" ครบ 6 ขั้น
+  - [ ] ตัดสินใจ branch เก่าที่ยังไม่ merge ตามตาราง
+  - [x] รัน `bun test`, `make test-contract` และเทสต์ใน `edge-bridge/tests`
 - **เสร็จเมื่อ:** มีจุดสำรอง, `integration/product-v1` พร้อมใช้ และรู้ว่าเทสต์ใดล้มเหลวอยู่ก่อนแล้ว
 
 ## รอบ 1: จุดอันตรายและกราฟ

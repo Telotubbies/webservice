@@ -4,7 +4,7 @@ name: CI
 
 on:
   push:
-    branches: [main, ui-v4]
+    branches: [main, ui-v4, "integration/**"]
   pull_request:
 
 jobs:
