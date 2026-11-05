@@ -38,7 +38,7 @@ import tempfile
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,6 +56,7 @@ MAX_ACTIONS = 8
 MAX_RULES = 64
 MAX_ZONE_POINTS = 64
 MAX_WRITE_QUEUE = 100                   # bound on queued+running PLC writes; excess drop+count
+AFTER_WAIT_S = 10.0                     # trigger waits this long for the code write, then gives up
 THUMB_MAX_BYTES = 48 * 1024             # backend accepts <=96KB base64; 48KB binary -> ~64KB b64
 SNAPSHOT_KEEP = 20
 SPOOL_NAME = "vision-audit.jsonl"
@@ -423,9 +424,10 @@ class RuleEngine:
         certain = pkg["decision"] in ("gravel", "sand") and pkg.get("uncertain") is False
         code = {"gravel": o["gravel_value"], "sand": o["sand_value"]}[pkg["decision"]] if certain \
             else o["none_value"]
-        acts = []
+        acts, code_act, code_fut = [], None, None
         if o["code"]:
-            acts.append({"kind": "plc_write", "tag_path": o["code"], "value": code, "pulse_ms": None})
+            code_act = {"kind": "plc_write", "tag_path": o["code"], "value": code, "pulse_ms": None}
+            acts.append(code_act)
         if o["margin_pct"]:
             acts.append({"kind": "plc_write", "tag_path": o["margin_pct"], "value": round(pkg["margin"] * 100), "pulse_ms": None})
         if o["uncertain"]:
@@ -449,10 +451,18 @@ class RuleEngine:
             if cfg["dry_run"]:
                 results.append({"action": "plc_write", "tag_path": a["tag_path"], "value": a["value"], "result": "would_write"})
                 continue
-            reason = self._gate_write(cam, st, rule, a, placement)
+            reason = None
+            if "delay_ms" in a:                     # the trigger: only after the code write succeeds
+                if code_fut is None:
+                    reason = "code_not_written"
+                else:
+                    a = dict(a, after=code_fut)
+            reason = reason or self._gate_write(cam, st, rule, a, placement)
             if reason is None:
-                ok = self._submit_write(cam, rule, a)
-                reason = None if ok else "queue_full"
+                fut = self._submit_write(cam, rule, a)
+                reason = None if fut else "queue_full"
+                if a is code_act:
+                    code_fut = fut
             if reason is not None:
                 blocked = blocked or reason
                 results.append({"action": "plc_write", "tag_path": a["tag_path"], "result": "blocked", "reason": reason})
@@ -640,9 +650,10 @@ class RuleEngine:
         return None
 
     # ------------------------------------------------------------ execution
-    def _submit_write(self, cam: dict, rule: _Rule, action: dict) -> bool:
+    def _submit_write(self, cam: dict, rule: _Rule, action: dict) -> Future | None:
         """Queue the write. The in-flight/rate claim was already taken by
-        _gate_write under _lock; False = dropped (bounded pool queue)."""
+        _gate_write under _lock; None = dropped (bounded pool queue). The
+        future resolves to whether the write succeeded."""
         tag = action["tag_path"]
         with self._lock:
             if self._write_queued >= MAX_WRITE_QUEUE:
@@ -656,22 +667,34 @@ class RuleEngine:
             log.warning("plc write queue full (>=%d) — dropping write tag=%s "
                         "rule=%s (total dropped=%d)",
                         MAX_WRITE_QUEUE, tag, rule.id, dropped)
-            return False
+            return None
         try:
             fut = self._pool.submit(self._do_write, cam["id"], rule.id, action)
         except Exception:                       # noqa: BLE001 — pool shut down
             self._write_done(tag)
-            return False
+            return None
         fut.add_done_callback(lambda _f, t=tag: self._write_done(t))
-        return True
+        return fut
 
     def _write_done(self, tag: str) -> None:
         with self._lock:
             self._write_queued = max(0, self._write_queued - 1)
             self._inflight.pop(tag, None)
 
-    def _do_write(self, camera_id: str, rule_id: str, action: dict) -> None:
-        """Worker thread: write (+ optional pulse), then the signed audit record."""
+    def _do_write(self, camera_id: str, rule_id: str, action: dict) -> bool:
+        """Worker thread: write (+ optional pulse), then the signed audit record.
+        An `after` future (the material code write) must resolve True first."""
+        after = action.get("after")
+        if after is not None:
+            try:
+                after_ok = after.result(timeout=AFTER_WAIT_S) is True
+            except Exception:                   # noqa: BLE001 — timeout/cancel/fault: fail closed
+                after_ok = False
+            if not after_ok:
+                log.error("code write failed — trigger NOT sent tag=%s", action["tag_path"])
+                self._audit(camera_id, rule_id, action["tag_path"], action.get("value"),
+                            "blocked:code_not_written")
+                return False
         adapter = self._holder.get()
         name = self._adapter_name(action["tag_path"])
         ok, detail, value = False, "error", action.get("value")
@@ -714,6 +737,7 @@ class RuleEngine:
             detail = f"write_failed:{exc}"[:200]
         self._audit(camera_id, rule_id, action["tag_path"], value,
                     "fired" if ok else detail)
+        return ok
 
     def _audit(self, camera_id: str, rule_id: str, tag_path: str, value,
                status: str) -> None:

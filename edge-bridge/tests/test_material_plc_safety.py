@@ -15,10 +15,17 @@ import pytest
 pytest.importorskip("numpy")
 pytest.importorskip("cv2")
 
-from edge_bridge.adapters.base import WriteResult  # noqa: E402
-from test_plc_write_gate import (  # noqa: E402
-    GATE_ON, FakeAdapter, FakeBridge, FakeCfg, FakeClock, FakeHolder)
-from edge_bridge.vision.rules import RuleEngine  # noqa: E402
+from test_plc_write_gate import (
+    GATE_ON,
+    FakeAdapter,
+    FakeBridge,
+    FakeCfg,
+    FakeClock,
+    FakeHolder,
+)
+
+from edge_bridge.adapters.base import WriteResult
+from edge_bridge.vision.rules import RuleEngine
 
 CODE, MARGIN, UNC, TRIG = "site.mat.code", "site.mat.margin", "site.mat.unc", "site.mat.trig"
 
@@ -85,6 +92,17 @@ def test_certain_decision_writes_code_then_triggers(tmp_path):
     assert a.writes.index((CODE, 2)) < a.writes.index((TRIG, True))
 
 
+def test_single_worker_pool_still_triggers(tmp_path):
+    """The trigger waits on the code write: a 1-worker pool must not deadlock."""
+    from concurrent.futures import ThreadPoolExecutor
+    a = MatAdapter()
+    e = RuleEngine(FakeHolder(a), FakeBridge(), FakeCfg(), str(tmp_path),
+                   clock=FakeClock(), executor=ThreadPoolExecutor(max_workers=1))
+    e.on_material(_cam(), _pkg("gravel"), None)
+    e._pool.shutdown(wait=True)
+    assert _code(a) == [1] and _triggers(a) == [True, False]
+
+
 # ------------------------------------------------------ uncertain / no material
 def test_uncertain_decision_never_triggers_and_clears_code(tmp_path):
     a = MatAdapter()
@@ -125,7 +143,60 @@ def test_dry_run_uncertain_lists_no_trigger(tmp_path):
     assert all(o["tag_path"] != "mat/trig" for o in outs)
 
 
+# ---------------------------------------------------------- code write fails
+def test_code_write_failure_blocks_trigger_on_first_visit(tmp_path):
+    """Boundary: the very first visit on a fresh engine, PLC denies the code write."""
+    a = MatAdapter(fail_tags={CODE})
+    _e, bridge = _run(tmp_path, a, [_pkg("sand")])
+    assert _triggers(a) == []
+    trig_audit = [r for r in bridge.audits if r["tag_path"] == "mat/trig"]
+    assert len(trig_audit) == 1 and trig_audit[0]["status"] == "blocked:code_not_written"
+
+
+def test_code_write_exception_blocks_trigger(tmp_path):
+    class Boom(MatAdapter):
+        def write(self, tag, value):
+            if tag == CODE:
+                raise OSError("link down")
+            return super().write(tag, value)
+
+    a = Boom()
+    _run(tmp_path, a, [_pkg("gravel")])
+    assert _triggers(a) == []
+
+
+def test_code_blocked_at_gate_blocks_trigger(tmp_path):
+    a = MatAdapter(writable=(MARGIN, UNC, TRIG))       # code tag not writable
+    _e, bridge = _run(tmp_path, a, [_pkg("sand")])
+    assert _triggers(a) == []
+    outs = {o["tag_path"]: o for o in bridge.events[-1]["detail"]["outputs"]}
+    assert outs["mat/code"]["reason"] == "not_writable"
+    assert outs["mat/trig"]["result"] == "blocked"
+    assert outs["mat/trig"]["reason"] == "code_not_written"
+
+
+def test_no_code_tag_configured_never_triggers(tmp_path):
+    a = MatAdapter()
+    _run(tmp_path, a, [_pkg("sand")],
+         cam=_cam(outputs={"trigger": "mat/trig", "pulse_ms": 50}))
+    assert _triggers(a) == []
+
+
 # -------------------------------------------------- new truck, stale code
+def test_new_truck_never_latches_previous_truck_code(tmp_path):
+    """Truck 1 sand is latched; truck 2's code write fails -> no trigger, so the
+    PLC never latches truck 1's code for truck 2."""
+    a = MatAdapter()
+    e, _bridge = _run(tmp_path, a, [_pkg("sand")])
+    assert _triggers(a) == [True, False]
+    a._fail_tags = {CODE}
+    e._pool = type(e._pool)(max_workers=4)
+    e.on_material(_cam(), _pkg("gravel"), None)
+    e._pool.shutdown(wait=True)
+    assert _triggers(a) == [True, False]               # no second trigger
+    assert _code(a) == [2]
+
+
 def test_new_uncertain_truck_overwrites_previous_code(tmp_path):
     """Truck 1 sand (code 2); truck 2 uncertain -> code cleared to none_value."""
     a = MatAdapter()
