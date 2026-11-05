@@ -1,3 +1,6 @@
+// Design research: dump a Datadog page's visible text nodes with their
+// typography (size/weight/color) and aria-label context. Runs in-page via
+// scripts/cdp.py; capped at 400 unique strings.
 (() => {
   const out = [];
   const seen = new Set();

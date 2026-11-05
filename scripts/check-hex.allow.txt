@@ -1,0 +1,26 @@
+# Legacy .tsx files that carried raw hex colours when check-hex was added.
+# Remove a line once its file is on tokens; never add one.
+web/src/app/Shell.tsx
+web/src/features/auth/SignInWall.tsx
+web/src/features/cameras/CameraTile.tsx
+web/src/features/dashboards/DashboardsPage.tsx
+web/src/features/dashboards/aiWidgets.tsx
+web/src/features/dashboards/widgets.tsx
+web/src/features/downtimes/DowntimesPage.tsx
+web/src/features/errors/ErrorTrackingPage.tsx
+web/src/features/events/EventHistogram.tsx
+web/src/features/insights/InsightsPage.tsx
+web/src/features/landing/HeroLine3D.tsx
+web/src/features/line/LifecyclePill.tsx
+web/src/features/line/Mimic.tsx
+web/src/features/line3d/HmiView.tsx
+web/src/features/notify/ActivityPage.tsx
+web/src/features/security/ApiProtectionPage.tsx
+web/src/features/security/FindingsPage.tsx
+web/src/features/security/IssuesPage.tsx
+web/src/features/security/SecurityPage.tsx
+web/src/features/security/ui.tsx
+web/src/features/storage/StoragePage.tsx
+web/src/features/trends/TrendsPage.tsx
+web/src/features/vision/TestPanel.tsx
+web/src/features/wall/WallPage.tsx

@@ -1,3 +1,5 @@
+# Web app ignores — build output, logs, local env files, editor/OS files.
+
 # Logs
 /logs
 *.log

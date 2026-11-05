@@ -1,3 +1,7 @@
+# Base compose stack (dev default). Overlays: docker-compose.test.yml (test
+# ports + tester identity), docker-compose.prod.yml (prod hardening),
+# docker-compose.garage.yml (local S3). Knobs: .env.example; targets: Makefile.
+
 # Bounded container logs — docker json-file driver is unbounded by default
 # and will eventually fill the host disk (demo boxes too).
 x-logging: &default-logging
@@ -173,6 +177,7 @@ services:
     volumes:
       - edge-models:/models
     mem_limit: 3g
+    cpus: 4          # inference must not starve postgres/backend on a shared box
     restart: unless-stopped
     logging: *default-logging
 

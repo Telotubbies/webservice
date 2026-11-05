@@ -1,3 +1,6 @@
+// Design research: reduce a Datadog page to its semantic layout tree —
+// landmark/structural elements only, each with its box and the spacing and
+// display properties that explain the composition. Runs in-page via cdp.py.
 (() => {
   const MAX = 250;
   let n = 0;

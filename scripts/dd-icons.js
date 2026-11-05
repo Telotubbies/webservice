@@ -1,3 +1,6 @@
+// Design research: inventory the visible SVG icons on a Datadog page. Runs
+// in-page via scripts/cdp.py; dedupes by markup and records the nearest
+// label context. Output lands in ref/datadog/live/<run>/*-icons.json.
 (() => {
   const seen = new Map();
   document.querySelectorAll("svg").forEach(svg => {

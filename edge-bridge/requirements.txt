@@ -1,3 +1,4 @@
+# edge-bridge runtime dependencies — installed by the Dockerfile.
 paho-mqtt==2.1.0
 PyYAML==6.0.2
 # ADAPTER=modbus (Factory I/O, PLC)

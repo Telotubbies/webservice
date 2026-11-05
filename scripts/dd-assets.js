@@ -1,3 +1,6 @@
+// Design research: collect every asset URL a Datadog page references —
+// img/srcset, computed background-images, icons, posters. Runs in-page via
+// scripts/cdp.py; dd-download.py fetches the collected list.
 (() => {
   const urls = new Set();
   // <img src / srcset>

@@ -1,6 +1,9 @@
+# ONNX inference sidecar for the vision pipeline: serves model load, infer, and
+# benchmark over HTTP.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 MODEL_DIR=/models PORT=9000
+# opencv-python-headless still links against libglib at run time.
 RUN apt-get update && apt-get install -y --no-install-recommends libglib2.0-0 && rm -rf /var/lib/apt/lists/*
 # CPU by default. GPU gateways: --build-arg ORT_PACKAGE=onnxruntime-gpu (CUDA/TensorRT) on a CUDA base image;
 # Intel iGPU/VPU: --build-arg ORT_PACKAGE=onnxruntime-openvino. Providers are picked at run time, best first.

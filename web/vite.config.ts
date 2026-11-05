@@ -1,3 +1,7 @@
+// Vite config — dev/preview run on :5199 and proxy /api + /ws to the backend
+// (or the in-process mock under MOCK_API=1) plus the same-origin wds Keycloak
+// realm. The build keeps font files external because CSP allows 'self' only.
+
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';

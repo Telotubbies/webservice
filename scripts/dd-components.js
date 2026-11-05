@@ -1,3 +1,6 @@
+// Design research: snapshot a Datadog page by UI role — nav, tables, rows,
+// buttons, inputs, badges, cards, tabs, menus — each element with geometry,
+// computed style and selector provenance. Runs in-page via scripts/cdp.py.
 (() => {
   const STYLE_PROPS = [
     "display", "position", "color", "backgroundColor", "fontFamily", "fontSize",

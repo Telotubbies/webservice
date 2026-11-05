@@ -1,3 +1,4 @@
+# Model-server dependencies; the Dockerfile swaps the onnxruntime pin for the ORT_PACKAGE flavour.
 fastapi==0.139.0
 uvicorn==0.51.0
 pydantic==2.13.4

@@ -1,3 +1,4 @@
+# Backend service dependencies: pinned for reproducible image builds.
 fastapi==0.139.0
 uvicorn==0.51.0
 websockets==14.2

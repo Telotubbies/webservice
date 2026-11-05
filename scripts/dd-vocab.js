@@ -1,3 +1,6 @@
+// Design research: build the "design vocabulary" of a Datadog page — a per-
+// property frequency table of computed styles over the visible elements.
+// Runs in-page via scripts/cdp.py; dd-merge.py merges the per-page output.
 (() => {
   const props = ["color", "backgroundColor", "fontFamily", "fontSize", "fontWeight",
     "lineHeight", "letterSpacing", "padding", "borderRadius", "boxShadow",

@@ -1,3 +1,5 @@
+# Push/PR gate: contract tests with no services, then the full compose stack
+# under the test overlay (integration + tenancy/security), plus web i18n/build.
 name: CI
 
 on:
@@ -66,5 +68,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: i18n en/th parity (static, no deps)
         run: node scripts/check-i18n.mjs
+      - name: No new raw hex colours in TSX (tokens only)
+        run: node scripts/check-hex.mjs
       - name: Typecheck + build
         run: cd web && bun install --frozen-lockfile && bun run build

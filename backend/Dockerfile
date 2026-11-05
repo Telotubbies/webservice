@@ -1,7 +1,10 @@
+# Backend API image: uvicorn serving the FastAPI app, with migrations and the
+# seeded alarm rules baked in.
 FROM python:3.12-slim
 
 WORKDIR /app
 
+# Dependencies install before the app is copied so code edits do not bust the pip layer.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

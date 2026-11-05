@@ -1,3 +1,6 @@
+// Design research: labeled section-by-section computed-style snapshot of a
+// Datadog page (chrome, header, filters, table, buttons, cards) plus loaded
+// fonts and root CSS vars. Runs in-page via scripts/cdp.py.
 (() => {
   // Section-by-section sniper extraction — labeled regions, only used props.
   const PROPS = [

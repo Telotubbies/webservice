@@ -1,3 +1,4 @@
+# Build-context exclusions: keep caches, local data, and secrets out of the image.
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -1,3 +1,4 @@
+# Keep the image build context lean: no secrets (.env), docs, or test caches.
 __pycache__/
 *.pyc
 .pytest_cache/

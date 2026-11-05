@@ -1,3 +1,5 @@
+# One-shot model-conversion worker: turns uploaded .pt weights into ONNX via the
+# shared spool volume, the only thing this sandboxed container can reach.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 YOLO_OFFLINE=1 YOLO_AUTOINSTALL=False
