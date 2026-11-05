@@ -1,6 +1,7 @@
 -- 0013 - SLO definitions and corrections. An SLO is an availability target on
 -- one tag (share of good-quality samples). A correction is a window whose
 -- samples are excluded from the SLI (planned maintenance, known bad data).
+-- Applied by 0013_slos.py as wds_owner in one transaction.
 
 CREATE TABLE slos (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -33,6 +34,7 @@ CREATE TABLE slo_corrections (
 );
 CREATE INDEX slo_corrections_slo ON slo_corrections (slo_id, starts_at);
 
+-- Fail-closed tenant isolation + least-privilege grants for both tables.
 DO $$
 DECLARE t text;
 BEGIN

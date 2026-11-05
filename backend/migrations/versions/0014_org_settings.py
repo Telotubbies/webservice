@@ -28,5 +28,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Not a data-recovery path (doc 18 s2) - restore from the pre-migrate dump.
+    # Not a data-recovery path (doc 18 §2) — restore from the pre-migrate dump.
     _raw("ALTER TABLE organizations DROP COLUMN IF EXISTS slug, DROP COLUMN IF EXISTS timezone, DROP COLUMN IF EXISTS language;")

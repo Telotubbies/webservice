@@ -10,6 +10,7 @@ ALTER TABLE alarms
 
 CREATE INDEX alarms_shelved ON alarms (shelved_until) WHERE shelved_until IS NOT NULL;
 
+-- The per-alarm timeline; its grants below are deliberately INSERT-only.
 CREATE TABLE alarm_events (
   id       bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   org_id   uuid NOT NULL,

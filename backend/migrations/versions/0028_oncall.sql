@@ -16,6 +16,8 @@ CREATE TABLE oncall_rotations (
   FOREIGN KEY (org_id, team_id) REFERENCES teams (org_id, id) ON DELETE CASCADE
 );
 
+-- Overrides pin one member for an interval; while active they beat the
+-- rotation's computed member.
 CREATE TABLE oncall_overrides (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     uuid NOT NULL,

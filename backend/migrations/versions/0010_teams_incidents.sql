@@ -2,6 +2,7 @@
 -- problem from declaration to resolution, optionally tied to the alarm that
 -- raised it. incident_events is the append-only timeline (no UPDATE/DELETE
 -- grant). SET NULL columns are listed explicitly so org_id stays set.
+-- Applied by 0010_teams_incidents.py as wds_owner in one transaction.
 
 CREATE TABLE teams (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -54,6 +55,7 @@ CREATE TABLE incident_events (
 );
 CREATE INDEX incident_events_inc ON incident_events (incident_id, at);
 
+-- Fail-closed tenant isolation on all four tables.
 DO $$
 DECLARE t text;
 BEGIN

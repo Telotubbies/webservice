@@ -1,7 +1,9 @@
--- Re-seating an EXISTING member (INSERT ... ON CONFLICT DO UPDATE, e.g. the boot
--- seed) is not a new seat. The BEFORE INSERT trigger fires before the conflict
--- is resolved, so 0033 counted the existing row against the cap and a full org
--- could no longer restart the backend (seed() -> plan_limit:max_users).
+-- 0046 - member seat-cap fix (0033 follow-up). Re-seating an EXISTING member
+-- (INSERT ... ON CONFLICT DO UPDATE, e.g. the boot seed) is not a new seat.
+-- The BEFORE INSERT trigger fires before the conflict is resolved, so 0033
+-- counted the existing row against the cap and a full org could no longer
+-- restart the backend (seed() -> plan_limit:max_users).
+-- Applied by 0046_member_cap_upsert.py as wds_owner in one transaction.
 CREATE OR REPLACE FUNCTION wds_member_cap_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   cap integer;

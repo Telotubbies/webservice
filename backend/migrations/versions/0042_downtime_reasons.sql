@@ -27,6 +27,8 @@ CREATE TABLE downtime_reasons (
     ON DELETE SET NULL (parent_id)
 );
 
+-- Extend downtimes (0008) instead of a parallel table: kind='stop' rows are
+-- the auto-recorded machine stops.
 ALTER TABLE downtimes
   ALTER COLUMN ends_at DROP NOT NULL,
   ALTER COLUMN created_by DROP NOT NULL,

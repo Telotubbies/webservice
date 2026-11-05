@@ -1,6 +1,7 @@
 -- 0007 — dashboards: per-org saved boards (SDLC FR-26). `body` is the widget
 -- list + range as the web editor wrote it; the server only bounds its size.
 -- `shared` = visible to every member; otherwise only to its author.
+-- Applied by 0007_dashboards.py as wds_owner in one transaction.
 
 CREATE TABLE dashboards (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -15,6 +16,7 @@ CREATE TABLE dashboards (
 );
 CREATE INDEX dashboards_org ON dashboards (org_id, updated_at DESC);
 
+-- Fail-closed tenant isolation — no context → no rows, writes rejected.
 ALTER TABLE dashboards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dashboards FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON dashboards

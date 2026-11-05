@@ -30,6 +30,8 @@ CREATE TABLE machine_state_map (
 );
 CREATE INDEX machine_state_map_site ON machine_state_map (org_id, site_id);
 
+-- machine_products: ideal cycle time per (machine, product) — the
+-- performance factor's denominator.
 CREATE TABLE machine_products (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id        uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,

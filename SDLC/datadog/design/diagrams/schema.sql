@@ -1,3 +1,6 @@
+-- Reference dump of the wds Postgres schema (roles, RLS, audit chain) kept
+-- for the design study in SDLC/datadog — NOT a migration; never executed.
+-- Regenerate with: docker compose exec postgres pg_dump -U postgres -s wds.
 --
 -- PostgreSQL database dump
 --

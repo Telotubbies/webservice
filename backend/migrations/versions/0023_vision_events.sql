@@ -36,6 +36,7 @@ CREATE INDEX vision_events_rule ON vision_events (org_id, rule_id);
 CREATE UNIQUE INDEX vision_events_dedup
   ON vision_events (org_id, camera_id, rule_id, fired_at);
 
+-- Reviewer verdicts — one row per event.
 CREATE TABLE vision_event_reviews (
   event_id           uuid PRIMARY KEY,
   org_id             uuid NOT NULL,
@@ -48,6 +49,7 @@ CREATE TABLE vision_event_reviews (
 );
 CREATE INDEX vision_event_reviews_org ON vision_event_reviews (org_id, verdict);
 
+-- Fail-closed tenant isolation + grants for both tables.
 DO $$
 DECLARE t text;
 BEGIN

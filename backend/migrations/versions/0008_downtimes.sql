@@ -1,6 +1,7 @@
 -- 0008 — downtimes: maintenance windows that mute alarm raising. rule_id NULL
 -- = every rule in the org. `recurring` repeats the window weekly (so it must
 -- fit inside 7 days). The alarm engine (wds_system, org context set) reads it.
+-- Applied by 0008_downtimes.py as wds_owner in one transaction.
 
 CREATE TABLE downtimes (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -18,6 +19,7 @@ CREATE TABLE downtimes (
 );
 CREATE INDEX downtimes_org ON downtimes (org_id, ends_at DESC);
 
+-- Fail-closed tenant isolation — no context → no rows, writes rejected.
 ALTER TABLE downtimes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE downtimes FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON downtimes

@@ -42,6 +42,7 @@ GRANT SELECT (id, org_id, url, events, enabled, created_by, created_at,
 GRANT SELECT ON webhook_endpoints TO wds_system;
 
 
+-- webhook_deliveries: one row per delivery attempt (queued/delivered/failed).
 CREATE TABLE webhook_deliveries (
   id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   org_id     uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,

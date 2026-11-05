@@ -1,6 +1,7 @@
 -- 0014 - organization settings: URL-safe unique slug, timezone, language.
 -- The slug default keeps older inserts (tests, seed) valid; self-serve creation
 -- always supplies a chosen slug. Existing rows are backfilled from their id.
+-- Applied by 0014_org_settings.py as wds_owner in one transaction.
 
 ALTER TABLE organizations
   ADD COLUMN slug     text,
@@ -13,6 +14,8 @@ ALTER TABLE organizations NO FORCE ROW LEVEL SECURITY;
 UPDATE organizations SET slug = 'org-' || left(id::text, 8) WHERE slug IS NULL;
 ALTER TABLE organizations FORCE ROW LEVEL SECURITY;
 
+-- Constraints land only after the backfill, so every row already satisfies
+-- them (the default covers future inserts that omit a slug).
 ALTER TABLE organizations
   ALTER COLUMN slug SET DEFAULT ('org-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12)),
   ALTER COLUMN slug SET NOT NULL,

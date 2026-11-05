@@ -25,6 +25,8 @@ CREATE TABLE escalation_policies (
 CREATE UNIQUE INDEX escalation_policies_one_default
   ON escalation_policies (org_id) WHERE rule_id IS NULL;
 
+-- Escalation progress rides on the alarm row so the sweep can resume without
+-- re-deriving how far each episode got.
 ALTER TABLE alarms
   ADD COLUMN esc_level   integer NOT NULL DEFAULT 0,
   ADD COLUMN esc_level_at timestamptz;

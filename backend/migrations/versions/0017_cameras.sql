@@ -42,6 +42,8 @@ CREATE TABLE cameras (
 );
 CREATE INDEX cameras_edge ON cameras (org_id, edge_id);
 
+-- Fail-closed tenant isolation + least-privilege grants for both tables;
+-- the cfg publisher (wds_system) also gets a pre-context read on each.
 DO $$
 DECLARE t text;
 BEGIN

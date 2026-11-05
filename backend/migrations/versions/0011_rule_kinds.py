@@ -28,7 +28,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Not a data-recovery path (doc 18 s2) - restore from the pre-migrate dump.
+    # Not a data-recovery path (doc 18 §2) — restore from the pre-migrate dump.
     _raw("DELETE FROM alarm_rules WHERE kind IN ('roc','anomaly','forecast');"
          " ALTER TABLE alarm_rules DROP CONSTRAINT alarm_rules_shape_check;"
          " ALTER TABLE alarm_rules DROP CONSTRAINT alarm_rules_kind_check;"

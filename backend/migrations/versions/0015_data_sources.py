@@ -1,7 +1,7 @@
 """data sources, tag addressing, edge config versioning, enrollments
 
 Revision ID: 0015
-Revises: 0013
+Revises: 0014
 """
 
 from pathlib import Path
@@ -28,7 +28,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Not a data-recovery path (doc 18 s2) - restore from the pre-migrate dump.
+    # Not a data-recovery path (doc 18 §2) — restore from the pre-migrate dump.
     _raw("""DROP TABLE IF EXISTS edge_enrollments CASCADE;
     ALTER TABLE tags DROP COLUMN IF EXISTS source_id, DROP COLUMN IF EXISTS address, DROP COLUMN IF EXISTS scale, DROP COLUMN IF EXISTS offset_value, DROP COLUMN IF EXISTS deadband;
     DROP TABLE IF EXISTS data_sources CASCADE;

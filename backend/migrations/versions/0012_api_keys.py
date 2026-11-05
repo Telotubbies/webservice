@@ -28,5 +28,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Not a data-recovery path (doc 18 s2) - restore from the pre-migrate dump.
+    # Not a data-recovery path (doc 18 §2) — restore from the pre-migrate dump.
     _raw("DROP TABLE IF EXISTS api_keys CASCADE; DROP FUNCTION IF EXISTS wds_ctx_apikey();")

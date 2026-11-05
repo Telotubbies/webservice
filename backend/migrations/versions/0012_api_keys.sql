@@ -3,7 +3,10 @@
 -- every existing role check applies unchanged. Only sha256(key) is stored.
 -- The auth path knows the hash but not the org yet: key_by_hash lets it read
 -- exactly the one matching row (same shape as invites.invite_by_token).
+-- Applied by 0012_api_keys.py as wds_owner in one transaction.
 
+-- Context accessor for the key-hash auth path (same shape as wds_ctx_invite
+-- in 0001): NULL when unset → key policies fail closed.
 CREATE FUNCTION wds_ctx_apikey() RETURNS text LANGUAGE sql STABLE AS
   $$ SELECT NULLIF(current_setting('app.key_hash', true), '') $$;
 

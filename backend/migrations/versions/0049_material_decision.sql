@@ -9,6 +9,7 @@ ALTER TABLE cameras ADD COLUMN material jsonb;
 ALTER TABLE cameras ADD CONSTRAINT cameras_material_small
   CHECK (material IS NULL OR pg_column_size(material) <= 8192);
 
+-- 'material' becomes a vision event kind so decisions land in the events feed.
 ALTER TABLE vision_events DROP CONSTRAINT vision_events_kind_check;
 ALTER TABLE vision_events ADD CONSTRAINT vision_events_kind_check CHECK (kind IN
   ('rule_fire', 'blocked', 'dry_run', 'alert_object', 'material'));

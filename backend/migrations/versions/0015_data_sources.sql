@@ -1,6 +1,6 @@
--- 0014 - data sources (PLC / server connections owned by an edge), tag
+-- 0015 - data sources (PLC / server connections owned by an edge), tag
 -- addressing, edge config versioning, and edge enrollment codes.
--- Applied by 0014_data_sources.py as wds_owner in one transaction.
+-- Applied by 0015_data_sources.py as wds_owner in one transaction.
 
 CREATE TABLE data_sources (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -25,6 +25,7 @@ CREATE TABLE data_sources (
 );
 CREATE INDEX data_sources_edge ON data_sources (org_id, edge_id);
 
+-- Tag addressing: which source owns the tag + wire decode (scale/offset/deadband).
 ALTER TABLE tags
   ADD COLUMN source_id    uuid,
   ADD COLUMN address      jsonb,
@@ -35,11 +36,13 @@ ALTER TABLE tags
     REFERENCES data_sources (org_id, id) ON DELETE RESTRICT;
 CREATE INDEX tags_source ON tags (org_id, source_id) WHERE source_id IS NOT NULL;
 
+-- Config delivery counters on the edge; the wds_system grants land in 0016.
 ALTER TABLE edges
   ADD COLUMN config_version bigint NOT NULL DEFAULT 0,
   ADD COLUMN config_applied bigint,
   ADD COLUMN config_error   text;
 
+-- One-time enrollment codes for edge onboarding; only the sha256 is stored.
 CREATE TABLE edge_enrollments (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     uuid NOT NULL,

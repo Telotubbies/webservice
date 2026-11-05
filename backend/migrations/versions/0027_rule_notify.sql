@@ -15,6 +15,8 @@ ALTER TABLE alarm_rules
     CHECK (notify_min_severity IN ('info', 'warning', 'critical')),
   ADD COLUMN notify_on_clear    boolean NOT NULL DEFAULT false;
 
+-- The de-dup table: the worker inserts a row per message it actually sent, so
+-- a PK conflict means this episode already went out on this channel.
 CREATE TABLE alarm_notify_state (
   org_id     uuid NOT NULL,
   episode    text NOT NULL CHECK (length(episode) BETWEEN 1 AND 200),

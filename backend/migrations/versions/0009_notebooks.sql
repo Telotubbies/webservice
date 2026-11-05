@@ -1,5 +1,6 @@
 -- 0009 — notebooks: per-org markdown notes (maintenance / incident analysis).
 -- `shared` = visible to every member; otherwise only to its author.
+-- Applied by 0009_notebooks.py as wds_owner in one transaction.
 
 CREATE TABLE notebooks (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -12,6 +13,7 @@ CREATE TABLE notebooks (
 );
 CREATE INDEX notebooks_org ON notebooks (org_id, updated_at DESC);
 
+-- Fail-closed tenant isolation — no context → no rows, writes rejected.
 ALTER TABLE notebooks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notebooks FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON notebooks

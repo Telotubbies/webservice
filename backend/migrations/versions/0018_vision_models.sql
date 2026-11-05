@@ -64,6 +64,7 @@ CREATE TABLE class_presets (
   FOREIGN KEY (org_id, model_id) REFERENCES vision_models (org_id, id) ON DELETE CASCADE
 );
 
+-- Fail-closed tenant isolation + app grants for all four tables.
 DO $$
 DECLARE t text;
 BEGIN

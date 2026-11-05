@@ -2,6 +2,7 @@
 -- `anomaly` (z-score vs the trailing window_s baseline), `forecast` (linear
 -- projection window_s ahead, fitted on the last window_s). All three reuse
 -- `threshold` (delta / sigma / projected value) and `deadband` for the clear.
+-- Applied by 0011_rule_kinds.py as wds_owner in one transaction.
 
 ALTER TABLE alarm_rules ADD COLUMN window_s integer
   CHECK (window_s IS NULL OR window_s BETWEEN 30 AND 86400);
@@ -10,6 +11,8 @@ ALTER TABLE alarm_rules DROP CONSTRAINT alarm_rules_kind_check;
 ALTER TABLE alarm_rules ADD CONSTRAINT alarm_rules_kind_check
   CHECK (kind IN ('hi', 'hihi', 'lo', 'lolo', 'stale', 'roc', 'anomaly', 'forecast'));
 
+-- The 0001 shape CHECK was declared inline, so its name is auto-generated;
+-- drop it by matching its definition, then re-add it under a stable name.
 DO $$
 DECLARE c text;
 BEGIN

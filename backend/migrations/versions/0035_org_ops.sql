@@ -27,6 +27,7 @@ GRANT SELECT ON org_feature_flags TO wds_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON org_feature_flags TO wds_system;
 
 
+-- announcements: maintenance/banner notices; org_id NULL means every tenant.
 CREATE TABLE announcements (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     uuid REFERENCES organizations (id) ON DELETE CASCADE,
