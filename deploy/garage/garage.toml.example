@@ -1,0 +1,19 @@
+# Copy to garage.toml and replace both secrets:
+#   rpc_secret:  openssl rand -hex 32
+#   admin_token: openssl rand -base64 32
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+replication_factor = 1   # single node; use 3 nodes across sites for HA
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+rpc_secret = "REPLACE_WITH_64_HEX_CHARS"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+
+[admin]
+api_bind_addr = "[::]:3903"
+admin_token = "REPLACE_ME"

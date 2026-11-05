@@ -374,8 +374,11 @@ CREATE POLICY system_edge_lookup ON edges FOR SELECT TO wds_system USING (true);
 -- ---------------------------------------------------------------------------
 GRANT SELECT, INSERT, UPDATE ON users TO wds_app;
 GRANT SELECT, INSERT ON revoked_sessions TO wds_app;
+-- no DELETE on organizations: org delete is soft-delete via UPDATE deleted_at;
+-- the 30-day hard delete runs through wds_purge_organization (0038).
+GRANT SELECT, INSERT, UPDATE ON organizations TO wds_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
-  organizations, memberships, invites, sites, lines, devices, edges, tags, alarm_rules
+  memberships, invites, sites, lines, devices, edges, tags, alarm_rules
   TO wds_app;
 GRANT SELECT, INSERT, UPDATE ON tag_latest, alarms, commands TO wds_app;
 GRANT SELECT, INSERT ON tag_history, command_events, audit_log TO wds_app;

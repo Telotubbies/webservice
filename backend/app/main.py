@@ -13,10 +13,8 @@ it is pinned to the seeded dev org (config.V1_ORG_ID) and v1 wire shapes.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
-import csv
-import hashlib
-import io
 import json
 import logging
 import math
@@ -25,7 +23,9 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from typing import Literal
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import asyncpg
@@ -34,38 +34,103 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import config
-from .alarms import (
-    AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener,
+from .core import config, jobs
+from .iam import consents, orgguard
+from .edge import credpush, edgelogs, enroll_codes
+from .production import eventsfeed, rollup, statuspage, tagquery
+from .production.derived import DerivedEngine
+from .production.ingest import flush_history as _flush_history, record_sample
+from .alarming import inference, notify
+from .tenancy import onboarding, orgapi, orgs as orgs_mod, plans, platform as platform_api, workers
+from .alarming.alarms import AlarmEngine, RULES_NOTIFY_CHANNEL, Rule, rules_notify_listener
+from .iam.auth import OPERATOR_ROLES, Principal
+from .edge.commands import CommandManager
+from .edge.dynsec import (
+    DynsecAdmin,
+    DynsecError,
+    Reconciler,
+    edge_acls,
+    edge_client_name,
+    edge_role_name,
+    fingerprint,
+    new_secret,
 )
-from .auth import OPERATOR_ROLES, Principal
-from .commands import CommandManager
-from .dynsec import (
-    DynsecAdmin, DynsecError, Reconciler,
-    edge_acls, edge_client_name, edge_role_name, fingerprint, new_secret,
-)
-from .insights import INSIGHT_KINDS, InsightEngine
+from .alarming.insights import INSIGHT_KINDS, InsightEngine
 from .db import audit
+from .datasources.publisher import CfgPublisher, parse_cfg_req
+from .datasources.routes import router as datasources_router, tags_notify_listener
+from .vision import stream as vision_stream
+from .vision import models as vision_models
+from .vision.cameras import router as cameras_router
+from .vision.classes import router as classes_router
+from .vision import events as vision_events
+from .vision.events import router as vision_events_router
+from .vision.rules import router as vision_rules_router
+from .vision.external import router as vision_external_router
+from .vision.material import router as material_router
+from .artifacts import router as artifacts_router
+from .vision.models import router as models_router
+from .vision.relay import FrameRelay
+from .vision.stream import router as stream_router
+from .vision.videos import router as videos_router
+from .plant.hierarchy import router as hierarchy_router
+from .production.formulas import router as formulas_router
+from .alarming.push import router as push_router
+from .plant.routes import router as plant_router
 from .db.context import global_tx, invite_tx, tenant_tx, user_tx
 from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
-from .mqtt_client import MQTTBridge
-from .observability import (
-    ObservabilityMiddleware, _client_ip, _trusted_peer,
-    metrics_response, migration_at_head, RUNTIME,
+from .edge.mqtt_client import MQTTBridge
+from .production.oee import router as oee_router, downtime_sweep
+from .production.reports import router as reports_router, report_sweep
+from .core.observability import (
+    ObservabilityMiddleware,
+    _client_ip,
+    metrics_response,
+    migration_at_head,
+    RUNTIME,
 )
-from .ratelimit import RateLimiter
-from .registry import Registry
-from .security import (
-    AuthError, ForbiddenError, Security, authz_listener, authz_sweep,
+from .core.ratelimit import RateLimiter
+from .edge.registry import Registry
+from .iam.security import (
+    API_KEY_PREFIX,
+    AuthError,
+    ForbiddenError,
+    Security,
+    authz_listener,
+    authz_sweep,
 )
-from .seed import seed
-from .ws import (
-    OriginGuardMiddleware, WSManager, WSAuthError, origin_allowed,
-    read_auth_frame,
+from .ops.seed import seed
+from .deps import (
+    CONFIG_ROLES,
+    Scope,
+    _CONFIG,
+    _OPERATE,
+    _READ,
+    _authenticate,
+    _effective_org_roles,
+    _mutation_gate,
+    step_up,
+    _scope,
+    _site_or_404,
+    _uuid_or_404,
+    _v2_org,
+    _v2_scope,
+    _v2_tag_or_404,
+    org_tx,
+    require_authenticated,
+    require_operator,
+    require_principal,
+    require_user,
+    st,
+    v1_operate,
+    v1_read,
+    v1_tx,
 )
+from .api import routers as api_routers
+from .edge.ws import OriginGuardMiddleware, WSManager, WSAuthError, origin_allowed, read_auth_frame
 
 START_TIME = time.monotonic()
 
@@ -169,46 +234,6 @@ class TelemetryMsg(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Auth dependencies (v4 T5 — anonymous reads removed; ADR-12)
-# ---------------------------------------------------------------------------
-async def _authenticate(request: Request) -> Principal:
-    """Authorization header -> verified Principal. AuthError -> 401."""
-    header = request.headers.get("authorization", "")
-    token = None
-    if header.lower().startswith("bearer "):
-        token = header[7:].strip()
-    p = await st(request).auth.authenticate(token)
-    # The access-log middleware reads this AFTER the request completes —
-    # the sub, never the token (v4 T8).
-    request.state.principal = p
-    return p
-
-
-async def require_user(request: Request) -> Principal:
-    """Any verified caller — even without org membership (for /api/me)."""
-    return await _authenticate(request)
-
-
-async def require_principal(request: Request) -> Principal:
-    """Verified caller WITH membership in the shim org — every /api/* read."""
-    p = await _authenticate(request)
-    if not p.member:
-        raise ForbiddenError("not a member of this organization")
-    return p
-
-
-async def require_operator(request: Request) -> Principal:
-    """Mutating endpoints: operator/admin/owner in the shim org."""
-    p = await require_principal(request)
-    if not p.can_operate:
-        raise ForbiddenError("operator role required")
-    return p
-
-
-require_authenticated = require_operator  # ack is an operator-level mutation
-
-
-# ---------------------------------------------------------------------------
 # Runtime state
 # ---------------------------------------------------------------------------
 class State:
@@ -243,20 +268,25 @@ class State:
         # each forged attempt burns a JWKS verify; keep a tight per-IP bucket
         self.logout_limiter = RateLimiter(config.RATE_LOGOUT_PER_IP,
                                           config.RATE_LOGOUT_WINDOW_S)
+        # unauthenticated enroll endpoint: tight per-IP bucket (code guessing)
+        self.enroll_limiter = RateLimiter(config.RATE_ENROLL_PER_IP,
+                                          config.RATE_ENROLL_WINDOW_S)
         self.commands = CommandManager(pools, self.ws, self.mqtt, self.registry,
                                        cmd_limiter=self.cmd_limiter)
         self.alarms = AlarmEngine(pools, self.ws, self.registry)
+        self.cfgpub = CfgPublisher(pools, self.mqtt, self.registry)
+        self.relay = FrameRelay(vision_stream.cameras_lookup(pools))
         self.insights = InsightEngine(pools, self.ws, self.registry)
         self.auth = Security(pools, self.ws)  # v4 T5 — OIDC verify + authz
         self.history_buf: list[tuple] = []
+        self.derived = DerivedEngine(pools, self.registry, self._emit_derived)
         self.edge = {"last_rx": None, "last_heartbeat_ts": None, "clock_ok": None,
                      "adapter": None}
-        self.counters = {"telemetry_unknown_tag": 0, "telemetry_bad_payload": 0,
-                         "telemetry_future_ts": 0, "telemetry_too_old": 0,
-                         # doc 17 §4 — security events, counted + logged
-                         "mqtt_topic_identity_mismatch": 0,
-                         "mqtt_bad_topic": 0}
+        self.counters = new_ingest_counters()
         self.db_ok = True
+
+    async def _emit_derived(self, tag, org_id, site_id, v, q, ts) -> None:
+        await record_sample(self, tag, org_id, site_id, v, q, ts)
 
     def edge_status(self) -> str:
         last = self.edge["last_rx"]
@@ -272,6 +302,15 @@ class State:
 # ---------------------------------------------------------------------------
 # Ingest
 # ---------------------------------------------------------------------------
+def new_ingest_counters() -> dict:
+    return {"telemetry_unknown_tag": 0, "telemetry_bad_payload": 0,
+            "telemetry_future_ts": 0, "telemetry_too_old": 0,
+            # doc 17 §4 — security events, counted + logged
+            "mqtt_topic_identity_mismatch": 0,
+            "mqtt_bad_topic": 0,
+            "cfg_bad_payload": 0}
+
+
 def _count(st: State, key: str, msg: str, **extra) -> None:
     st.counters[key] += 1
     if st.counters[key] % 100 == 1:
@@ -311,12 +350,42 @@ async def _handle_message(st: State, msg) -> None:
     kind = parts[4]
     if kind == "hb" and len(parts) == 5:
         return await _handle_heartbeat(st, msg, edge)
+    if kind in ("cfg-req", "cfg-ack") and len(parts) == 5:
+        return await _handle_cfg(st, msg, edge, kind)
+    if kind == "vision" and len(parts) == 7 and parts[5] == "frame":
+        return await vision_stream.handle_frame(st, msg, edge, parts[6])
+    if kind == "vision" and len(parts) == 6 and parts[5] == "stat":
+        return await vision_stream.handle_stat(st, msg, edge)
+    if kind == "vision" and len(parts) == 6 and parts[5] == "caps":
+        return await vision_stream.handle_caps(st, msg, edge)
+    if kind == "vision" and len(parts) == 6 and parts[5] == "event":
+        return await vision_events.handle_event(st, msg, edge)
+    if kind == "vision" and len(parts) == 6 and parts[5] == "audit":
+        return await vision_events.handle_audit(st, msg, edge)
+    if kind == "vision" and len(parts) == 6 and parts[5] == "count":
+        return await vision_events.handle_count(st, msg, edge)
+    if kind == "logs" and len(parts) == 5:
+        return await edgelogs.ingest_edge_log(
+            st, org_id, site_id, edge_id, msg.payload)
     if kind == "cmd-resp" and len(parts) == 6:
         return _handle_cmd_resp(st, msg, org_id, edge_id)
     if kind == "tele" and len(parts) >= 6:
         return await _handle_telemetry(st, msg, edge, "/".join(parts[5:]))
     return _count(st, "mqtt_bad_topic", "unrecognized v2 subtree — dropped",
                   topic=msg.topic)
+
+
+async def _handle_cfg(st: State, msg, edge, kind: str) -> None:
+    try:
+        payload = json.loads(msg.payload)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _count(st, "cfg_bad_payload", f"bad {kind} payload", topic=msg.topic)
+    if kind == "cfg-req":
+        valid, have = parse_cfg_req(payload)
+        if not valid:
+            return _count(st, "cfg_bad_payload", "bad cfg-req payload", topic=msg.topic)
+        return await st.cfgpub.on_request(edge, have)
+    await st.cfgpub.on_ack(edge, payload)
 
 
 async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
@@ -339,28 +408,7 @@ async def _handle_telemetry(st: State, msg, edge, path: str) -> None:
         return _count(st, "telemetry_too_old", "telemetry older than 8h — dropped",
                       topic=msg.topic)
 
-    v, q = payload.v, payload.q
-    async with tenant_tx(st.pools.system, edge.org_id) as tc:
-        # tag_latest is monotonic: a late/replayed sample never overwrites newer data
-        res = await tc.execute(
-            "INSERT INTO tag_latest(tag_id, org_id, v, q, ts) VALUES ($1,$2,$3,$4,$5)"
-            " ON CONFLICT (tag_id) DO UPDATE SET v=excluded.v, q=excluded.q, ts=excluded.ts"
-            " WHERE tag_latest.ts < excluded.ts",
-            tag.id, tc.org_id, v, q, ts)
-        await st.alarms.evaluate(tc, tag.id, v, q, ts)
-    st.history_buf.append((tag.id, ts, edge.org_id, v, q))
-    if len(st.history_buf) >= config.HISTORY_FLUSH_ROWS:
-        await _flush_history(st)
-    if res.endswith(" 1"):
-        # Org-scoped fan-out (v4 T9): only members of edge.org_id see this.
-        # `name` is the real site code + path (== v1_name for the shim site);
-        # org/site/tag ids ride along for the CONTRACT.v2 §5 wire.
-        st.ws.broadcast(
-            {"type": "tag", "name": st.registry.display_name(tag),
-             "v": v, "q": q, "ts": payload.ts,
-             "org_id": str(edge.org_id), "site_id": str(edge.site_id),
-             "tag_id": str(tag.id), "path": tag.path},
-            org_id=edge.org_id)
+    await record_sample(st, tag, edge.org_id, edge.site_id, payload.v, payload.q, ts, payload.ts)
 
 
 async def _handle_heartbeat(st: State, msg, edge) -> None:
@@ -405,26 +453,18 @@ def _handle_cmd_resp(st: State, msg, org_id: UUID, edge_id: UUID) -> None:
     if cid != msg.topic.rsplit("/", 1)[-1]:
         log.warning("cmd-resp id mismatch — dropped", extra={"topic": msg.topic})
         return
+    # edge ops (test_source/browse) answer here, before any commands-table lookup
+    if st.commands.resolve_op(cid, edge_id, payload):
+        return
     # CONTRACT.v2 §6 names the field `reason`; `detail` tolerated for compat
     asyncio.ensure_future(st.commands.handle_response(
         cid, status, payload.get("reason") or payload.get("detail"),
         org_id, edge_id))
 
 
-async def _flush_history(st: State) -> None:
-    if not st.history_buf:
-        return
-    rows, st.history_buf = st.history_buf, []
-    # rows carry their own org (routed by topic, doc 17 §4) — group so each
-    # tenant_tx only ever writes its own tenant's rows
-    by_org: dict[UUID, list] = {}
-    for r in rows:
-        by_org.setdefault(r[2], []).append(r)
-    for org_id, batch in by_org.items():
-        async with tenant_tx(st.pools.system, org_id) as tc:
-            await tc.executemany(
-                "INSERT INTO tag_history(tag_id, ts, org_id, v, q) VALUES ($1,$2,$3,$4,$5)"
-                " ON CONFLICT (tag_id, ts) DO NOTHING", batch)  # QoS1 replay dedup (I10)
+async def _prune_jobs(st) -> None:
+    async with st.pools.system.acquire() as conn:
+        await jobs.prune(conn)
 
 
 async def _every(seconds: float, fn, name: str) -> None:
@@ -481,11 +521,27 @@ async def lifespan(app: FastAPI):
         st.health_event(), org_id=config.V1_ORG_ID)
     st.mqtt.start(asyncio.get_running_loop())
     await st.commands.sweep_interrupted()  # I9 before accepting traffic
+    try:  # ingest must find its month's partition on the very first sample
+        await rollup.ensure_partitions(st.pools)
+    except Exception:  # noqa: BLE001 — rows fall into the default partition meanwhile
+        log.exception("initial history partitions failed — continuing")
     tasks = [
         asyncio.create_task(ingest_worker(st)),
         asyncio.create_task(st.reconciler.run_forever()),
+        asyncio.create_task(st.derived.run_forever()),
         asyncio.create_task(_every(config.HISTORY_FLUSH_S, lambda: _flush_history(st),
                                    "history flush")),
+        # per-org plan retention replaces the single global window (6.2)
+        asyncio.create_task(_every(config.HISTORY_PRUNE_S,
+                                   lambda: plans.retention_prune(st.pools),
+                                   "retention prune")),
+        # historian: rollups every minute, next months' partitions daily
+        asyncio.create_task(_every(config.ROLLUP_REFRESH_S,
+                                   lambda: rollup.refresh_all(st.pools), "rollup refresh")),
+        asyncio.create_task(_every(86400.0, lambda: rollup.ensure_partitions(st.pools),
+                                   "history partitions")),
+        # finished/dead queue rows were never deleted (86k notify_send rows)
+        asyncio.create_task(_every(86400.0, lambda: _prune_jobs(st), "jobs prune")),
         asyncio.create_task(_every(config.STALE_RULE_CHECK_S, st.alarms.sweep_stale,
                                    "stale-rule sweep")),
         asyncio.create_task(st.insights.run_forever()),
@@ -499,6 +555,32 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(authz_sweep(st.auth, config.AUTHZ_SWEEP_S)),
         # alarm_rules_changed NOTIFY -> rule reload without restart (v4 T10)
         asyncio.create_task(rules_notify_listener(st.alarms)),
+        # wds_tags NOTIFY -> registry refresh on data-source/tag CRUD (spec 5.6)
+        asyncio.create_task(tags_notify_listener(st.registry, st.pools)),
+        # wds_cfg NOTIFY -> push edge config over MQTT (spec 5.4)
+        asyncio.create_task(st.cfgpub.start()),
+        # converter spool -> model versions (plan M1-04)
+        asyncio.create_task(vision_models.ingest_loop(pools)),
+        # notifications: delivery retries, escalation, shelf expiry, vision alarms
+        asyncio.create_task(_every(config.NOTIFY_POLL_S, lambda: notify.notify_jobs_worker(st),
+                                   "notify jobs")),
+        asyncio.create_task(_every(config.ESCALATE_SWEEP_S, lambda: notify.escalate_sweep(st),
+                                   "escalation sweep")),
+        asyncio.create_task(_every(config.SHELVE_SWEEP_S, lambda: notify.shelve_sweep(st),
+                                   "shelve sweep")),
+        asyncio.create_task(_every(config.VISION_ALARM_SWEEP_S,
+                                   lambda: notify.vision_alarm_sweep(st), "vision alarms")),
+        # generic job runner (exports, webhook delivery) + sweeps
+        asyncio.create_task(_every(config.JOBS_WORKER_S, lambda: workers.job_runner(st),
+                                   "job runner")),
+        asyncio.create_task(_every(config.WEBHOOK_SWEEP_S, lambda: workers.webhook_sweep(st),
+                                   "webhook sweep")),
+        asyncio.create_task(_every(config.EXPORT_SWEEP_S,
+                                   lambda: workers.expired_exports_sweep(st),
+                                   "expired exports")),
+        # production KPIs: stop detection + scheduled reports
+        asyncio.create_task(_every(60, lambda: downtime_sweep(st.pools), "downtime sweep")),
+        asyncio.create_task(_every(60, lambda: report_sweep(st.pools), "report sweep")),
     ]
     log.info("backend started", extra={"org_id": str(config.V1_ORG_ID),
                                        "site": config.V1_SITE_CODE})
@@ -551,6 +633,31 @@ async def validation_handler(request: Request, exc: RequestValidationError):
                         content={"detail": "invalid_request", "errors": jsonable_encoder(errors)})
 
 
+# Plan-cap triggers (0033: memberships/invites/edges) refuse with
+# RAISE EXCEPTION 'plan_limit:<key>' USING ERRCODE=check_violation — that
+# lands here as a CheckViolationError (RaiseError covers any future plain
+# RAISE with the same convention). Map to the same 402 plans.check_limit
+# emits; anything not 'plan_limit:*' re-raises into a real 500.
+@app.exception_handler(asyncpg.CheckViolationError)
+@app.exception_handler(asyncpg.RaiseError)
+async def plan_limit_handler(request: Request, exc: asyncpg.PostgresError):
+    msg = getattr(exc, "message", None) or str(exc)
+    if msg.startswith("plan_limit:"):
+        key = msg.split(":", 1)[1].split("\n")[0].strip()
+        return JSONResponse(
+            status_code=402,
+            content={"detail": {"error": "plan_limit", "limit": key}})
+    raise exc
+
+
+# Starlette wraps LATER add_middleware calls OUTSIDE earlier ones, so the
+# first registration here is the innermost user middleware.
+# Resulting wrap order (outermost -> innermost):
+#   Observability -> OriginGuard -> CORS -> OrgGuard -> routes.
+# OrgGuard is innermost: its 403/404 rejections still travel back through
+# CORS + observability, so a refused request carries the CORS headers, an
+# X-Request-ID, an access-log line and metrics like any other response.
+app.add_middleware(orgguard.OrgGuardMiddleware)   # suspended/deleted org gate (roadmap 7.1/1.6)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in config.CORS_ORIGIN.split(",")],
@@ -572,74 +679,6 @@ app.add_middleware(
 # Outermost (added last): every HTTP request gets a request-id, a JSON access
 # log line and Prometheus counters — including requests CORS rejects (v4 T8).
 app.add_middleware(ObservabilityMiddleware)
-
-
-def st(request: Request) -> State:
-    return request.app.state.st
-
-
-def v1_tx(request: Request, user_id: UUID | None = None):
-    """v1 COMPAT SHIM (v4 T9): the /api/* endpoints predate org routing, so
-    they are pinned to the seeded dev org. Every v2 call site resolves the
-    org from the path instead — this is the only org pin left on the
-    request path."""
-    return tenant_tx(st(request).pools.app, config.V1_ORG_ID, user_id)
-
-
-def org_tx(request: Request, org_id: UUID, user_id: UUID | None = None):
-    """Tenant transaction for the org the v2 ROUTE resolved (membership
-    already checked by the _v2_* scope helpers)."""
-    return tenant_tx(st(request).pools.app, org_id, user_id)
-
-
-def _effective_org_roles(p: Principal) -> dict[UUID, str]:
-    """org_id -> role from the principal's hydrated memberships.
-
-    Dev tokens hydrate org_roles from the `memberships` table at
-    authenticate() time (v4 T6), so a dev user IS a member of every org the
-    table says — including non-shim orgs created by tests/admin paths.
-    Fallback: a principal whose memberships couldn't hydrate (pools
-    unavailable) keeps only its nominal shim-org role."""
-    roles = dict(p.org_roles)
-    if not roles and p.member:
-        roles = {config.V1_ORG_ID: p.role}
-    return roles
-
-
-# CONTRACT.v2 §1 permission levels used by the v2 scope helpers.
-_READ = "read"        # any member
-_OPERATE = "operate"  # alarm:ack / command:issue / command:read
-_CONFIG = "config"    # config:write
-
-
-def _v2_org(org: str, p: Principal, need: str = _READ) -> UUID:
-    """Resolve + authorize the /api/v1/orgs/{org} segment (v4 T9).
-
-    Non-member OR non-existent org -> 404 — the same response either way,
-    so the route is never an existence oracle (CONTRACT.v2 §1, ADR-13 §1).
-    A member without the permission level -> 403."""
-    org_id = _uuid_or_404(org, "organization")
-    role = _effective_org_roles(p).get(org_id)
-    if role is None:
-        raise HTTPException(404, "not found")
-    if need == _OPERATE and role not in OPERATOR_ROLES:
-        raise ForbiddenError("operator role required in this org")
-    if need == _CONFIG and role not in CONFIG_ROLES:
-        raise ForbiddenError("config:write requires admin or owner")
-    return org_id
-
-
-def _v2_scope(org: str, site: str, p: Principal,
-              need: str = _READ) -> tuple[UUID, UUID]:
-    """Resolve + authorize an /api/v1/orgs/{org}/sites/{site} path."""
-    return _v2_org(org, p, need), _uuid_or_404(site, "site")
-
-
-def _uuid_or_404(s: str, what: str) -> UUID:
-    try:
-        return UUID(s)
-    except ValueError:
-        raise HTTPException(404, f"{what} not found") from None
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +709,7 @@ async def readyz(request: Request):
 @app.get("/metrics")
 async def metrics():
     """Prometheus scrape — backend port only (loopback-bound; nginx returns
-    404 for /metrics on the web origin). See app.observability docstring."""
+    404 for /metrics on the web origin). See app.core.observability docstring."""
     return metrics_response()
 
 
@@ -715,6 +754,7 @@ async def auth_config():
         "env": config.APP_ENV,
         "dev_tokens": config.APP_ENV == "dev",
         "oidc": {"realm": config.OIDC_REALM, "client_id": config.OIDC_CLIENT_ID},
+        "idps": config.IDPS,
     }
 
 
@@ -754,6 +794,33 @@ async def me(request: Request, p: Principal = Depends(require_user)):
         "orgs": [{"org_id": str(o), "role": r} for o, r in p.org_roles],
         "memberships": memberships,
     }
+
+
+class OrgCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    slug: str
+    timezone: str = "Asia/Bangkok"
+    language: str = "en"
+
+
+@app.post("/api/v1/orgs", status_code=201)
+async def create_organization(body: OrgCreateIn, request: Request,
+                              p: Principal = Depends(require_user)):
+    """Self-serve org creation (roadmap 1.2): creator becomes owner, a default
+    site is created. Needs a verified email; API keys cannot create orgs."""
+    if p.user_id is None or p.kind not in ("oidc", "dev"):
+        raise ForbiddenError("a signed-in user is required")
+    await _mutation_gate(request, p.user_id)
+    try:
+        out = await orgs_mod.create_org(
+            st(request).pools, p.user_id, name=body.name, slug=body.slug,
+            timezone=body.timezone, language=body.language)
+    except orgs_mod.OrgError as e:
+        raise HTTPException(e.status, e.code) from None
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    st(request).auth.forget(p.sub)  # /me shows the new org at once
+    return out
 
 
 @app.post("/api/auth/backchannel-logout")
@@ -797,47 +864,49 @@ async def backchannel_logout(request: Request):
 # v1 REST — every read requires an authenticated member (anonymous removed)
 # ---------------------------------------------------------------------------
 @app.get("/api/tags")
-async def list_tags(request: Request, p: Principal = Depends(require_principal)):
+async def list_tags(request: Request, sc: Scope = Depends(v1_read)):
     """v1 shim: the seeded site's tags only — the registry is now multi-org
     (v4 T9), so the compat surface must filter or other orgs' tags would
     leak under plant1-prefixed names."""
     s = st(request)
     await s.registry.maybe_refresh()
-    return [{"name": t.v1_name, "writable": t.writable, **({"unit": t.unit} if t.unit else {})}
-            for t in sorted(s.registry.for_site(config.V1_SITE_ID),
-                            key=lambda t: t.v1_name)]
+    return [{"name": s.registry.display_name(t), "writable": t.writable,
+             **({"unit": t.unit} if t.unit else {})}
+            for t in sorted(s.registry.for_site(sc.site_id),
+                            key=lambda t: s.registry.display_name(t))]
 
 
 @app.get("/api/tags/latest")
-async def tags_latest_bulk(request: Request,
-                           p: Principal = Depends(require_principal)):
+async def tags_latest_bulk(request: Request, sc: Scope = Depends(v1_read)):
     """All latest values for the site in one call (CONTRACT.v2 `/tags/latest`)."""
     s = st(request)
     await s.registry.maybe_refresh()
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         rows = await tc.fetch("SELECT tag_id, v, q, ts FROM tag_latest")
     out = []
     for r in rows:
         tag = s.registry.by_id(r["tag_id"])
         # seeded-SITE filter (T9-review F3): /api/tags already scopes to
         # V1_SITE_ID — the bulk latest must too, not just the shim org
-        if tag and tag.site_id == config.V1_SITE_ID:
-            out.append({"name": tag.v1_name, "v": finite_or_none(r["v"]), "q": r["q"],
+        if tag and tag.site_id == sc.site_id:
+            out.append({"name": s.registry.display_name(tag), "v": finite_or_none(r["v"]), "q": r["q"],
                         "ts": iso_z(r["ts"])})
     return out
 
 
 @app.get("/api/alarm-rules")
-async def list_alarm_rules(request: Request,
-                           p: Principal = Depends(require_principal)):
+async def list_alarm_rules(request: Request, sc: Scope = Depends(v1_read)):
     s = st(request)
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         rows = await tc.fetch("SELECT tag_id, name, kind, threshold, stale_s, deadband, severity,"
                               " enabled FROM alarm_rules ORDER BY name")
     out = []
     for r in rows:
         tag = s.registry.by_id(r["tag_id"])
-        out.append({"tag": tag.v1_name if tag else None, "name": r["name"], "kind": r["kind"],
+        if tag is not None and tag.site_id != sc.site_id:
+            continue
+        out.append({"tag": s.registry.display_name(tag) if tag else None,
+                    "name": r["name"], "kind": r["kind"],
                     "threshold": r["threshold"], "stale_s": r["stale_s"],
                     "deadband": r["deadband"], "severity": r["severity"],
                     "enabled": r["enabled"]})
@@ -845,16 +914,15 @@ async def list_alarm_rules(request: Request,
 
 
 @app.get("/api/tags/{name:path}/latest")
-async def tag_latest(name: str, request: Request,
-                     p: Principal = Depends(require_principal)):
-    tag = st(request).registry.by_v1_name(name)
+async def tag_latest(name: str, request: Request, sc: Scope = Depends(v1_read)):
+    tag = st(request).registry.by_display_name(sc.site_id, name)
     if tag is None:
         raise HTTPException(404, "tag not found or no data yet")
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         row = await tc.fetchrow("SELECT v, q, ts FROM tag_latest WHERE tag_id=$1", tag.id)
     if row is None:
         raise HTTPException(404, "tag not found or no data yet")
-    return {"name": tag.v1_name, "v": finite_or_none(row["v"]), "q": row["q"],
+    return {"name": name, "v": finite_or_none(row["v"]), "q": row["q"],
             "ts": iso_z(row["ts"])}
 
 
@@ -865,9 +933,9 @@ async def tag_history(
     from_: str | None = Query(None, alias="from"),
     to: str | None = Query(None),
     limit: int = Query(500, ge=1, le=5000),
-    p: Principal = Depends(require_principal),
+    sc: Scope = Depends(v1_read),
 ):
-    tag = st(request).registry.by_v1_name(name)
+    tag = st(request).registry.by_display_name(sc.site_id, name)
     if tag is None:
         return []
     try:
@@ -875,7 +943,7 @@ async def tag_history(
         t_to = parse_ts(to) if to else None
     except ValueError:
         raise HTTPException(400, "invalid_request") from None
-    async with v1_tx(request) as tc:
+    async with org_tx(request, sc.org_id) as tc:
         # newest `limit` rows in range, returned oldest→newest (trend seeding)
         rows = await tc.fetch(
             "SELECT v, q, ts FROM (SELECT v, q, ts FROM tag_history WHERE tag_id=$1"
@@ -884,25 +952,51 @@ async def tag_history(
     return [{"v": finite_or_none(r["v"]), "q": r["q"], "ts": iso_z(r["ts"])} for r in rows]
 
 
-async def _mutation_gate(request: Request, uid: UUID) -> None:
-    """Per-user write budget (v4 T4): mutations other than POST /api/commands,
-    which carries its own stricter per-tag bucket in CommandManager.issue."""
-    s = st(request)
-    if not await s.mutation_limiter.allow(str(uid)):
-        retry = await s.mutation_limiter.retry_after(str(uid))
-        raise HTTPException(status_code=429, detail="rate_limited",
-                            headers={"Retry-After": str(max(1, math.ceil(retry)))})
+@app.get("/api/tags/{name:path}/availability")
+async def tag_availability(
+    name: str,
+    request: Request,
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = Query(None),
+    sc: Scope = Depends(v1_read),
+):
+    """Share of samples with quality 'good' in the window (SLO SLI).
+    Only as deep as tag_history retention (HISTORY_MAX_AGE_S)."""
+    tag = st(request).registry.by_display_name(sc.site_id, name)
+    try:
+        t_from = parse_ts(from_) if from_ else None
+        t_to = parse_ts(to) if to else utcnow()
+    except ValueError:
+        raise HTTPException(400, "invalid_request") from None
+    out = {"name": name, "from": iso_z(t_from) if t_from else None, "to": iso_z(t_to),
+           "samples": 0, "good_frac": None, "uptime": None, "down_s": None}
+    if tag is None:
+        return out
+    async with org_tx(request, sc.org_id) as tc:
+        row = await tc.fetchrow(
+            "SELECT count(*) AS n, count(*) FILTER (WHERE q='good') AS good,"
+            " min(ts) AS first FROM tag_history WHERE tag_id=$1"
+            " AND ($2::timestamptz IS NULL OR ts >= $2) AND ts <= $3",
+            tag.id, t_from, t_to)
+    if row["n"]:
+        frac = row["good"] / row["n"]
+        # window actually covered: retention may be shorter than the request
+        start = max(t_from, row["first"]) if t_from else row["first"]
+        out.update(samples=row["n"], good_frac=frac, uptime=frac,
+                   down_s=round((1 - frac) * (t_to - start).total_seconds(), 1))
+    return out
 
 
 @app.post("/api/commands", status_code=201)
 async def post_command(body: CommandIn, request: Request,
-                       p: Principal = Depends(require_operator)):
+                       sc: Scope = Depends(v1_operate)):
+    step_up(sc.p)
     s = st(request)
     code, resp = await s.commands.issue(
-        tag=s.registry.by_v1_name(body.tag),   # shim-site resolution only
-        org_id=config.V1_ORG_ID, site_id=config.V1_SITE_ID,
+        tag=s.registry.by_display_name(sc.site_id, body.tag),
+        org_id=sc.org_id, site_id=sc.site_id,
         value=body.value, ttl_s=body.ttl_s,
-        idempotency_key=body.idempotency_key, user_id=p.user_id)
+        idempotency_key=body.idempotency_key, user_id=sc.p.user_id)
     out = JSONResponse(status_code=code, content=resp)
     if code == 429:
         # RFC 6585 — clients back off on the header, not the body
@@ -913,14 +1007,14 @@ async def post_command(body: CommandIn, request: Request,
 @app.get("/api/commands")
 async def list_commands(request: Request, limit: int = Query(50, ge=1, le=500),
                         tag: str | None = None, user: str | None = None,
-                        p: Principal = Depends(require_operator)):
-    async with v1_tx(request) as tc:
-        return await st(request).commands.list(tc, limit, tag, user)
+                        sc: Scope = Depends(v1_operate)):
+    async with org_tx(request, sc.org_id) as tc:
+        return await st(request).commands.list(tc, limit, tag, user, site_id=sc.site_id)
 
 
 @app.get("/api/commands/{cid}")
-async def get_command(cid: str, request: Request, p: Principal = Depends(require_operator)):
-    async with v1_tx(request) as tc:
+async def get_command(cid: str, request: Request, sc: Scope = Depends(v1_operate)):
+    async with org_tx(request, sc.org_id) as tc:
         cmd = await st(request).commands.get(tc, _uuid_or_404(cid, "command"))
     if cmd is None:
         raise HTTPException(404, "command not found")
@@ -931,9 +1025,10 @@ async def get_command(cid: str, request: Request, p: Principal = Depends(require
 async def list_alarms(request: Request, status: str | None = Query(None),
                       severity: str | None = Query(None),
                       limit: int = Query(100, ge=1, le=500),
-                      p: Principal = Depends(require_principal)):
-    async with v1_tx(request) as tc:
-        return await st(request).alarms.list_alarms(tc, status, severity, limit)
+                      sc: Scope = Depends(v1_read)):
+    async with org_tx(request, sc.org_id) as tc:
+        return await st(request).alarms.list_alarms(tc, status, severity, limit,
+                                                    site_id=sc.site_id)
 
 
 @app.get("/api/insights")
@@ -943,7 +1038,7 @@ async def list_insights(request: Request,
                         tag: str | None = Query(None),
                         from_: str | None = Query(None, alias="from"),
                         to: str | None = Query(None),
-                        p: Principal = Depends(require_principal)):
+                        sc: Scope = Depends(v1_read)):
     """Engine-generated insights (doc 19 §4.3) — additive v1 endpoint.
     Member read, same policy as /api/alarms (anonymous removed, v4 T5)."""
     s = st(request)
@@ -953,7 +1048,7 @@ async def list_insights(request: Request,
         raise HTTPException(400, "invalid_request")
     tag_id = None
     if tag is not None:
-        t = s.registry.by_v1_name(tag)
+        t = s.registry.by_display_name(sc.site_id, tag)
         if t is None:
             return []
         tag_id = t.id
@@ -962,18 +1057,19 @@ async def list_insights(request: Request,
         t_to = parse_ts(to) if to else None
     except ValueError:
         raise HTTPException(400, "invalid_request") from None
-    async with v1_tx(request) as tc:
-        return await s.insights.list_insights(tc, state, kind, tag_id, t_from, t_to)
+    async with org_tx(request, sc.org_id) as tc:
+        return await s.insights.list_insights(tc, state, kind, tag_id, t_from, t_to,
+                                            site_id=sc.site_id)
 
 
 @app.post("/api/alarms/{alarm_id}/ack")
 async def ack_alarm(alarm_id: str, request: Request,
-                    p: Principal = Depends(require_authenticated)):
-    uid = p.user_id
+                    sc: Scope = Depends(v1_operate)):
+    uid = sc.p.user_id
     await _mutation_gate(request, uid)
-    async with v1_tx(request, uid) as tc:
+    async with org_tx(request, sc.org_id, uid) as tc:
         alarm = await st(request).alarms.ack(tc, _uuid_or_404(alarm_id, "alarm"), uid,
-                                             f"user:{uid}")
+                                             f"user:{uid}", site_id=sc.site_id)
     if alarm is None:
         raise HTTPException(404, "alarm not found")
     return alarm
@@ -1006,17 +1102,6 @@ async def system_health(request: Request,
     }
 
 
-# ---------------------------------------------------------------------------
-# Edge provisioning (doc 17 §5 + CONTRACT.v2 §3 site-scoped routes)
-#
-# v4 T9: these take `require_user` (any authenticated principal), NOT
-# require_principal — the org check is the PATH org's membership via
-# _v2_scope. A principal who belongs only to a non-shim org can manage its
-# own edges; a member of org A hitting org B's routes sees 404.
-# ---------------------------------------------------------------------------
-CONFIG_ROLES = frozenset({"admin", "owner"})  # CONTRACT.v2 §1 config:write
-
-
 class EdgeIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
@@ -1029,19 +1114,12 @@ def _edge_json(r, latest_ident=None) -> dict:
         "credential_version": r["credential_version"],
         "last_hb_at": iso_z(r["last_hb_at"]) if r["last_hb_at"] else None,
         "clock_ok": r["clock_ok"], "adapter": r["adapter"],
+        "config_version": r["config_version"], "config_applied": r["config_applied"],
+        "config_error": r["config_error"],
         # the reconciler recreated a lost credential: broker is live, nobody
         # holds the secret — rotate to regain access (doc 17 §6)
         "needs_rotation": bool(latest_ident and not latest_ident["secret_issued"]),
     }
-
-
-async def _site_or_404(pools: Pools, org_id: UUID, site_id: UUID) -> None:
-    async with tenant_tx(pools.app, org_id) as tc:
-        # RLS does the hiding: a site of ANOTHER org is simply not found —
-        # identical response to a site that doesn't exist at all (no oracle).
-        exists = await tc.fetchval("SELECT 1 FROM sites WHERE id=$1", site_id)
-    if not exists:
-        raise HTTPException(404, "site not found")
 
 
 def _v2_tag(t, registry) -> dict:
@@ -1062,22 +1140,6 @@ def _v2_tag(t, registry) -> dict:
     if t.max_value is not None:
         out["max"] = t.max_value
     return out
-
-
-async def _v2_tag_or_404(request: Request, org_id: UUID, site_id: UUID,
-                         tag_s: str):
-    """Resolve a path tag_id against the registry AND the route's org+site —
-    a valid tag id of another tenant is a 404, never a leak."""
-    s = st(request)
-    tid = _uuid_or_404(tag_s, "tag")
-    await s.registry.maybe_refresh()
-    t = s.registry.by_id(tid)
-    if t is None or t.org_id != org_id or t.site_id != site_id:
-        await s.registry.refresh()          # cold-cache retry once
-        t = s.registry.by_id(tid)
-    if t is None or t.org_id != org_id or t.site_id != site_id:
-        raise HTTPException(404, "tag not found")
-    return t
 
 
 # ---------------------------------------------------------------------------
@@ -1199,11 +1261,12 @@ async def v2_list_alarm_rules(org: str, site: str, request: Request,
     async with org_tx(request, org_id) as tc:
         rows = await tc.fetch(
             "SELECT id, tag_id, name, kind, threshold, stale_s, deadband,"
-            " severity, enabled FROM alarm_rules WHERE tag_id IN"
+            " severity, window_s, enabled FROM alarm_rules WHERE tag_id IN"
             " (SELECT id FROM tags WHERE site_id=$1) ORDER BY name", site_id)
     return {"items": [{"id": str(r["id"]), "tag_id": str(r["tag_id"]),
                        "name": r["name"], "kind": r["kind"],
                        "threshold": r["threshold"], "stale_s": r["stale_s"],
+                       "window_s": r["window_s"],
                        "deadband": r["deadband"], "severity": r["severity"],
                        "enabled": r["enabled"]} for r in rows],
             "next_cursor": None}
@@ -1274,6 +1337,7 @@ async def v2_post_command(org: str, site: str, body: CommandInV2,
                           p: Principal = Depends(require_user)):
     """command:issue — operator+ in the PATH org (CONTRACT.v2 §1)."""
     org_id, site_id = _v2_scope(org, site, p, need=_OPERATE)
+    step_up(p)
     tag = await _v2_tag_or_404(request, org_id, site_id, body.tag_id)
     s = st(request)
     code, resp = await s.commands.issue(
@@ -1351,7 +1415,8 @@ async def list_edges(org: str, site: str, request: Request,
     async with tenant_tx(st(request).pools.app, org_id) as tc:
         rows = await tc.fetch(
             "SELECT id, org_id, site_id, name, status, mqtt_username,"
-            " credential_version, last_hb_at, clock_ok, adapter FROM edges"
+            " credential_version, last_hb_at, clock_ok, adapter,"
+            " config_version, config_applied, config_error FROM edges"
             " WHERE site_id=$1 ORDER BY name", site_id)
         latest = await tc.fetch(
             "SELECT DISTINCT ON (edge_id) edge_id, secret_issued"
@@ -1372,18 +1437,6 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
     org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
     await _site_or_404(st(request).pools, org_id, site_id)
     await _mutation_gate(request, p.user_id)
-    async with tenant_tx(st(request).pools.app, org_id) as tc:
-        cap = await tc.fetchval(
-            "SELECT (plan_limits->>'max_edges')::int FROM organizations"
-            " WHERE id=$1", org_id)
-        # Disabled edges don't consume plan slots — with delete deferred
-        # (doc 17 §8) there is no re-enable path, so disabled is terminal
-        # and counting it would turn the cap into an unrecoverable wall.
-        n_edges = await tc.fetchval(
-            "SELECT count(*) FROM edges WHERE org_id=$1"
-            " AND status<>'disabled'", org_id)
-    if cap is not None and n_edges >= cap:
-        raise HTTPException(403, "plan_limit_exceeded: max_edges")
     eid = uuid.uuid4()
     version = 1
     username = edge_client_name(eid, version)
@@ -1397,6 +1450,12 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
         log.warning("edge provisioning failed at broker", extra={"error": str(exc)})
         return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
     async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        # Plan cap inside the INSERT tx — check_limit's org-row lock
+        # serializes racing provisions (402 plan_limit on a full plan); the
+        # edges_plan_cap trigger (0033) backstops every other insert path.
+        # A cap refusal AFTER the dynsec client exists leaves an orphan the
+        # reconciler disables — same failure posture as a failed INSERT.
+        await plans.check_limit(tc, org_id, "max_edges")
         await tc.execute(
             "INSERT INTO edges(id, org_id, site_id, name, status, mqtt_username,"
             " credential_version, credential_fingerprint)"
@@ -1409,12 +1468,16 @@ async def provision_edge(org: str, site: str, body: EdgeIn, request: Request,
         await audit.append(tc, f"user:{p.user_id}", "edge.provisioned",
                            {"edge_id": str(eid), "username": username},
                            {"name": body.name})
+        enroll_code, enroll_expires = await _issue_enroll_code(
+            tc, eid, p.user_id)
         await tc.execute("SELECT pg_notify('wds_edges', $1)", str(eid))
     await st(request).registry.refresh()
     edge = {"id": str(eid), "org_id": str(org_id), "site_id": str(site_id),
             "name": body.name, "status": "active", "mqtt_username": username,
-            "credential_version": version, "needs_rotation": False}
-    return {"edge": edge, "secret": secret}
+            "credential_version": version, "needs_rotation": False,
+            "config_version": 0, "config_applied": None, "config_error": None}
+    return {"edge": edge, "secret": secret, "enroll_code": enroll_code,
+            "enroll_expires_at": iso_z(enroll_expires)}
 
 
 @app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/rotate")
@@ -1433,6 +1496,29 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
             raise HTTPException(404, "edge not found")
         if edge["status"] != "active":
             raise HTTPException(409, "edge_not_active")
+    cred = await _rotate_edge_credential(
+        request, st(request).pools.app, org_id, site_id, eid,
+        actor=f"user:{p.user_id}", user_id=p.user_id, action="edge.rotated")
+    if cred is None:
+        return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
+    # Always push in-band: gateways enrolled via a code listen on /cred and
+    # adopt it; env-bootstrap gateways ignore the message (they use files/env).
+    credpush.push_cred(st(request).mqtt, org_id, site_id, eid,
+                       cred["version"], cred["username"], cred["secret"])
+    return {"edge_id": str(eid), "credential_version": cred["version"],
+            "mqtt_username": cred["username"], "secret": cred["secret"],
+            "grace_s": int(config.EDGE_CRED_GRACE_S)}
+
+
+async def _rotate_edge_credential(request: Request, pool, org_id: UUID,
+                                  site_id: UUID, eid: UUID, *, actor: str,
+                                  user_id: UUID | None, action: str,
+                                  audit_detail: dict | None = None) -> dict | None:
+    """Mint credential version n+1 on the edge's role (doc 17 §5): broker
+    client first, then the rows; the previous active identity drops to grace.
+    Shared by the operator rotate route and enrollment. None = broker failure
+    (nothing committed; a stray client is an orphan the reconciler disables)."""
+    async with tenant_tx(pool, org_id) as tc:
         maxv = await tc.fetchval(
             "SELECT max(version) FROM edge_identities WHERE edge_id=$1", eid) or 0
     version = int(maxv) + 1
@@ -1445,8 +1531,8 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
         await st(request).dynsec.create_client(username, secret, edge_role_name(eid))
     except DynsecError as exc:
         log.warning("edge rotation failed at broker", extra={"error": str(exc)})
-        return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
-    async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        return None
+    async with tenant_tx(pool, org_id, user_id) as tc:
         # current credential -> grace: stays enabled until cut-over or the
         # grace deadline, whichever the reconciler sees first (doc 17 §5)
         await tc.execute(
@@ -1462,14 +1548,139 @@ async def rotate_edge(org: str, site: str, edge_id: str, request: Request,
             "UPDATE edges SET credential_version=$2, mqtt_username=$3,"
             " credential_fingerprint=$4 WHERE id=$1",
             eid, version, username, fp)
-        await audit.append(tc, f"user:{p.user_id}", "edge.rotated",
+        await audit.append(tc, actor, action,
                            {"edge_id": str(eid), "username": username},
-                           {"credential_version": version})
+                           {"credential_version": version, **(audit_detail or {})})
         await tc.execute("SELECT pg_notify('wds_edges', $1)", str(eid))
     await st(request).registry.refresh()
-    return {"edge_id": str(eid), "credential_version": version,
-            "mqtt_username": username, "secret": secret,
-            "grace_s": int(config.EDGE_CRED_GRACE_S)}
+    return {"version": version, "username": username, "secret": secret}
+
+
+async def _issue_enroll_code(tc, eid: UUID, user_id: UUID | None):
+    """New one-time code for an edge; unused older codes are voided. Only the
+    sha256 is stored (spec 5.1)."""
+    code = enroll_codes.new_code()
+    expires = utcnow() + timedelta(seconds=enroll_codes.CODE_TTL_S)
+    await tc.execute(
+        "UPDATE edge_enrollments SET used_at=now()"
+        " WHERE edge_id=$1 AND used_at IS NULL", eid)
+    await tc.execute(
+        "INSERT INTO edge_enrollments(org_id, edge_id, code_hash, expires_at,"
+        " created_by) VALUES ($1,$2,$3,$4,$5)",
+        tc.org_id, eid, enroll_codes.hash_code(code), expires, user_id)
+    return code, expires
+
+
+@app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/enroll-code")
+async def new_enroll_code(org: str, site: str, edge_id: str, request: Request,
+                          p: Principal = Depends(require_user)):
+    """Fresh 30-min enrollment code for an edge (e.g. the first one expired)."""
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    eid = _uuid_or_404(edge_id, "edge")
+    async with tenant_tx(st(request).pools.app, org_id, p.user_id) as tc:
+        edge = await tc.fetchrow(
+            "SELECT id, status FROM edges WHERE id=$1 AND site_id=$2", eid, site_id)
+        if edge is None:
+            raise HTTPException(404, "edge not found")
+        if edge["status"] != "active":
+            raise HTTPException(409, "edge_not_active")
+        code, expires = await _issue_enroll_code(tc, eid, p.user_id)
+        await audit.append(tc, f"user:{p.user_id}", "edge.enroll_code_issued",
+                           {"edge_id": str(eid)}, None)
+    return {"enroll_code": code, "enroll_expires_at": iso_z(expires)}
+
+
+ENROLL_BODY_MAX = 1024
+
+
+class EnrollIn(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+
+
+def _read_ca_pem() -> str:
+    if not config.MQTT_CA_FILE:
+        return ""
+    try:
+        with open(config.MQTT_CA_FILE, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        log.warning("MQTT_CA_FILE unreadable for enroll response")
+        return ""
+
+
+@app.post("/api/v1/edge/enroll")
+async def edge_enroll(request: Request):
+    """Exchange a one-time code for the gateway identity (spec 5.1). No auth:
+    the code is the credential, so the endpoint is per-IP rate limited and
+    the code is single-use. The MQTT credential is rotated here, so the
+    provision-time secret is no longer the live one."""
+    s = st(request)
+    ip = _client_ip(request)
+    if not await s.enroll_limiter.allow(ip):
+        retry = await s.enroll_limiter.retry_after(ip)
+        raise HTTPException(status_code=429, detail="rate_limited",
+                            headers={"Retry-After": str(max(1, math.ceil(retry)))})
+    # the limiter runs BEFORE the body is read or parsed: junk bodies cost a token
+    raw = await request.body()
+    if len(raw) > ENROLL_BODY_MAX:
+        raise HTTPException(413, "body_too_large")
+    try:
+        body = EnrollIn.model_validate_json(raw)
+    except ValueError:
+        raise HTTPException(422, "invalid_body") from None
+    code_hash = enroll_codes.hash_code(body.code)
+    if code_hash is None:
+        raise HTTPException(404, "unknown_code")
+    async with global_tx(s.pools.system) as conn:
+        row = await conn.fetchrow(
+            "SELECT en.id, en.org_id, en.edge_id, en.expires_at, en.used_at,"
+            " e.site_id, e.status, o.deleted_at AS org_deleted_at"
+            " FROM edge_enrollments en"
+            " JOIN edges e ON e.org_id=en.org_id AND e.id=en.edge_id"
+            " JOIN organizations o ON o.id=en.org_id"
+            " WHERE en.code_hash=$1", code_hash)
+    if row is None:
+        raise HTTPException(404, "unknown_code")
+    # Deleted org is terminal — same refusal OrgGuard gives its REST routes.
+    # Suspended orgs are deliberately NOT refused: OrgGuard gates member
+    # writes only, and a suspended org's gateways must stay connectable —
+    # enroll is device provisioning, not member traffic.
+    if row["org_deleted_at"] is not None:
+        raise HTTPException(410, "org_deleted")
+    if row["status"] != "active":
+        raise HTTPException(410, "edge_disabled")
+    if row["used_at"] is not None:
+        raise HTTPException(410, "code_used")
+    if row["expires_at"] <= utcnow():
+        raise HTTPException(410, "code_expired")
+    org_id, site_id, eid = row["org_id"], row["site_id"], row["edge_id"]
+    async with tenant_tx(s.pools.system, org_id) as tc:
+        # single-statement claim: two concurrent enrolls cannot both win
+        won = await tc.fetchval(
+            "UPDATE edge_enrollments SET used_at=now() WHERE id=$1"
+            " AND used_at IS NULL AND expires_at > now() RETURNING id", row["id"])
+    if won is None:
+        raise HTTPException(410, "code_used")
+    cred = await _rotate_edge_credential(
+        request, s.pools.system, org_id, site_id, eid,
+        actor=f"edge:{eid}", user_id=None, action="edge.enrolled",
+        audit_detail={"enrollment_id": str(row["id"]), "ip": ip})
+    if cred is None:
+        # broker down: give the code back so the gateway's restart retries
+        async with tenant_tx(s.pools.system, org_id) as tc:
+            await tc.execute(
+                "UPDATE edge_enrollments SET used_at=NULL WHERE id=$1", row["id"])
+        return JSONResponse(status_code=503, content={"detail": "provisioning_failed"})
+    return JSONResponse(headers={"Cache-Control": "no-store"}, content={
+        "org_id": str(org_id), "site_id": str(site_id), "edge_id": str(eid),
+        "mqtt_host": config.PUBLIC_MQTT_HOST or request.url.hostname or "localhost",
+        "mqtt_port": config.PUBLIC_MQTT_PORT,
+        "ca_pem": _read_ca_pem(),
+        "mqtt_username": cred["username"], "mqtt_password": cred["secret"],
+        # gateway-side at-rest key; deliberately not stored server-side
+        "state_key": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
+    })
 
 
 @app.post("/api/v1/orgs/{org}/sites/{site}/edges/{edge_id}/disable")
@@ -1501,526 +1712,42 @@ async def disable_edge(org: str, site: str, edge_id: str, request: Request,
     return {"edge_id": str(eid), "status": "disabled"}
 
 
-# ---------------------------------------------------------------------------
-# v2 admin (v4 T10, CONTRACT.v2 §3): alarm-rule CRUD, memberships, invites,
-# audit export.
-#
-# Permission mapping (CONTRACT.v2 §1 table): config:write, member:manage and
-# audit:read ALL sit in the admin|owner band — the _CONFIG check is the same
-# gate for each. Operators get read access where the table allows
-# (alarm-rules list is site:read) and a flat 403 on mutations.
-# ---------------------------------------------------------------------------
-MEMBER_ROLES = frozenset({"owner", "admin", "operator", "viewer"})
-INVITABLE_ROLES = frozenset({"admin", "operator", "viewer"})  # schema CHECK
-RULE_KINDS = frozenset({"hi", "hihi", "lo", "lolo", "stale"})
-RULE_SEVERITIES = frozenset({"info", "warning", "critical"})
-INVITE_TTL_D = 7
-MEMBER_LIST_MAX = 5000  # T10-review F9 — same bound as the audit export
-
-
-class AlarmRuleIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    tag_id: str
-    kind: str
-    threshold: float | None = None
-    stale_s: int | None = None
-    deadband: float = Field(default=0, ge=0)
-    severity: str
-    enabled: bool = True
-
-
-class AlarmRulePatch(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    kind: str | None = None
-    threshold: float | None = None
-    stale_s: int | None = None
-    deadband: float | None = Field(default=None, ge=0)
-    severity: str | None = None
-    enabled: bool | None = None
-
-
-class MemberPatch(BaseModel):
-    role: str | None = None
-    disabled: bool | None = None
-
-
-class InviteIn(BaseModel):
-    email: str = Field(min_length=3, max_length=320)
-    role: str
-
-    @field_validator("email")
-    @classmethod
-    def email_shape(cls, v: str) -> str:
-        v = v.strip().lower()
-        if "@" not in v or v.startswith("@") or v.endswith("@"):
-            raise ValueError("invalid email")
-        return v
-
-
-class InviteAcceptIn(BaseModel):
-    # T10-review F1: the token travels in the body, never the URL path —
-    # a path token lands in access logs and proxy traces.
-    token: str = Field(min_length=1, max_length=128)
-
-
-def _validate_rule(kind: str, threshold, stale_s, severity: str,
-                   deadband: float) -> None:
-    """Mirror the alarm_rules CHECK constraints in request terms (400, not a
-    500 from a violated CHECK)."""
-    if kind not in RULE_KINDS:
-        raise HTTPException(400, "invalid_request: kind")
-    if severity not in RULE_SEVERITIES:
-        raise HTTPException(400, "invalid_request: severity")
-    if deadband is not None and deadband < 0:
-        raise HTTPException(400, "invalid_request: deadband")
-    if kind == "stale":
-        if stale_s is None or not (5 <= stale_s <= 86400):
-            raise HTTPException(400, "invalid_request: stale rule needs stale_s 5..86400")
-    elif threshold is None:
-        raise HTTPException(400, "invalid_request: threshold rule needs a threshold")
-
-
-def _rule_json(r) -> dict:
-    return {"id": str(r["id"]), "tag_id": str(r["tag_id"]), "name": r["name"],
-            "kind": r["kind"], "threshold": r["threshold"],
-            "stale_s": r["stale_s"], "deadband": r["deadband"],
-            "severity": r["severity"], "enabled": r["enabled"]}
-
-
-def _row_to_rule(row, org_id: UUID) -> Rule:
-    """_RULE_COLS row -> engine Rule (the row carries `enabled`, which the
-    engine dataclass does not)."""
-    d = {k: v for k, v in dict(row).items() if k != "enabled"}
-    return Rule(org_id=org_id, **d)
-
-
-_RULE_COLS = ("id, tag_id, name, kind, threshold, stale_s, deadband,"
-              " severity, enabled")
-
-
-async def _rule_or_404(tc, rule_id: str, site_id: UUID):
-    """Rule resolved inside the path site — a foreign-site rule id is 404,
-    never a cross-tenant leak (same oracle rule as _v2_tag_or_404)."""
-    try:
-        rid = UUID(rule_id)
-    except ValueError:
-        raise HTTPException(404, "alarm rule not found") from None
-    row = await tc.fetchrow(
-        f"SELECT {_RULE_COLS} FROM alarm_rules WHERE id=$1"
-        " AND tag_id IN (SELECT id FROM tags WHERE site_id=$2)", rid, site_id)
-    if row is None:
-        raise HTTPException(404, "alarm rule not found")
-    return row
-
-
-@app.post("/api/v1/orgs/{org}/sites/{site}/alarm-rules", status_code=201)
-async def v2_create_alarm_rule(org: str, site: str, body: AlarmRuleIn,
-                               request: Request,
-                               p: Principal = Depends(require_user)):
-    """config:write in the path org. NOTIFYs alarm_rules_changed so the
-    engine reloads its rule set without a restart (v4 T10)."""
-    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
-    await _site_or_404(st(request).pools, org_id, site_id)
-    tag = await _v2_tag_or_404(request, org_id, site_id, body.tag_id)
-    _validate_rule(body.kind, body.threshold, body.stale_s,
-                   body.severity, body.deadband)
-    await _mutation_gate(request, p.user_id)
-    async with org_tx(request, org_id, p.user_id) as tc:
-        try:
-            row = await tc.fetchrow(
-                f"INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold,"
-                " stale_s, deadband, severity, enabled)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING " + _RULE_COLS,
-                org_id, tag.id, body.name, body.kind, body.threshold,
-                body.stale_s, body.deadband, body.severity, body.enabled)
-        except asyncpg.UniqueViolationError:
-            raise HTTPException(409, "alarm rule name already exists on this tag")
-        await audit.append(tc, f"user:{p.user_id}", "alarm_rule.created",
-                           {"rule_id": str(row["id"]), "tag_id": str(tag.id)},
-                           {"name": body.name, "kind": body.kind})
-        await tc.execute("SELECT pg_notify($1, $2)",
-                         RULES_NOTIFY_CHANNEL, str(org_id))
-    return {"rule": _rule_json(row)}
-
-
-@app.patch("/api/v1/orgs/{org}/sites/{site}/alarm-rules/{rule_id}")
-async def v2_patch_alarm_rule(org: str, site: str, rule_id: str,
-                              body: AlarmRulePatch, request: Request,
-                              p: Principal = Depends(require_user)):
-    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
-    await _mutation_gate(request, p.user_id)
-    changes = body.model_dump(exclude_unset=True)
-    if not changes:
-        raise HTTPException(400, "invalid_request: empty patch")
-    async with org_tx(request, org_id, p.user_id) as tc:
-        cur = await _rule_or_404(tc, rule_id, site_id)
-        merged = {
-            "name": changes.get("name", cur["name"]),
-            "kind": changes.get("kind", cur["kind"]),
-            "threshold": changes.get("threshold", cur["threshold"]),
-            "stale_s": changes.get("stale_s", cur["stale_s"]),
-            "deadband": changes.get("deadband", cur["deadband"]),
-            "severity": changes.get("severity", cur["severity"]),
-            "enabled": changes.get("enabled", cur["enabled"]),
-        }
-        _validate_rule(merged["kind"], merged["threshold"], merged["stale_s"],
-                       merged["severity"], merged["deadband"])
-        try:
-            row = await tc.fetchrow(
-                "UPDATE alarm_rules SET name=$2, kind=$3, threshold=$4, stale_s=$5,"
-                " deadband=$6, severity=$7, enabled=$8 WHERE id=$1"
-                " RETURNING " + _RULE_COLS,
-                cur["id"], merged["name"], merged["kind"], merged["threshold"],
-                merged["stale_s"], merged["deadband"], merged["severity"],
-                merged["enabled"])
-        except asyncpg.UniqueViolationError:
-            raise HTTPException(409, "alarm rule name already exists on this tag")
-        if merged["enabled"] is False:
-            # T10-review F6: a disabled rule can never evaluate-clear again —
-            # resolve its open alarms now, through the engine's close path.
-            await st(request).alarms.close_for_rule(
-                tc, _row_to_rule(row, org_id))
-        await audit.append(tc, f"user:{p.user_id}", "alarm_rule.updated",
-                           {"rule_id": str(cur["id"])}, changes)
-        await tc.execute("SELECT pg_notify($1, $2)",
-                         RULES_NOTIFY_CHANNEL, str(org_id))
-    return {"rule": _rule_json(row)}
-
-
-@app.delete("/api/v1/orgs/{org}/sites/{site}/alarm-rules/{rule_id}",
-            status_code=204)
-async def v2_delete_alarm_rule(org: str, site: str, rule_id: str,
-                               request: Request,
-                               p: Principal = Depends(require_user)):
-    """Deletes the rule; its alarms cascade away with it (schema FK)."""
-    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
-    await _mutation_gate(request, p.user_id)
-    async with org_tx(request, org_id, p.user_id) as tc:
-        cur = await _rule_or_404(tc, rule_id, site_id)
-        # T10-review F6: resolve open alarms BEFORE the row disappears —
-        # _clear's serialize joins alarm_rules for the broadcast payload.
-        await st(request).alarms.close_for_rule(
-            tc, _row_to_rule(cur, org_id))
-        await tc.execute("DELETE FROM alarm_rules WHERE id=$1", cur["id"])
-        await audit.append(tc, f"user:{p.user_id}", "alarm_rule.deleted",
-                           {"rule_id": str(cur["id"])},
-                           {"name": cur["name"]})
-        await tc.execute("SELECT pg_notify($1, $2)",
-                         RULES_NOTIFY_CHANNEL, str(org_id))
-    return Response(status_code=204)
-
-
-# ---------------------------------------------------------------------------
-# Memberships — member:manage (admin|owner)
-# ---------------------------------------------------------------------------
-def _member_json(r) -> dict:
-    return {"user_id": str(r["user_id"]), "role": r["role"],
-            "sub": r["sub"], "display_name": r["display_name"],
-            "email": r["email"],
-            "disabled": r["disabled_at"] is not None}
-
-
-async def _membership_or_404(tc, user_id: str):
-    try:
-        uid = UUID(user_id)
-    except ValueError:
-        raise HTTPException(404, "member not found") from None
-    row = await tc.fetchrow(
-        "SELECT m.user_id, m.role, u.sub, u.display_name, u.email, u.disabled_at"
-        " FROM memberships m JOIN users u ON u.id = m.user_id"
-        " WHERE m.user_id=$1", uid)
-    if row is None:
-        raise HTTPException(404, "member not found")
-    return row
-
-
-@app.get("/api/v1/orgs/{org}/members")
-async def v2_list_members(org: str, request: Request,
-                          p: Principal = Depends(require_user)):
-    org_id = _v2_org(org, p, need=_CONFIG)
-    async with org_tx(request, org_id) as tc:
-        rows = await tc.fetch(
-            "SELECT m.user_id, m.role, u.sub, u.display_name, u.email,"
-            " u.disabled_at FROM memberships m JOIN users u ON u.id = m.user_id"
-            " ORDER BY u.display_name LIMIT $1", MEMBER_LIST_MAX)
-    return {"items": [_member_json(r) for r in rows], "next_cursor": None}
-
-
-@app.patch("/api/v1/orgs/{org}/members/{user_id}")
-async def v2_patch_member(org: str, user_id: str, body: MemberPatch,
-                          request: Request,
-                          p: Principal = Depends(require_user)):
-    """Role change and/or user disable (CONTRACT.v2 §3 member:manage).
-
-    Guards: an admin cannot touch an owner row (demote OR disable), nobody
-    can demote the last owner, and only an owner can grant 'owner'. A
-    membership change NOTIFYs wds_authz so the ≤5s revocation path applies.
-    """
-    org_id = _v2_org(org, p, need=_CONFIG)
-    if body.role is None and body.disabled is None:
-        raise HTTPException(400, "invalid_request: empty patch")
-    if body.role is not None and body.role not in MEMBER_ROLES:
-        raise HTTPException(400, "invalid_request: role")
-    caller_role = _effective_org_roles(p)[org_id]
-    await _mutation_gate(request, p.user_id)
-    async with org_tx(request, org_id, p.user_id) as tc:
-        target = await _membership_or_404(tc, user_id)
-        if target["user_id"] == p.user_id and (
-                body.disabled or (body.role and body.role != target["role"])):
-            raise HTTPException(400, "cannot change your own role or disable yourself")
-        if caller_role != "owner":
-            # an admin may not demote/disable an owner, nor mint a new one
-            if target["role"] == "owner" or body.role == "owner":
-                raise ForbiddenError("owner rows are managed by owners")
-        if body.role is not None and target["role"] == "owner" \
-                and body.role != "owner":
-            owners = await tc.fetchval(
-                "SELECT count(*) FROM memberships WHERE role='owner'")
-            if owners <= 1:
-                raise HTTPException(409, "org must keep at least one owner")
-        if body.role is not None and body.role != target["role"]:
-            await tc.execute(
-                "UPDATE memberships SET role=$2 WHERE user_id=$1",
-                target["user_id"], body.role)
-        if body.disabled is not None:
-            if body.disabled and target["role"] == "owner":
-                owners_active = await tc.fetchval(
-                    "SELECT count(*) FROM memberships m JOIN users u"
-                    " ON u.id=m.user_id WHERE m.role='owner'"
-                    " AND u.disabled_at IS NULL")
-                if owners_active <= 1:
-                    raise HTTPException(409, "org must keep at least one active owner")
-            await tc.execute(
-                "UPDATE users SET disabled_at = CASE WHEN $2 THEN now() ELSE NULL END"
-                " WHERE id=$1", target["user_id"], body.disabled)
-        await audit.append(tc, f"user:{p.user_id}", "member.updated",
-                           {"user_id": str(target["user_id"])},
-                           body.model_dump(exclude_unset=True))
-    # local eviction now, NOTIFY for other replicas/listeners (same pattern
-    # as Security.record_logout — no need to wait the listener round-trip)
-    st(request).auth.on_notify(json.dumps(
-        {"type": "user_disabled" if body.disabled else "membership_changed",
-         "sub": target["sub"]}))
-    async with global_tx(st(request).pools.app) as conn:
-        await conn.execute(
-            "SELECT pg_notify($1, $2)", "wds_authz",
-            json.dumps({"type": "user_disabled" if body.disabled
-                        else "membership_changed", "sub": target["sub"]}))
-    async with org_tx(request, org_id) as tc:
-        row = await _membership_or_404(tc, str(target["user_id"]))
-    return {"member": _member_json(row)}
-
-
-@app.delete("/api/v1/orgs/{org}/members/{user_id}")
-async def v2_delete_member(org: str, user_id: str, request: Request,
-                           p: Principal = Depends(require_user)):
-    """Remove the membership. The user row survives — it is global and may
-    hold memberships elsewhere; this revokes THIS org only (wds_authz)."""
-    org_id = _v2_org(org, p, need=_CONFIG)
-    caller_role = _effective_org_roles(p)[org_id]
-    await _mutation_gate(request, p.user_id)
-    async with org_tx(request, org_id, p.user_id) as tc:
-        target = await _membership_or_404(tc, user_id)
-        if target["user_id"] == p.user_id and target["role"] == "owner":
-            raise HTTPException(400, "an owner cannot remove themselves")
-        if caller_role != "owner" and target["role"] == "owner":
-            raise ForbiddenError("owner rows are managed by owners")
-        if target["role"] == "owner":
-            owners = await tc.fetchval(
-                "SELECT count(*) FROM memberships WHERE role='owner'")
-            if owners <= 1:
-                raise HTTPException(409, "org must keep at least one owner")
-        await tc.execute("DELETE FROM memberships WHERE user_id=$1",
-                         target["user_id"])
-        await audit.append(tc, f"user:{p.user_id}", "member.removed",
-                           {"user_id": str(target["user_id"])},
-                           {"role": target["role"]})
-    async with global_tx(st(request).pools.app) as conn:
-        await conn.execute(
-            "SELECT pg_notify($1, $2)", "wds_authz",
-            json.dumps({"type": "membership_changed", "sub": target["sub"]}))
-    return {"user_id": str(target["user_id"]), "removed": True}
-
-
-# ---------------------------------------------------------------------------
-# Invites — member:manage; accept is a global route (CONTRACT.v2 §3 identity)
-# ---------------------------------------------------------------------------
-def _invite_json(r) -> dict:
-    return {"id": str(r["id"]), "email": r["email"], "role": r["role"],
-            "expires_at": iso_z(r["expires_at"]),
-            "accepted_at": iso_z(r["accepted_at"]) if r["accepted_at"] else None}
-
-
-@app.get("/api/v1/orgs/{org}/invites")
-async def v2_list_invites(org: str, request: Request,
-                          p: Principal = Depends(require_user)):
-    org_id = _v2_org(org, p, need=_CONFIG)
-    async with org_tx(request, org_id) as tc:
-        rows = await tc.fetch(
-            "SELECT id, email, role, expires_at, accepted_at FROM invites"
-            " ORDER BY created_at DESC LIMIT 200")
-    return {"items": [_invite_json(r) for r in rows], "next_cursor": None}
-
-
-@app.post("/api/v1/orgs/{org}/invites", status_code=201)
-async def v2_create_invite(org: str, body: InviteIn, request: Request,
-                           p: Principal = Depends(require_user)):
-    """Mint an invite; the raw token is returned ONCE and only its sha256 is
-    stored (CONTRACT.v2 §3: 32 random bytes, single-use, 7-day expiry)."""
-    org_id = _v2_org(org, p, need=_CONFIG)
-    if body.role not in INVITABLE_ROLES:
-        raise HTTPException(400, "invalid_request: role")
-    await _mutation_gate(request, p.user_id)
-    token = secrets.token_hex(32)
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    iid = uuid.uuid4()
-    async with org_tx(request, org_id, p.user_id) as tc:
-        row = await tc.fetchrow(
-            "INSERT INTO invites(id, org_id, email, role, token_hash, invited_by,"
-            " expires_at) VALUES ($1,$2,$3,$4,$5,$6, now() + $7::int * interval '1 day')"
-            " RETURNING id, email, role, expires_at, accepted_at",
-            iid, org_id, body.email, body.role, token_hash, p.user_id,
-            INVITE_TTL_D)
-        await audit.append(tc, f"user:{p.user_id}", "invite.created",
-                           {"invite_id": str(iid)},
-                           {"email": body.email, "role": body.role})
-    return {"invite": _invite_json(row), "token": token}
-
-
-@app.delete("/api/v1/orgs/{org}/invites/{invite_id}")
-async def v2_revoke_invite(org: str, invite_id: str, request: Request,
-                           p: Principal = Depends(require_user)):
-    org_id = _v2_org(org, p, need=_CONFIG)
-    await _mutation_gate(request, p.user_id)
-    iid = _uuid_or_404(invite_id, "invite")
-    async with org_tx(request, org_id, p.user_id) as tc:
-        row = await tc.fetchrow(
-            "DELETE FROM invites WHERE id=$1 AND accepted_at IS NULL"
-            " RETURNING id, email", iid)
-        if row is None:
-            raise HTTPException(404, "invite not found")
-        await audit.append(tc, f"user:{p.user_id}", "invite.revoked",
-                           {"invite_id": str(iid)}, {"email": row["email"]})
-    return {"id": str(iid), "revoked": True}
-
-
-@app.post("/api/v1/invites/accept")
-async def v2_accept_invite(body: InviteAcceptIn, request: Request,
-                           p: Principal = Depends(require_user)):
-    """Accept an invite (CONTRACT.v2 §3): the token resolves to exactly one
-    invite via the invite_hash RLS context; the caller's VERIFIED email must
-    match the invite email. Single-use — accepted/expired/unknown all 404 so
-    the endpoint is not an existence oracle."""
-    if len(body.token) != 64:
-        raise HTTPException(404, "invite not found")
-    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
-    await _mutation_gate(request, p.user_id)
-    async with invite_tx(st(request).pools.app, token_hash) as conn:
-        invite = await conn.fetchrow(
-            "SELECT id, org_id, email, role, expires_at, accepted_at"
-            " FROM invites")
-    if invite is None or invite["accepted_at"] is not None \
-            or invite["expires_at"] <= utcnow():
-        raise HTTPException(404, "invite not found")
-    async with global_tx(st(request).pools.app) as conn:
-        user = await conn.fetchrow(
-            "SELECT email, email_verified, disabled_at FROM users WHERE id=$1",
-            p.user_id)
-    if user is None or user["disabled_at"] is not None:
-        raise ForbiddenError("account cannot accept invites")
-    if not user["email_verified"] or (user["email"] or "").lower() \
-            != invite["email"].lower():
-        raise ForbiddenError("invite email does not match your verified email")
-    async with tenant_tx(st(request).pools.app, invite["org_id"], p.user_id) as tc:
-        # T10-review F2: the single-use claim is the row UPDATE itself —
-        # a racing second accept gets UPDATE 0 → 404, not a double-write.
-        n = await tc.execute(
-            "UPDATE invites SET accepted_at=now(), accepted_by=$2"
-            " WHERE id=$1 AND accepted_at IS NULL", invite["id"], p.user_id)
-        if n == "UPDATE 0":
-            raise HTTPException(404, "invite not found")
-        # T10-review F3: an EXISTING member keeps their current role — the
-        # invite only confirms membership. A blind upsert would let an admin
-        # demote (e.g.) the last owner by inviting their email.
-        cur = await tc.fetchrow(
-            "SELECT role FROM memberships WHERE user_id=$1", p.user_id)
-        if cur is None:
-            await tc.execute(
-                "INSERT INTO memberships(org_id, user_id, role)"
-                " VALUES ($1,$2,$3)", invite["org_id"], p.user_id,
-                invite["role"])
-        await audit.append(tc, f"user:{p.user_id}", "invite.accepted",
-                           {"invite_id": str(invite["id"])},
-                           {"role": invite["role"],
-                            "membership": "created" if cur is None
-                            else "existing"})
-    async with global_tx(st(request).pools.app) as conn:
-        await conn.execute(
-            "SELECT pg_notify($1, $2)", "wds_authz",
-            json.dumps({"type": "membership_changed", "sub": p.sub}))
-    return {"status": "accepted", "org_id": str(invite["org_id"]),
-            "role": invite["role"] if cur is None else cur["role"]}
-
-
-# ---------------------------------------------------------------------------
-# Audit export — audit:read (admin|owner), bounded
-# ---------------------------------------------------------------------------
-AUDIT_EXPORT_MAX = 5000
-
-
-@app.get("/api/v1/orgs/{org}/audit")
-async def v2_audit_export(org: str, request: Request,
-                          from_: str | None = Query(None, alias="from"),
-                          to: str | None = Query(None),
-                          action: str | None = Query(None),
-                          actor: str | None = Query(None),
-                          format: str = Query("json"),
-                          limit: int = Query(500, ge=1, le=AUDIT_EXPORT_MAX),
-                          p: Principal = Depends(require_user)):
-    """Tenant-scoped audit export (CONTRACT.v2 §3): the hash-chained log for
-    THIS org only — RLS makes cross-tenant reads structurally impossible."""
-    org_id = _v2_org(org, p, need=_CONFIG)
-    if format not in ("json", "csv"):
-        raise HTTPException(400, "invalid_request: format")
-    try:
-        t_from = parse_ts(from_) if from_ else None
-        t_to = parse_ts(to) if to else None
-    except ValueError:
-        raise HTTPException(400, "invalid_request") from None
-    async with org_tx(request, org_id) as tc:
-        rows = await tc.fetch(
-            "SELECT seq, at, actor, action, target, detail, hash FROM audit_log"
-            " WHERE ($1::timestamptz IS NULL OR at >= $1)"
-            " AND ($2::timestamptz IS NULL OR at <= $2)"
-            " AND ($3::text IS NULL OR action = $3)"
-            " AND ($4::text IS NULL OR actor = $4)"
-            " ORDER BY seq ASC LIMIT $5",
-            t_from, t_to, action, actor, limit)
-    items = [{"seq": r["seq"], "at": iso_z(r["at"]), "actor": r["actor"],
-              "action": r["action"], "target": r["target"],
-              "detail": r["detail"], "hash": r["hash"]} for r in rows]
-    if format == "csv":
-        buf = io.StringIO()
-        w = csv.writer(buf)
-        w.writerow(["seq", "at", "actor", "action", "target", "detail", "hash"])
-        for it in items:
-            w.writerow([it["seq"], it["at"], it["actor"], it["action"],
-                        json.dumps(it["target"], separators=(",", ":"))
-                        if it["target"] is not None else "",
-                        json.dumps(it["detail"], separators=(",", ":"))
-                        if it["detail"] is not None else "",
-                        it["hash"]])
-        return Response(
-            content=buf.getvalue(), media_type="text/csv",
-            headers={"Content-Disposition":
-                     f'attachment; filename="audit-{org_id}.csv"'})
-    return {"items": items, "next_cursor": None}
+# data sources + tags CRUD (spec 5.2) — handlers resolve auth helpers from this
+# module lazily, so including here (after the helpers exist) is safe.
+app.include_router(datasources_router)
+app.include_router(videos_router)
+app.include_router(plant_router)
+app.include_router(hierarchy_router)
+app.include_router(formulas_router)
+app.include_router(push_router)
+app.include_router(cameras_router)
+app.include_router(material_router)
+app.include_router(artifacts_router)
+app.include_router(models_router)
+app.include_router(classes_router)
+app.include_router(stream_router)
+app.include_router(vision_rules_router)
+app.include_router(vision_events_router)
+app.include_router(vision_external_router)
+app.include_router(notify.router)
+app.include_router(orgapi.router)
+app.include_router(platform_api.router)
+app.include_router(oee_router)
+app.include_router(reports_router)
+app.include_router(consents.router)
+app.include_router(onboarding.router)
+app.include_router(eventsfeed.router)
+app.include_router(tagquery.router)
+app.include_router(edgelogs.router)
+app.include_router(statuspage.router)
+for _r in api_routers:
+    app.include_router(_r)
 
 
 # ---------------------------------------------------------------------------
 # WebSocket (v1)
 # ---------------------------------------------------------------------------
-# _trusted_peer/_client_ip live in app.observability (v4 T8) — same code the
+# _trusted_peer/_client_ip live in app.core.observability (v4 T8) — same code the
 # access-log middleware uses to compute the request's IP field.
 async def _close_at_exp(client, exp: float) -> None:
     """Close the socket at token exp + 30 s (ADR-12 WS section: the server

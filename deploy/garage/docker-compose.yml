@@ -1,0 +1,17 @@
+# Garage — self-hosted S3 for offsite backups. Run it on a DIFFERENT host
+# from the console (a backup on the same disk is not a backup).
+# One-time setup: see init.sh. Config: garage.toml (create from the example;
+# it holds rpc_secret/admin_token — keep it out of git).
+services:
+  garage:
+    image: dxflrs/garage:v2.1.0
+    ports:
+      - "3900:3900"   # S3 API — put TLS in front (Dokploy domain → port 3900)
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    restart: unless-stopped
+volumes:
+  garage-meta:
+  garage-data:

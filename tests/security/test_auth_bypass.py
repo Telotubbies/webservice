@@ -24,8 +24,10 @@ pytestmark = [pytest.mark.integration, pytest.mark.security]
 from conftest import OPERATOR_TOKEN, kc_password_token  # noqa: E402
 from security import forge  # noqa: E402
 
-LEEWAY_S = 30.0  # mirrors backend/app/security.py
+LEEWAY_S = 30.0  # mirrors backend/app/iam/security.py
 
+
+# ── Probe helpers ──
 
 def _ws_close(base_url, token, wait_s=8):
     """/ws auth frame carrying `token` -> close code (None if left open)."""
@@ -51,7 +53,7 @@ def _assert_rest_401(client, token, label):
     assert r.status_code == 401, f"{label}: REST -> {r.status_code} {r.text[:120]}"
 
 
-# ---------------------------------------------------------- token fixtures
+# ── Token fixtures ──
 
 @pytest.fixture(scope="module")
 def real_token() -> str:
@@ -82,7 +84,7 @@ def kc_admin() -> str:
     return t
 
 
-# ------------------------------------------------------------ trivial cases
+# ── Trivial cases ──
 
 def test_missing_token_401_rest(anon_api):
     assert anon_api.get("/api/me").status_code == 401
@@ -133,7 +135,7 @@ def test_url_token_param_is_inert_rest(anon_api, real_token):
     assert anon_api.get(f"/api/tags?token={real_token}").status_code == 401
 
 
-# ------------------------------------------------- REAL wrong-claim tokens
+# ── Real wrong-claim tokens ──
 
 def test_wrong_audience_real_signature(anon_api, base_url, kc_admin):
     """A realm-signed token whose aud lacks wds-api — minted via a
@@ -187,15 +189,17 @@ def test_expired_real_token_rejected(anon_api, base_url, kc_admin):
         code = _ws_close(base_url, tok)
         assert code == 4401, f"expired WS close {code}, expected 4401"
     finally:
+        # the admin token (60 s lifespan) may have expired during the ~35 s wait;
+        # mint a fresh one or the restore fails and leaves wds-web at 3 s lifespans
+        kc_admin = forge.kc_admin_token() or kc_admin
         rep = forge.kc_get_client(kc_admin, cid)
-        if orig is None:
-            rep.get("attributes", {}).pop("access.token.lifespan", None)
-        else:
-            rep.setdefault("attributes", {})["access.token.lifespan"] = orig
+        # Keycloak MERGES attributes on PUT, so omitting the key leaves the 3 s
+        # override in place; an empty string is what clears it.
+        rep.setdefault("attributes", {})["access.token.lifespan"] = orig or ""
         forge.kc_put_client(kc_admin, cid, rep)
 
 
-# --------------------------------------------------------------- env gating
+# ── Env gating ──
 
 def test_dev_tokens_absent_in_prod(anon_api, base_url):
     """Dev bearer tokens resolve ONLY under APP_ENV=dev (ADR-12 §10). On a

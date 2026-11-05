@@ -1,286 +1,367 @@
-// Multi-signal trend (uPlot, ADR-11). Seeds from /history, then appends live
-// samples on rAF flushes. Selection + window live in the URL (shareable).
+// Trends — the technician's diagnosis surface. Signal picker left; charts
+// right, one chart per engineering unit (never a second y-axis) with a
+// shared crosshair; full-resolution stats table under them. Everything that
+// defines the view lives in the URL so alarm → tag → trend pivots land on
+// the same picture:  ?tags=a,b  &range=15m|1h|…|1y  (or &from=&to= epoch ms;
+// old &w= links still resolve)  &cmp=1 overlays the previous period in grey.
+// Drag across a chart to zoom — the zoom becomes a from/to window. Alarms of
+// the selected signals are drawn as hairlines on their chart.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router';
-import uPlot from 'uplot';
-import 'uplot/dist/uPlot.min.css';
-import { api } from '../../lib/api';
-import { live } from '../../lib/live';
-import { SIGNALS, T, displayNumber, shortName } from '../../lib/plant';
-import type { Insight, TagInfo } from '../../types';
-import { ErrorState, Notice, Skeleton } from '../../shared/ui/Feedback';
+import { useLocation, useSearchParams } from 'react-router';
+import { live, STALE_MS } from '../../lib/live';
+import { useNow, useStore } from '../../lib/hooks';
+import { SIGNALS, T, displayNumber, shortName, unitOf } from '../../lib/plant';
+import { downloadCsv } from '../../lib/csv';
+import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
+import { PageBar, Card } from '../../shared/ui/Page';
 import { Icon } from '../../shared/ui/Icon';
 import { Segmented } from '../../shared/ui/Segmented';
-import { InsightChip } from '../../shared/ui/InsightChip';
-import { useFaceplate } from '../faceplate/FaceplateContext';
-import './trends.css';
+import { EmptyState, Notice } from '../../shared/ui/Feedback';
+import { QualityMark } from '../../shared/ui/Status';
+import { TimeChart } from './TimeChart';
+import { useSeries, type TagSeries } from './useSeries';
+import { MAX_SERIES, SERIES_PALETTE, fmtNum, fmtRange, seriesStroke, useLimits, type Pt } from './viz';
+import { cssVar, useThemeName } from '../../theme/useTheme';
+import { useAlarms } from '../alarms/alarms';
+import { normSeverity } from '../../shared/ui/severity';
+import { Panel } from '../../viz/Panel';
+import { TimeRangePicker } from '../../viz/TimeRangePicker';
+import { formatRange, parseRange, presetMs, type RangePreset, type TimeRange } from '../../viz/range';
+import { equipmentKey, pathSep } from '../devices/mapModel';
+import '../../viz/i18n';
 
-const SERIES = ['--series-1', '--series-2', '--series-3', '--series-4', '--series-5', '--series-6'];
-const SAMPLE_MS = 500;
-const CAP = 2400;
-const DEFAULT = [T.beltSpeed, T.beltTemp, T.binLevel];
-const WINDOWS = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000 } as const;
-type Win = keyof typeof WINDOWS;
-type Rows = { x: number[]; ys: (number | null)[][] };
-/** Anomaly ribbon window in ms epochs — x values are ms (ms: 1 option). */
-type Band = { t0: number; t1: number };
+const DEFAULT_TAGS = [T.beltSpeed, T.beltTemp];
+const PICKABLE = Object.keys(SIGNALS).filter((k) => k !== T.running);
 
-const css = (v: string) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const labelOf = (tag: string, t: (k: string) => string) => (SIGNALS[tag] ? t(SIGNALS[tag].labelKey) : shortName(tag));
+const decimalsOf = (tag: string) => SIGNALS[tag]?.decimals;
 
-export function TrendsPage({ tags }: { tags: TagInfo[] }) {
-  const { t } = useTranslation();
+/** "1-hour" / "5-minute" for the rollup hint. */
+const bucketLabel = (s: number, t: (k: string, o?: Record<string, unknown>) => string) =>
+  s % 3600 === 0 ? t('viz.bucketHour', { count: s / 3600 }) : t('viz.bucketMin', { count: Math.round(s / 60) });
+
+/** Scale stored engineering values for display (ratio → %), same as tiles. */
+const scalePts = (tag: string, pts: Pt[]): Pt[] =>
+  (displayNumber(tag, 1) === 1 ? pts : pts.map((p) => ({ t: p.t, v: displayNumber(tag, p.v) })));
+const scaleV = (tag: string, v: number | null) => (v == null ? null : displayNumber(tag, v));
+
+/** Colour follows the entity: a tag keeps its slot while selected, so
+ *  removing one signal never repaints the survivors. */
+function useSlots(sel: string[]): Map<string, number> {
+  const slots = useRef(new Map<string, number>());
+  const m = slots.current;
+  for (const k of [...m.keys()]) if (!sel.includes(k)) m.delete(k);
+  for (const tag of sel) {
+    if (m.has(tag)) continue;
+    const used = new Set(m.values());
+    let s = 0;
+    while (used.has(s)) s++;
+    m.set(tag, s);
+  }
+  return m;
+}
+
+export function TrendsPage() {
+  const { t, i18n } = useTranslation();
   const [params, setParams] = useSearchParams();
-  const known = useMemo(() => new Set(tags.map((x) => x.name)), [tags]);
-  const selected = useMemo(() => {
-    const fromUrl = params.get('s')?.split(',').filter((n) => known.has(n)) ?? [];
-    return fromUrl.length ? fromUrl.slice(0, 6) : DEFAULT.filter((n) => known.has(n));
-  }, [params, known]);
-  const win = (params.get('w') as Win) in WINDOWS ? (params.get('w') as Win) : '15m';
-  const winRef = useRef<number>(WINDOWS[win]);
-  winRef.current = WINDOWS[win];
+  const tagRev = useStore(() => live.tagRev);
+  const [fq, setFq] = useState('');
+  const [mode, setMode] = useState<'explorer' | 'grid'>('explorer');
 
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<uPlot | null>(null);
-  const rowsRef = useRef<Rows>({ x: [], ys: [] });
-  const bandsRef = useRef<Band[]>([]);
-  const [ins, setIns] = useState<Insight[]>([]);
-  const { openFaceplate } = useFaceplate();
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-  const [zoomed, setZoomed] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  const key = selected.join(',');
+  const sel = useMemo(() => {
+    const raw = params.get('tags');
+    const list = raw == null ? DEFAULT_TAGS : raw.split(',').filter(Boolean);
+    return [...new Set(list)].slice(0, MAX_SERIES);
+  }, [params]);
+  const { search } = useLocation();
+  const nowMin = useNow(60_000); // the picker's live window end; data windows come from useSeries
+  const range = parseRange(search, nowMin);
+  const fixed = !range.live;
+  const win = fixed
+    ? { fromMs: range.from, toMs: range.to, spanMs: range.to - range.from }
+    : { fromMs: 0, toMs: null, spanMs: presetMs(range.preset as RangePreset) };
+  const compare = params.get('cmp') === '1';
 
-  const label = (n: string) => (SIGNALS[n] ? t(SIGNALS[n].labelKey) : shortName(n));
-  const update = (patch: Record<string, string | null>) => {
-    const next = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(patch)) if (v === null) next.delete(k); else next.set(k, v);
-    setParams(next, { replace: true });
+  // The URL is the single source of view state: patch merges keys, null
+  // deletes. `replace` keeps trend drags out of the history stack.
+  const patch = (p: Record<string, string | null>) => setParams((prev) => {
+    const n = new URLSearchParams(prev);
+    for (const [k, v] of Object.entries(p)) { if (v == null) n.delete(k); else n.set(k, v); }
+    return n;
+  }, { replace: true });
+
+  const toggle = (tag: string) => {
+    const next = sel.includes(tag) ? sel.filter((x) => x !== tag) : [...sel, tag].slice(-MAX_SERIES);
+    patch({ tags: next.join(',') });
   };
-  const toggle = (n: string) => {
-    const cur = selected.includes(n) ? selected.filter((x) => x !== n) : [...selected, n].slice(0, 6);
-    update({ s: cur.join(',') || null });
+
+  const slots = useSlots(sel);
+  const theme = useThemeName();
+  const colorOf = (tag: string) => seriesStroke(SERIES_PALETTE[slots.get(tag) ?? 0], theme);
+  const limits = useLimits();
+  const data = useSeries(sel, win);
+  // previous period: the same span, one span earlier, shifted onto this axis
+  const prevWin = { fromMs: data.from - (data.to - data.from), toMs: data.from, spanMs: data.to - data.from };
+  const prev = useSeries(compare ? sel : [], prevWin);
+  const shift = data.to - data.from;
+  const { all: alarms } = useAlarms();
+  const setRange = (r: TimeRange) => {
+    const q = new URLSearchParams(formatRange(r));
+    patch({ range: q.get('range'), from: q.get('from'), to: q.get('to'), w: null });
   };
 
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el || selected.length === 0) return;
-    let cancelled = false;
-    let u: uPlot | null = null;
-    let unsub: (() => void) | null = null;
-    let ro: ResizeObserver | null = null;
-    let last = 0;
-    setLoading(true);
-    setFailed(false);
-    setZoomed(false);
-    setIns([]);
-    bandsRef.current = [];
+  // picker rows: every known tag; plant-model signals first
+  const rows = useMemo(() => {
+    void tagRev;
+    const names = live.tags.length ? live.tags.map((x) => x.name) : PICKABLE;
+    const known = names.filter((n) => SIGNALS[n] && n !== T.running);
+    const rest = names.filter((n) => !SIGNALS[n] || n === T.running).sort();
+    return [...known, ...rest];
+  }, [tagRev]);
+  const groupOf = (tag: string) => (SIGNALS[tag] ? '' : equipmentKey(tag));
+  const groupLabel = (g: string) => g.split(pathSep(g)).slice(-2).join(' › ');
+  const unitFor = (tag: string) => unitOf(tag, live.tags.find((x) => x.name === tag)?.unit) ?? '';
 
-    void (async () => {
-      let perTag: { v: number | boolean; ts: string }[][];
-      const from = new Date(Date.now() - winRef.current).toISOString();
-      try {
-        // Seed only the selected window — otherwise a large history makes the
-        // chart open on days of data instead of the chosen view.
-        perTag = await Promise.all(selected.map((n) => api.history(n, { from, limit: CAP })));
-      } catch {
-        if (!cancelled) { setFailed(true); setLoading(false); }
-        return;
-      }
-      // Anomaly ribbons: insight windows overlapping the visible range (open +
-      // closed; the backend's from/to already selects overlaps). Fetched once
-      // per chart build — live appends don't re-query. Non-fatal: a failed
-      // insights request just means no bands on this build.
-      const to = new Date().toISOString();
-      const found = await Promise.all(
-        selected.map((n) => api.insights({ tag: n, from, to }).catch(() => [] as Insight[])),
-      ).then((lists) => [...new Map(lists.flat().map((i) => [i.id, i])).values()]);
-      if (cancelled) return;
-      found.sort((a, b) => Date.parse(b.ts_start) - Date.parse(a.ts_start));
-      setIns(found);
-      // An open insight (or a missing ts_end) is still ongoing — extend its
-      // band past the right edge so it clips to the moving window.
-      bandsRef.current = found.map((i) => ({
-        t0: Date.parse(i.ts_start),
-        t1: i.ts_end ? Date.parse(i.ts_end) : Number.MAX_SAFE_INTEGER,
-      }));
-      const maps = perTag.map((rows, i) => {
-        const m = new Map<number, number | null>();
-        for (const r of rows) {
-          const ts = Date.parse(r.ts);
-          const num = typeof r.v === 'boolean' ? (r.v ? 1 : 0) : r.v;
-          if (Number.isFinite(ts)) m.set(ts, typeof num === 'number' && Number.isFinite(num) ? displayNumber(selected[i], num) : null);
-        }
-        return m;
-      });
-      const xs = [...new Set(maps.flatMap((m) => [...m.keys()]))].sort((a, b) => a - b).slice(-CAP);
-      rowsRef.current = { x: xs, ys: maps.map((m) => xs.map((x) => m.get(x) ?? null)) };
+  // one chart per unit — small multiples instead of a dual axis
+  const groups = new Map<string, TagSeries[]>();
+  for (const s of data.series) {
+    const u = unitFor(s.tag);
+    groups.set(u, [...(groups.get(u) ?? []), s]);
+  }
 
-      const axis = {
-        stroke: css('--text-secondary'),
-        font: `13px ${css('--font-mono')}`,
-        grid: { stroke: css('--line'), width: 1 },
-        ticks: { stroke: css('--line-strong') },
-      };
-      // Insight windows as violet bands behind the series (§3.3-E). Painted in
-      // drawClear — right after the canvas clears, before grid/axes/series —
-      // so bands sit under everything. Re-fires on every redraw (live appends,
-      // zoom, resize) and clips to the current x scale.
-      const ribbonFill = css('--ai-ribbon');
-      const ribbonEdge = css('--ai-accent');
-      const paintRibbons = (uu: uPlot) => {
-        const bands = bandsRef.current;
-        if (bands.length === 0) return;
-        const { left, top, width, height } = uu.bbox;
-        const xMin = uu.scales.x.min ?? -Infinity;
-        const xMax = uu.scales.x.max ?? Infinity;
-        const ctx = uu.ctx;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(left, top, width, height);
-        ctx.clip();
-        ctx.fillStyle = ribbonFill;
-        ctx.strokeStyle = ribbonEdge;
-        ctx.lineWidth = 1;
-        for (const b of bands) {
-          if (!Number.isFinite(b.t0) || !Number.isFinite(b.t1) || b.t1 < xMin || b.t0 > xMax) continue;
-          const x0 = Math.max(left, uu.valToPos(b.t0, 'x', true));
-          const x1 = Math.min(left + width, uu.valToPos(b.t1, 'x', true));
-          if (x1 <= x0) continue;
-          ctx.fillRect(x0, top, x1 - x0, height);
-          ctx.beginPath();
-          ctx.moveTo(x0, top);
-          ctx.lineTo(x0, top + height);
-          ctx.moveTo(x1, top);
-          ctx.lineTo(x1, top + height);
-          ctx.stroke();
-        }
-        ctx.restore();
-      };
-      u = new uPlot({
-        ms: 1, // x values are millisecond epochs (Date.parse / Date.now)
-        width: el.clientWidth || 800,
-        height: 420,
-        padding: [16, 16, 0, 0],
-        scales: { x: { time: true } },
-        cursor: { drag: { x: true, y: false } },
-        legend: { show: true, live: true },
-        axes: [axis, { ...axis, size: 64 }],
-        hooks: { setSelect: [() => setZoomed(true)], drawClear: [paintRibbons] },
-        series: [
-          { label: t('trends.time') },
-          ...selected.map((n, i) => ({
-            label: `${label(n)}${SIGNALS[n]?.unit ? ` (${SIGNALS[n].unit})` : ''}`,
-            stroke: css(SERIES[i % SERIES.length]),
-            width: 2,
-            points: { show: false },
-            value: (_u: uPlot, v: number | null) => (v == null ? '—' : v.toFixed(2)),
-          })),
-        ],
-      }, [rowsRef.current.x, ...rowsRef.current.ys] as uPlot.AlignedData, el);
-      chartRef.current = u;
-      setLoading(false);
-
-      const push = () => {
-        const now = Date.now();
-        if (!u || now - last < SAMPLE_MS) return;
-        last = now;
-        const r = rowsRef.current;
-        r.x.push(now);
-        selected.forEach((n, i) => {
-          const lv = live.latest.get(n);
-          const num = lv === undefined ? null : typeof lv.v === 'boolean' ? (lv.v ? 1 : 0) : displayNumber(n, lv.v);
-          r.ys[i].push(num);
-        });
-        if (r.x.length > CAP) { const e = r.x.length - CAP; r.x.splice(0, e); r.ys.forEach((y) => y.splice(0, e)); }
-        u.setData([r.x, ...r.ys] as uPlot.AlignedData, false);
-        if (!zoomRef.current) {
-          const xMax = r.x[r.x.length - 1] ?? now;
-          u.setScale('x', { min: Math.max(r.x[0] ?? xMax, xMax - winRef.current), max: xMax });
-        }
-      };
-      push();
-      unsub = live.subscribe(push);
-      ro = new ResizeObserver(() => u?.setSize({ width: el.clientWidth || 800, height: 420 }));
-      ro.observe(el);
-    })();
-
-    return () => { cancelled = true; unsub?.(); ro?.disconnect(); u?.destroy(); chartRef.current = null; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, win, attempt]);
-
-  const zoomRef = useRef(false);
-  zoomRef.current = zoomed;
+  const badCount = data.series.reduce((a, s) => a + s.bad, 0);
+  const onZoom = (a: number, b: number) => patch({ from: String(a), to: String(b) });
 
   const exportCsv = () => {
-    const r = rowsRef.current;
-    const head = ['timestamp_utc', ...selected.map((n) => n)].join(',');
-    const lines = r.x.map((x, i) => [new Date(x).toISOString(), ...r.ys.map((y) => y[i] ?? '')].join(','));
-    const blob = new Blob([[head, ...lines].join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `trend-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const out: Record<string, unknown>[] = [];
+    for (const s of data.series) {
+      for (const p of s.pts) out.push({ ts: new Date(p.t).toISOString(), tag: s.tag, v: scaleV(s.tag, p.v), unit: unitFor(s.tag) });
+    }
+    downloadCsv(`trend-${new Date().toISOString().slice(0, 16)}.csv`,
+      [{ key: 'ts', label: 'ts' }, { key: 'tag', label: 'tag' }, { key: 'v', label: 'value' }, { key: 'unit', label: 'unit' }], out);
   };
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>{t('trends.title')}</h1>
-          <p className="lede">{t('trends.lede')}</p>
+    <>
+      <PageBar title={t('nav.trends')} lede={t('trends.lede')} actions={
+        <div className="flex items-center gap-3">
+        <EquipmentPicker onChange={(tags) => { if (tags?.length) patch({ tags: tags.slice(0, MAX_SERIES).join(',') }); }} />
+        <Segmented
+          value={mode}
+          onChange={setMode}
+          label={t('trends.mode')}
+          options={[
+            { value: 'explorer', label: t('trends.explorer') },
+            { value: 'grid', label: t('trends.grid') },
+          ]}
+        />
         </div>
-        <div className="actions">
-          {zoomed && (
-            <button className="btn btn-sm btn-ghost" onClick={() => setZoomed(false)}>{t('trends.reset')}</button>
-          )}
-          <Segmented<Win>
-            label={t('trends.window')} value={win} onChange={(w) => { setZoomed(false); update({ w }); }}
-            options={(Object.keys(WINDOWS) as Win[]).map((w) => ({ value: w, label: w.toUpperCase() }))}
-          />
-          <button className="btn btn-sm" onClick={exportCsv} disabled={loading || selected.length === 0}>
-            <Icon name="download" size={16} /> {t('trends.exportCsv')}
-          </button>
+      } />
+      {mode === 'grid' ? (
+        /* one card per plant signal, live 15 min */
+        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+          {PICKABLE.map((tag) => <GridCard key={tag} tag={tag} />)}
         </div>
-      </header>
+      ) : (
+      <div className="grid gap-3 p-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <Card title={t('viz.signalsPanel')} pad={false}>
+          <div className="border-b border-line p-2">
+            <div className="relative">
+              <Icon name="search" size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
+              <input
+                className="input h-7 w-full pl-6 text-[12px]"
+                placeholder={t('trends.searchFacets')}
+                aria-label={t('trends.searchFacets')}
+                value={fq}
+                onChange={(e) => setFq(e.target.value)}
+              />
+            </div>
+          </div>
+          <ul className="flex max-h-[240px] flex-col gap-0.5 overflow-y-auto p-2 lg:max-h-[60vh]" aria-label={t('trends.facets')}>
+            {rows.filter((tag) => !fq || tag.toLowerCase().includes(fq.toLowerCase()) || labelOf(tag, t).toLowerCase().includes(fq.toLowerCase())).map((tag, i, list) => {
+              const on = sel.includes(tag);
+              const g = groupOf(tag);
+              const header = g && (i === 0 || groupOf(list[i - 1]) !== g);
+              return (
+                <li key={tag}>
+                  {header && <p className="overline mt-2 px-1.5 pb-0.5" title={g}>{groupLabel(g)}</p>}
+                  <label className="flex min-h-8 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[13px] hover:bg-subtle has-[:focus-visible]:bg-subtle">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => toggle(tag)}
+                      disabled={!on && sel.length >= MAX_SERIES}
+                      className="accent-blue"
+                    />
+                    <span className={`h-[3px] w-3 shrink-0 rounded-full ${on ? '' : 'bg-line-strong'}`} style={on ? { background: colorOf(tag) } : undefined} aria-hidden />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{labelOf(tag, t)}</span>
+                      {!SIGNALS[tag] && <span className="block truncate font-mono text-[10px] text-ink-46">{tag}</span>}
+                    </span>
+                    <span className="text-[11px] text-ink-46">{unitFor(tag)}</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="border-t border-line p-2 text-[11px] text-ink-46"><Icon name="info" size={10} /> {t('viz.limitCount', { count: MAX_SERIES })} · {t('viz.perUnit')}</p>
+        </Card>
 
-      <section className="panel">
-        <div className="signal-picker" role="group" aria-label={t('trends.signals')}>
-          {tags.map((tag) => {
-            const i = selected.indexOf(tag.name);
-            const on = i >= 0;
+        <div className="flex min-w-0 flex-col gap-3">
+          {/* window bar — filters in one row above the charts */}
+          <div className="flex flex-wrap items-center gap-2">
+            <TimeRangePicker value={range} onChange={setRange} />
+            <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-68">
+              {!fixed && <span className="livedot" data-ws={live.ws === 'open' ? 'open' : 'reconnecting'} aria-hidden />}
+              {fixed ? t('viz.custom') : t('viz.live')} · <span className="font-mono">{fmtRange(data.from, data.to, i18n.language)}</span>
+            </span>
+            <label className="inline-flex items-center gap-1.5 text-[12px] text-ink-2">
+              <input type="checkbox" checked={compare} onChange={(e) => patch({ cmp: e.target.checked ? '1' : null })} className="accent-[var(--color-accent)]" />
+              {t('viz2.compare')}
+            </label>
+            <span className="flex-1" />
+            <span className="hidden text-[11px] text-ink-46 md:inline">{t('viz.zoomHint')}</span>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={exportCsv} disabled={!data.hasData}>
+              <Icon name="download" size={12} /> {t('viz.exportCsv')}
+            </button>
+          </div>
+
+          {data.truncated && <Notice tone="warn">{t('viz.truncated')}</Notice>}
+          {data.bucketS != null && <Notice>{t('viz.rollupHint', { interval: bucketLabel(data.bucketS, t) })}</Notice>}
+          {badCount > 0 && <Notice>{t('viz.badHidden', { count: badCount })}</Notice>}
+
+          {sel.length === 0 ? (
+            <Card><EmptyState title={t('trends.none')} icon="trends" /></Card>
+          ) : [...groups.entries()].map(([unit, list]) => {
+            const lim = list.length === 1 ? (limits.get(list[0].tag) ?? []).map((l) => ({ ...l, v: displayNumber(list[0].tag, l.v) })) : [];
             return (
-              <button
-                key={tag.name} type="button" className={`signal-chip${on ? ' is-on' : ''}`}
-                aria-pressed={on} onClick={() => toggle(tag.name)} title={tag.name}
-                style={on ? { ['--chip' as string]: `var(${SERIES[i % SERIES.length]})` } : undefined}
-                disabled={!on && selected.length >= 6}
-              >
-                <span className="swatch" aria-hidden />{label(tag.name)}
-              </button>
+              <Panel.Root key={unit || '—'} state="ready" label={list.map((s) => labelOf(s.tag, t)).join(' · ')}>
+                <Panel.Header
+                  title={list.map((s) => labelOf(s.tag, t)).join(' · ')} unit={unit || undefined}
+                  badge={fixed ? undefined : range.preset ?? undefined} onFullscreen
+                  menu={[{ label: t('viz.exportCsv'), onSelect: exportCsv }]}
+                />
+                <Panel.Body className="p-2">
+                  <TimeChart
+                    series={[
+                      ...list.map((s) => ({
+                        key: s.tag, label: labelOf(s.tag, t), color: colorOf(s.tag),
+                        unit, decimals: decimalsOf(s.tag), pts: scalePts(s.tag, s.pts),
+                      })),
+                      ...(compare ? list.map((s) => {
+                        const p0 = prev.series.find((x) => x.tag === s.tag);
+                        return {
+                          key: `${s.tag}~prev`, label: `${labelOf(s.tag, t)} (${t('viz2.previous')})`,
+                          color: cssVar('--color-ink-4', '#9aa4b1'), width: 1.5, unit, decimals: decimalsOf(s.tag),
+                          pts: scalePts(s.tag, (p0?.pts ?? []).map((p) => ({ t: p.t + shift, v: p.v }))),
+                        };
+                      }) : []),
+                    ]}
+                    limits={lim}
+                    unit={unit}
+                    xRange={[data.from, data.to]}
+                    height={groups.size > 1 ? 220 : 340}
+                    syncKey="trends"
+                    onZoom={onZoom}
+                    loading={data.isLoading}
+                    hasPrevious={data.hasData}
+                    error={data.isError}
+                    onRetry={data.refetch}
+                    annotations={alarms
+                      .filter((a) => list.some((s) => s.tag === a.tag))
+                      .map((a) => ({ t: Date.parse(a.ts), kind: 'alarm' as const, label: a.rule, severity: normSeverity(a.severity) === 'critical' ? 'critical' as const : 'warning' as const }))
+                      .filter((a) => a.t >= data.from && a.t <= data.to)}
+                  />
+                </Panel.Body>
+              </Panel.Root>
             );
           })}
-          <span className="hint">{t('trends.max')}</span>
-        </div>
-        <div className="panel-body trend-body">
-          {selected.length === 0 && <Notice>{t('trends.none')}</Notice>}
-          {failed && <ErrorState onRetry={() => setAttempt((a) => a + 1)} />}
-          {loading && selected.length > 0 && !failed && (
-            <div className="chart-skeleton" aria-label={t('trends.loading')}><Skeleton h={420} /></div>
-          )}
-          <div ref={wrapRef} className="chart-wrap" hidden={failed || selected.length === 0} />
-          {ins.length > 0 && !failed && selected.length > 0 && (
-            <div className="insight-legend" aria-label={t('insights.title')}>
-              {ins.slice(0, 8).map((i) => (
-                <InsightChip key={i.id} insight={i} onClick={() => openFaceplate(i.tag)} />
-              ))}
-            </div>
+
+          {sel.length > 0 && !data.isLoading && (
+            <Card title={t('viz.series')} pad={false}>
+              <StatsTable series={data.series} colorOf={colorOf} unitFor={unitFor} />
+            </Card>
           )}
         </div>
-      </section>
+      </div>
+      )}
+    </>
+  );
+}
+
+// Full-resolution last/min/max/avg under the charts — the stats decimation
+// can't distort, plus a live quality column.
+function StatsTable({ series, colorOf, unitFor }: {
+  series: TagSeries[]; colorOf: (tag: string) => string; unitFor: (tag: string) => string;
+}) {
+  const { t, i18n } = useTranslation();
+  const now = useNow();
+  useStore(() => live.version);
+  const f = (tag: string, v: number | null) => fmtNum(scaleV(tag, v), decimalsOf(tag), i18n.language);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-line text-left">
+            {[t('viz.series'), t('viz.last'), t('viz.min'), t('viz.max'), t('viz.avg'), t('viz.unit'), t('viz.quality')].map((h, i) => (
+              <th key={h} scope="col" className={`h-7 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68 ${i > 0 && i < 5 ? 'text-right' : ''}`}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {series.map((s) => {
+            const tv = live.latest.get(s.tag);
+            const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
+            return (
+              <tr key={s.tag} className="h-9 border-b border-line last:border-0">
+                <td className="px-3">
+                  <span className="flex items-center gap-2">
+                    <span className="h-[3px] w-3 shrink-0 rounded-full" style={{ background: colorOf(s.tag) }} aria-hidden />
+                    <span className="truncate">{labelOf(s.tag, t)}</span>
+                  </span>
+                </td>
+                <td className="px-3 text-right font-mono font-semibold">{f(s.tag, s.stats.last)}</td>
+                <td className="px-3 text-right font-mono">{f(s.tag, s.stats.min)}</td>
+                <td className="px-3 text-right font-mono">{f(s.tag, s.stats.max)}</td>
+                <td className="px-3 text-right font-mono">{f(s.tag, s.stats.avg)}</td>
+                <td className="px-3 text-ink-68">{unitFor(s.tag) || '—'}</td>
+                <td className="px-3">{stale || (tv && tv.q !== 'good') ? <QualityMark q={tv?.q} stale={stale} /> : <span className="text-[12px] text-ink-46">{t('state.good')}</span>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+// Grid-mode card: one plant signal, live 15-min window, compact states.
+function GridCard({ tag }: { tag: string }) {
+  const { t } = useTranslation();
+  const limits = useLimits();
+  const data = useSeries([tag], { fromMs: 0, toMs: null, spanMs: presetMs('15m') });
+  const unit = unitOf(tag) ?? '';
+  return (
+    <Card pad={false}>
+      <div className="border-b border-line px-3 py-1.5">
+        <p className="text-[13px] font-medium">{labelOf(tag, t)}</p>
+        <p className="font-mono text-[10px] text-ink-46">{tag}{unit ? ` · ${unit}` : ''}</p>
+      </div>
+      <div className="p-1">
+        <TimeChart
+          series={[{ key: tag, label: labelOf(tag, t), color: SERIES_PALETTE[0], unit, decimals: decimalsOf(tag), pts: scalePts(tag, data.series[0]?.pts ?? []) }]}
+          limits={(limits.get(tag) ?? []).map((l) => ({ ...l, v: displayNumber(tag, l.v) }))}
+          unit={unit}
+          xRange={[data.from, data.to]}
+          height={160}
+          loading={data.isLoading}
+          error={data.isError}
+          onRetry={data.refetch}
+          compact
+        />
+      </div>
+    </Card>
   );
 }

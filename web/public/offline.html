@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#14141c" />
+  <title>Offline — vissointan</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f7f6f8; --ink: #1d1d29; --mute: #5b5864; --line: #d9d5dc; --accent: #a55d73; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #14141c; --ink: #f1ecef; --mute: #b9b2bb; --line: #3a3138; --accent: #f5c0c0; } }
+    html, body { height: 100%; margin: 0; }
+    body { display: grid; place-items: center; background: var(--bg); color: var(--ink);
+           font: 16px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif; padding: 24px; }
+    main { max-width: 420px; }
+    img { width: 56px; height: 56px; }
+    h1 { font-size: 20px; margin: 16px 0 4px; }
+    p { margin: 4px 0; color: var(--mute); }
+    p.th { font-size: 15px; }
+    a.retry { display: inline-flex; align-items: center; margin-top: 20px; min-height: 44px; padding: 0 20px; font-weight: 600;
+              color: var(--bg); background: var(--ink); border-radius: 6px; text-decoration: none; }
+    a.retry:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <main role="main">
+    <img src="/logo-192.png" alt="" />
+    <h1>You're offline</h1>
+    <p>Values may be out of date. Nothing on this screen is live.</p>
+    <p class="th">ไม่มีการเชื่อมต่อ ค่าที่แสดงอาจไม่เป็นปัจจุบัน</p>
+    <a class="retry" href="/">Try again · ลองอีกครั้ง</a>
+  </main>
+</body>
+</html>

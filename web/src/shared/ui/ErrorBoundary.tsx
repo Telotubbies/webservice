@@ -63,14 +63,9 @@ export function RouteError() {
   const detail = err instanceof Error ? err.message : undefined;
   void detail; // kept for diagnostics; the UI stays user-safe
   return (
-    <div className="page" style={{ margin: '0 auto' }}>
+    <div className="page">
       <CrashState onRetry={() => window.location.assign('/')} />
     </div>
   );
 }
 
-/** Deliberate render crash — UAT exercises the boundary through this route.
- *  It throws inside a boundary so the recovery UI, not a blank page, shows. */
-export function CrashProbe(): JSX.Element {
-  throw new Error('UAT crash probe — intentional render error');
-}

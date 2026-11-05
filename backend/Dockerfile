@@ -1,7 +1,10 @@
+# Backend API image: uvicorn serving the FastAPI app, with migrations and the
+# seeded alarm rules baked in.
 FROM python:3.12-slim
 
 WORKDIR /app
 
+# Dependencies install before the app is copied so code edits do not bust the pip layer.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -11,7 +14,8 @@ COPY app ./app
 COPY alarm_rules.yaml ./alarm_rules.yaml
 
 # Non-root: a compromised process shouldn't own the container filesystem.
-RUN useradd --system --uid 10001 --no-create-home app
+RUN useradd --system --uid 10001 --no-create-home app \
+ && mkdir -p /data/videos /data/models /data/convert /data/plant && chown app /data/videos /data/models /data/convert /data/plant
 USER app
 
 ENV MQTT_HOST=mosquitto \

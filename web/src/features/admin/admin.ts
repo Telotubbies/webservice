@@ -7,6 +7,9 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, adminApi } from '../../lib/api';
 import { canAdmin, canOperate, useRole } from '../../app/session';
+import { getScope } from '../../lib/scope';
+import { useStore } from '../../lib/hooks';
+import { live } from '../../lib/live';
 
 /** Resolve the org the admin pages operate on: the first membership where
  * the user holds admin|owner (sorted by name), else the first membership —
@@ -18,19 +21,23 @@ import { canAdmin, canOperate, useRole } from '../../app/session';
  * viewer/none was wrongly locked out of org B's own admin UI. `loading` lets
  * the pages skeleton instead of flashing "restricted" while /api/me lands. */
 export function useAdminOrg(): {
-  orgId: string | null; meRole: string; orgRole: string | null; loading: boolean;
+  orgId: string | null; orgName: string | null; meRole: string;
+  orgRole: string | null; loading: boolean;
 } {
   const meRole = useRole();
   const q = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
   const memberships = q.data?.memberships ?? [];
+  useStore(() => live.authRev); // re-render when the active org changes
+  const active = getScope();
+  const activeM = active ? memberships.find((m) => m.org_id === active.orgId) : undefined;
   const adminWeight = (r: string) => (r === 'owner' || r === 'admin' ? 0 : 1);
   const sorted = [...memberships].sort(
     (a, b) => adminWeight(a.role) - adminWeight(b.role)
       || (a.org_name ?? '').localeCompare(b.org_name ?? ''),
   );
-  const chosen = sorted[0] ?? null;
+  const chosen = activeM ?? sorted[0] ?? null;
   return {
-    orgId: chosen?.org_id ?? null, meRole,
+    orgId: chosen?.org_id ?? null, orgName: chosen?.org_name ?? null, meRole,
     orgRole: chosen?.role ?? null, loading: q.isLoading,
   };
 }
@@ -45,6 +52,15 @@ export function useOperateAnyOrg(): boolean {
   return (q.data?.memberships ?? []).some((m) => canOperate(m.role));
 }
 
+/** Resolve the (org, site) pair for member-read v2 calls outside the admin
+ * pages — e.g. command event trails, edge inventory. First membership's
+ * first site; the seeded deployment has exactly one of each. */
+export function usePrimaryScope(): { orgId: string | null; siteId: string | null; loading: boolean } {
+  const { orgId, loading: orgLoading } = useAdminOrg();
+  const { site, loading: siteLoading } = useAdminSite(orgId);
+  return { orgId, siteId: site?.id ?? null, loading: orgLoading || siteLoading };
+}
+
 /** First site of the admin org (selector rendered when the org has >1). */
 export function useAdminSite(orgId: string | null) {
   const [siteId, setSiteId] = useState<string | null>(null);
@@ -54,7 +70,8 @@ export function useAdminSite(orgId: string | null) {
     enabled: orgId != null,
   });
   const sites = q.data?.items ?? [];
-  const site = sites.find((s) => s.id === siteId) ?? sites[0] ?? null;
+  const activeSite = getScope()?.orgId === orgId ? getScope()?.siteId : undefined;
+  const site = sites.find((s) => s.id === (siteId ?? activeSite)) ?? sites[0] ?? null;
   return { site, sites, setSiteId, loading: q.isLoading };
 }
 

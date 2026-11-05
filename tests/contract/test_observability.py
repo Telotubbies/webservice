@@ -21,8 +21,11 @@ from fastapi import FastAPI  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 from prometheus_client import generate_latest  # noqa: E402
 
-from app.observability import (  # noqa: E402
-    ObservabilityMiddleware, metrics_response, redact, route_template,
+from app.core.observability import (
+    ObservabilityMiddleware,
+    metrics_response,
+    redact,
+    route_template,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -280,6 +283,7 @@ def test_docs_hidden_in_prod_env(tmp_path):
         "DYNSEC_ADMIN_PASSWORD_FILE": secret("dynsec_pw", "r3al-dynsec-pw"),
         "SVC_BACKEND_PW_FILE": secret("svc_pw", "r3al-svc-pw"),
         "EDGE_BOOTSTRAP_PW_FILE": secret("edge_pw", "r3al-edge-pw"),
+        "DATA_SOURCE_KEY_FILE": secret("ds_key", "A" * 43),
         "KC_ADMIN": "kc-admin",
         "KC_ADMIN_PASSWORD_FILE": secret("kc_pw", "r3al-kc-pw"),
         "KC_DEMO_PASSWORD_FILE": secret("kc_demo", "r3al-demo-pw"),

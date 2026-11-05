@@ -8,6 +8,22 @@ import type {
 
 export const BUFFER_CAP = 3600; // ~1h at 1s sim cadence
 export const STALE_MS = 15_000; // spec: tag silent >15s -> STALE
+export const JOURNAL_CAP = 200; // F05 session notification ring, newest first
+
+/** Client-side event journal entry (F05 notify bell / F20 activity feed).
+ *  `title` is an i18n KEY (notify.*), not literal text — rows translate at
+ *  render so a language switch re-translates history; `params` feeds its
+ *  interpolation. Written only by ws.ts dispatch() — WS-driven, zero fetch. */
+export interface JournalEvent {
+  id: string;
+  ts: string;        // ISO — journal clock, not the event's source ts
+  kind: 'alarm' | 'alarm_update' | 'insight' | 'command' | 'health' | 'auth';
+  severity?: string; // real severity where the event carries one (alarm/insight)
+  title: string;     // i18n key
+  params?: Record<string, string>;
+  tag?: string;
+  href?: string;     // deep link; '?fp=…' merges into current params
+}
 
 export interface BufferPoint {
   t: number; // epoch ms
@@ -23,6 +39,7 @@ class LiveStore {
   alarms: Alarm[] = [];
   insights: Insight[] = [];
   commands = new Map<string, Command>();
+  journal: JournalEvent[] = []; // F05 notification ring, newest first
   health: Health | null = null;
   sysHealth: SystemHealth | null = null;
   ws: WSState = 'connecting';
@@ -41,6 +58,7 @@ class LiveStore {
   alarmRev = 0;
   insightRev = 0;
   cmdRev = 0;
+  journalRev = 0;
   healthRev = 0;
   wsRev = 0;
   tagRev = 0;
@@ -48,6 +66,7 @@ class LiveStore {
   authRev = 0; // bumped when the bearer token changes (re-render role gates)
 
   private listeners = new Set<Listener>();
+  private journalSeq = 0;
   private rafId = 0;
   private dirty = false;
 
@@ -170,10 +189,47 @@ class LiveStore {
     this.poke();
   }
 
+  /** Resync: fold fetched command rows in; fresher local rows are kept. */
+  mergeCommands(rows: Command[]) {
+    for (const c of rows) {
+      const prev = this.commands.get(c.id);
+      if (prev?.updated_at && c.updated_at && prev.updated_at > c.updated_at) continue;
+      this.commands.set(c.id, { ...prev, ...c });
+    }
+    this.cmdRev++;
+    this.poke();
+  }
+
+  /** Resync: splice fetched history into a tag's ring buffer, filling the gap
+   *  left by an outage. Sorted, de-duplicated on timestamp, capped. */
+  backfillTag(name: string, pts: BufferPoint[]) {
+    if (!pts.length) return;
+    const buf = this.buffers.get(name) ?? [];
+    const seen = new Set(buf.map((p) => p.t));
+    const merged = buf.concat(pts.filter((p) => !seen.has(p.t)));
+    merged.sort((a, b) => a.t - b.t);
+    if (merged.length > BUFFER_CAP) merged.splice(0, merged.length - BUFFER_CAP);
+    this.buffers.set(name, merged);
+    this.scheduleFlush();
+  }
+
   mergeCommand(c: Partial<Command> & { id: string }) {
     const prev = this.commands.get(c.id);
     this.commands.set(c.id, { ...prev, ...c } as Command);
     this.cmdRev++;
+    this.poke();
+  }
+
+  /** Append one journal entry (newest-first ring, capped). id/ts are stamped
+   *  here unless the caller supplies them — call sites stay one-liners. */
+  pushJournal(ev: Omit<JournalEvent, 'id' | 'ts'> & Partial<Pick<JournalEvent, 'id' | 'ts'>>) {
+    this.journal.unshift({
+      id: `j${++this.journalSeq}`,
+      ts: new Date().toISOString(),
+      ...ev,
+    });
+    if (this.journal.length > JOURNAL_CAP) this.journal.length = JOURNAL_CAP;
+    this.journalRev++;
     this.poke();
   }
 
@@ -186,6 +242,32 @@ class LiveStore {
   setSysHealth(h: SystemHealth | null) {
     this.sysHealth = h;
     this.healthRev++;
+    this.poke();
+  }
+
+  /** Org switch: drop everything that belongs to the previous org so a stale
+   *  value can never render under the new one. */
+  resetData() {
+    this.tags = [];
+    this.latest = new Map();
+    this.buffers = new Map();
+    this.alarms = [];
+    this.insights = [];
+    this.commands = new Map();
+    this.journal = [];
+    this.health = null;
+    this.sysHealth = null;
+    this.tagsSeeded = false;
+    this.alarmsSeeded = false;
+    this.insightsSeeded = false;
+    this.seedError = false;
+    this.tagRev++;
+    this.alarmRev++;
+    this.insightRev++;
+    this.cmdRev++;
+    this.journalRev++;
+    this.healthRev++;
+    this.seedRev++;
     this.poke();
   }
 

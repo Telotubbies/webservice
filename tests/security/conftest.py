@@ -25,7 +25,7 @@ from conftest import (  # noqa: E402 — root tests/conftest.py
 APP_DSN = os.environ.get("WDS_TEST_APP_DSN", "")
 WEB_URL = os.environ.get("WEB_URL", "http://localhost:5173").rstrip("/")
 
-# dev-token user ids (backend/app/seed.py DEMO_USERS)
+# dev-token user ids (backend/app/ops/seed.py DEMO_USERS)
 ADMIN_UID = uuid.UUID("0199d000-0000-7000-8000-00000000d003")
 VIEWER_UID = uuid.UUID("0199d000-0000-7000-8000-00000000d002")
 OPERATOR_UID = uuid.UUID("0199d000-0000-7000-8000-00000000d001")

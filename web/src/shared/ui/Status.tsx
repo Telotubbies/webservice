@@ -2,32 +2,36 @@
 
 import { useTranslation } from 'react-i18next';
 import type { Quality } from '../../types';
+import { fmtAge } from '../../lib/format';
+import { useNow } from '../../lib/hooks';
 
 export type RunState = 'running' | 'stopped' | 'stale' | 'unknown';
+
+/* Distinct shape per state — colour alone is never the only carrier
+   (ISA-101). Rendered inline: .glyph has no stylesheet rules, the
+   character is the shape. ● running · ■ stopped · ◆ stale · ○ unknown */
+const RUN_GLYPH: Record<RunState, string> = {
+  running: '●', stopped: '■', stale: '◆', unknown: '○',
+};
 
 export function StatePill({ state }: { state: RunState }) {
   const { t } = useTranslation();
   return (
     <span className={`state state-${state}`} data-state={state}>
-      <span className="glyph" aria-hidden />
+      <span className="glyph text-[9px] leading-none" aria-hidden>{RUN_GLYPH[state]}</span>
       {t(`state.${state}`)}
     </span>
   );
 }
 
-export type Severity = 'critical' | 'warning' | 'info';
-
-export function normSeverity(s: string): Severity {
-  const v = s.toLowerCase();
-  if (v.startsWith('crit')) return 'critical';
-  if (v.startsWith('warn')) return 'warning';
-  return 'info';
-}
+// normSeverity lives in ./severity (pure, importable without React/i18n).
+export { normSeverity, type Severity } from './severity';
+import { normSeverity } from './severity';
 
 export function SeverityBadge({ severity }: { severity: string }) {
   const { t } = useTranslation();
   const s = normSeverity(severity);
-  // Shape glyph (▲/◆/●) comes from .sev::before keyed on data-severity —
+  // Shape glyph (▲/◆/●) comes from the .sev-*::before rules in index.css —
   // colour + shape + text, never colour alone (ISA-101).
   return (
     <span className={`sev sev-${s}`} data-severity={s}>
@@ -36,16 +40,82 @@ export function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
+/** Alarm lifecycle state — Triggered → Acked → Cleared (ISA-18.2).
+ *  Free-form backend strings normalise to the three canonical states;
+ *  redundant-coded via .alarm-state (colour + label — styles in index.css). */
+export type AlarmState = 'active' | 'acked' | 'cleared';
+
+export function normAlarmState(s: string): AlarmState {
+  const v = s.toLowerCase();
+  if (v.startsWith('ack')) return 'acked';
+  if (v.startsWith('clear') || v.startsWith('resol') || v.startsWith('clos')) return 'cleared';
+  return 'active';
+}
+
+export function AlarmStateBadge({ state, ackedBy }: { state: string; ackedBy?: string | null }) {
+  const { t } = useTranslation();
+  const s = normAlarmState(state);
+  return (
+    <span
+      className={`alarm-state is-${s}`}
+      data-state={s}
+      title={s === 'acked' && ackedBy ? t('alarms.ackedBy', { who: ackedBy }) : undefined}
+    >
+      {t(`alarms.${s}`)}
+    </span>
+  );
+}
+
+/* Quality axis glyphs — ✚ bad / ◇ uncertain / ○ stale. Rendered inline:
+   .qmark has no ::before rules in index.css, so the character is the shape.
+   Colour + shape + text, never colour alone (ISA-101). */
+const Q_GLYPH: Record<Exclude<Quality, 'good'>, string> = {
+  bad: '✚', uncertain: '◇', stale: '○',
+};
+
 export function QualityMark({ q, stale }: { q?: Quality; stale?: boolean }) {
   const { t } = useTranslation();
-  if (stale) return <span className="qmark" data-q="stale">{t('state.staleQ')}</span>;
+  if (stale || q === 'stale') {
+    return (
+      <span className="qmark" data-q="stale">
+        <span className="text-[9px] leading-none" aria-hidden>{Q_GLYPH.stale}</span>
+        {t('state.staleQ')}
+      </span>
+    );
+  }
   if (!q || q === 'good') return null; // normal is quiet
   const key = q === 'bad' ? 'bad' : q === 'uncertain' ? 'uncertain' : 'staleQ';
-  // Shape glyph (✚ bad / ◇ uncertain / ○ stale) comes from .qmark::before
-  // keyed on data-q — quality axis, colour + shape + text (ISA-101).
   return (
     <span className={`qmark qmark-${q}`} data-q={q}>
+      <span className="text-[9px] leading-none" aria-hidden>{Q_GLYPH[q]}</span>
       {t(`state.${key}`)}
+    </span>
+  );
+}
+
+/** "Updated 4 s ago" for a value/panel — quiet grey while fresh, flips to a
+ *  dashed stale mark (○ + text) once older than `staleAfterMs`, so an old
+ *  value can never pass for a live one (anti-goal: stale shown as live).
+ *  Re-renders itself every second; pass `now` to share a parent's clock. */
+export function Freshness({ ts, staleAfterMs = 30_000, now: nowProp }: {
+  ts: string | undefined; staleAfterMs?: number; now?: number;
+}) {
+  const { t } = useTranslation();
+  const tick = useNow(1000);
+  const now = nowProp ?? tick;
+  if (!ts) return <span className="freshness">{t('state.never')}</span>;
+  const age = now - Date.parse(ts);
+  if (age > staleAfterMs) {
+    return (
+      <span className="qmark" data-q="stale" data-fresh="stale" title={new Date(ts).toLocaleString()}>
+        <span className="text-[9px] leading-none" aria-hidden>{Q_GLYPH.stale}</span>
+        {t('ui.staleFor', { age: fmtAge(ts, now) })}
+      </span>
+    );
+  }
+  return (
+    <span className="freshness" data-fresh="live" title={new Date(ts).toLocaleString()}>
+      {t('state.updated', { age: fmtAge(ts, now) })}
     </span>
   );
 }

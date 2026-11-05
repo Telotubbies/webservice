@@ -1,86 +1,452 @@
+// Alarms — the operator's working list: an omnibar filter (key:value tokens
+// via matchAlarmQuery), state tabs, a dense grouped table, and ack actions
+// gated by role.
+
+import { Fragment, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
+import { NavLink, useNavigate, useSearchParams } from 'react-router';
 import { api } from '../../lib/api';
-import { useStore } from '../../lib/hooks';
-import { live } from '../../lib/live';
-import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
+import { live, STALE_MS } from '../../lib/live';
+import { useNow, useStore } from '../../lib/hooks';
+import { SIGNALS } from '../../lib/plant';
+import { fmtAge, fmtDuration } from '../../lib/format';
+import { canAdmin, canOperate, useRole } from '../../app/session';
+import { useAdminOrg } from '../admin/admin';
+import { matchAlarmQuery, useAlarms, alarmStateKey, bucketAlarms, GROUP_BY, type GroupBy } from './alarms';
+import { AlarmDensity, type Bucket } from './AlarmDensity';
+import { ackMany, errText } from './ackAlarm';
+import './i18n';
+import { SeverityBadge, QualityMark, normSeverity } from '../../shared/ui/Status';
+import { Card, Table } from '../../shared/ui/Page';
+import { Notice } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
-import { normSeverity } from '../../shared/ui/Status';
-import { AlarmRows } from './AlarmRows';
-import { useAlarms } from './alarms';
+import { useEquipment } from '../../lib/equipment';
+import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
+import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
+import { Icon } from '../../shared/ui/Icon';
+import { DdIcon } from '../../shared/ui/DdIcon';
+import { TriggeredOnboarding } from '../monitors/TriggeredOnboarding';
+import { AckButton, AlarmCard, StateCell } from './AlarmRow';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 type StateFilter = 'active' | 'acked' | 'cleared' | 'all';
-type SevFilter = 'any' | 'critical' | 'warning' | 'info';
 
-export function AlarmsPage() {
-  const { t } = useTranslation();
-  const [params, setParams] = useSearchParams();
-  const { all } = useAlarms();
-  useStore(() => live.seedRev); // re-render when a boot seed fails/clears
-  const state = (params.get('state') as StateFilter) || 'all';
-  const sev = (params.get('sev') as SevFilter) || 'any';
-  const set = (k: string, v: string, dflt: string) => {
-    const next = new URLSearchParams(params);
-    if (v === dflt) next.delete(k); else next.set(k, v);
-    setParams(next, { replace: true });
-  };
 
-  const rows = all.filter((a) => (state === 'all' || a.state === state)
-    && (sev === 'any' || normSeverity(a.severity) === sev));
-  const count = (s: StateFilter) => (s === 'all' ? all.length : all.filter((a) => a.state === s).length);
+/** Absolute time next to the relative one: clock today, date + clock otherwise. */
+function absTime(ts: string, lang: string): string {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  const today = new Date().toDateString() === d.toDateString();
+  return today
+    ? d.toLocaleTimeString(lang, { hour12: false })
+    : d.toLocaleString(lang, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
 
+/** Live value of the alarm's signal — stale / bad quality look different. */
+function ValueCell({ tag, now }: { tag: string; now: number }) {
+  const tv = live.latest.get(tag);
+  const meta = SIGNALS[tag];
+  if (!tv) return <span className="text-ink-35">—</span>;
+  const stale = now - Date.parse(tv.ts) > STALE_MS;
+  const v = typeof tv.v === 'number' ? tv.v.toFixed(meta?.decimals ?? 1) : String(tv.v);
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>{t('alarms.title')}</h1>
-          <p className="lede">{t('alarms.lede')}</p>
-        </div>
-      </header>
-      <section className="panel">
-        <div className="alarm-filters">
-          <Segmented<StateFilter>
-            label={t('alarms.colState')} value={state} onChange={(v) => set('state', v, 'all')}
-            options={(['active', 'acked', 'cleared', 'all'] as StateFilter[]).map((s) => ({
-              value: s, label: `${t(`alarms.${s}`)} ${count(s)}`,
-            }))}
-          />
-          <Segmented<SevFilter>
-            label={t('alarms.severity')} value={sev} onChange={(v) => set('sev', v, 'any')}
-            options={[
-              { value: 'any', label: t('alarms.allSeverities') },
-              { value: 'critical', label: t('alarms.critical') },
-              { value: 'warning', label: t('alarms.warning') },
-              { value: 'info', label: t('alarms.info') },
-            ]}
-          />
-        </div>
-        <div className="panel-body flush">
-          {/* cause-specific states (v4 T12): pre-seed = skeleton rows;
-              failed seed = error + retry (never skeletons forever);
-              truly zero alarms = cold-start copy; filters that exclude
-              everything = filtered-empty copy that points at the filters. */}
-          {!live.alarmsSeeded && live.seedError ? (
-            <ErrorState
-              onRetry={() => void api.alarms().then((a) => live.setAlarms(a)).catch(() => live.setSeedError())}
-            />
-          ) : !live.alarmsSeeded ? (
-            <div className="panel-body" style={{ display: 'grid', gap: 12 }}>
-              {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} h={28} />)}
-            </div>
-          ) : rows.length === 0 ? (
-            all.length === 0 ? (
-              <EmptyState title={t('alarms.emptyCold')} body={t('alarms.emptyColdBody')} />
-            ) : state === 'active' ? (
-              <EmptyState title={t('alarms.emptyActive')} body={t('alarms.emptyActiveBody')} />
-            ) : (
-              <EmptyState title={t('alarms.empty')} body={t('alarms.emptyFilteredBody')} icon="info" />
-            )
-          ) : (
-            <AlarmRows alarms={rows} />
-          )}
-        </div>
-      </section>
-    </div>
+    <span className="flex flex-col items-start gap-0.5">
+      <span className={`whitespace-nowrap font-mono tabular-nums ${stale || tv.q !== 'good' ? 'text-ink-46' : ''}`}>
+        {v}{meta?.unit && <span className="ml-0.5 text-[11px] text-ink-46">{meta.unit}</span>}
+      </span>
+      <QualityMark q={tv.q} stale={stale} />
+    </span>
   );
 }
+
+/** Swipe a card left to acknowledge it. It presses the card's own Ack button,
+ *  so busy/error handling is the one place it already lives; the button stays
+ *  for anyone who cannot swipe. */
+function swipeToAck(enabled: boolean) {
+  if (!enabled) return {};
+  let x = 0; let y = 0;
+  return {
+    onTouchStart: (e: React.TouchEvent) => { x = e.touches[0].clientX; y = e.touches[0].clientY; },
+    onTouchEnd: (e: React.TouchEvent<HTMLElement>) => {
+      const dx = e.changedTouches[0].clientX - x;
+      const dy = e.changedTouches[0].clientY - y;
+      if (dx < -90 && Math.abs(dy) < 40) e.currentTarget.querySelector<HTMLButtonElement>('button.btn-ack')?.click();
+    },
+  };
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
+export function AlarmsPage() {
+  const { t, i18n } = useTranslation();
+  const now = useNow();
+  const { all } = useAlarms();
+  useStore(() => live.seedRev);
+  const seeded = live.alarmsSeeded;
+  const seedError = live.seedError;
+  const [params, setParams] = useSearchParams();
+  const [q, setQ] = useState(() => params.get('q') ?? '');
+  const [state, setState] = useState<StateFilter>('active');
+  const [win, setWin] = useState<Bucket | null>(null);
+  const { current: eq } = useEquipment();
+
+  const signalLabel = (tag: string) => {
+    const meta = SIGNALS[tag];
+    return meta ? t(meta.labelKey) : tag;
+  };
+
+  const rows = useMemo(() => {
+    return all
+      .filter((a) => state === 'all' || a.state === state)
+      .filter((a) => !win || (Date.parse(a.ts) >= win.from && Date.parse(a.ts) < win.to))
+      .filter((a) => !eq || eq.tags.includes(a.tag))
+      .filter((a) => matchAlarmQuery(a, q, signalLabel));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [all, state, q, win, eq, i18n.language]);
+
+  const role = useRole();
+  // "New rule" links into the admin surface, which gates on the per-org role
+  // (v4 T14) — the shim-org useRole() would wrongly hide it from an admin of
+  // a non-shim org.
+  const { orgRole } = useAdminOrg();
+  // zero-rule / zero-alarm onboarding — the v1 rule list is member-read, so
+  // every role can fetch it; only the admin actions inside stay gated.
+  const ruleCount = useQuery({ queryKey: ['alarm-rules'], queryFn: api.alarmRules, staleTime: 60_000 });
+  const operable = canOperate(role);
+  const navigate = useNavigate();
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [bulkErr, setBulkErr] = useState('');
+
+  const toggleGroup = (k: string) => setCollapsed((s) => {
+    const n = new Set(s);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    return n;
+  });
+
+  const toggle = (id: string) => setSel((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+
+  // selection pruned to visible rows — a filter change must not leave the
+  // "N selected" count or the ack targets pointing at hidden alarms
+  const selRows = rows.filter((a) => sel.has(String(a.id)));
+  const ackable = selRows.filter((a) => a.state === 'active');
+
+  const [bulkMsg, setBulkMsg] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const bulkAck = () => {
+    if (!ackable.length || bulkBusy) return;
+    setBulkBusy(true);
+    setBulkErr('');
+    setBulkMsg('');
+    void ackMany(ackable).then(({ ok, failed, error }) => {
+      if (failed) {
+        setBulkErr(ok
+          ? t('alx.ackPartial', { ok, failed, reason: errText(error, t) })
+          : t('alx.ackFailed', { reason: errText(error, t) }));
+      } else {
+        setBulkMsg(t('alx.ackDone', { count: ok }));
+      }
+      setSel(new Set());
+    }).finally(() => setBulkBusy(false));
+  };
+  // live counts for the summary + tabs (all alarms, not the filtered view)
+  const unacked = all.filter((a) => a.state === 'active');
+  const unackedCrit = unacked.filter((a) => normSeverity(a.severity) === 'critical').length;
+  const ackedCount = all.filter((a) => a.state === 'acked').length;
+  const ws = useStore(() => live.ws);
+
+  // F03 flood grouping — `?group=state|rule|eq`, deep-linkable, default state
+  const groupParam = params.get('group') as GroupBy | null;
+  const groupBy: GroupBy = groupParam && GROUP_BY.includes(groupParam) ? groupParam : 'state';
+  const setGroupBy = (g: GroupBy) => setParams((p) => { const n = new URLSearchParams(p); n.set('group', g); return n; }, { replace: true });
+  const buckets = useMemo(() => bucketAlarms(rows, groupBy), [rows, groupBy]);
+
+  // F04 permalink — `?alarm=<id>` highlights and scrolls to that row; if the
+  // current filters hide it, say so instead of silently showing nothing.
+  const focusId = params.get('alarm');
+  const focusVisible = !!focusId && rows.some((a) => String(a.id) === focusId);
+  useEffect(() => {
+    if (!focusVisible) return;
+    document.querySelector(`[data-alarm-id="${CSS.escape(focusId!)}"]`)?.scrollIntoView({ block: 'center' });
+  }, [focusId, focusVisible]);
+
+  // Keyboard bulk ack: focus anywhere in the table, A acknowledges the
+  // selection (Space on a row selects it). Scoped to the table, so it never
+  // fires while typing in the filter box or on other pages.
+  const onTableKey = (e: KeyboardEvent) => {
+    if (!operable || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox') return;
+    if (e.key === 'a' || e.key === 'A') { e.preventDefault(); bulkAck(); }
+  };
+  // signal pivot: Tags explorer filtered to this signal; `fp` keeps the
+  // global faceplate contract (?fp=<tag>) for when the faceplate mounts
+  const openTag = (tag: string) => navigate(`/tags?q=${encodeURIComponent(tag)}&fp=${encodeURIComponent(tag)}`);
+
+  const tab = (v: StateFilter, label: string, count?: number, urgent = false) => (
+    <button
+      key={v}
+      type="button"
+      role="tab"
+      aria-selected={state === v}
+      onClick={() => setState(v)}
+      data-active={state === v}
+      className={`flex h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[13px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue ${
+        state === v ? 'border-blue font-semibold text-ink' : 'border-transparent text-ink-68 hover:text-blue'
+      }`}
+    >
+      {label}
+      {count != null && (
+        <span className={`alarm-count rounded-full px-1.5 font-mono text-[11px] font-semibold tabular-nums ${
+          urgent && count > 0 ? 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]' : 'bg-line text-ink-68'
+        }`}>{count}</span>
+      )}
+    </button>
+  );
+
+  const cols = operable ? 8 : 7;
+
+  return (
+    <>
+      <div className="sticky top-[var(--h-topbar)] z-10 border-b border-line bg-paper/95 backdrop-blur">
+        <div className="flex h-11 items-center gap-2 px-4">
+          <h1 className="text-[15px] font-semibold">{t('alarms.title')}</h1>
+          {/* at-a-glance summary: unacked count + criticals, shape + text */}
+          <span className="flex min-w-0 items-center gap-1.5 text-[12px]" role="status">
+            {unacked.length > 0 ? (
+              <>
+                <span className="truncate font-semibold text-ink">{t('alx.summaryUnacked', { count: unacked.length })}</span>
+                {unackedCrit > 0 && <span className="sev sev-critical" data-severity="critical">{t('alx.summaryCritical', { count: unackedCrit })}</span>}
+              </>
+            ) : seeded ? <span className="truncate text-ink-46">{t('alx.summaryQuiet')}</span> : null}
+          </span>
+          <span className="flex-1" />
+          {canAdmin(orgRole ?? 'none') && (
+            <NavLink to="/admin/rules/new" aria-label={t('admin.addRule')} className="flex h-7 shrink-0 items-center gap-1 rounded bg-blue px-2.5 text-[13px] text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue">
+              <DdIcon name="plus" size={12} /> <span className="hidden sm:inline">{t('admin.addRule')}</span>
+            </NavLink>
+          )}
+        </div>
+        <div className="flex overflow-x-auto px-4" role="tablist" aria-label={t('alarms.colState')}>
+          {tab('active', t('alarms.active'), unacked.length, true)}
+          {tab('acked', t('alarms.acked'), ackedCount)}
+          {tab('cleared', t('alarms.cleared'))}
+          {tab('all', t('alarms.all'))}
+        </div>
+        {/* full-width omnibar row under the tabs — the filter is the primary tool */}
+        <div className="px-4 pb-2">
+          <div className="relative">
+            <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
+            <input
+              className="input w-full pl-7"
+              placeholder={t('alarms.searchPh')}
+              aria-label={t('alarms.searchLabel')}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+        </div>
+        {/* bulk bar lives in the sticky header so the ack button stays in
+            view while scrolling a flood; viewers get one view-only note */}
+        {seeded && rows.length > 0 && (operable ? (
+          <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line bg-subtle px-4 py-1 text-[12px]">
+            <span className="font-semibold tabular-nums text-ink-68" aria-live="polite">{t('alarms.selected', { count: selRows.length })}</span>
+            <button type="button" className="btn btn-sm" disabled={ackable.length === 0 || bulkBusy} onClick={bulkAck}>
+              <Icon name="check" size={13} /> {bulkBusy ? t('alx.ackBusy') : t('alx.ackSelected', { count: ackable.length })}
+            </button>
+            <button type="button" className="rounded px-1 text-ink-68 hover:text-ink focus-visible:outline-2 focus-visible:outline-blue disabled:opacity-40" disabled={sel.size === 0} onClick={() => setSel(new Set())}>{t('common.clear')}</button>
+            <span className="hidden text-[11px] text-ink-46 lg:inline">{t('alx.kbdHint')}</span>
+            {bulkErr && <span className="text-[var(--color-danger)]" role="alert">{bulkErr}</span>}
+            {bulkMsg && !bulkErr && <span className="text-[var(--color-ok)]" role="status">✓ {bulkMsg}</span>}
+          </div>
+        ) : (
+          <div className="flex min-h-9 items-center gap-2 border-t border-line bg-subtle px-4 py-1 text-[12px] text-ink-68">
+            <Icon name="lock" size={13} /> {t('alx.viewOnly')}
+          </div>
+        ))}
+      </div>
+
+      <div className="p-4">
+        {seeded && ruleCount.data && (ruleCount.data.length === 0 || all.length === 0) && (
+          <TriggeredOnboarding ruleCount={ruleCount.data.length} orgRole={orgRole} />
+        )}
+        {ws !== 'open' && seeded && (
+          <div className="mb-3"><Notice tone="warn">{t('alx.liveLost')}</Notice></div>
+        )}
+        <div className="mb-3 flex justify-end"><EquipmentPicker /></div>
+        {seeded && <AlarmDensity alarms={all} now={now} picked={win} onPick={setWin} />}
+        {seeded && rows.length > 0 && (
+          <div className="mb-3 flex items-center gap-2 text-[12px] text-ink-68">
+            <span>{t('alarms.groupBy')}</span>
+            <Segmented<GroupBy>
+              label={t('alarms.groupBy')}
+              value={groupBy}
+              onChange={setGroupBy}
+              options={[
+                { value: 'state', label: t('alarms.groupState') },
+                { value: 'rule', label: t('alarms.groupRule') },
+                { value: 'eq', label: t('alarms.groupEq') },
+              ]}
+            />
+          </div>
+        )}
+        {seedError && !seeded ? (
+          <ErrorState onRetry={() => window.location.reload()} />
+        ) : !seeded ? (
+          <Card pad={false}>
+            <div className="space-y-2 p-3">
+              {[28, 20, 28, 20].map((h, i) => <Skeleton key={i} h={h} />)}
+            </div>
+          </Card>
+        ) : (
+          <>
+            {focusId && !focusVisible && seeded && (
+              <div className="mb-3"><Notice tone="info">{t('alarms.filteredOut')}</Notice></div>
+            )}
+            <Card pad={false}>
+              {rows.length === 0 ? (
+                <EmptyState
+                  title={ws !== 'open' ? t('alarms.emptyUnknown') : state === 'active' && !q ? t('alarms.emptyActive') : t('alarms.empty')}
+                  body={ws !== 'open' ? t('alarms.emptyUnknownBody') : state === 'active' && !q ? t('alarms.emptyActiveBody') : t('alarms.emptyFilteredBody')}
+                />
+              ) : (
+                <>
+                {/* phone layout (~390px): one card per alarm — no sideways
+                    scrolling; the dense table takes over at md and up */}
+                <ul className="md:hidden">
+                  {buckets.map((b) => (
+                    <Fragment key={b.key}>
+                      <li className="border-b border-line bg-subtle px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-68">
+                        {b.labelKey ? t(b.labelKey) : b.label} · {b.alarms.length}
+                      </li>
+                      {!collapsed.has(b.key) && b.alarms.map((a) => {
+                        const id = String(a.id);
+                        const unackedRow = a.state === 'active';
+                        return (
+                          <li key={a.id} data-alarm-id={id}
+                            className={`border-b border-line last:border-0 ${id === focusId ? 'bg-info-soft' : ''}`}
+                            {...swipeToAck(unackedRow && operable)}>
+                            <AlarmCard
+                              alarm={a} now={now} onOpen={() => navigate(`/alarms/${a.id}`)}
+                              select={operable ? { checked: sel.has(id), onToggle: () => toggle(id) } : undefined}
+                            />
+                          </li>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </ul>
+                <div className="hidden overflow-x-auto md:block" onKeyDown={onTableKey}>
+                <div className="min-w-[860px]">
+                <Table head={[
+                  operable ? (
+                    <input
+                      key="selall"
+                      type="checkbox"
+                      className="h-4 w-4"
+                      aria-label={t('alarms.selectAll')}
+                      checked={rows.length > 0 && selRows.length === rows.length}
+                      onChange={() => setSel(
+                        selRows.length === rows.length ? new Set() : new Set(rows.map((a) => String(a.id))),
+                      )}
+                    />
+                  ) : null,
+                  t('alarms.colSeverity'), t('alarms.colAlarm'), t('alx.colValue'), t('alarms.colRaised'),
+                  t('alarms.colDuration'), t('alarms.colState'), t('alarms.colAction'),
+                ].filter((h) => h !== null)}>
+                  {buckets.map((b) => (
+                    <Fragment key={b.key}>
+                      {/* group header row — one collapsible row per bucket; colour + glyph + text */}
+                      <tr className="bg-subtle">
+                        <td colSpan={cols} className="p-0">
+                          <button
+                            type="button"
+                            className="flex min-h-11 w-full cursor-pointer flex-wrap items-center gap-2 px-3 py-1 text-left text-[12px] font-semibold text-ink-68 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+                            aria-expanded={!collapsed.has(b.key)}
+                            onClick={() => toggleGroup(b.key)}
+                          >
+                            <span className="text-ink-46" aria-hidden>{collapsed.has(b.key) ? '▶' : '⌄'}</span>
+                            <span className="text-ink">{b.labelKey ? t(b.labelKey) : b.label}</span>
+                            <SeverityBadge severity={b.worst} />
+                            <span className="rounded-full bg-line px-1.5 font-mono text-[10px] font-semibold text-ink-68">{b.alarms.length}</span>
+                            {groupBy !== 'state' && b.oldest && (
+                              <span className="font-mono text-[11px] font-normal text-ink-46">
+                                {t('alarms.groupSpan', { dur: fmtDuration(b.oldest, Date.parse(b.newest) || now) })}
+                              </span>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                      {!collapsed.has(b.key) && b.alarms.map((a) => {
+                        const id = String(a.id);
+                        const unackedRow = a.state === 'active';
+                        // unacked rows: bold title + the ○ state badge carry it; acked/cleared recede
+                        return (
+                        <tr
+                          key={a.id}
+                          data-alarm-id={id}
+                          className={`alarm-row alarm-${a.state} cursor-pointer focus-visible:bg-info-soft focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${id === focusId ? 'bg-info-soft' : ''} ${a.state === 'cleared' ? 'text-ink-68' : ''}`}
+                          tabIndex={0}
+                          aria-selected={operable ? sel.has(id) : undefined}
+                          onClick={() => navigate(`/alarms/${a.id}`)}
+                          onKeyDown={(e) => {
+                            if (e.target !== e.currentTarget) return;
+                            if (e.key === 'Enter') { e.preventDefault(); navigate(`/alarms/${a.id}`); }
+                            // Space selects (grid convention) so bulk ack works without a mouse
+                            if (e.key === ' ') { e.preventDefault(); if (operable) toggle(id); else navigate(`/alarms/${a.id}`); }
+                          }}
+                        >
+                          {operable && (
+                            /* stopPropagation on keydown too — else the row's
+                               Enter/Space handler swallows the press */
+                            <td onClick={(e) => e.stopPropagation()}>
+                              <input type="checkbox" className="h-4 w-4" checked={sel.has(id)} onChange={() => toggle(id)} aria-label={t('alarms.select', { name: a.rule })} />
+                            </td>
+                          )}
+                          <td><SeverityBadge severity={a.severity} /></td>
+                          <td className="py-1.5">
+                            <span className={`block ${unackedRow ? 'font-semibold text-ink' : 'font-normal'}`}>{a.rule}</span>
+                            <span className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink-46">
+                              {SIGNALS[a.tag] && <span>{signalLabel(a.tag)}</span>}
+                              <button
+                                type="button"
+                                className="tag-link rounded font-mono text-blue underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+                                onClick={(e) => { e.stopPropagation(); openTag(a.tag); }}
+                              >
+                                {a.tag}
+                              </button>
+                            </span>
+                          </td>
+                          <td><ValueCell tag={a.tag} now={now} /></td>
+                          <td className="whitespace-nowrap">
+                            <span className="block text-[12px] text-ink-68">{fmtAge(a.ts, now)}</span>
+                            <time className="block font-mono text-[11px] tabular-nums text-ink-46" dateTime={a.ts}>{absTime(a.ts, i18n.language)}</time>
+                          </td>
+                          <td className="whitespace-nowrap text-[12px] tabular-nums">{fmtDuration(a.ts, now)}</td>
+                          <td><StateCell alarm={a} now={now} /></td>
+                          <td onClick={(e) => e.stopPropagation()}><AckButton alarm={a} /></td>
+                        </tr>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </Table>
+                </div>
+                </div>
+                </>
+              )}
+            </Card>
+            <p className="mt-2 text-[11px] text-ink-46">{t('alarms.shown', { count: rows.length })}</p>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+export { alarmStateKey };

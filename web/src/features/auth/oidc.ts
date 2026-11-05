@@ -12,17 +12,43 @@
 import {
   InMemoryWebStorage, User, UserManager, WebStorageStateStore,
 } from 'oidc-client-ts';
-import { getToken, setSessionToken, setUnauthorizedHandler } from '../../lib/api';
+import { getToken, setSessionToken, setStepUpHandler, setUnauthorizedHandler } from '../../lib/api';
+import i18n from '../../lib/i18n';
 import { live } from '../../lib/live';
 
 export interface AuthConfig {
   env: string;
   dev_tokens: boolean;
   oidc: { realm: string; client_id: string } | null;
+  /** brokered IdPs configured in Keycloak, e.g. ["google"]; absent = none */
+  idps?: string[];
 }
 
 const SILENT_PATH = '/auth/silent-callback';
 const CALLBACK_PATH = '/auth/callback';
+
+// Deep-link preservation: signinRedirect leaves the app, so the intended
+// destination is stashed in sessionStorage (NOT a token — ADR-12's storage
+// ban is about credentials) and consumed by the /auth/callback handler.
+const RETURN_KEY = 'wds.returnTo';
+
+/** Same-origin check + stash of the current location before an SSO redirect. */
+function stashReturnTo(): void {
+  const p = location.pathname + location.search + location.hash;
+  if (!p.startsWith('/') || p.startsWith('//') || isCallbackPath(location.pathname)) return;
+  try { sessionStorage.setItem(RETURN_KEY, p); } catch { /* storage blocked */ }
+}
+
+/** Consume the stashed destination. Only relative paths ever come back —
+ * anything else (or nothing) falls through to '/'. */
+export function takeReturnTo(): string {
+  try {
+    const p = sessionStorage.getItem(RETURN_KEY);
+    sessionStorage.removeItem(RETURN_KEY);
+    if (p && p.startsWith('/') && !p.startsWith('//')) return p;
+  } catch { /* storage blocked */ }
+  return '/';
+}
 
 let cfg: AuthConfig | null = null;
 let mgr: UserManager | null = null;
@@ -47,10 +73,11 @@ export function initAuth(): Promise<AuthConfig> {
   initPromise = (async () => {
     try {
       const r = await fetch('/api/auth/config');
+      if (!r.ok) throw new Error(`auth config ${r.status}`);
       cfg = (await r.json()) as AuthConfig;
     } catch {
-      // backend unreachable — dev-shaped config keeps the dev wall usable
-      cfg = { env: 'dev', dev_tokens: true, oidc: null };
+      // backend unreachable/502 — fail closed: never show demo/token UI (G1)
+      cfg = { env: 'prod', dev_tokens: false, oidc: null };
     }
     if (cfg?.oidc) {
       mgr = new UserManager({
@@ -83,6 +110,7 @@ export function initAuth(): Promise<AuthConfig> {
         setSessionToken('');
         live.bumpAuth();
       });
+      setStepUpHandler(stepUp);
     } else {
       setUnauthorizedHandler(() => {
         setSessionToken('');
@@ -140,7 +168,7 @@ export function restoreSession(): Promise<boolean> {
 
 /** For the WS 4401 path: get a fresh access token or report dead session. */
 export async function ensureFreshToken(): Promise<boolean> {
-  if (!mgr) return false; // dev tokens never expire — a 4401 means real failure
+  if (!mgr) return false; // Dev tokens never expire — a 4401 means real failure.
   try {
     const user = await mgr.signinSilent();
     if (user?.access_token) {
@@ -154,8 +182,51 @@ export async function ensureFreshToken(): Promise<boolean> {
   return false;
 }
 
-export function signInWithSSO(): Promise<void> | undefined {
-  return mgr?.signinRedirect();
+const STEPUP_KEY = 'wds.stepUpAt';
+
+/** Re-auth at acr=mfa. `step_up_required` also forces a fresh sign-in
+ * (max_age=0) so auth_time moves. A second bounce within 30s means the IdP
+ * can't satisfy the level — drop the session instead of looping. */
+function stepUp(reason: 'mfa_required' | 'step_up_required'): void {
+  if (!mgr) return;
+  try {
+    const last = Number(sessionStorage.getItem(STEPUP_KEY) || 0);
+    if (Date.now() - last < 30_000) {
+      sessionStorage.removeItem(STEPUP_KEY);
+      setSessionToken('');
+      live.bumpAuth();
+      return;
+    }
+    sessionStorage.setItem(STEPUP_KEY, String(Date.now()));
+  } catch { /* storage blocked — no loop guard, still ask */ }
+  if (reason === 'step_up_required' && !window.confirm(i18n.t('auth.stepUp'))) return;
+  stashReturnTo();
+  void mgr.signinRedirect(reason === 'step_up_required'
+    ? { acr_values: 'mfa', max_age: 0 } : { acr_values: 'mfa' });
+}
+
+/** Keycloak's own login form; `loginHint` pre-fills the username/email so the
+ *  user only types the password there (OIDC login_hint). */
+export function signInWithSSO(loginHint?: string): Promise<void> | undefined {
+  stashReturnTo();
+  return mgr?.signinRedirect(loginHint ? { login_hint: loginHint } : undefined);
+}
+
+/** Keycloak self-registration (OIDC prompt=create). */
+export function signUp(): Promise<void> | undefined {
+  stashReturnTo();
+  return mgr?.signinRedirect({ prompt: 'create' });
+}
+
+/** kc_idp_hint makes Keycloak skip its chooser and go straight to the IdP. */
+export function signInWithGoogle(): Promise<void> | undefined {
+  stashReturnTo();
+  return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'google' } });
+}
+
+export function signInWithMicrosoft(): Promise<void> | undefined {
+  stashReturnTo();
+  return mgr?.signinRedirect({ extraQueryParams: { kc_idp_hint: 'microsoft' } });
 }
 
 export function signOutSSO(): Promise<void> | undefined {

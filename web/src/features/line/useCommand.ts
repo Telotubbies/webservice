@@ -14,6 +14,8 @@ export function isTerminal(status: string | undefined): boolean {
   return status !== undefined && TERMINAL.has(status);
 }
 
+/** Post a command, map send errors to copy, and track it to a terminal
+ *  state (WS updates, REST poll as fallback). */
 export function useCommand() {
   const { t } = useTranslation();
   const [trackedId, setTrackedId] = useState<string | null>(null);

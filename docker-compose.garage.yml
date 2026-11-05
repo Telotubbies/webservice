@@ -1,0 +1,24 @@
+# Dev overlay: a local Garage (S3) so uploads get a durable per-org copy.
+#   docker compose -f docker-compose.yml -f docker-compose.garage.yml up -d garage
+#   scripts/garage-dev-init.sh          # layout + bucket + scoped key -> .env.garage
+#   set -a; . ./.env.garage; set +a
+#   docker compose -f docker-compose.yml -f docker-compose.garage.yml up -d backend
+services:
+  garage:
+    image: dxflrs/garage:v2.1.0
+    ports:
+      - "127.0.0.1:3900:3900"
+    volumes:
+      - ./deploy/garage/garage.dev.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    restart: unless-stopped
+  backend:
+    environment:
+      ARTIFACT_S3_ENDPOINT: "http://garage:3900"
+      ARTIFACT_S3_BUCKET: "wds-artifacts"
+      ARTIFACT_S3_KEY_ID: "${ARTIFACT_S3_KEY_ID:-}"
+      ARTIFACT_S3_SECRET: "${ARTIFACT_S3_SECRET:-}"
+volumes:
+  garage-meta:
+  garage-data:

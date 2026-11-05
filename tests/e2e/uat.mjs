@@ -1,3 +1,7 @@
+// End-to-end UAT sweep against the real stack: Playwright drives the live
+// web UI (:5173), the backend (:8000) answers real requests, and telemetry
+// is injected over MQTT as `tester`. Hard gates: zero console errors and
+// zero 4xx/5xx responses. Run: node tests/e2e/uat.mjs
 import { execSync } from 'child_process';
 
 // Playwright is a dev dependency of whatever project installs it — resolve
@@ -66,7 +70,7 @@ page.on('console', m => { if (m.type() === 'error' && !isProbeErr(m.text())) con
 page.on('response', r => { if (r.status() >= 400) badResponses.push(`${r.status()} ${r.url()}`); });
 
 try {
-  // ============ ANONYMOUS -> SIGN-IN WALL (v4 T5) ============
+  // ── Anonymous → sign-in wall (v4 T5) ──
   // No anonymous reads: the unauthenticated load must produce a formal
   // sign-in wall — no shell, no tiles, no API traffic beyond public probes.
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -91,7 +95,7 @@ try {
   // dev-mode wall offers the demo-token row (UAT runs APP_ENV=dev)
   ok('wall: dev-token input (dev only)', await page.locator('.token-input').count() === 1);
 
-  // ============ OPERATOR (dev-token sign-in via the wall) ============
+  // ── Operator (dev-token sign-in via the wall) ──
   await page.fill('.token-input', 'demo-operator');
   await page.keyboard.press('Enter');
   await sleep(2000);
@@ -119,7 +123,7 @@ try {
     await page.locator('.insight-rail').count() === 1
     && await page.locator('.insight-rail .insight-chip, .insight-rail .insight-rail-empty').count() > 0);
 
-  // ============ MISSION SURFACE (v4 T11) ============
+  // ── Mission surface (v4 T11) ──
   // ambient tier: fullscreen contour canvas under all content on /
   ok('ambient: field canvas on /', await page.locator('canvas.ambient-field').count() === 1);
   ok('ambient: canvas is decorative (aria-hidden)',
@@ -146,7 +150,7 @@ try {
   await sleep(300);
   ok('cmdk: Escape closes the palette', await page.locator('.palette-panel').count() === 0);
 
-  // ============ T12: palette deep-dive, ? overlay ============
+  // ── T12: palette deep-dive, ? overlay ──
   // fuzzy filter + arrow/Enter navigation + equipment jump → faceplate (?fp)
   await page.keyboard.press('Control+k');
   await sleep(300);
@@ -191,7 +195,7 @@ try {
   ok('operator: commands tab visible',
     await page.locator('a.tab[href="/commands"]').count() === 1);
 
-  // ============ ALARM LIFECYCLE via real MQTT injection ============
+  // ── Alarm lifecycle via real MQTT injection ──
   // fire alarm
   await pub('temp_c', 95, 'good');
   await page.click('a.tab[href="/alarms"]');
@@ -220,7 +224,7 @@ try {
   await sleep(2500);
   ok('cleared label renders', await page.locator('.alarm-cleared-label').count() > 0);
 
-  // ============ FACEPLATE from a non-equipment context (v3) ============
+  // ── Faceplate from a non-equipment context (v3) ──
   // The faceplate is tag-keyed and global (?fp=<tag>): an alarm-row tag-link
   // opens it from /alarms, and the close button removes the param again.
   await page.locator('.alarm-row button.tag-link').first().click();
@@ -234,7 +238,7 @@ try {
     await page.locator('.faceplate').count() === 0
     && !new URL(page.url()).searchParams.has('fp'), page.url());
 
-  // ============ INSIGHT end-to-end: real MQTT anomaly -> engine -> UI ============
+  // ── Insight end-to-end: real MQTT anomaly → engine → UI ──
   // Drive temp_c far out of band (sim ambient ~28C) while the edge is stopped —
   // an in-band sim sample would collapse the OPEN_N streak. Publish through the
   // whole poll window: detectors only OPEN on fresh tags (ALARM_FRESH_S=15s)
@@ -276,7 +280,7 @@ try {
   const coolV = Math.round((openInsight?.detail?.mu ?? 28) * 10) / 10;
   for (let i = 0; i < 7; i++) { await pub('temp_c', coolV + (i % 2 ? 0.2 : -0.2), 'good'); await sleep(700); }
 
-  // ============ TRENDS: history seed + NEW time-window seg ============
+  // ── Trends: history seed + time-window seg ──
   const histReqs = [];
   page.on('response', r => { if (r.url().includes('/api/tags/') && r.url().includes('/history')) histReqs.push(r.status()); });
   await page.click('a.tab[href="/trends"]');
@@ -288,19 +292,19 @@ try {
   const swatches = await page.locator('.swatch, [class*=swatch], [class*=chip]').count();
   ok('series swatches', swatches > 0, `${swatches}`);
 
-  // ============ CONTROLS: guarded write + lifecycle stepper ============
+  // ── Controls: guarded write + lifecycle stepper ──
   await page.click('a.tab[href="/commands"]');
   await sleep(1500);
   ok('command panel renders', await page.locator('.cmd-panel').count() > 0);
   ok('command rows render', await page.locator('.cmd-row').count() > 0);
 
-  // ============ INSIGHTS feed (v3: Intelligence nav group) ============
+  // ── Insights feed (v3: Intelligence nav group) ──
   ok('insights nav tab', await page.locator('a.tab[href="/insights"]').count() === 1);
   await page.click('a.tab[href="/insights"]');
   await sleep(1500);
   ok('insights feed panel', await page.locator('.panel.insight-list').count() > 0);
 
-  // ============ /line3d (v4: supplementary three.js twin) ============
+  // ── /line3d (v4: supplementary 3D twin) ──
   // Scene renders under headless SwiftShader OR falls back to the compact 2D
   // mimic — either is a pass; the zero-console-errors gate below is binding.
   ok('line3d nav tab', await page.locator('a.tab[href="/line3d"]').count() === 1);
@@ -340,7 +344,7 @@ try {
   await sleep(1200);
   ok('lc dots stepper exists', await page.locator('.lc-dot').count() > 0);
 
-  // ============ RESPONSIVE GATES ============
+  // ── Responsive gates ──
   await page.setViewportSize({ width: 700, height: 900 });
   await sleep(800);
   ok('<768px: controls hidden', await page.locator('.btn-control').count() === 0);
@@ -359,7 +363,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 });
   await sleep(500);
 
-  // ============ ADMIN (v4 T10) ============
+  // ── Admin (v4 T10) ──
   // The Admin nav group is visible to operators+ (spec); mutations stay
   // admin|owner server-side. API-level roundtrips + a nav-visibility check.
   // The bearer token lives in memory only (ADR-12): the goto above destroyed
@@ -476,7 +480,7 @@ try {
   ok('admin: audit page renders export form',
     await page.locator('.admin-export-form').count() === 1);
 
-  // ============ T12: skeleton / kiosk / error boundary (fresh context) ============
+  // ── T12: skeleton / kiosk / error boundary (fresh context) ──
   // New context: no session, listeners fed into the same gate arrays.
   // /api/tags is delayed so the first-load skeleton is observable.
   {
@@ -553,7 +557,7 @@ try {
     await p2.close().catch(() => {});
   }
 
-  // ============ OIDC smoke — real Keycloak round-trip (v4 T5) ============
+  // ── OIDC smoke — real Keycloak round-trip (v4 T5) ──
   // Fresh context: no demo-token session, no KC SSO cookie. Wall -> SSO ->
   // Keycloak login form -> realm test user -> /auth/callback -> shell.
   // Requires `make seed-dev` (sets the demo user password).
@@ -597,7 +601,7 @@ try {
     }
   }
 
-  // ============ GLOBAL HYGIENE ============
+  // ── Global hygiene ──
   ok('zero console errors', consoleErrs.length === 0, consoleErrs.slice(0, 3).join(' | '));
   ok('zero 4xx/5xx responses', badResponses.length === 0, badResponses.slice(0, 3).join(' | '));
 

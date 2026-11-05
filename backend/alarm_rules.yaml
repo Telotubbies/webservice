@@ -1,4 +1,4 @@
-# Alarm rules — config, not code. Loaded by app/alarms.py::load_rules
+# Alarm rules — config, not code. Loaded by app/alarming/alarms.py::load_rules
 # (override path with ALARM_RULES_CONFIG). Missing/unreadable file falls
 # back to the in-code defaults seeded below, which mirror this file.
 #
@@ -10,3 +10,60 @@ rules:
     tag: plant1.sort.line1.conv1.temp_c
     condition: "value > 80"
     severity: critical
+
+  # --- Centrale a Beton (concrete batching plant, area `batch`) ----------------
+  # Boolean switches alarm on `value > 0.5`. Thresholds sit outside the normal
+  # cycle so only real abnormal states fire: a silo drawn down to its low
+  # switch, a mixer overload, a clogged dust filter, a hot skip winch.
+  - name: silo1_low
+    tag: plant1.batch.cem.silo1.low_level
+    condition: "value > 0.5"
+    severity: warning
+  - name: silo2_low
+    tag: plant1.batch.cem.silo2.low_level
+    condition: "value > 0.5"
+    severity: warning
+  - name: silo3_low
+    tag: plant1.batch.cem.silo3.low_level
+    condition: "value > 0.5"
+    severity: warning
+  - name: silo4_low
+    tag: plant1.batch.cem.silo4.low_level
+    condition: "value > 0.5"
+    severity: warning
+  - name: bin1_low
+    tag: plant1.batch.agg.bin1.low_level
+    condition: "value > 0.5"
+    severity: info
+  - name: bin2_low
+    tag: plant1.batch.agg.bin2.low_level
+    condition: "value > 0.5"
+    severity: info
+  - name: bin3_low
+    tag: plant1.batch.agg.bin3.low_level
+    condition: "value > 0.5"
+    severity: info
+  - name: bin4_low
+    tag: plant1.batch.agg.bin4.low_level
+    condition: "value > 0.5"
+    severity: info
+  - name: water_tank_low
+    tag: plant1.batch.liq.tank1.low_level
+    condition: "value > 0.5"
+    severity: warning
+  - name: mixer_overload
+    tag: plant1.batch.mix.mixer1.current_a
+    condition: "value > 105"
+    severity: critical
+  - name: filter_clogged
+    tag: plant1.batch.air.filter1.dp_mbar
+    condition: "value > 20"
+    severity: warning
+  - name: blower_overpressure
+    tag: plant1.batch.air.blower1.pressure_bar
+    condition: "value > 1.0"
+    severity: warning
+  - name: skip_winch_hot
+    tag: plant1.batch.agg.skip1.motor_temp_c
+    condition: "value > 80"
+    severity: warning

@@ -1,4 +1,4 @@
-"""APP_ENV=prod fail-fast (v4 T7, doc 20 §3.5): subprocess `import app.config`
+"""APP_ENV=prod fail-fast (v4 T7, doc 20 §3.5): subprocess `import app.core.config`
 must refuse loudly when required envs are missing or still dev-default.
 
 Runs in a subprocess because the check fires at import time — in-process the
@@ -26,7 +26,7 @@ _CHECKED_VARS = [
     "DYNSEC_ADMIN_PASSWORD_FILE", "SVC_BACKEND_PW_FILE", "EDGE_BOOTSTRAP_PW_FILE",
     "KC_ADMIN", "KC_ADMIN_PASSWORD", "KC_ADMIN_PASSWORD_FILE",
     "KC_DEMO_PASSWORD", "KC_DEMO_PASSWORD_FILE",
-    "TRUSTED_PROXIES", "ALLOWED_ORIGINS",
+    "TRUSTED_PROXIES", "ALLOWED_ORIGINS", "DATA_SOURCE_KEY_FILE",
 ]
 
 
@@ -37,7 +37,7 @@ def _import_config(env_extra: dict) -> subprocess.CompletedProcess:
     env.update(env_extra)
     env["PYTHONPATH"] = str(BACKEND)
     return subprocess.run(
-        [sys.executable, "-c", "import app.config"],
+        [sys.executable, "-c", "import app.core.config"],
         env=env, capture_output=True, text=True, timeout=30)
 
 
@@ -66,6 +66,7 @@ def prod_env(tmp_path: Path) -> dict:
         "KC_ADMIN": "kc-admin",
         "KC_ADMIN_PASSWORD_FILE": secret("kc_pw", "r3al-kc-pw"),
         "KC_DEMO_PASSWORD_FILE": secret("kc_demo", "r3al-demo-pw"),
+        "DATA_SOURCE_KEY_FILE": secret("ds_key", "A" * 43),
         "TRUSTED_PROXIES": "10.0.0.8/32",
         "ALLOWED_ORIGINS": "https://ops.example.com",
     }
@@ -143,3 +144,12 @@ def test_unknown_app_env_is_fail_closed():
 def test_prod_complete_env_passes(prod_env):
     r = _import_config(prod_env)
     assert r.returncode == 0, r.stderr
+
+
+def test_prod_requires_data_source_key(prod_env):
+    env = dict(prod_env)
+    env.pop("DATA_SOURCE_KEY_FILE")
+    r = _import_config(env)
+    assert r.returncode != 0
+    assert "DATA_SOURCE_KEY_FILE" in (r.stderr + r.stdout)
+    assert _import_config(prod_env).returncode == 0

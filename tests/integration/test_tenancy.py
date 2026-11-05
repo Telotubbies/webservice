@@ -36,12 +36,14 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE") or os.path.join(
     os.path.dirname(__file__), "..", "..", "infra", "certs", "ca.crt")
 
-# dev-token users (backend/app/auth.py TOKENS + seed.py DEMO_USERS)
+# dev-token users (backend/app/iam/auth.py TOKENS + seed.py DEMO_USERS)
 ADMIN_UID = uuid.UUID("0199d000-0000-7000-8000-00000000d003")
 VIEWER_UID = uuid.UUID("0199d000-0000-7000-8000-00000000d002")
 
 V1_ORG_S, V1_SITE_S = str(V1_ORG), str(V1_SITE)
 
+
+# ── Org-B fixture & helpers ──
 
 def _dsn_skip():
     if not APP_DSN:
@@ -139,7 +141,7 @@ def _v2(b, suffix=""):
     return f"/api/v1/orgs/{b['org']}/sites/{b['site']}{suffix}"
 
 
-# ------------------------------------------------------------------- /api/v1/me
+# ── /api/v1/me ──
 
 def test_me_lists_both_memberships(admin_api, org_b):
     r = admin_api.get("/api/v1/me")
@@ -150,7 +152,7 @@ def test_me_lists_both_memberships(admin_api, org_b):
     assert "config:write" in orgs[org_b["org"]]["permissions"]
 
 
-# ------------------------------------------------------------------- org routing
+# ── Org routing ──
 
 def test_member_sees_own_org(admin_api, org_b):
     r = admin_api.get(f"/api/v1/orgs/{org_b['org']}")
@@ -202,7 +204,7 @@ def test_foreign_tag_id_is_404(admin_api, org_b):
     assert r.status_code == 404
 
 
-# ------------------------------------------------------------------- reads
+# ── Scoped reads ──
 
 def test_tags_scoped_to_site(admin_api, org_b):
     def poll():
@@ -246,7 +248,7 @@ def test_health_scoped(admin_api, org_b):
     assert [e["id"] for e in r.json()["edges"]] == [org_b["edge"]]
 
 
-# ------------------------------------------------------------------- writes
+# ── Scoped writes ──
 
 def test_viewer_cannot_ack(viewer_api, org_b):
     """member but wrong role -> 403 (not 404 — the org exists for them)."""
@@ -310,7 +312,7 @@ def test_command_round_trip_scoped(admin_api, operator_api, org_b):
         _v2(org_b, f"/commands/{cmd['id']}")).status_code == 404
 
 
-# ------------------------------------------------------------------- /ws/v1
+# ── /ws/v1 ──
 
 def _ws_close(base_url, path, frame, wait_s=6):
     """Connect + send `frame`, read until close or a TOTAL `wait_s` deadline
@@ -379,7 +381,7 @@ def test_ws_v1_alias_still_shim(base_url):
     assert code is None
 
 
-# ------------------------------------------- F1: dev token w/o shim membership
+# ── F1: dev token w/o shim membership ──
 
 def test_dev_member_of_other_org_only_gets_no_shim(viewer_api, org_b, base_url):
     """T9-review F1: a dev user whose hydrated memberships EXCLUDE the shim
@@ -431,7 +433,7 @@ def test_dev_member_of_other_org_only_gets_no_shim(viewer_api, org_b, base_url):
         asyncio.run(restore_shim())
 
 
-# ------------------------------------------------- MQTT e2e: second-org ingest
+# ── MQTT e2e: second-org ingest ──
 
 def test_second_org_telemetry_isolated(admin_api, org_b, base_url):
     """Provision a real edge on org B (dynsec creds), publish v2 telemetry,

@@ -1,3 +1,7 @@
+# Base compose stack (dev default). Overlays: docker-compose.test.yml (test
+# ports + tester identity), docker-compose.prod.yml (prod hardening),
+# docker-compose.garage.yml (local S3). Knobs: .env.example; targets: Makefile.
+
 # Bounded container logs — docker json-file driver is unbounded by default
 # and will eventually fill the host disk (demo boxes too).
 x-logging: &default-logging
@@ -68,7 +72,7 @@ services:
       - "127.0.0.1:8883:8883"
     volumes:
       - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./infra/certs:/mosquitto/certs:ro
+      - ${CERTS_DIR:-./infra/certs}:/mosquitto/certs:ro
       - ./infra/mosquitto-extras:/mosquitto/config-extras:ro
       - mosquitto-data:/mosquitto/data
     secrets:
@@ -80,7 +84,7 @@ services:
       - |
         set -e
         # First boot only: seed the dynsec store with svc-dynsec-admin —
-        # the ONLY $CONTROL identity (doc 17 §2). The named volume persists
+        # the ONLY $$CONTROL identity (doc 17 §2). The named volume persists
         # the file; the DB is the source of truth for everything else.
         if [ ! -s /mosquitto/data/dynamic-security.json ]; then
           mosquitto_ctrl dynsec init /mosquitto/data/dynamic-security.json \
@@ -122,13 +126,15 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: "${KC_ADMIN:-admin}"
       KC_HOSTNAME: "${KC_HOSTNAME:-http://localhost:5173}"
       KC_HOSTNAME_STRICT: "false"
+      WDS_WEB_ORIGIN: "${WDS_WEB_ORIGIN:-http://localhost:5173}"
       KC_PROXY_HEADERS: "xforwarded"
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
     secrets:
       - kc_admin_pw
     volumes:
-      - ./infra/keycloak:/opt/keycloak/data/import:ro
+      # dev realm by default; prod: KC_REALM_DIR=./infra/keycloak-prod (+ WDS_WEB_ORIGIN)
+      - ${KC_REALM_DIR:-./infra/keycloak}:/opt/keycloak/data/import:ro
     ports:
       # loopback only — browsers reach it through the web proxy
       - "127.0.0.1:8080:8080"
@@ -138,6 +144,40 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Sandbox for customer .pt weights (plan M1-04): unpickling runs code, so this
+  # container has no network, a read-only root, tmpfs scratch, CPU/memory/pid
+  # limits, no capabilities, and reaches only the spool volume.
+  model-converter:
+    build: ./model-converter
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /work:size=2g,mode=1777
+    volumes:
+      - convert-spool:/spool
+    user: "10001:10001"
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Gateway-side inference (plan M1-05): ONNX Runtime behind the 9.10 HTTP contract. Internal
+  # network only: it is reached by edge-bridge, never published on the host.
+  model-server:
+    build: ./model-server
+    environment:
+      MODEL_DIR: /models
+    volumes:
+      - edge-models:/models
+    mem_limit: 3g
+    cpus: 4          # inference must not starve postgres/backend on a shared box
     restart: unless-stopped
     logging: *default-logging
 
@@ -157,11 +197,18 @@ services:
       SITE_ID: "${V1_SITE_ID:-0199d000-0000-7000-8000-00000000b001}"
       EDGE_ID: "${V1_EDGE_ID:-0199d000-0000-7000-8000-00000000c001}"
       SITE: plant1              # tag-naming site code, not a topic identity
-      ADAPTER: sim
+      ADAPTER: "${EDGE_ADAPTER:-sim}"      # sim | modbus (Factory I/O: see SDLC/factoryio.md)
+      MODBUS_HOST: "${MODBUS_HOST:-host.docker.internal}"
+      MODBUS_PORT: "${MODBUS_PORT:-502}"
       POLL_MS: "1000"
+      STATE_DIR: /var/lib/wds-edge
       EDGE_CLOCK_SKEW_MS: "${EDGE_CLOCK_SKEW_MS:-0}"
+      MODEL_SERVER_URL: "http://model-server:9000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - ./infra/certs:/mosquitto-certs:ro
+      - ${CERTS_DIR:-./infra/certs}:/mosquitto-certs:ro
+      - edge-state:/var/lib/wds-edge   # applied cfg cache (STATE_DIR)
     secrets:
       - edge_bootstrap_user
       - edge_bootstrap_pw
@@ -174,7 +221,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: "8883"
@@ -183,21 +230,29 @@ services:
       # its secret lives only in the mounted file (docker inspect clean).
       MQTT_USER: svc-backend
       MQTT_PASSWORD_FILE: /run/secrets/svc_backend_pw
+      # what an enrolling gateway is told to dial (empty host = the host the
+      # enroll request arrived on)
+      PUBLIC_MQTT_HOST: "${PUBLIC_MQTT_HOST:-}"
+      PUBLIC_MQTT_PORT: "${PUBLIC_MQTT_PORT:-8883}"
       # svc-dynsec-admin reconciler channel + provisioning secrets
       DYNSEC_ADMIN_PASSWORD_FILE: /run/secrets/svc_dynsec_admin_pw
       SVC_BACKEND_PW_FILE: /run/secrets/svc_backend_pw
       EDGE_BOOTSTRAP_PW_FILE: /run/secrets/edge_bootstrap_pw
+      DATA_SOURCE_KEY_FILE: /run/secrets/data_source_key
       SITE: plant1
       <<: *pg-dsns
       APP_ENV: "${APP_ENV:-dev}"
       CORS_ORIGIN: http://localhost:5173
-      # v4 T4 — rate limiting + WS origin check (backend/app/config.py).
+      # v4 T4 — rate limiting + WS origin check (backend/app/core/config.py).
       # ALLOWED_ORIGINS empty = same-origin only (Origin host must match Host).
       RATE_COMMANDS_PER_TAG: "${RATE_COMMANDS_PER_TAG:-5}"
       RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-60}"
       RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
       TAGS_CONFIG: /config/tags.yaml
+      # external AI model server (backend/app/alarming/inference.py); empty = off
+      INFERENCE_URL: "${INFERENCE_URL:-}"
+      INFERENCE_PERIOD_S: "${INFERENCE_PERIOD_S:-10}"
       ALARM_RULES_CONFIG: /config/alarm_rules.yaml
       # v4 T5 — OIDC (ADR-12). iss is the public web origin (nginx proxies
       # the realm); JWKS is fetched on the compose network. Dev tokens only
@@ -220,13 +275,23 @@ services:
       KC_ADMIN: "${KC_ADMIN:-admin}"
       KC_ADMIN_PASSWORD_FILE: /run/secrets/kc_admin_pw
       KC_DEMO_PASSWORD_FILE: /run/secrets/kc_demo_pw
+      # Google/Microsoft sign-in via Keycloak brokering — off while empty
+      # (app.ops.provision_idp syncs each IdP into the realm).
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID:-}"
+      MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:-}"
     volumes:
       # Tag registry + alarm thresholds are operator-editable config, not
       # image content — single source for backend + edge-bridge.
       - ./edge-bridge/tags.yaml:/config/tags.yaml:ro
       - ./backend/alarm_rules.yaml:/config/alarm_rules.yaml:ro
+      - video-data:/data/videos   # uploaded demo videos (plan M1-03)
+      - model-data:/data/models   # ONNX model versions (plan M1-04)
+      - plant-data:/data/plant    # uploaded plant models (.glb); Garage/S3 when PLANT_S3_ENDPOINT is set
+      - convert-spool:/data/convert   # .pt jobs for the sandboxed converter
       # Dev CA for the TLS listener (infra/gen-certs.sh — `make certs`).
-      - ./infra/certs:/mosquitto-certs:ro
+      - ${CERTS_DIR:-./infra/certs}:/mosquitto-certs:ro
     secrets:
       - svc_backend_pw
       - svc_dynsec_admin_pw
@@ -235,6 +300,7 @@ services:
       - wds_system_pw
       - kc_admin_pw
       - kc_demo_pw
+      - data_source_key
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -247,19 +313,25 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      # A fresh broker volume makes the dynsec reconciler repair its own role,
+      # which kicks it a few times (~3 min) before svc-backend exists; failed
+      # checks inside start_period don't count, so first deploys don't abort.
+      start_period: 180s
     restart: unless-stopped
     logging: *default-logging
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        VITE_FEATURES: "${VITE_FEATURES:-}"
     ports:
       - "127.0.0.1:5173:80"
     networks:
       default:
         # pinned so backend TRUSTED_PROXIES can name exactly this container
         # (T5 review F10)
-        ipv4_address: 172.30.10.10
+        ipv4_address: ${WEB_IP:-172.30.10.10}
     depends_on:
       backend:
         condition: service_healthy
@@ -271,6 +343,8 @@ services:
 
 volumes:
   pgdata:
+  plant-data:
+  edge-state:
   # Dynsec plugin state — a CACHE of Postgres, not a source of truth
   # (doc 17 §6). To rebuild ONLY this cache: `docker compose stop mosquitto`
   # + `docker volume rm webservice_mosquitto-data` + `up -d mosquitto`.
@@ -279,32 +353,38 @@ volumes:
   # Legacy v1 SQLite volume — kept read-only-in-spirit as the migration source
   # and rollback path (doc 18 §3). Nothing mounts it read-write any more.
   backend-data:
+  video-data:
+  model-data:
+  convert-spool:
+  edge-models:
 
 # MQTT identity secrets (infra/gen-secrets.sh — `make secrets`). Mounted at
 # /run/secrets/<name>; never in environment, never in `docker inspect`.
 secrets:
   svc_dynsec_admin_pw:
-    file: ./infra/secrets/svc_dynsec_admin_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/svc_dynsec_admin_pw
   svc_backend_pw:
-    file: ./infra/secrets/svc_backend_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/svc_backend_pw
   edge_bootstrap_user:
-    file: ./infra/secrets/edge_bootstrap_user
+    file: ${SECRETS_DIR:-./infra/secrets}/edge_bootstrap_user
   edge_bootstrap_pw:
-    file: ./infra/secrets/edge_bootstrap_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/edge_bootstrap_pw
   # Postgres / Keycloak secrets (v4 T7) — env-derived files, dev defaults
   # documented in .env.example; prod overwrites via env before `make secrets`.
   pg_super_pw:
-    file: ./infra/secrets/pg_super_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/pg_super_pw
   wds_owner_pw:
-    file: ./infra/secrets/wds_owner_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/wds_owner_pw
   wds_app_pw:
-    file: ./infra/secrets/wds_app_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/wds_app_pw
   wds_system_pw:
-    file: ./infra/secrets/wds_system_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/wds_system_pw
   kc_admin_pw:
-    file: ./infra/secrets/kc_admin_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/kc_admin_pw
   kc_demo_pw:
-    file: ./infra/secrets/kc_demo_pw
+    file: ${SECRETS_DIR:-./infra/secrets}/kc_demo_pw
+  data_source_key:
+    file: ${SECRETS_DIR:-./infra/secrets}/data_source_key
 
 # Pinned subnet (unused-by-default range) so `web`'s fixed address above is
 # deterministic — backend TRUSTED_PROXIES names it for X-Real-IP trust
@@ -313,4 +393,4 @@ networks:
   default:
     ipam:
       config:
-        - subnet: 172.30.10.0/24
+        - subnet: ${COMPOSE_SUBNET:-172.30.10.0/24}

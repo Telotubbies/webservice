@@ -1,8 +1,10 @@
+# Push/PR gate: contract tests with no services, then the full compose stack
+# under the test overlay (integration + tenancy/security), plus web i18n/build.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, ui-v4, "integration/**"]
   pull_request:
 
 jobs:
@@ -27,9 +29,9 @@ jobs:
       - run: pip install -r backend/requirements.txt pytest pytest-timeout httpx websockets
       - name: Generate broker material (dynsec secrets + dev TLS certs)
         run: ./infra/gen-secrets.sh && ./infra/gen-certs.sh
-      - name: Bring up stack (test overlay: 1883 + tester identity)
+      - name: "Bring up stack (test overlay: 1883 + tester identity)"
         run: docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build --wait
-      - name: Integration tests against live stack (TLS :8883, v2 topics)
+      - name: "Integration tests against live stack (TLS :8883, v2 topics)"
         run: cd tests && BASE_URL=http://localhost:8000 MQTT_HOST=localhost MQTT_PORT=8883 MQTT_CA_FILE=../infra/certs/ca.crt python -m pytest -m integration
       - name: Service logs on failure
         if: failure()
@@ -38,10 +40,35 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  tenancy-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt -r tests/requirements.txt
+      - name: "Bring up stack with the test overlay (Postgres on 127.0.0.1:5433, seeded Keycloak users)"
+        run: make up-test
+      - name: Tenant isolation / RLS gate (runtime DB roles)
+        run: make test-db
+      - name: Security sweep
+        run: make test-security
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml down -v
+
   web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: i18n en/th parity (static, no deps)
+        run: node scripts/check-i18n.mjs
+      - name: No new raw hex colours in TSX (tokens only)
+        run: node scripts/check-hex.mjs
       - name: Typecheck + build
         run: cd web && bun install --frozen-lockfile && bun run build

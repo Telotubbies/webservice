@@ -1,0 +1,198 @@
+/* Console 5 tokens (spec §6.2–6.6) — imported by index.css right after
+   dd-theme.css, so a name defined in both takes the value here.
+
+   Light values live in @theme (Tailwind v4 turns each --color-* into
+   bg-/text-/border- utilities). Dark is its own mapping, not an inversion:
+   :root[data-theme=dark] re-points the new names AND the legacy dd-theme
+   names every existing page uses, so a page goes dark without edits.
+   theme.ts sets data-theme from the stored light/dark/system choice.
+
+   Every dark text pair below was checked against --color-panel #1b1f26 and
+   --color-ground #12151a: body text ≥ 4.5:1, marks and input borders ≥ 3:1. */
+
+@theme {
+  /* ---- surfaces and ink (new names) ---- */
+  --color-ground:      #eef1f4;
+  --color-panel:       #ffffff;
+  --color-panel-2:     #f7f8fa;
+  --color-line:        #dfe3e8;
+  --color-line-strong: #c5ccd5;
+  --color-ink:         #18202a;
+  --color-ink-2:       #4a5563;
+  --color-ink-3:       #6b7685;
+  --color-ink-4:       #9aa4b1;
+  --color-chrome:      #1f2430;
+  --color-chrome-2:    #2a3040;
+  --color-accent:      #2f6fdb;   /* action, selection, link — nothing else */
+  --color-accent-soft: #e6efff;
+  --color-on-accent:   #ffffff;   /* text on an accent fill */
+
+  /* ---- process register (ISA-101): grey at rest, colour only for abnormal ---- */
+  --color-hmi-bg:        #e4e7eb;
+  --color-hmi-equip:     #c9ced6;
+  --color-hmi-equip-run: #6b7380;  /* running reads darker, never green */
+  --color-hmi-edge:      #3f4753;
+  --color-hmi-line-idle: #a3abb6;
+
+  /* ---- status (always with a shape and a word) ---- */
+  --color-crit:      #c62828;
+  --color-crit-soft: #fdecec;
+  --color-warn:      #f2a900;      /* fill — dark text on it */
+  --color-warn-ink:  #b26a00;      /* warning as text */
+  --color-warn-soft: #fff3d6;
+  --color-info:      #5b6573;
+  --color-ok:        #1f8a5b;      /* analytics "within target" only */
+  --color-sim:       #2f6fdb;      /* simulated data: blue + dashed */
+
+  /* ---- categorical series (viz/palette.ts, validated 2026-10-20) — for
+     DOM marks; canvas charts read viz/palette.ts directly ---- */
+  --color-series-1: #2a78d6;
+  --color-series-2: #c0479d;
+  --color-series-3: #6250d6;
+  --color-series-4: #0b9a9a;
+  --color-series-5: #9b4fc4;
+
+  /* ---- sequential blue ramp (HeatStrip, heatmaps) ---- */
+  --color-seq-1: #dbe8fb;
+  --color-seq-2: #b3cff5;
+  --color-seq-3: #7fb0ec;
+  --color-seq-4: #4a8be0;
+  --color-seq-5: #1f63c4;
+
+  /* ---- process media (muted; they tell lines apart, they are not status) ---- */
+  --color-medium-aggregate: #8b7a5e;
+  --color-medium-sand:      #a39373;
+  --color-medium-cement:    #7d8590;
+  --color-medium-water:     #4f7fa8;
+  --color-medium-air:       #9aa3ad;
+  --color-medium-admixture: #8a6fa6;
+  --color-medium-concrete:  #6d6a64;
+  --color-medium-signal:    #5b6573;
+
+  /* ---- type scale additions (10–22 px stay in dd-theme) ---- */
+  --text-body:    14px;
+  --text-stat:    28px;
+  --text-hero:    40px;
+  --text-wall:    64px;
+  --text-wall-xl: 96px;
+
+  /* ---- elevation plies ---- */
+  --shadow-ply1: 0 1px 2px rgb(16 24 40 / .06);
+  --shadow-ply2: 0 4px 16px rgb(16 24 40 / .12);
+  --shadow-ply3: 0 12px 40px rgb(16 24 40 / .22);
+
+  /* ---- radius ---- */
+  --radius-control: 6px;
+  --radius-panel:   8px;
+  --radius-overlay: 12px;
+
+  /* chrome */
+  --h-topbar: 40px;
+}
+
+:root {
+  /* motion (theme/motion.ts mirrors these for the motion library) */
+  --dur-instant: 80ms;
+  --dur-fast:    140ms;
+  --dur-base:    220ms;
+  --dur-slow:    360ms;
+  --dur-process: 600ms;
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-enter:    cubic-bezier(0, 0, 0, 1);
+  --ease-exit:     cubic-bezier(.3, 0, 1, 1);
+}
+
+/* density: comfortable on Plant pages, compact on Engineering/Platform */
+[data-density=comfortable] { --h-control: 32px; --h-row: 40px; }
+[data-density=compact]     { --h-control: 28px; --h-row: 32px; }
+
+:root[data-theme=dark] {
+  /* new names */
+  --color-ground:      #12151a;
+  --color-panel:       #1b1f26;
+  --color-panel-2:     #222731;
+  --color-line:        #2c323d;
+  --color-line-strong: #3a4250;
+  --color-ink:         #e7eaf0;
+  --color-ink-2:       #b4bcc8;
+  --color-ink-3:       #8f99a8;
+  --color-ink-4:       #5f6876;
+  --color-chrome:      #0d1014;
+  --color-chrome-2:    #181c23;
+  --color-accent:      #6f9ef2;
+  --color-accent-soft: #1e2c47;
+  --color-on-accent:   #0d1014;   /* dark ink on the lighter dark-theme accent (7.1:1) */
+  --color-hmi-bg:        #171b21;
+  --color-hmi-equip:     #3a414c;
+  --color-hmi-equip-run: #8b94a1;
+  --color-hmi-edge:      #aab3bf;
+  --color-hmi-line-idle: #4a525e;
+  --color-crit:      #ff5b52;
+  --color-crit-soft: #3a1a1a;
+  --color-warn:      #ffb020;
+  --color-warn-ink:  #ffc14d;
+  --color-warn-soft: #3a2c10;
+  --color-info:      #8d97a6;
+  --color-ok:        #3fbf80;
+  --color-sim:       #6f9ef2;
+  --color-medium-aggregate: #a4927a;
+  --color-medium-sand:      #bcac8c;
+  --color-medium-cement:    #9aa2ad;
+  --color-medium-water:     #6f9bc2;
+  --color-medium-air:       #b2bac3;
+  --color-medium-admixture: #a68cc1;
+  --color-medium-concrete:  #8c8982;
+  --color-medium-signal:    #8d97a6;
+
+  --color-series-1: #3987e5;
+  --color-series-2: #d55181;
+  --color-series-3: #9085e9;
+  --color-series-4: #13a0a0;
+  --color-series-5: #b06fd8;
+  --color-seq-1: #1d2a3f;
+  --color-seq-2: #23426d;
+  --color-seq-3: #2c5f9f;
+  --color-seq-4: #3d7fd0;
+  --color-seq-5: #6aa3ec;
+
+  /* legacy dd-theme names (existing pages) */
+  --color-ink-68:       #b4bcc8;
+  --color-ink-46:       #8f99a8;
+  --color-ink-35:       #5f6876;
+  --color-paper:        #1b1f26;
+  --color-subtle:       #222731;
+  --color-line-hard:    #3a4250;
+  --color-input-line:   #6b7585;  /* 3.5:1 on panel (WCAG 1.4.11) */
+  --color-rail:         #0d1014;
+  --color-topbar:       #0d1014;
+  --color-flyout:       #090b0e;
+  --color-rail-hover:   #181c23;
+  --color-nav-hover:    #181c23;
+  --color-nav-action:   #222731;
+  --color-blue:         #6f9ef2;
+  --color-blue-hover:   #8db3f5;
+  --color-blue-soft:    #1e2c47;
+  --color-info-soft:    #1e2c47;
+  --color-neutral-soft: #222731;
+  --color-skeleton-hi:  #2c323d;
+  --color-control-line: #3a4250;
+  --color-muted-pill:   #8d97a6;
+  --color-ink-muted:    #a3abb6;
+  --color-danger:       #ff7a72;  /* critical as text */
+  --color-danger-hover: #ff958e;
+  --color-danger-bright:#d83b3b;  /* critical fill: white text 4.6:1, mark 3.6:1 on panel */
+  --color-danger-soft:  #3a1a1a;
+  --color-ok-soft:      #12301f;
+  --color-ok-ink:       #5fd39a;
+  --color-caution:      #ffb020;
+  --color-caution-soft: #3a2c10;
+  --color-caution-ink:  #ffc14d;
+  --color-hmi-level:    #5d7a96;
+
+  --shadow-card:  0 1px 1px rgb(0 0 0 / .3);
+  --shadow-pop:   0 0 1px rgb(0 0 0 / .5), 0 3px 11px rgb(0 0 0 / .5);
+  --shadow-flyout:0 0 1px rgb(0 0 0 / .5), 0 8px 36px rgb(0 0 0 / .5);
+  --shadow-ply1:  0 1px 2px rgb(0 0 0 / .12);
+  --shadow-ply2:  0 4px 16px rgb(0 0 0 / .24);
+  --shadow-ply3:  0 12px 40px rgb(0 0 0 / .44);
+}

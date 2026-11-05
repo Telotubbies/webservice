@@ -21,8 +21,14 @@ export interface Alarm {
   severity: string;    // 'critical' | 'warning' | ... (free-form per contract)
   state: 'active' | 'acked' | 'cleared' | string;
   ts: string;
+  acked_at?: string | null;
   acked_by?: string | null;
+  cleared_at?: string | null;
   version?: number;
+  // lifecycle (migration 0030) — absent on stale v1 payloads
+  shelved_until?: string | null;
+  assigned_to?: string | null;
+  assigned_name?: string | null;
 }
 
 export type Severity = 'info' | 'warning' | 'critical';
@@ -42,9 +48,10 @@ export interface Insight {
 export interface AlarmRule {
   tag: string | null;
   name: string;
-  kind: 'hi' | 'hihi' | 'lo' | 'lolo' | 'stale';
+  kind: 'hi' | 'hihi' | 'lo' | 'lolo' | 'stale' | 'roc' | 'anomaly' | 'forecast';
   threshold: number | null;
   stale_s: number | null;
+  window_s?: number | null;
   deadband: number;
   severity: 'info' | 'warning' | 'critical';
   enabled: boolean;
@@ -52,6 +59,14 @@ export interface AlarmRule {
 
 export type CommandStatus =
   | 'issued' | 'sent' | 'acked' | 'done' | 'denied' | 'failed' | 'timeout';
+
+export interface CommandEvent {
+  from: string;
+  to: string;
+  actor: string;
+  reason?: string | null;
+  at: string;
+}
 
 export interface Command {
   id: string;
@@ -62,6 +77,7 @@ export interface Command {
   created_at?: string;
   updated_at?: string;
   user?: string;
+  events?: CommandEvent[];
 }
 
 export interface Health {
@@ -77,7 +93,7 @@ export interface SystemHealth {
   backend: { uptime_s?: number };
 }
 
-// ---- WS event shapes (CONTRACT.md §WebSocket) ----
+// ── WS event shapes (CONTRACT.md §WebSocket) ──
 export type WSEvent =
   | { type: 'tag'; name: string; v: number | boolean; q: Quality; ts: string }
   | { type: 'alarm' } & { alarm?: Alarm } & Partial<Alarm>
@@ -85,6 +101,11 @@ export type WSEvent =
   | ({ type: 'insight' } & { insight?: Insight } & Partial<Insight>)
   | { type: 'command'; command_id: string; status: CommandStatus; tag?: string; detail?: string }
   | { type: 'health'; mqtt: string; edge: string }
+  | { type: 'resync'; reason?: string }
+  | { type: 'pong'; ts?: string }
   | { type: 'auth_expired' };
 
-export type WSState = 'connecting' | 'open' | 'reconnecting' | 'closed' | 'auth_expired';
+export type WSState =
+  | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'auth_expired'
+  | 'resyncing'   // socket up, REST snapshots being applied
+  | 'forbidden';  // 4403 — origin / site / per-IP cap; no auto-retry

@@ -1,164 +1,179 @@
-// Audit export (v4 T10): audit:read — admin|owner. Range picker + format
-// select + download; a bounded JSON preview of the newest rows sits inline
-// so the operator confirms scope before exporting.
+// Audit — tamper-evident log (seq + hash chain), admin|owner only
+// (audit:read). Built to answer "who did what, when" at a glance:
+// actor UUIDs resolve to member names, action codes to plain words, and the
+// list filters by date range (server) plus action/free text (client).
+// The backend returns rows oldest-first within the range, so the page asks
+// for a bounded recent window and shows newest first.
 
-import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { adminApi, ApiError } from '../../lib/api';
-import { canAdmin } from '../../app/session';
-import { EmptyState, ErrorState, Notice, PageSkeleton } from '../../shared/ui/Feedback';
+import { useQuery } from '@tanstack/react-query';
+import { adminApi, type AuditRow } from '../../lib/api';
+import { useAdminOrg, canAdmin } from './admin';
+import { PageBar, Card, Table } from '../../shared/ui/Page';
+import { PageSkeleton, Notice, ErrorState, EmptyState } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
-import { fmtClock } from '../../lib/format';
-import { useAdminOrg } from './admin';
+import { AdminFrame, OrgScope, NeedAdmin } from './access';
+import { explainError } from './access-util';
+import { saveBlob } from '../../lib/saveBlob';
 
-function localInputToIso(v: string): string | undefined {
-  if (!v) return undefined;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+const SHOW_MAX = 300;
+const day = (d: Date) => d.toISOString().slice(0, 10);
+
+/** {"user_id":"…"} → "user_id: Name" — short, readable, no JSON braces. */
+function fmtTarget(target: unknown, names: Map<string, string>): string {
+  if (target == null) return '—';
+  if (typeof target !== 'object') return String(target);
+  return Object.entries(target as Record<string, unknown>)
+    .map(([k, v]) => `${k}: ${typeof v === 'string' ? (names.get(v) ?? v) : JSON.stringify(v)}`)
+    .join(' · ');
 }
 
 export function AuditPage() {
-  const { t } = useTranslation();
-  // gate on the role in the managed org, not the v1 shim org (v4 T14)
-  const { orgId, orgRole, loading } = useAdminOrg();
-  const admin = canAdmin(orgRole ?? 'none');
-  const qc = useQueryClient();
-  const [from, setFrom] = useState('');
+  const { t, i18n } = useTranslation();
+  const { orgId, orgName, orgRole, loading } = useAdminOrg();
+  const isAdmin = canAdmin(orgRole ?? 'none');
+  const [from, setFrom] = useState(() => day(new Date(Date.now() - 7 * 86_400_000)));
   const [to, setTo] = useState('');
-  const [fmt, setFmt] = useState<'json' | 'csv'>('csv');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [action, setAction] = useState('');
+  const [exportErr, setExportErr] = useState('');
+  const ids = { from: useId(), to: useId(), q: useId(), action: useId(), count: useId() };
 
-  const params = { from: localInputToIso(from), to: localInputToIso(to) };
-  const preview = useQuery({
-    queryKey: ['admin-audit', orgId, params.from, params.to],
-    queryFn: () => adminApi.audit(orgId!, { ...params, limit: 50 }),
-    enabled: admin && orgId != null,
+  const range = {
+    from: from ? new Date(`${from}T00:00`).toISOString() : undefined,
+    to: to ? new Date(`${to}T23:59:59.999`).toISOString() : undefined,
+  };
+  const audit = useQuery({
+    queryKey: ['admin-audit', orgId, range.from, range.to],
+    queryFn: () => adminApi.audit(orgId!, { ...range, limit: 5000 }),
+    enabled: !!orgId && isAdmin,
+  });
+  const members = useQuery({
+    queryKey: ['admin-members', orgId],
+    queryFn: () => adminApi.members(orgId!),
+    enabled: !!orgId && isAdmin,
   });
 
-  if (loading) return <PageSkeleton />;
-  if (!admin) {
+  const names = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const x of members.data?.items ?? []) m.set(x.user_id, x.display_name ?? x.email ?? x.sub);
+    return m;
+  }, [members.data]);
+  const all = useMemo(() => [...(audit.data?.items ?? [])].sort((a, b) => b.seq - a.seq), [audit.data]);
+  const actions = useMemo(() => [...new Set(all.map((r) => r.action))].sort(), [all]);
+
+  if (loading || (isAdmin && audit.isLoading)) return <><PageBar title={t('nav.adminAudit')} /><PageSkeleton /></>;
+  if (!orgId) return <><PageBar title={t('nav.adminAudit')} /><div className="p-4"><Notice tone="warn">{t('auth.denied')}</Notice></div></>;
+
+  const org = orgName ?? orgId;
+  const scope = <OrgScope orgId={orgId} orgName={orgName} orgRole={orgRole} />;
+  if (!isAdmin) {
     return (
-      <div className="page admin-page">
-        <header className="page-head"><div><h1>{t('admin.auditTitle')}</h1></div></header>
-        <EmptyState icon="lock" title={t('admin.restricted')} body={t('admin.restrictedBody')} />
-      </div>
+      <>
+        <PageBar title={t('nav.adminAudit')} lede={t('admin.auditLede')} />
+        <AdminFrame>{scope}<Card pad={false}><NeedAdmin orgName={org} orgRole={orgRole} /></Card></AdminFrame>
+      </>
     );
   }
 
-  const download = async () => {
-    setBusy(true); setErr(null);
-    try {
-      const blob = await adminApi.auditCsv(orgId!, params);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `audit-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setErr(e instanceof ApiError ? `${e.status} ${e.message}` : t('errors.load'));
-    } finally {
-      setBusy(false);
-    }
+  const who = (actor: string) => {
+    const [kind, ref] = actor.split(':', 2);
+    return kind === 'user' && ref ? (names.get(ref) ?? actor) : actor;
+  };
+  const what = (a: string) => t(`access.act_${a.replace(/\./g, '_')}`, { defaultValue: a });
+  const needle = q.trim().toLowerCase();
+  const rows: AuditRow[] = all.filter((r) => (!action || r.action === action) && (!needle
+    || `${who(r.actor)} ${r.actor} ${what(r.action)} ${r.action} ${fmtTarget(r.target, names)}`.toLowerCase().includes(needle)));
+  const shown = rows.slice(0, SHOW_MAX);
+  const filtered = !!(q || action);
+
+  const exportCsv = () => {
+    setExportErr('');
+    void adminApi.auditCsv(orgId, range).then((blob) => {
+      saveBlob(`audit-${orgName ?? orgId}-${from || 'all'}.csv`, blob);
+    }).catch((e) => setExportErr(explainError(t, e)));
   };
 
-  const rows = (preview.data?.items ?? []).slice().reverse(); // newest first
-
   return (
-    <div className="page admin-page">
-      <header className="page-head">
-        <div>
-          <h1>{t('admin.auditTitle')}</h1>
-          <p className="lede">{t('admin.auditLede')}</p>
-        </div>
-      </header>
-
-      <section className="panel">
-        <header className="panel-head"><h2>{t('admin.export')}</h2></header>
-        <div className="panel-body">
-          <div className="admin-export-form">
-            <label className="field">
-              <span className="field-label">{t('admin.from')}</span>
-              <input className="input" type="datetime-local" value={from}
-                     onChange={(e) => setFrom(e.target.value)} />
-            </label>
-            <label className="field">
-              <span className="field-label">{t('admin.to')}</span>
-              <input className="input" type="datetime-local" value={to}
-                     onChange={(e) => setTo(e.target.value)} />
-            </label>
-            <label className="field">
-              <span className="field-label">{t('admin.format')}</span>
-              <select className="select" value={fmt}
-                      onChange={(e) => setFmt(e.target.value as 'json' | 'csv')}>
-                <option value="csv">CSV</option>
-                <option value="json">JSON</option>
-              </select>
-            </label>
-            <div className="admin-export-actions">
-              {fmt === 'csv' ? (
-                <button type="button" className="btn btn-primary" disabled={busy}
-                        onClick={() => void download()}>
-                  <Icon name="download" size={16} /> {t('admin.download')}
-                </button>
-              ) : (
-                <button type="button" className="btn btn-primary" disabled={busy}
-                        onClick={() => void qc.invalidateQueries({ queryKey: ['admin-audit'] })}>
-                  <Icon name="refresh" size={16} /> {t('admin.load')}
-                </button>
-              )}
+    <>
+      <PageBar title={t('nav.adminAudit')} lede={t('admin.auditLede')} />
+      <AdminFrame>
+        {scope}
+        <form
+          className="admin-export-form mb-3 flex flex-wrap items-end gap-3 rounded-[5px] border border-line bg-paper p-3"
+          aria-label={t('access.auditFilters')}
+          onSubmit={(e) => { e.preventDefault(); exportCsv(); }}
+        >
+          <div className="field">
+            <label className="field-label" htmlFor={ids.from}>{t('admin.from')}</label>
+            <input id={ids.from} type="date" className="input h-8" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor={ids.to}>{t('admin.to')}</label>
+            <input id={ids.to} type="date" className="input h-8" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor={ids.action}>{t('access.auditAction')}</label>
+            <select id={ids.action} className="input h-8" value={action} onChange={(e) => setAction(e.target.value)}>
+              <option value="">{t('access.auditAllActions')}</option>
+              {actions.map((a) => <option key={a} value={a}>{what(a)}</option>)}
+            </select>
+          </div>
+          <div className="field min-w-48 flex-1">
+            <label className="field-label" htmlFor={ids.q}>{t('access.auditSearch')}</label>
+            <input
+              id={ids.q} type="search" className="input h-8" value={q} name="audit-search"
+              autoComplete="off" spellCheck={false} onChange={(e) => setQ(e.target.value)}
+              aria-describedby={ids.count}
+            />
+          </div>
+          <div className="flex gap-2">
+            {filtered && (
+              <button type="button" className="btn btn-ghost h-8" onClick={() => { setQ(''); setAction(''); }}>
+                {t('access.auditClear')}
+              </button>
+            )}
+            <button type="submit" className="btn btn-ghost h-8">
+              <Icon name="download" size={13} /> {t('access.auditExportCsv')}
+            </button>
+          </div>
+          <p id={ids.count} role="status" className="w-full text-[12px] text-ink-68">
+            {t('access.auditShown', { shown: shown.length, total: all.length })}
+          </p>
+        </form>
+        {exportErr && <div className="mb-3"><Notice tone="error">{exportErr}</Notice></div>}
+        <Card pad={false}>
+          {audit.isError ? (
+            <ErrorState onRetry={() => void audit.refetch()} />
+          ) : all.length === 0 ? (
+            <EmptyState title={t('admin.noAudit')} />
+          ) : rows.length === 0 ? (
+            <EmptyState icon="filter" title={t('access.auditNoMatch')} />
+          ) : (
+            <div className="admin-table overflow-x-auto">
+              <Table head={[t('access.auditWhen'), t('access.auditWho'), t('access.auditWhat'), t('admin.colTarget'), t('access.auditIntegrity')]}>
+                {shown.map((r) => (
+                  <tr key={r.seq}>
+                    <td className="whitespace-nowrap py-1.5 text-[12px]">
+                      <time dateTime={r.at}>{new Date(r.at).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'medium', hourCycle: 'h23' })}</time>
+                    </td>
+                    <td className="max-w-48 truncate py-1.5 text-[12px] font-medium" title={r.actor}>{who(r.actor)}</td>
+                    <td className="py-1.5 text-[12px]">
+                      <span className="block">{what(r.action)}</span>
+                      <code className="font-mono text-[11px] text-ink-68">{r.action}</code>
+                    </td>
+                    <td className="max-w-72 truncate py-1.5 text-[12px] text-ink-68" title={JSON.stringify(r.target)}>{fmtTarget(r.target, names)}</td>
+                    <td className="whitespace-nowrap py-1.5 font-mono text-[11px] text-ink-68" title={r.hash}>
+                      #{r.seq} · {r.hash.slice(0, 10)}…
+                    </td>
+                  </tr>
+                ))}
+              </Table>
             </div>
-          </div>
-          {err && <Notice tone="error">{err}</Notice>}
-          {fmt === 'json' && (
-            <pre className="admin-json-preview mono" aria-label={t('admin.jsonPreview')}>
-              {JSON.stringify(preview.data?.items ?? [], null, 2)}
-            </pre>
           )}
-        </div>
-      </section>
-
-      {fmt === 'csv' && (
-        <section className="panel">
-          <header className="panel-head">
-            <h2>{t('admin.preview')}</h2>
-            <span className="meta">{t('admin.previewNote')}</span>
-          </header>
-          <div className="panel-body flush" style={{ overflowX: 'auto' }}>
-            {preview.isError ? <ErrorState onRetry={() => void preview.refetch()} />
-              : rows.length === 0 ? (
-                <EmptyState title={t('admin.noAudit')} />
-              ) : (
-                <table className="table admin-table">
-                  <thead>
-                    <tr>
-                      <th scope="col" className="num">{t('admin.colSeq')}</th>
-                      <th scope="col">{t('admin.colAt')}</th>
-                      <th scope="col">{t('admin.colActor')}</th>
-                      <th scope="col">{t('admin.colAction')}</th>
-                      <th scope="col">{t('admin.colDetail')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.seq}>
-                        <td className="num mono">{r.seq}</td>
-                        <td className="dim">{fmtClock(r.at)}</td>
-                        <td className="dim">{r.actor}</td>
-                        <td><span className="badge">{r.action}</span></td>
-                        <td className="dim mono admin-detail">
-                          {r.detail ? JSON.stringify(r.detail) : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-          </div>
-        </section>
-      )}
-    </div>
+        </Card>
+      </AdminFrame>
+    </>
   );
 }

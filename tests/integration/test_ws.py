@@ -22,6 +22,8 @@ pytestmark = pytest.mark.integration
 from conftest import TAGS, OPERATOR_TOKEN, VIEWER_TOKEN  # noqa: E402
 
 
+# ── Async helpers ──
+
 def _close_code(e):
     """Close code off a websockets ConnectionClosed (version-tolerant)."""
     return getattr(getattr(e, "rcvd", None), "code", None) or getattr(
@@ -70,6 +72,8 @@ async def _close_code_after(ws_url, first_frame=None, wait_s=15):
     return None
 
 
+# ── Event stream ──
+
 def test_ws_receives_tag_events(ws_base):
     events, _ = asyncio.run(_collect(f"{ws_base}/ws", 12, token=OPERATOR_TOKEN,
                                    predicate=lambda e: e.get("type") == "tag"))
@@ -82,6 +86,8 @@ def test_ws_receives_tag_events(ws_base):
     assert e["q"] in ("good", "bad", "stale", "uncertain")
     assert e["ts"].endswith("Z")
 
+
+# ── First-frame auth ──
 
 def test_ws_anonymous_rejected(ws_base):
     # v4 T5: {"type":"auth"} with no token -> 4401 (anonymous is gone)
@@ -158,6 +164,8 @@ def test_ws_auth_timeout_closes(ws_base):
     assert code == 4401, f"auth timeout should close 4401, got {code}"
 
 
+# ── Command events ──
+
 def test_ws_operator_receives_command_events(ws_base, operator_headers, api):
     async def run():
         websockets = pytest.importorskip("websockets")
@@ -231,6 +239,8 @@ def test_ws_viewer_no_command_events(ws_base, operator_headers, api):
                             operator_headers, api))
     assert not leaked, f"viewer WS leaked command events: {leaked}"
 
+
+# ── Credential hygiene ──
 
 def test_ws_url_token_is_inert(ws_base):
     """v4 T3 regression: ?token= in the URL must NOT authenticate — the

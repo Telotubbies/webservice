@@ -2,7 +2,13 @@
 // label and format them. Tag names stay the backend contract; labels are
 // i18n keys so nothing user-facing is a raw tag string.
 
-export type EquipmentId = 'motor' | 'conveyor' | 'camera' | 'bin';
+import i18n from './i18n';
+import { BATCH_TAGS, batchEquipment, batchSignal } from './concrete';
+
+/** Equipment of the 2D sorting-line mimic (LinePage), the legacy contract plant. */
+export type LineEquipmentId = 'motor' | 'conveyor' | 'camera' | 'bin';
+/** Any equipment id: a line id above or a batching-plant device ("cem.silo3"). */
+export type EquipmentId = string;
 
 export interface SignalMeta {
   labelKey: string;
@@ -33,12 +39,38 @@ export const SIGNALS: Record<string, SignalMeta> = {
   [T.gravel]: { labelKey: 'overview.gravelRatio', unit: '%', decimals: 0, range: [0, 100], equipment: 'camera', stub: true },
 };
 
-export const EQUIPMENT: { id: EquipmentId; labelKey: string; signals: string[] }[] = [
+export const LINE_EQUIPMENT: { id: LineEquipmentId; labelKey: string; signals: string[] }[] = [
   { id: 'motor', labelKey: 'line.motor', signals: [T.running, T.speedSp] },
   { id: 'conveyor', labelKey: 'line.conveyor', signals: [T.beltSpeed, T.beltTemp] },
   { id: 'camera', labelKey: 'line.camera', signals: [T.gravel] },
   { id: 'bin', labelKey: 'line.bin', signals: [T.binLevel] },
 ];
+
+// ── Concrete batching plant (the demo site) ─────────────────────────────────
+// Labels are generated from the tag path (lib/concrete.ts) and registered as
+// i18n keys `sig.*` / `eq.*`, so every page that reads SIGNALS / EQUIPMENT
+// shows the plant's own words in Thai and English.
+const flat = (s: string) => s.replace(/\./g, '_');
+{
+  const en: Record<string, Record<string, string>> = { sig: {}, eq: {} };
+  const th: Record<string, Record<string, string>> = { sig: {}, eq: {} };
+  for (const tag of BATCH_TAGS) {
+    const m = batchSignal(tag)!;
+    en.sig[flat(tag)] = m.label.en;
+    th.sig[flat(tag)] = m.label.th;
+    SIGNALS[tag] = { labelKey: `sig.${flat(tag)}`, unit: m.unit, decimals: m.decimals, equipment: m.equipment };
+  }
+  for (const e of batchEquipment(BATCH_TAGS)) {
+    en.eq[flat(e.id)] = e.label.en;
+    th.eq[flat(e.id)] = e.label.th;
+  }
+  i18n.addResourceBundle('en', 'translation', en, true, true);
+  i18n.addResourceBundle('th', 'translation', th, true, true);
+}
+
+/** Equipment of the plant, for filters, grouping and pickers. */
+export const EQUIPMENT: { id: EquipmentId; labelKey: string; signals: string[] }[] =
+  batchEquipment(BATCH_TAGS).map((e) => ({ id: e.id, labelKey: `eq.${flat(e.id)}`, signals: e.signals }));
 
 const UNIT_ALIAS: Record<string, string> = { degC: '°C', ratio: '%' };
 
@@ -53,7 +85,7 @@ export function displayNumber(name: string, v: number): number {
 
 export function formatSignal(name: string, v: number | boolean | undefined, locale: string): string {
   if (v === undefined) return '—';
-  if (typeof v === 'boolean') return v ? 'ON' : 'OFF';
+  if (typeof v === 'boolean') return i18n.t(v ? 'state.on' : 'state.off');
   if (!Number.isFinite(v)) return '—';
   const d = SIGNALS[name]?.decimals ?? (Math.abs(v) >= 100 ? 0 : Math.abs(v) >= 10 ? 1 : 2);
   return displayNumber(name, v).toLocaleString(locale === 'th' ? 'th-TH' : 'en-GB', {

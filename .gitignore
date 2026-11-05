@@ -32,3 +32,24 @@ backend/data/
 
 # DB dumps (doc 18)
 backups/
+
+# Garage node config holds rpc_secret/admin_token
+deploy/garage/garage.toml
+
+# Datadog captures: design reference only, do not ship (ref/datadog/SOURCES.md)
+ref/
+*.tmp
+.chrome-clone/
+
+# Claude Code local state + executor ledger
+.claude/
+.superpowers/
+.shots/
+
+.env.garage
+
+# Local dev overlay and tool scratch space, kept out of the repo
+docker-compose.override.yml
+web/.impeccable/
+web/.deadcode-quarantine/
+/nul

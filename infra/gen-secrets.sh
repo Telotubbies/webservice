@@ -38,7 +38,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DIR=infra/secrets
+# SECRETS_DIR lets a deploy write outside the repo (Dokploy: ../files/secrets).
+DIR="${SECRETS_DIR:-infra/secrets}"
 mkdir -p "$DIR"
 chmod 0700 "$DIR"
 
@@ -60,7 +61,13 @@ done
 # documented dev default so `make up` works with zero configuration (dev).
 gen_env() { # gen_env <file> <ENVVAR> <dev-default>
   if [ ! -s "$DIR/$1" ] || [ "${FORCE:-0}" = "1" ]; then
-    eval "printf '%s' \"\${$2:-$3}\"" > "$DIR/$1"
+    # PROD=1: an unset env var gets a random value, never the dev default
+    if [ "${PROD:-0}" = "1" ] && [ -z "$(eval "printf '%s' \"\${$2:-}\"")" ]; then
+      openssl rand -base64 32 | tr -d '=+/
+' | cut -c1-40 > "$DIR/$1"
+    else
+      eval "printf '%s' \"\${$2:-$3}\"" > "$DIR/$1"
+    fi
     chmod 0644 "$DIR/$1"
     echo "  wrote $DIR/$1"
   fi
@@ -72,6 +79,33 @@ gen_env wds_app_pw     WDS_APP_PASSWORD            app-dev-pass
 gen_env wds_system_pw  WDS_SYSTEM_PASSWORD         system-dev-pass
 gen_env kc_admin_pw    KC_ADMIN_PASSWORD           admin-dev-pass
 gen_env kc_demo_pw     KC_DEMO_PASSWORD            kc-demo-pass
+gen_env kc_db_pw       KC_DB_PASSWORD              kc-db-dev-pass
+
+# Data-source secret box key (spec 5.6): 32 random bytes, base64. Always
+# random (never an env/dev default) — losing it makes stored PLC credentials
+# unreadable, so --force rotation requires re-entering them.
+if [ ! -s "$DIR/data_source_key" ] || [ "${FORCE:-0}" = "1" ]; then
+  openssl rand -base64 32 | tr -d '
+' > "$DIR/data_source_key"
+  chmod 0644 "$DIR/data_source_key"
+  echo "  wrote $DIR/data_source_key"
+fi
+
+# Google OAuth client secret (G9) — never random: empty = Google sign-in off.
+# plant-model object storage (Garage): empty = keep .glb files on the local volume.
+# Fill both (from deploy/garage/init.sh) and set PLANT_S3_ENDPOINT to move them.
+for f in plant_s3_key_id plant_s3_secret; do
+  if [ ! -e "$DIR/$f" ]; then
+    : > "$DIR/$f"
+    chmod 0644 "$DIR/$f"
+    echo "  wrote $DIR/$f (empty)"
+  fi
+done
+if [ ! -e "$DIR/google_client_secret" ] || [ "${FORCE:-0}" = "1" ]; then
+  printf '%s' "${GOOGLE_CLIENT_SECRET:-}" > "$DIR/google_client_secret"
+  chmod 0644 "$DIR/google_client_secret"
+  echo "  wrote $DIR/google_client_secret"
+fi
 
 # The dev-seeded edge's first dynsec username is deterministic
 # (edge-{V1_EDGE_ID}-v1, doc 17 §2) — write it as a secret file so compose

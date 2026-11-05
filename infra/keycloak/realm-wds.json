@@ -2,6 +2,12 @@
   "realm": "wds",
   "enabled": true,
   "displayName": "WDS",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
@@ -18,16 +24,25 @@
   },
   "roles": {
     "realm": [
-      { "name": "wds-admin", "description": "WDS demo role marker" },
-      { "name": "wds-operator", "description": "WDS demo role marker" },
-      { "name": "wds-viewer", "description": "WDS demo role marker" }
+      {
+        "name": "wds-admin",
+        "description": "WDS demo role marker"
+      },
+      {
+        "name": "wds-operator",
+        "description": "WDS demo role marker"
+      },
+      {
+        "name": "wds-viewer",
+        "description": "WDS demo role marker"
+      }
     ]
   },
   "clients": [
     {
       "clientId": "wds-web",
       "name": "WDS Web (SPA)",
-      "description": "Public PKCE client — the React shell (ADR-12 §2). directAccessGrantsEnabled is ON for the dev/test realm ONLY: the token endpoint direct-grant is how the test harness mints JWTs without a browser. PRODUCTION realms MUST set it false — password grant on a public client bypasses MFA/WebAuthn and lets a leaked credential mint tokens non-interactively.",
+      "description": "Public PKCE client (React shell, ADR-12). directAccessGrants ON for dev/test ONLY - test harness mints JWTs without a browser. Production MUST set false: password grant on a public client bypasses MFA.",
       "publicClient": true,
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
@@ -35,15 +50,19 @@
       "serviceAccountsEnabled": false,
       "redirectUris": [
         "http://localhost:5173/*",
-        "http://127.0.0.1:5173/*"
+        "http://127.0.0.1:5173/*",
+        "http://localhost:5199/*",
+        "http://127.0.0.1:5199/*"
       ],
       "webOrigins": [
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://localhost:5199",
+        "http://127.0.0.1:5199"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:5173/*##http://127.0.0.1:5173/*",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://127.0.0.1:5173/*##http://localhost:5199/*##http://127.0.0.1:5199/*",
         "backchannel.logout.url": "http://backend:8000/api/auth/backchannel-logout",
         "backchannel.logout.session.required": "true",
         "backchannel.logout.revoke.offline.tokens": "false"
@@ -70,12 +89,32 @@
             "access.token.claim": "true",
             "included.client.audience": "wds-api"
           }
+        },
+        {
+          "name": "auth_time",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usersessionmodel-note-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.session.note": "AUTH_TIME",
+            "claim.name": "auth_time",
+            "jsonType.label": "long",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ],
       "defaultClientScopes": [
-        "web-origins", "acr", "profile", "email", "roles"
+        "web-origins",
+        "acr",
+        "profile",
+        "email",
+        "roles"
       ],
-      "optionalClientScopes": ["offline_access"]
+      "optionalClientScopes": [
+        "offline_access"
+      ]
     },
     {
       "clientId": "wds-api",
@@ -98,7 +137,9 @@
       "emailVerified": true,
       "firstName": "Demo",
       "lastName": "Admin",
-      "realmRoles": ["wds-admin"]
+      "realmRoles": [
+        "wds-admin"
+      ]
     },
     {
       "username": "operator@demo",
@@ -107,7 +148,9 @@
       "emailVerified": true,
       "firstName": "Demo",
       "lastName": "Operator",
-      "realmRoles": ["wds-operator"]
+      "realmRoles": [
+        "wds-operator"
+      ]
     },
     {
       "username": "viewer@demo",
@@ -116,7 +159,131 @@
       "emailVerified": true,
       "firstName": "Demo",
       "lastName": "Viewer",
-      "realmRoles": ["wds-viewer"]
+      "realmRoles": [
+        "wds-viewer"
+      ]
     }
-  ]
+  ],
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "otpPolicyLookAheadWindow": 1,
+  "browserFlow": "browser-loa",
+  "attributes": {
+    "acr.loa.map": "{\"pwd\": 1, \"mfa\": 2}"
+  },
+  "authenticatorConfig": [
+    {
+      "alias": "loa1",
+      "config": {
+        "loa-condition-level": "1",
+        "loa-max-age": "36000"
+      }
+    },
+    {
+      "alias": "loa2",
+      "config": {
+        "loa-condition-level": "2",
+        "loa-max-age": "36000"
+      }
+    }
+  ],
+  "authenticationFlows": [
+    {
+      "alias": "browser-loa",
+      "description": "spec 2026-10-19 §4 step-up",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "auth-cookie"
+        },
+        {
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "authenticatorFlow": true,
+          "userSetupAllowed": false,
+          "flowAlias": "browser-loa forms"
+        }
+      ]
+    },
+    {
+      "alias": "browser-loa forms",
+      "description": "spec 2026-10-19 §4 step-up",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "CONDITIONAL",
+          "priority": 10,
+          "authenticatorFlow": true,
+          "userSetupAllowed": false,
+          "flowAlias": "browser-loa level1"
+        },
+        {
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "authenticatorFlow": true,
+          "userSetupAllowed": false,
+          "flowAlias": "browser-loa level2"
+        }
+      ]
+    },
+    {
+      "alias": "browser-loa level1",
+      "description": "spec 2026-10-19 §4 step-up",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "conditional-level-of-authentication",
+          "authenticatorConfig": "loa1"
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "auth-username-password-form"
+        }
+      ]
+    },
+    {
+      "alias": "browser-loa level2",
+      "description": "spec 2026-10-19 §4 step-up",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "conditional-level-of-authentication",
+          "authenticatorConfig": "loa2"
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "authenticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticator": "auth-otp-form"
+        }
+      ]
+    }
+  ],
+  "passwordPolicy": "length(12) and notUsername and notEmail"
 }

@@ -1,51 +1,163 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+// App shell — auth boot (OIDC restore → sign-in wall) → live-data bootstrap
+// (REST seed → WS stream + health polling) → routed console inside Shell.
+
+import { lazy, Suspense, useEffect, useState, type ComponentType } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
+import { MotionRoot } from './theme/MotionRoot';
+import { LEGACY, resolveLegacy } from './app/redirects';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { createBrowserRouter, Navigate, RouterProvider, useLocation, useNavigate } from 'react-router';
 import { api } from './lib/api';
 import { live } from './lib/live';
-import { startWS, stopWS } from './lib/ws';
 import { useStore } from './lib/hooks';
+import { startWS, stopWS } from './lib/ws';
+import { canOperate, getSessionRole, hasToken, refreshSession, useDenied, useNoOrg } from './app/session';
+import { CreateOrgPage } from './features/orgs/CreateOrgPage';
+import { getScope } from './lib/scope';
+import { initAuth, restoreSession, completeRedirectCallback, isCallbackPath, authConfig, takeReturnTo } from './features/auth/oidc';
+import { signIn } from './app/session';
 import { Shell } from './app/Shell';
-import {
-  canOperate, getSessionRole, hasToken, refreshSession, useDenied,
-} from './app/session';
-import {
-  completeRedirectCallback, initAuth, isCallbackPath, restoreSession,
-} from './features/auth/oidc';
 import { SignInWall } from './features/auth/SignInWall';
 import { Landing } from './features/landing/Landing';
+import { RouteBoundary, RouteError } from './shared/ui/ErrorBoundary';
+import { PageSkeleton } from './shared/ui/Feedback';
 import { OverviewPage } from './features/overview/OverviewPage';
-import { LinePage } from './features/line/LinePage';
-import { AlarmsPage } from './features/alarms/AlarmsPage';
-import { TrendsPage } from './features/trends/TrendsPage';
-import { TagsPage } from './features/tags/TagsPage';
-import { InsightsPage } from './features/insights/InsightsPage';
-import { CommandsPage } from './features/commands/CommandsPage';
-import { HealthPage } from './features/health/HealthPage';
-import { AdminPage } from './features/admin/AdminPage';
-import { AlarmRulesPage } from './features/admin/AlarmRulesPage';
-import { UsersPage } from './features/admin/UsersPage';
-import { AuditPage } from './features/admin/AuditPage';
-import { ErrorState, PageSkeleton } from './shared/ui/Feedback';
-import { CrashProbe, RouteBoundary, RouteError } from './shared/ui/ErrorBoundary';
 import type { TagInfo } from './types';
+import { enabled } from './lib/features';
 
-// /line3d pulls in three (~160KB gz) — keep it out of the main chunk.
+// Route-level code splitting: every non-index page lazy-loads so the main
+// chunk stays small (three ~160KB gz and chart code stay out of it).
+// Declared in <Routes> order below; the index page and org creation stay
+// eagerly imported above.
+
+// ── Public ──
+const StatusPage = lazy(() => import('./features/status/StatusPage').then((m) => ({ default: m.StatusPage })));
+
+// ── Line views ──
+const LinePage = lazy(() => import('./features/line/LinePage').then((m) => ({ default: m.LinePage })));
+// dev-only gallery: DEV is a compile-time false in production, so the chunk is never built
+const DevUiPage = import.meta.env.DEV ? lazy(() => import('./features/devui/DevUiPage').then((m) => ({ default: m.DevUiPage }))) : null;
 const Line3DPage = lazy(() => import('./features/line3d/Line3DPage').then((m) => ({ default: m.Line3DPage })));
+const MapEditor = lazy(() => import('./features/line3d/MapEditor').then((m) => ({ default: m.MapEditor })));
+
+// ── Monitoring ──
+const MonitorsPage = lazy(() => import('./features/monitors/MonitorsPage').then((m) => ({ default: m.MonitorsPage })));
+const TemplatesPage = lazy(() => import('./features/monitors/TemplatesPage').then((m) => ({ default: m.TemplatesPage })));
+const AlarmsPage = lazy(() => import('./features/alarms/AlarmsPage').then((m) => ({ default: m.AlarmsPage })));
+const AlarmDetailPage = lazy(() => import('./features/alarms/AlarmDetailPage').then((m) => ({ default: m.AlarmDetailPage })));
+
+// ── Plant signals & operations ──
+const TrendsPage = lazy(() => import('./features/trends/TrendsPage').then((m) => ({ default: m.TrendsPage })));
+const InsightsPage = lazy(() => import('./features/insights/InsightsPage').then((m) => ({ default: m.InsightsPage })));
+const TagsPage = lazy(() => import('./features/tags/TagsPage').then((m) => ({ default: m.TagsPage })));
+const CommandsPage = lazy(() => import('./features/commands/CommandsPage').then((m) => ({ default: m.CommandsPage })));
+const HealthPage = lazy(() => import('./features/health/HealthPage').then((m) => ({ default: m.HealthPage })));
+
+// ── Admin ──
+const AdminPage = lazy(() => import('./features/admin/AdminPage').then((m) => ({ default: m.AdminPage })));
+const AlarmRulesPage = lazy(() => import('./features/admin/AlarmRulesPage').then((m) => ({ default: m.AlarmRulesPage })));
+const RuleCreatePage = lazy(() => import('./features/admin/RuleCreatePage').then((m) => ({ default: m.RuleCreatePage })));
+const UsersPage = lazy(() => import('./features/admin/UsersPage').then((m) => ({ default: m.UsersPage })));
+const AuditPage = lazy(() => import('./features/admin/AuditPage').then((m) => ({ default: m.AuditPage })));
+const StoragePage = lazy(() => import('./features/storage/StoragePage').then((m) => ({ default: m.StoragePage })));
+const ApiKeysPage = lazy(() => import('./features/admin/ApiKeysPage').then((m) => ({ default: m.ApiKeysPage })));
+
+// ── Reliability ──
+const ActivityPage = lazy(() => import('./features/notify/ActivityPage').then((m) => ({ default: m.ActivityPage })));
+const ErrorTrackingPage = lazy(() => import('./features/errors/ErrorTrackingPage').then((m) => ({ default: m.ErrorTrackingPage })));
+const SloPage = lazy(() => import('./features/slo/SloPage').then((m) => ({ default: m.SloPage })));
+const SloSettingsPage = lazy(() => import('./features/slo/SloSettingsPage').then((m) => ({ default: m.SloSettingsPage })));
+const DowntimesPage = lazy(() => import('./features/downtimes/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
+
+// ── Dashboards ──
+const DashboardsPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardsPage })));
+const DashboardViewPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardViewPage })));
+
+// ── Infrastructure ──
+const DevicesPage = lazy(() => import('./features/devices/DevicesPage').then((m) => ({ default: m.DevicesPage })));
+const DataSourcesPage = lazy(() => import('./features/datasources/DataSourcesPage').then((m) => ({ default: m.DataSourcesPage })));
+const GatewayPage = lazy(() => import('./features/datasources/GatewayPage').then((m) => ({ default: m.GatewayPage })));
+const CamerasPage = lazy(() => import('./features/cameras/CamerasPage').then((m) => ({ default: m.CamerasPage })));
+const ModelsPage = lazy(() => import('./features/vision/ModelsPage').then((m) => ({ default: m.ModelsPage })));
+const VisionRulesPage = lazy(() => import('./features/vision/RulesPage').then((m) => ({ default: m.RulesPage })));
+const VisionEventsPage = lazy(() => import('./features/vision/EventsPage').then((m) => ({ default: m.EventsPage })));
+const AddDeviceWizard = lazy(() => import('./features/devices/AddDeviceWizard').then((m) => ({ default: m.AddDeviceWizard })));
+const NetworkMapPage = lazy(() => import('./features/devices/NetworkMapPage').then((m) => ({ default: m.NetworkMapPage })));
+const ProfilesPage = lazy(() => import('./features/devices/ProfilesPage').then((m) => ({ default: m.ProfilesPage })));
+
+// ── Settings & org ──
+const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const PlanPage = lazy(() => import('./features/platform/PlanPage').then((m) => ({ default: m.PlanPage })));
+const DangerZone = lazy(() => import('./features/platform/DangerZone').then((m) => ({ default: m.DangerZone })));
+
+// ── Alarm quality & settings ──
+const AlarmQualityPage = lazy(() => import('./features/alarmquality/AlarmQualityPage').then((m) => ({ default: m.AlarmQualityPage })));
+const AlarmSettingsPage = lazy(() => import('./features/alarmsettings/AlarmSettingsPage').then((m) => ({ default: m.AlarmSettingsPage })));
+
+// ── Events & incidents ──
+const EventsPage = lazy(() => import('./features/events/EventsPage').then((m) => ({ default: m.EventsPage })));
+const IncidentsPage = lazy(() => import('./features/incidents/IncidentsPage').then((m) => ({ default: m.IncidentsPage })));
+const IncidentSettingsPage = lazy(() => import('./features/incidents/IncidentSettingsPage').then((m) => ({ default: m.IncidentSettingsPage })));
+
+// ── Notebooks ──
+const NotebooksPage = lazy(() => import('./features/notebooks/NotebooksPage').then((m) => ({ default: m.NotebooksPage })));
+const GuidePage = lazy(() => import('./features/guide/GuidePage').then((m) => ({ default: m.GuidePage })));
+const NotebookViewPage = lazy(() => import('./features/notebooks/NotebooksPage').then((m) => ({ default: m.NotebookViewPage })));
+
+// ── Feature pages ──
+const CatalogPage = lazy(() => import('./features/catalog/CatalogPage').then((m) => ({ default: m.CatalogPage })));
+const AssetTreePage = lazy(() => import('./features/assets/AssetTreePage').then((m) => ({ default: m.AssetTreePage })));
+const LogsPage = lazy(() => import('./features/logs/LogsPage').then((m) => ({ default: m.LogsPage })));
+const TeamsPage = lazy(() => import('./features/teams/TeamsPage').then((m) => ({ default: m.TeamsPage })));
+const TracesPage = lazy(() => import('./features/traces/TracesPage').then((m) => ({ default: m.TracesPage })));
+const QueryPage = lazy(() => import('./features/query/QueryPage').then((m) => ({ default: m.QueryPage })));
+const ProcessesPage = lazy(() => import('./features/processes/ProcessesPage').then((m) => ({ default: m.ProcessesPage })));
+const SyntheticsPage = lazy(() => import('./features/synthetics/SyntheticsPage').then((m) => ({ default: m.SyntheticsPage })));
+const SyntheticsCoveragePage = lazy(() => import('./features/synthetics/CoveragePage').then((m) => ({ default: m.SyntheticsCoveragePage })));
+const SyntheticsSettingsPage = lazy(() => import('./features/synthetics/SettingsPage').then((m) => ({ default: m.SyntheticsSettingsPage })));
+
+// ── Security ──
+const SecurityPage = lazy(() => import('./features/security/SecurityPage').then((m) => ({ default: m.SecurityPage })));
+const SecurityIssuesPage = lazy(() => import('./features/security/IssuesPage').then((m) => ({ default: m.IssuesPage })));
+const SecurityFindingsPage = lazy(() => import('./features/security/FindingsPage').then((m) => ({ default: m.FindingsPage })));
+const SecurityApiPage = lazy(() => import('./features/security/ApiProtectionPage').then((m) => ({ default: m.ApiProtectionPage })));
+const SecurityAccessPage = lazy(() => import('./features/security/AccessPage').then((m) => ({ default: m.AccessPage })));
+
+// ── Sessions, metrics & assistant ──
+const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then((m) => ({ default: m.SessionsPage })));
+const MetricsSummaryPage = lazy(() => import('./features/metrics/MetricsSummaryPage').then((m) => ({ default: m.MetricsSummaryPage })));
+const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })));
+
+// ── Production ──
+const OeePage = lazy(() => import('./features/production/OeePage').then((m) => ({ default: m.OeePage })));
+const ProductionDowntimesPage = lazy(() => import('./features/production/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
+const ShiftsPage = lazy(() => import('./features/production/ShiftsPage').then((m) => ({ default: m.ShiftsPage })));
+const ReportsPage = lazy(() => import('./features/production/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+
+// ── Notifications ──
+const ChannelsPage = lazy(() => import('./features/notify/ChannelsPage').then((m) => ({ default: m.ChannelsPage })));
+const WallPage = lazy(() => import('./features/wall/WallPage').then((m) => ({ default: m.WallPage })));
+const AckLinkPage = lazy(() => import('./features/notify/AckLinkPage').then((m) => ({ default: m.AckLinkPage })));
+
+// ── Platform back-office ──
+const PlatformPage = lazy(() => import('./features/platform/PlatformPage').then((m) => ({ default: m.PlatformPage })));
+const PlatformOrgPage = lazy(() => import('./features/platform/PlatformOrgPage').then((m) => ({ default: m.PlatformOrgPage })));
+const PlatformSupportPage = lazy(() => import('./features/platform/PlatformOpsPage').then((m) => ({ default: m.PlatformSupportPage })));
+const PlatformAnnouncementsPage = lazy(() => import('./features/platform/PlatformOpsPage').then((m) => ({ default: m.PlatformAnnouncementsPage })));
+
+// One wrapper for every page route: error boundary + lazy-load skeleton.
+const page = (P: ComponentType) => <RouteBoundary><Suspense fallback={<PageSkeleton />}><P /></Suspense></RouteBoundary>;
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 2, refetchOnWindowFocus: false } },
 });
 
-/** Live-data bootstrap: REST snapshot → LiveStore, then WS stream + health polling. */
+/** Live-data bootstrap: REST snapshot → LiveStore, then WS + health poll. */
 function useLiveBoot(tags: TagInfo[] | undefined) {
   const authRev = useStore(() => live.authRev);
 
   useEffect(() => {
     if (!tags) return;
     live.setTags(tags);
-    // a failed boot seed flips live.seedError — panels show an error state
-    // with retry instead of skeletons that never resolve (T12 review)
     void api.latestAll().then((rows) => rows.forEach((r) => live.pushTag(r.name, r.v, r.q, r.ts)))
       .catch(() => live.setSeedError());
     void api.alarms().then((a) => live.setAlarms(a)).catch(() => live.setSeedError());
@@ -53,9 +165,6 @@ function useLiveBoot(tags: TagInfo[] | undefined) {
   }, [tags]);
 
   useEffect(() => {
-    // /api/system/health detail is operator+ (v4 T8) — viewers/anon get the
-    // coarse /api/health + WS health events only. Fetching it under a viewer
-    // session would 403 every poll and trip the zero-4xx gate.
     const poll = async () => {
       try { live.setHealth(await api.health()); } catch { live.setHealth(null); }
       if (canOperate(getSessionRole())) {
@@ -70,52 +179,34 @@ function useLiveBoot(tags: TagInfo[] | undefined) {
     return () => { clearInterval(id); stopWS(); };
   }, []);
 
-  // Role arrives asynchronously via refreshSession (/api/me) — re-poll the
-  // detail endpoint the moment the session resolves so an operator doesn't
-  // wait a full poll interval for the health page to populate.
   useEffect(() => {
     if (!canOperate(getSessionRole())) { live.setSysHealth(null); return; }
     api.systemHealth().then((h) => live.setSysHealth(h)).catch(() => live.setSysHealth(null));
   }, [authRev]);
 
-  // command history is operator-only server-side: re-seed when the role changes
   useEffect(() => {
     if (!canOperate(getSessionRole())) return;
     void api.listCommands(20).then((cmds) => cmds.forEach((c) => live.mergeCommand(c))).catch(() => {});
   }, [authRev]);
 }
 
-function Root({ page }: { page: (tags: TagInfo[]) => JSX.Element }) {
-  const q = useQuery({ queryKey: ['tags'], queryFn: api.tags, staleTime: 60_000 });
-  if (q.isError) return <div className="page"><ErrorState onRetry={() => void q.refetch()} /></div>;
-  // cold-start: shaped skeleton, not an empty table (v4 T12)
-  if (q.isPending) return <PageSkeleton />;
-  return page(q.data ?? []);
-}
-
-/** Mounted only when a session token exists — every query inside is
- * authenticated, so an unauthenticated load produces zero 401 traffic. */
 function AuthedApp() {
-  const q = useQuery({ queryKey: ['tags'], queryFn: api.tags, staleTime: 60_000 });
+  useStore(() => live.authRev); // org switch bumps authRev
+  const scopeKey = getScope()?.siteId ?? 'none';
+  const q = useQuery({ queryKey: ['tags', scopeKey], queryFn: api.tags, staleTime: 60_000 });
   useLiveBoot(q.data);
   useEffect(() => { void refreshSession(); }, []);
-  // a failed /api/tags leaves tagsSeeded false forever — surface it as an
-  // error on the seed-dependent panels, not endless skeletons (T12 review)
   useEffect(() => { if (q.isError) live.setSeedError(); }, [q.isError]);
   return <Shell />;
 }
 
-/**
- * Auth gate (v4 T5): bootstrap the auth layer, restore the session, then
- * either render the app or the sign-in wall. No API traffic happens before
- * a token exists — the UAT's "zero unexpected 4xx" gate covers this.
- */
 function Boot() {
   const loc = useLocation();
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
   const denied = useDenied();
-  useStore(() => live.authRev); // re-render when the session token changes
+  const noOrg = useNoOrg();
+  useStore(() => live.authRev);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,10 +216,20 @@ function Boot() {
       if (isCallbackPath(loc.pathname)) {
         await completeRedirectCallback(loc.pathname);
         if (loc.pathname !== '/auth/silent-callback') {
-          navigate('/', { replace: true });
+          // deep link stashed before signinRedirect (ack links etc.)
+          navigate(takeReturnTo(), { replace: true });
         }
       } else {
         await restoreSession();
+      }
+      // dev convenience: ?token=… or ?demo=operator|viewer signs in directly.
+      // Only reachable when the backend runs APP_ENV=dev (dev_tokens flag).
+      const p = new URLSearchParams(loc.search);
+      const demo = p.get('demo');
+      const tok = p.get('token') ?? (demo ? `demo-${demo}` : null);
+      if (tok && authConfig()?.dev_tokens && !hasToken()) {
+        signIn(tok);
+        navigate(loc.pathname, { replace: true });
       }
       if (!cancelled) setReady(true);
     })();
@@ -136,73 +237,128 @@ function Boot() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // hidden silent-renew iframe — boot the callback, render nothing
   if (loc.pathname === '/auth/silent-callback') return null;
   if (!ready || loc.pathname === '/auth/callback') {
-    return <div className="auth-splash" />;
+    return <div className="grid min-h-svh place-items-center bg-paper"><PageSkeleton rows={2} /></div>;
   }
-  // Public landing (v4): anonymous visitors get the marketing front door at
-  // '/' only — deep links still land on the sign-in wall so a shared URL asks
-  // for credentials first, and the wall itself lives at /signin (reached via
-  // the landing CTA). A signed-in-but-denied session always gets the wall's
-  // denied copy, never the landing.
   if (!hasToken() || denied) {
     if (!denied && loc.pathname === '/') return <Landing />;
     return <SignInWall denied={denied} />;
   }
-  // a valid session never sits on the sign-in route — bounce into the app
+  if (noOrg) return <CreateOrgPage />;
   if (loc.pathname === '/signin') return <Navigate to="/" replace />;
   return <AuthedApp />;
 }
 
-// Every page renders inside a route-level ErrorBoundary (v4 T12): a render
-// crash shows the recovery block in place and leaves the shell alive;
-// RouteError on the root is the last-resort catch for boot/lazy failures.
-const B = (el: JSX.Element) => <RouteBoundary>{el}</RouteBoundary>;
 
-// The deliberate-crash route exists for UAT only: dev servers and the
-// test-overlay image (VITE_CRASH_TEST=1 build arg) get it; prod builds don't.
-const CRASH_TEST = import.meta.env.DEV || import.meta.env.VITE_CRASH_TEST === '1';
-
-const router = createBrowserRouter([
-  {
-    element: <Boot />,
-    errorElement: <RouteError />,
-    children: [
-      { index: true, element: B(<OverviewPage />) },
-      { path: 'line', element: B(<LinePage />) },
-      { path: 'line3d', element: B(<Suspense fallback={<PageSkeleton />}><Line3DPage /></Suspense>) },
-      { path: 'alarms', element: B(<AlarmsPage />) },
-      { path: 'trends', element: B(<Root page={(tags) => <TrendsPage tags={tags} />} />) },
-      { path: 'insights', element: B(<InsightsPage />) },
-      { path: 'tags', element: B(<Root page={(tags) => <TagsPage tags={tags} />} />) },
-      { path: 'commands', element: B(<CommandsPage />) },
-      { path: 'health', element: B(<HealthPage />) },
-      // v4 T10 admin — role-gated inside the pages (nav hides them too)
-      { path: 'admin', element: B(<AdminPage />) },
-      { path: 'admin/rules', element: B(<AlarmRulesPage />) },
-      { path: 'admin/users', element: B(<UsersPage />) },
-      { path: 'admin/audit', element: B(<AuditPage />) },
-      // v4 T12 UAT hook — a route that throws on render so the boundary's
-      // recovery UI can be asserted end-to-end. Dev builds and the test
-      // image (docker-compose.test.yml sets VITE_CRASH_TEST=1) expose it;
-      // production redirects instead of shipping a crash-on-demand route.
-      { path: 'crash-test', element: CRASH_TEST ? B(<CrashProbe />) : <Navigate to="/" replace /> },
-      // sign-in wall route — rendered by Boot while unauthenticated; an
-      // authenticated visit redirects to '/' before the children mount
-      { path: 'signin', element: null },
-      // OIDC redirect targets — Boot handles them before the children render
-      { path: 'auth/callback', element: null },
-      { path: 'auth/silent-callback', element: null },
-      { path: '*', element: B(<OverviewPage />) },
-    ],
-  },
-]);
+/** Old URLs (e-mails, push, bookmarks) → their new home, keeping params and
+ *  query; replace, so Back does not bounce through the old address. */
+function LegacyRedirect() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={resolveLegacy(pathname, search) ?? '/'} replace />;
+}
 
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <MotionRoot>
+      <BrowserRouter>
+        <Routes>
+          {/* public status page — reachable signed-out (roadmap 8.4) */}
+          <Route path="status" element={page(StatusPage)} />
+          {/* Boot gates everything: walls render instead of the shell when
+              unauthenticated, so no API traffic fires before a token exists */}
+          <Route element={<Boot />} errorElement={<RouteError />}>
+            {/* the plant twin is the console's home; the KPI summary moved to /overview */}
+            <Route index element={page(Line3DPage)} />
+            <Route path="overview" element={<RouteBoundary><OverviewPage /></RouteBoundary>} />
+            <Route path="wall" element={page(WallPage)} />
+            <Route path="live" element={page(LinePage)} />
+            <Route path="setup/model" element={page(MapEditor)} />
+            <Route path="monitors" element={page(MonitorsPage)} />
+            <Route path="monitors/templates" element={page(TemplatesPage)} />
+            <Route path="alarms" element={page(AlarmsPage)} />
+            <Route path="alarms/:id" element={page(AlarmDetailPage)} />
+            <Route path="trends" element={page(TrendsPage)} />
+            {LEGACY.map(([from]) => <Route key={from} path={from.slice(1)} element={<LegacyRedirect />} />)}
+            {DevUiPage && <Route path="dev/ui" element={page(DevUiPage)} />}
+            <Route path="insights" element={page(InsightsPage)} />
+            <Route path="setup/tags" element={page(TagsPage)} />
+            <Route path="commands" element={page(CommandsPage)} />
+            <Route path="connect/health" element={page(HealthPage)} />
+            <Route path="admin" element={page(AdminPage)} />
+            <Route path="setup/rules" element={page(AlarmRulesPage)} />
+            <Route path="setup/rules/new" element={page(RuleCreatePage)} />
+            <Route path="admin/users" element={page(UsersPage)} />
+            <Route path="admin/audit" element={page(AuditPage)} />
+            <Route path="admin/storage" element={page(StoragePage)} />
+            <Route path="admin/keys" element={page(ApiKeysPage)} />
+            <Route path="activity" element={page(ActivityPage)} />
+            {enabled('errors') && <Route path="errors" element={page(ErrorTrackingPage)} />}
+            <Route path="slos" element={page(SloPage)} />
+            <Route path="slos/settings" element={page(SloSettingsPage)} />
+            <Route path="downtimes" element={page(DowntimesPage)} />
+            <Route path="dashboards" element={page(DashboardsPage)} />
+            <Route path="dashboards/:id" element={page(DashboardViewPage)} />
+            <Route path="connect/gateways" element={page(DevicesPage)} />
+            <Route path="connect/sources" element={page(DataSourcesPage)} />
+            <Route path="connect/gateways/:edgeId" element={page(GatewayPage)} />
+            <Route path="vision/cameras" element={page(CamerasPage)} />
+            <Route path="vision/models" element={page(ModelsPage)} />
+            <Route path="vision/rules" element={page(VisionRulesPage)} />
+            <Route path="vision/events" element={page(VisionEventsPage)} />
+            <Route path="connect/add" element={page(AddDeviceWizard)} />
+            <Route path="connect" element={page(NetworkMapPage)} />
+            <Route path="connect/profiles" element={page(ProfilesPage)} />
+            <Route path="settings" element={page(SettingsPage)} />
+            <Route path="settings/plan" element={page(PlanPage)} />
+            <Route path="settings/org" element={page(DangerZone)} />
+            <Route path="orgs/new" element={<CreateOrgPage />} />
+            <Route path="alarms/quality" element={page(AlarmQualityPage)} />
+            {enabled('alarmsettings') && <Route path="alarms/settings" element={<Navigate to="/alarms/settings/general" replace />} />}
+            {enabled('alarmsettings') && <Route path="alarms/settings/:section" element={page(AlarmSettingsPage)} />}
+            <Route path="events" element={page(EventsPage)} />
+            {enabled('incidents') && <Route path="incidents" element={page(IncidentsPage)} />}
+            {enabled('incidents') && <Route path="incidents/settings" element={page(IncidentSettingsPage)} />}
+            <Route path="notebooks" element={page(NotebooksPage)} />
+            <Route path="guide" element={page(GuidePage)} />
+            <Route path="notebooks/:id" element={page(NotebookViewPage)} />
+            {enabled('catalog') && <Route path="catalog" element={page(CatalogPage)} />}
+            <Route path="setup/structure" element={page(AssetTreePage)} />
+            <Route path="logs" element={page(LogsPage)} />
+            {enabled('teams') && <Route path="teams" element={page(TeamsPage)} />}
+            {enabled('traces') && <Route path="traces" element={page(TracesPage)} />}
+            <Route path="query" element={page(QueryPage)} />
+            {enabled('processes') && <Route path="processes" element={page(ProcessesPage)} />}
+            {enabled('synthetics') && <Route path="synthetics" element={page(SyntheticsPage)} />}
+            {enabled('synthetics') && <Route path="synthetics/coverage" element={page(SyntheticsCoveragePage)} />}
+            {enabled('synthetics') && <Route path="synthetics/settings" element={page(SyntheticsSettingsPage)} />}
+            <Route path="security" element={page(SecurityPage)} />
+            <Route path="security/issues" element={page(SecurityIssuesPage)} />
+            <Route path="security/findings" element={page(SecurityFindingsPage)} />
+            <Route path="security/api" element={page(SecurityApiPage)} />
+            <Route path="security/access" element={page(SecurityAccessPage)} />
+            {enabled('sessions') && <Route path="sessions" element={page(SessionsPage)} />}
+            <Route path="metrics" element={page(MetricsSummaryPage)} />
+            {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
+            {/* production KPIs (Phase 5) */}
+            <Route path="production/oee" element={page(OeePage)} />
+            <Route path="production/stops" element={page(ProductionDowntimesPage)} />
+            <Route path="production/shifts" element={page(ShiftsPage)} />
+            <Route path="production/reports" element={page(ReportsPage)} />
+            {/* notifications + signed ack link (Phase 3) */}
+            <Route path="notifications/channels" element={page(ChannelsPage)} />
+            <Route path="ack/:token" element={page(AckLinkPage)} />
+            {/* platform back-office (Phase 7) — page enforces platform admin */}
+            <Route path="platform" element={page(PlatformPage)} />
+            <Route path="platform/orgs/:id" element={page(PlatformOrgPage)} />
+            <Route path="platform/support" element={page(PlatformSupportPage)} />
+            <Route path="platform/announcements" element={page(PlatformAnnouncementsPage)} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+      </MotionRoot>
     </QueryClientProvider>
   );
 }

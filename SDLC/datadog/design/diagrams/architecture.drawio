@@ -1,0 +1,149 @@
+<mxfile host="drawio" version="24.0.0">
+  <diagram id="arch" name="Container view">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1150" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        
+        <mxCell id="z_users" value="People (browser)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="520" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="z_site" value="Customer site (factory / Factory I/O lab)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="40" width="580" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="z_server" value="Console server — VPS + Dokploy (or AWS EC2)  ·  docker compose" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef4fb;strokeColor=#6c8ebf;dashed=1;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="1620" height="610" as="geometry" />
+        </mxCell>
+        <mxCell id="z_ext" value="External services" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="920" width="1620" height="190" as="geometry" />
+        </mxCell>
+
+        
+        <mxCell id="operator" value="&lt;b&gt;Operator&lt;/b&gt;&lt;br&gt;control room · watches, acks, commands (sim)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="70" y="80" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="owner" value="&lt;b&gt;Owner / Manager / Maintenance&lt;/b&gt;&lt;br&gt;dashboards, SLOs, devices, users" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="310" y="80" width="230" height="80" as="geometry" />
+        </mxCell>
+
+        
+        <mxCell id="plc" value="&lt;b&gt;PLC / Factory I/O&lt;/b&gt;&lt;br&gt;Modbus TCP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="80" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="edge" value="&lt;b&gt;edge-bridge&lt;/b&gt;&lt;br&gt;sim | modbus adapter&lt;br&gt;per-device MQTT key" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="80" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="vision" value="&lt;b&gt;Vision (YOLO)&lt;/b&gt;&lt;br&gt;local PC · gravel/sand ratio" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1500" y="80" width="140" height="80" as="geometry" />
+        </mxCell>
+
+        
+        <mxCell id="traefik" value="&lt;b&gt;Traefik&lt;/b&gt; (Dokploy)&lt;br&gt;HTTPS :443 · Let's Encrypt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="190" y="300" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="mqtt" value="&lt;b&gt;Mosquitto&lt;/b&gt; :8883 TLS&lt;br&gt;dynsec ACL per device · v2/{org}/{site}/{edge}/…" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="300" width="250" height="70" as="geometry" />
+        </mxCell>
+
+        
+        <mxCell id="web" value="&lt;b&gt;web&lt;/b&gt; — nginx + React SPA&lt;br&gt;CSP · real-IP · same-origin proxy /api /ws /realms" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="190" y="440" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="kc" value="&lt;b&gt;Keycloak&lt;/b&gt; (realm wds)&lt;br&gt;OIDC PKCE · Google broker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="480" y="440" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="api" value="&lt;b&gt;backend&lt;/b&gt; — FastAPI&lt;br&gt;REST v1/v2 · WebSocket · alarm + insight engines · command outbox · dynsec reconciler" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="800" y="440" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="kcsync" value="&lt;b&gt;kc-sync&lt;/b&gt; (one-shot)&lt;br&gt;redirect URIs · Google IdP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="190" y="580" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="migrate" value="&lt;b&gt;migrate&lt;/b&gt; (one-shot)&lt;br&gt;Alembic as wds_owner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1400" y="580" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        
+        <mxCell id="pg" value="&lt;b&gt;PostgreSQL 16&lt;/b&gt;&lt;br&gt;db wds (RLS per org) · db keycloak" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;size=12;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="820" y="700" width="260" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="backup" value="&lt;b&gt;backup&lt;/b&gt;&lt;br&gt;daily pg_dump -Fc · rclone" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="725" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        
+        <mxCell id="google" value="&lt;b&gt;Google&lt;/b&gt;&lt;br&gt;identity (optional)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="480" y="990" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="&lt;b&gt;S3 storage&lt;/b&gt;&lt;br&gt;Garage / Cloudflare R2 / AWS S3 — off-host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="990" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="probe" value="&lt;b&gt;Uptime probe&lt;/b&gt;&lt;br&gt;external · GET /api/health" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="830" y="990" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        
+        <mxCell id="e1" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="operator" target="traefik">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="owner" target="traefik">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="traefik" target="web">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="/realms/wds" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="web" target="kc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="/api · /ws" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=0.8;exitY=0;exitDx=0;exitDy=0;" edge="1" parent="1" source="web" target="api">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="366" y="420" /><mxPoint x="950" y="420" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e6" value="JWKS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.8;entryDx=0;entryDy=0;" edge="1" parent="1" source="api" target="kc">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="780" y="505" /><mxPoint x="780" y="500" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e7" value="Modbus" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;startArrow=block;" edge="1" parent="1" source="plc" target="edge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="MQTT/TLS telemetry ↑ · commands ↓" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;startArrow=block;" edge="1" parent="1" source="edge" target="mqtt">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="tags" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="vision" target="mqtt">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1570" y="240" /><mxPoint x="1500" y="240" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="ingest · command publish · dynsec admin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;startArrow=block;" edge="1" parent="1" source="api" target="mqtt">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1050" y="400" /><mxPoint x="1415" y="400" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e11" value="asyncpg · RLS tenant_tx" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="api" target="pg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.85;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="migrate" target="pg">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1500" y="680" /><mxPoint x="1041" y="680" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e13" value="realm store" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.23;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="kc" target="pg">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="720" y="480" /><mxPoint x="720" y="670" /><mxPoint x="880" y="670" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e14" value="admin API" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;entryX=0.23;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="kcsync" target="kc">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="440" y="610" /><mxPoint x="440" y="540" /><mxPoint x="530" y="540" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e15" value="pg_dump" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="backup" target="pg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" value="S3 upload" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="backup" target="s3">
+          <mxGeometry relative="1" as="geometry">
+            </mxGeometry>
+        </mxCell>
+        <mxCell id="e17" value="OIDC broker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.55;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="kc" target="google">
+          <mxGeometry relative="1" as="geometry">
+            </mxGeometry>
+        </mxCell>
+        </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

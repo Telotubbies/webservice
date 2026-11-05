@@ -33,6 +33,8 @@ sys.path.insert(0, os.path.dirname(__file__))  # `contract` package import
 # modules are import-safe: config reads env once, nothing connects at import.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
+# ── Environment & endpoints ──
+
 REPO = Path(__file__).resolve().parent.parent
 
 BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
@@ -53,6 +55,8 @@ def _secret(name: str) -> str:
 
 MQTT_USER = os.environ.get("MQTT_USER", "tester")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD") or _secret("tester_pw")
+
+# ── v2 topic helpers ──
 
 # doc 17 §1 — v2 topic identity of the dev-seeded edge (UUIDs only).
 ORG_ID = os.environ.get("V1_ORG_ID", "0199d000-0000-7000-8000-00000000a001")
@@ -89,6 +93,8 @@ def mqtt_connect(client=None, username=MQTT_USER, password=MQTT_PASSWORD):
     c.loop_start()
     return c
 
+# ── OIDC (Keycloak) ──
+
 # v4 T5 — OIDC via Keycloak (ADR-12). The compose stack publishes KC on
 # 127.0.0.1:8080; the public iss is the web origin (KC_HOSTNAME), so a token
 # minted via the loopback port still carries iss=http://localhost:5173/realms/wds.
@@ -118,6 +124,8 @@ def kc_password_token(username: str, password: str = KC_DEMO_PASSWORD) -> str:
         return ""
 
 
+# ── Seed topology ──
+
 TAGS = {
     "running": "plant1.sort.line1.motor1.running",
     "speed_sp": "plant1.sort.line1.motor1.speed_sp",
@@ -142,7 +150,7 @@ def wait_until(predicate, timeout_s: float, interval_s: float = 0.5, desc: str =
     raise AssertionError(f"timed out after {timeout_s}s waiting for {desc}; last={last!r}")
 
 
-# ------------------------------------------------------------------ REST
+# ── REST fixtures ──
 
 @pytest.fixture(scope="session")
 def base_url() -> str:
@@ -202,7 +210,7 @@ def operator_api(api, operator_headers):
     return api
 
 
-# ------------------------------------------------------------------- MQTT
+# ── MQTT fixture ──
 
 @pytest.fixture()
 def mqtt_client():
@@ -219,7 +227,7 @@ def mqtt_client():
     client.disconnect()
 
 
-# ----------------------------------------------------------------- WS URL
+# ── WS URL ──
 
 @pytest.fixture(scope="session")
 def ws_base(base_url) -> str:
@@ -228,7 +236,7 @@ def ws_base(base_url) -> str:
     return "ws" + base_url[4:]
 
 
-# --------------------------------------------------------- disruptive gate
+# ── Disruptive gate ──
 
 @pytest.fixture(scope="session")
 def disruptive():

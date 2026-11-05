@@ -1,19 +1,23 @@
 # webservice — one command surface. `make` with no target lists them.
 COMPOSE := docker compose -f docker-compose.yml
 COMPOSE_TEST := docker compose -f docker-compose.yml -f docker-compose.test.yml
-PY ?= python3
+PY ?= $(or $(wildcard $(CURDIR)/.venv/Scripts/python.exe),$(wildcard $(CURDIR)/.venv/bin/python),python3)
+# host port of the backend; this box reserves 8000, so honour BACKEND_PORT from .env
+BACKEND_PORT ?= $(or $(shell sed -n "s/^BACKEND_PORT=//p" .env 2>/dev/null),8000)
 SQLITE ?= backend/data/app.db
+# Windows default codepage (cp874) breaks read_text() in tests
+export PYTHONUTF8 := 1
 DB_TEST_ENV := WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
   WDS_TEST_SYSTEM_DSN=postgresql://wds_system:$${WDS_SYSTEM_PASSWORD:-system-dev-pass}@127.0.0.1:5433/wds \
   WDS_TEST_SUPER_DSN=postgresql://postgres:$${POSTGRES_SUPERUSER_PASSWORD:-postgres-dev-pass}@127.0.0.1:5433/wds
 
-.PHONY: help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev backup restore migrate-sqlite
+.PHONY: psql help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev idp backup restore migrate-sqlite
 
 help: ## show this
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
-secrets: ## generate identity secrets incl. pg/keycloak files (infra/secrets — gitignored)
+secrets: ## generate identity secrets incl. pg/keycloak files and data_source_key (infra/secrets — gitignored)
 	./infra/gen-secrets.sh
 
 secrets-check: ## fail if any infra/secrets file still holds a documented dev default (required for APP_ENV=prod)
@@ -40,6 +44,7 @@ certs: ## generate the dev CA + broker TLS cert (infra/certs — gitignored)
 up: secrets certs ## build + start the full stack, wait for health (+ Keycloak seed in dev)
 	@if [ "$${APP_ENV:-dev}" = "prod" ]; then $(MAKE) secrets-check; fi
 	$(COMPOSE) up -d --build --wait
+	$(MAKE) idp
 	@if [ "$${APP_ENV:-dev}" = "dev" ]; then $(MAKE) seed-dev; fi
 
 down: ## stop the stack (data volume survives)
@@ -123,24 +128,27 @@ migrate-sqlite: ## one-time v1 SQLite→Postgres import (doc 18 §3): make migra
 	$(PY) scripts/migrate_sqlite_to_pg.py --sqlite "$(SQLITE)" \
 	  $(if $(DRY),--dry-run) $(if $(DSN),--dsn "$(DSN)") $(if $(ORG),--org-id "$(ORG)")
 
+idp: ## sync the Keycloak `google`/`microsoft` IdPs with *_CLIENT_ID/SECRET (removed when unset)
+	$(COMPOSE) exec -T backend python -m app.ops.provision_idp
+
 seed-dev: ## provision Keycloak test users + org memberships (APP_ENV=dev only)
-	$(COMPOSE) exec -T backend python -m app.seed_oidc
+	$(COMPOSE) exec -T backend python -m app.ops.seed_oidc
 
 test-integration: ## integration tests against the running stack (TLS :8883, v2 topics)
-	cd tests && BASE_URL=http://localhost:8000 MQTT_HOST=localhost MQTT_PORT=8883 \
+	cd tests && BASE_URL=http://localhost:$(BACKEND_PORT) MQTT_HOST=localhost MQTT_PORT=8883 \
 	  MQTT_CA_FILE=../infra/certs/ca.crt \
 	  WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
 	  $(PY) -m pytest -m integration
 
 test-security: ## security verification sweep (v4 T13): BOLA/auth-bypass/RBAC/429/headers/WS/infra (needs up-test)
-	cd tests && BASE_URL=http://localhost:8000 WEB_URL=http://localhost:5173 \
+	cd tests && BASE_URL=http://localhost:$(BACKEND_PORT) WEB_URL=http://localhost:5173 \
 	  KC_URL=http://localhost:8080 MQTT_HOST=localhost MQTT_PORT=8883 \
 	  MQTT_CA_FILE=../infra/certs/ca.crt \
 	  WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-dev-pass}@127.0.0.1:5433/wds \
 	  $(PY) -m pytest security -s
 
 test-perf: ## performance harness (v4 T13): history p95, WS fan-out, insight eval, bundle gz, LCP (needs up-test)
-	cd tests && BASE_URL=http://localhost:8000 WEB_URL=http://localhost:5173 \
+	cd tests && BASE_URL=http://localhost:$(BACKEND_PORT) WEB_URL=http://localhost:5173 \
 	  MQTT_HOST=localhost MQTT_PORT=8883 MQTT_CA_FILE=../infra/certs/ca.crt \
 	  PLAYWRIGHT_PATH=$${PLAYWRIGHT_PATH:-/home/supawich/Desktop/adas/hmi/web/node_modules/playwright/index.mjs} \
 	  $(PY) -m pytest perf -s
@@ -152,3 +160,6 @@ uat: ## browser UAT — needs playwright (see tests/README §e2e)
 
 web-build: ## frontend typecheck + production bundle
 	cd web && bun run build
+
+psql: ## psql shell in the dev postgres container (PG_CONTAINER / PG_USER to override)
+	@PG_TTY=1 sh scripts/psql.sh
