@@ -1,4 +1,4 @@
-// Monitors — the Monitoring group's own landing page (dd "Monitors › List").
+// Monitors — the Monitoring group's own landing page.
 // A monitor is an alarm rule with the live state of its alarms. Facet
 // sidebar on the left (status / priority / muted / type / equipment /
 // signal), omnibar + status-grouped list on the right. Tabs jump to the
@@ -26,23 +26,34 @@ import { ExportCsvButton } from '../../shared/ui/ExportCsv';
 import { matchMonitor, monitorRows, STATUS_ORDER, type MonitorRow, type MonStatus } from './monitors';
 import './i18n';
 
+/* Same vocabulary as the priority badges: tint + shape for the abnormal
+   states, a dashed ◌ for "no data" (missing data is stale, not fine), and
+   plain neutral for OK — a healthy rule is not news (ISA-101). */
 const STATUS_STYLE: Record<MonStatus, string> = {
-  alert: 'bg-sev-high text-white',
-  warn: 'bg-sev-medium text-sev-ink',
-  nodata: 'bg-sev-info text-white',
-  ok: 'bg-[var(--color-ok)] text-white',
-  disabled: 'bg-subtle text-ink-46 border border-line',
+  alert: 'bg-danger-soft text-[var(--color-danger)]',
+  warn: 'bg-caution-soft text-[var(--color-caution-ink)]',
+  nodata: 'border border-dashed border-ink-46 text-ink-68',
+  ok: 'bg-neutral-soft text-ink-muted',
+  disabled: 'border border-line text-ink-46',
 };
-const STATUS_STRIPE: Record<MonStatus, string> = {
-  alert: 'bg-[var(--color-danger-bright)]', warn: 'bg-[var(--color-warn)]', nodata: 'bg-[var(--color-muted-pill)]',
-  ok: 'bg-[var(--color-ok)]', disabled: 'bg-line-hard',
+const STATUS_GLYPH: Record<MonStatus, string> = { alert: '▲', warn: '◆', nodata: '◌', ok: '✓', disabled: '–' };
+const STATUS_MARK: Record<MonStatus, string> = {
+  alert: 'text-[var(--color-danger-bright)]', warn: 'text-[var(--color-caution)]', nodata: 'text-ink-46', ok: 'text-ink-46', disabled: 'text-ink-35',
 };
+const StatusMark = ({ s }: { s: MonStatus }) => <span aria-hidden className={`w-3 text-center text-[10px] ${STATUS_MARK[s]}`}>{STATUS_GLYPH[s]}</span>;
 
+/** Compact status chip for the list's status column. */
 export function StatusPill({ status }: { status: MonStatus }) {
   const { t } = useTranslation();
-  return <span className={`inline-flex h-5 items-center rounded-[3px] px-1.5 text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[status]}`}>{t(`mon.${status}`)}</span>;
+  return (
+    <span className={`overline inline-flex h-5 items-center gap-1 rounded-[3px] px-1.5 !font-bold ${STATUS_STYLE[status]}`}>
+      <span aria-hidden className="text-[9px]">{STATUS_GLYPH[status]}</span>{t(`mon.${status}`)}
+    </span>
+  );
 }
 
+/** Tab strip shared by every Monitoring page (list, templates, triggered,
+ *  downtimes, quality) — one definition so they never drift apart. */
 export function useMonitoringTabs(): PageTab[] {
   const { t } = useTranslation();
   return [
@@ -63,7 +74,7 @@ export function MonitorsPage() {
   const { orgRole } = useAdminOrg();
   const tabs = useMonitoringTabs();
   const rules = useQuery({ queryKey: ['alarm-rules'], queryFn: api.alarmRules, staleTime: 60_000 });
-  // ?q= and ?status= are the shareable state (dd saved-view contract): the
+  // ?q= and ?status= are the shareable state (the saved-view contract): the
   // URL round-trips into search + the status facet; the other facets stay
   // in-memory so the URL doesn't sprawl.
   const [params, setParams] = useSearchParams();
@@ -119,13 +130,14 @@ export function MonitorsPage() {
     [rows, q]);
   const visible = base.filter((r) => passesFacets(merged, pick(r)));
 
-  // counts per facet value ignore that facet's own selection (dd behaviour)
+  // Counts per facet value ignore that facet's own selection, so a facet
+  // never filters its own counts down to the checked rows.
   const count = (facet: string, value: string) =>
     base.filter((r) => passesFacets(merged, pick(r), facet) && [pick(r)(facet)].flat().includes(value)).length;
   const uniq = (f: string) => [...new Set(rows.map((r) => pick(r)(f) as string))].filter(Boolean).sort();
   const facets: FacetDef[] = [
     { id: 'status', title: t('mon.fStatus'), values: STATUS_ORDER.map((s) => ({
-      value: s, label: t(`mon.${s}`), count: count('status', s), mark: <span aria-hidden className={`h-3 w-1 rounded-sm ${STATUS_STRIPE[s]}`} />,
+      value: s, label: t(`mon.${s}`), count: count('status', s), mark: <StatusMark s={s} />,
     })) },
     { id: 'muted', title: t('mon.fMuted'), values: [
       { value: 'yes', label: t('mon.muted'), count: count('muted', 'yes') },
@@ -189,7 +201,7 @@ export function MonitorsPage() {
       </div>
       <div className="grid md:grid-cols-[248px_minmax(0,1fr)]">
         <FacetSidebar
-          className={`border-b border-line bg-white p-3 md:sticky md:top-[80px] md:block md:max-h-[calc(100svh-80px)] md:overflow-y-auto md:border-b-0 md:border-r ${showFilters ? '' : 'hidden'}`}
+          className={`border-b border-line bg-paper p-3 md:sticky md:top-[80px] md:block md:max-h-[calc(100svh-80px)] md:overflow-y-auto md:border-b-0 md:border-r ${showFilters ? '' : 'hidden'}`}
           facets={facets} sel={merged}
           onToggle={toggle}
           onClear={clearAll}
@@ -205,7 +217,7 @@ export function MonitorsPage() {
             : rows.length === 0 ? <EmptyState title={t('mon.noRules')} body={t('mon.noRulesBody')} icon="bell" />
             : visible.length === 0 ? <EmptyState title={t('mon.empty')} body={t('mon.emptyBody')} icon="search" />
             : (
-              <div className="overflow-x-auto rounded-[5px] border border-line bg-white shadow-card">
+              <div className="overflow-x-auto rounded-[5px] border border-line bg-paper shadow-card">
                 <table className="w-full min-w-[720px] border-collapse text-[13px]">
                   <thead>
                     <tr className="border-b border-line text-left">
@@ -218,7 +230,7 @@ export function MonitorsPage() {
                         <tr className="border-b border-line bg-subtle">
                           <td colSpan={5} className="h-8 px-3 text-[12px] font-semibold text-ink-68">
                             <span className="inline-flex items-center gap-2">
-                              <span aria-hidden className={`h-3 w-1 rounded-sm ${STATUS_STRIPE[s]}`} />{t(`mon.${s}`)}
+                              <StatusMark s={s} />{t(`mon.${s}`)}
                               <span className="rounded-full bg-line px-1.5 font-mono text-[10px] text-ink-68">{list.length}</span>
                             </span>
                           </td>

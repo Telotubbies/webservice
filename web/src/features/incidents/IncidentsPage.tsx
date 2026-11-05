@@ -1,7 +1,7 @@
-// Incidents (WP-E) — Datadog incident list shape on the plant incident model:
-// facet sidebar (status / severity / team / equipment), omnibar, dense table,
-// CSV export, row → right-hand triage drawer (IncidentPanel). Deep link:
-// ?incident=<id>. The settings tab jumps to /incidents/settings.
+// Incidents (WP-E) — the incident console's list page on the plant incident
+// model: facet sidebar (status / severity / team / equipment), omnibar, dense
+// table, CSV export, row → right-hand triage drawer (IncidentPanel). Deep
+// link: ?incident=<id>. The settings tab jumps to /incidents/settings.
 
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,7 +10,7 @@ import { NavLink, useSearchParams } from 'react-router';
 import { ApiError, incidentApi, type IncidentRow, type IncidentSeverity } from '../../lib/api';
 import { useAdminOrg } from '../admin/admin';
 import { canOperate } from '../../app/session';
-import { fmtAge } from '../../lib/format';
+import { fmtAge, fmtDateTime } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { DdIcon } from '../../shared/ui/DdIcon';
 import { Icon } from '../../shared/ui/Icon';
@@ -23,10 +23,58 @@ import { INC_SEVS, INC_STATUSES, matchIncident, useIncidentTabs, useLinkedAlarms
 import { IncidentPanel, IncStatusPill } from './IncidentPanel';
 import './i18n';
 
-const fmt = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-const STATUS_MARK: Record<string, string> = {
-  active: 'bg-[var(--color-danger-bright)]', acknowledged: 'bg-[var(--color-warn)]', resolved: 'bg-[var(--color-ok)]',
-};
+// ── Declare dialog ───────────────────────────────────────────────────────────
+
+/** Declare-incident dialog — title, severity (fixed once declared), owner
+ *  team. severity is a write-once field: the backend has no update endpoint. */
+function DeclareDialog({ dlgRef, teams, onSave }: {
+  dlgRef: React.RefObject<HTMLDialogElement | null>;
+  teams: { id: string; name: string }[];
+  onSave: (b: { title: string; severity: IncidentSeverity; owner_team_id: string | null }) => void;
+}) {
+  const { t } = useTranslation();
+  const [title, setTitle] = useState('');
+  const [sev, setSev] = useState<IncidentSeverity>('warning');
+  const [team, setTeam] = useState('');
+  const [tried, setTried] = useState(false);
+  const close = () => { dlgRef.current?.close(); setTried(false); };
+  return (
+    <dialog ref={dlgRef} className="m-auto w-[440px] max-w-[calc(100vw-24px)] rounded-[6px] border border-line p-0 shadow-pop backdrop:bg-black/40" aria-labelledby="inc-title">
+      <form method="dialog" className="p-4" onSubmit={(e) => {
+        e.preventDefault(); setTried(true);
+        if (!title.trim()) return;
+        onSave({ title: title.trim(), severity: sev, owner_team_id: team || null });
+        setTitle(''); close();
+      }}>
+        <h2 id="inc-title" className="mb-3 text-[15px] font-semibold">{t('inc.declare')}</h2>
+        <label className="block text-[12px] font-semibold text-ink-68" htmlFor="inc-t">{t('inc.colTitle')}</label>
+        <input id="inc-t" className="input mt-1 w-full" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} aria-invalid={tried && !title.trim()} />
+        {tried && !title.trim() && <p className="mt-1 text-[11px] text-[var(--color-danger)]" role="alert">{t('inc.errTitle')}</p>}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[12px] font-semibold text-ink-68" htmlFor="inc-s">{t('inc.colSeverity')}</label>
+            <select id="inc-s" className="input mt-1 w-full" value={sev} onChange={(e) => setSev(e.target.value as IncidentSeverity)}>
+              {INC_SEVS.map((s) => <option key={s} value={s}>{t(`alarms.${s}`)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[12px] font-semibold text-ink-68" htmlFor="inc-team">{t('inc.colTeam')}</label>
+            <select id="inc-team" className="input mt-1 w-full" value={team} onChange={(e) => setTeam(e.target.value)}>
+              <option value="">—</option>
+              {teams.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" className="btn btn-sm btn-ghost" onClick={close}>{t('common.close')}</button>
+          <button type="submit" className="btn btn-sm">{t('inc.declare')}</button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export function IncidentsPage() {
   const { t } = useTranslation();
@@ -72,8 +120,7 @@ export function IncidentsPage() {
   const uniq = (f: string) => [...new Set(rows.map((i) => pick(i)(f)))].sort();
   const facets: FacetDef[] = [
     { id: 'status', title: t('inc.facetStatus'), values: INC_STATUSES.map((s) => ({
-      value: s, label: t(`inc.status.${s}`), count: count('status', s),
-      mark: <span aria-hidden className={`h-3 w-1 rounded-sm ${STATUS_MARK[s]}`} />,
+      value: s, label: <IncStatusPill status={s} />, count: count('status', s),
     })) },
     { id: 'severity', title: t('inc.facetSeverity'), values: INC_SEVS.map((s) => ({
       value: s, label: <SeverityBadge severity={s} />, count: count('severity', s),
@@ -99,7 +146,7 @@ export function IncidentsPage() {
   const tabs = useIncidentTabs();
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <PageBar icon="incidents" title={t('inc.title')} tabs={tabs}
         actions={(
           <>
@@ -144,7 +191,7 @@ export function IncidentsPage() {
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-[248px_minmax(0,1fr)]">
           <FacetSidebar
-            className={`self-start rounded-[5px] border border-line bg-white p-3 md:sticky md:top-[80px] md:block md:max-h-[calc(100svh-80px)] md:overflow-y-auto ${showFilters ? '' : 'hidden'}`}
+            className={`self-start rounded-[5px] border border-line bg-paper p-3 md:sticky md:top-[80px] md:block md:max-h-[calc(100svh-80px)] md:overflow-y-auto ${showFilters ? '' : 'hidden'}`}
             facets={facets} sel={sel}
             onToggle={(f, v) => setSel((s) => toggleFacet(s, f, v))}
             onClear={() => setSel({})}
@@ -152,7 +199,7 @@ export function IncidentsPage() {
           />
           <div className="min-w-0">
             <p className="mb-2 text-[12px] text-ink-68">{t('inc.showing', { shown: shown.length, total: rows.length })}</p>
-            <section className="overflow-x-auto rounded-[5px] border border-line bg-white shadow-card">
+            <section className="overflow-x-auto rounded-[5px] border border-line bg-paper shadow-card">
               {list.isLoading ? <div className="p-3"><SkeletonRows rows={6} /></div>
                 : list.isError ? <ErrorState onRetry={() => void list.refetch()} />
                 : shown.length === 0 ? <EmptyState title={t('inc.empty')} body={t('inc.emptyBody')} icon="search" />
@@ -174,11 +221,12 @@ export function IncidentsPage() {
                           aria-label={t('inc.openIncident', { title: i.title })}>
                           <td className="px-3"><IncStatusPill status={i.status} /></td>
                           <td className="px-3"><SeverityBadge severity={i.severity} /></td>
-                          <td className="px-3 font-medium">{i.title}</td>
+                          {/* resolved rows recede so open incidents carry the page */}
+                          <td className={`px-3 ${i.status === 'resolved' ? 'text-ink-68' : 'font-medium'}`}>{i.title}</td>
                           <td className="px-3 text-ink-68">{i.team ?? '—'}</td>
                           <td className="px-3 text-[12px] text-ink-68">{eqOf(i) ? eqLabel(eqOf(i)) : '—'}</td>
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(i.created_at)}</td>
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px] text-ink-68">{fmtAge(i.created_at, now)}</td>
+                          <td className="whitespace-nowrap px-3 text-[12px]">{fmtDateTime(i.created_at)}</td>
+                          <td className="whitespace-nowrap px-3 text-[12px] text-ink-68">{fmtAge(i.created_at, now)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -195,52 +243,5 @@ export function IncidentsPage() {
       )}
       <DeclareDialog dlgRef={dlg} teams={list.data?.teams ?? []} onSave={(b) => create.mutate(b)} />
     </div>
-  );
-}
-
-function DeclareDialog({ dlgRef, teams, onSave }: {
-  dlgRef: React.RefObject<HTMLDialogElement | null>;
-  teams: { id: string; name: string }[];
-  onSave: (b: { title: string; severity: IncidentSeverity; owner_team_id: string | null }) => void;
-}) {
-  const { t } = useTranslation();
-  const [title, setTitle] = useState('');
-  const [sev, setSev] = useState<IncidentSeverity>('warning');
-  const [team, setTeam] = useState('');
-  const [tried, setTried] = useState(false);
-  const close = () => { dlgRef.current?.close(); setTried(false); };
-  return (
-    <dialog ref={dlgRef} className="m-auto w-[440px] max-w-[calc(100vw-24px)] rounded-[6px] border border-line p-0 shadow-pop backdrop:bg-black/40" aria-labelledby="inc-title">
-      <form method="dialog" className="p-4" onSubmit={(e) => {
-        e.preventDefault(); setTried(true);
-        if (!title.trim()) return;
-        onSave({ title: title.trim(), severity: sev, owner_team_id: team || null });
-        setTitle(''); close();
-      }}>
-        <h2 id="inc-title" className="mb-3 text-[15px] font-semibold">{t('inc.declare')}</h2>
-        <label className="block text-[12px] font-semibold text-ink-68" htmlFor="inc-t">{t('inc.colTitle')}</label>
-        <input id="inc-t" className="input mt-1 w-full" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} aria-invalid={tried && !title.trim()} />
-        {tried && !title.trim() && <p className="mt-1 text-[11px] text-[var(--color-danger)]" role="alert">{t('inc.errTitle')}</p>}
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[12px] font-semibold text-ink-68" htmlFor="inc-s">{t('inc.colSeverity')}</label>
-            <select id="inc-s" className="input mt-1 w-full" value={sev} onChange={(e) => setSev(e.target.value as IncidentSeverity)}>
-              {INC_SEVS.map((s) => <option key={s} value={s}>{t(`alarms.${s}`)}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[12px] font-semibold text-ink-68" htmlFor="inc-team">{t('inc.colTeam')}</label>
-            <select id="inc-team" className="input mt-1 w-full" value={team} onChange={(e) => setTeam(e.target.value)}>
-              <option value="">—</option>
-              {teams.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className="btn btn-sm btn-ghost" onClick={close}>{t('common.close')}</button>
-          <button type="submit" className="btn btn-sm">{t('inc.declare')}</button>
-        </div>
-      </form>
-    </dialog>
   );
 }

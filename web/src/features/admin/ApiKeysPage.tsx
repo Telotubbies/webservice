@@ -21,7 +21,7 @@ const ROLES = ['viewer', 'operator', 'admin'];
 const EXPIRY = [['', 'keys.never'], ['30', 'keys.d30'], ['90', 'keys.d90'], ['365', 'keys.d365']] as const;
 
 export function ApiKeysPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const { orgId, orgName, orgRole, loading } = useAdminOrg();
   const [name, setName] = useState('');
@@ -77,10 +77,10 @@ export function ApiKeysPage() {
             <p className="flex items-center gap-2 text-[13px] font-semibold"><TriangleAlert size={15} aria-hidden /> {t('keys.onceTitle', { name: fresh.key.name })}</p>
             <p className="text-[12px] text-ink-68">{t('keys.once')}</p>
             <div className="flex items-start gap-2">
-              <code className="min-w-0 flex-1 select-all break-all rounded bg-white px-2 py-1.5 font-mono text-[12px]" data-testid="api-key-secret">{fresh.secret}</code>
+              <code className="min-w-0 flex-1 select-all break-all rounded bg-paper px-2 py-1.5 font-mono text-[12px]" data-testid="api-key-secret">{fresh.secret}</code>
               <CopyButton text={fresh.secret} label={t('keys.copy')} />
             </div>
-            <pre className="overflow-x-auto rounded bg-white p-2 font-mono text-[11px] text-ink-68">{`curl -H "Authorization: Bearer ${fresh.secret}" \\\n  ${location.origin}/api/v1/orgs/${orgId}/sites`}</pre>
+            <pre className="overflow-x-auto rounded bg-paper p-2 font-mono text-[11px] text-ink-68">{`curl -H "Authorization: Bearer ${fresh.secret}" \\\n  ${location.origin}/api/v1/orgs/${orgId}/sites`}</pre>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFresh(null)}>{t('keys.done')}</button>
           </div>
         )}
@@ -133,7 +133,7 @@ export function ApiKeysPage() {
                         <td className="font-mono text-[12px] text-ink-68">{k.prefix}…</td>
                         <td className="text-[12px]">{t(`roles.${k.role}`, { defaultValue: k.role })}</td>
                         <td className="text-[12px] text-ink-68">{k.last_used_at ? fmtAge(k.last_used_at) : t('keys.neverUsed')}</td>
-                        <td className="text-[12px] text-ink-68">{k.expires_at ? new Date(k.expires_at).toLocaleDateString() : t('keys.never')}</td>
+                        <td className="text-[12px] text-ink-68">{k.expires_at ? new Date(k.expires_at).toLocaleDateString(i18n.language, { dateStyle: 'medium' }) : t('keys.never')}</td>
                         <td><span className={`rounded-full border px-2 py-0.5 text-[11px] ${s === 'active' ? 'border-line text-ink' : 'border-line text-ink-46 line-through'}`}>{t(`keys.s_${s}`)}</span></td>
                         <td className="text-right">
                           {s === 'active' && (

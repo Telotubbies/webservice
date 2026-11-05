@@ -12,6 +12,7 @@ import { PageSkeleton, ErrorState, Notice } from '../../shared/ui/Feedback';
 import { Confirm } from '../../shared/ui/Confirm';
 import { Segmented } from '../../shared/ui/Segmented';
 
+// The plan names the back-office can assign — kept in sync with the API.
 const PLANS = ['trial', 'starter', 'pro', 'enterprise'] as const;
 
 export function PlatformOrgPage() {
@@ -34,6 +35,7 @@ export function PlatformOrgPage() {
   const [sessionReason, setSessionReason] = useState('');
   const [minutes, setMinutes] = useState(60);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
+  // Seed the editable fields once the org (and its flags) arrive.
   useEffect(() => {
     if (q.data?.org) {
       setPlan(q.data.org.plan);

@@ -8,18 +8,20 @@ import type { PageTab } from '../../shared/ui/Page';
 import type { Finding, Resource, RuleSeverity, SecRule } from './posture';
 import './i18n';
 
-/** Chip colours follow the dd severity ramp (dark red → red → orange → gold → grey). */
+/** Chip colours: only the single worst level stays solid (it must win the
+ *  scan); the rest use the same soft tints as the priority badges, and the
+ *  low/info end is neutral — a row of five solid blocks read as decoration. */
 export const SEV_CHIP: Record<RuleSeverity, string> = {
-  critical: 'bg-sev-critical text-white', high: 'bg-sev-high text-white', medium: 'bg-sev-medium text-sev-ink',
-  low: 'bg-sev-low text-sev-ink', info: 'bg-sev-info text-white',
+  critical: 'bg-[var(--color-danger-bright)] text-white', high: 'bg-danger-soft text-[var(--color-danger)]',
+  medium: 'bg-caution-soft text-[var(--color-caution-ink)]', low: 'bg-neutral-soft text-ink', info: 'bg-neutral-soft text-ink-muted',
 };
 export const SEV_BAR: Record<RuleSeverity, string> = {
-  critical: 'bg-sev-critical-soft', high: 'bg-sev-high-soft', medium: 'bg-sev-medium-soft', low: 'bg-sev-low-soft', info: 'bg-sev-info-soft',
+  critical: 'bg-danger-soft', high: 'bg-danger-soft', medium: 'bg-caution-soft', low: 'bg-neutral-soft', info: 'bg-neutral-soft',
 };
 
 export function SevChip({ severity, className = '' }: { severity: RuleSeverity; className?: string }) {
   const { t } = useTranslation();
-  return <span className={`inline-flex h-5 min-w-14 items-center justify-center rounded-[3px] px-1.5 text-[11px] font-bold uppercase tracking-wide ${SEV_CHIP[severity]} ${className}`}>{t(`sec.sev.${severity}`)}</span>;
+  return <span className={`overline inline-flex h-5 min-w-14 items-center justify-center rounded-[3px] px-1.5 !font-bold ${SEV_CHIP[severity]} ${className}`}>{t(`sec.sev.${severity}`)}</span>;
 }
 
 export function useSecurityTabs(): PageTab[] {
@@ -52,7 +54,7 @@ export function RiskTag({ control }: { control: SecRule['control'] }) {
 export function ResourceChip({ r }: { r: Resource }) {
   const { t } = useTranslation();
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded border border-line bg-white px-1.5 py-0.5 text-[12px]">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded border border-line bg-paper px-1.5 py-0.5 text-[12px]">
       <DdIcon name={KIND_ICON[r.kind]} size={12} className="shrink-0 text-[#e08a00]" />
       <span className="shrink-0 text-ink-46">{t(`sec.kind.${r.kind}`)}</span>
       <span className="truncate font-mono">{r.name}</span>
@@ -70,7 +72,9 @@ function Panel({ title, sub, children, className = '' }: { title: string; sub: s
   );
 }
 
-/** Right-hand detail drawer — dd "attack path" / finding side panel. */
+/** Right-hand detail drawer for one finding: the path to the resource, the
+ *  rule it failed with the fix, and the blast radius (other resources the
+ *  same rule fails on). */
 export function FindingPanel({ finding, siblings, others, onClose }: {
   finding: Finding; siblings: Resource[]; others: number; onClose: () => void;
 }) {
@@ -90,7 +94,7 @@ export function FindingPanel({ finding, siblings, others, onClose }: {
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} aria-hidden />
       <div
         ref={ref} role="dialog" aria-modal="true" aria-label={t(`sec.rules.${rule.title}`)} tabIndex={-1}
-        className="fixed inset-y-0 right-0 z-50 flex w-[min(760px,100vw)] flex-col overflow-y-auto bg-white shadow-flyout outline-none"
+        className="fixed inset-y-0 right-0 z-50 flex w-[min(760px,100vw)] flex-col overflow-y-auto bg-paper shadow-flyout outline-none"
       >
         <div className="flex h-9 shrink-0 items-center justify-between px-4 text-[13px]">
           <button type="button" className="flex items-center gap-1 text-blue hover:underline focus-visible:outline-2 focus-visible:outline-blue" onClick={onClose}>
@@ -123,7 +127,7 @@ export function FindingPanel({ finding, siblings, others, onClose }: {
             <ol>
               {path.map((label, i) => (
                 <li key={i}>
-                  <div className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-[13px] shadow-card">
+                  <div className="flex items-center gap-2 rounded-lg border border-line bg-paper px-3 py-2 text-[13px] shadow-card">
                     <DdIcon name={i === 0 ? 'organization' : KIND_ICON[resource.kind]} size={16} className="text-[#e08a00]" />
                     <span className="truncate font-semibold">{label}</span>
                   </div>
@@ -133,7 +137,7 @@ export function FindingPanel({ finding, siblings, others, onClose }: {
             </ol>
           </Panel>
           <Panel title={t('sec.selectedRule')} sub={t(`sec.rules.${rule.title}`)}>
-            <div className="rounded-lg border-2 border-[#f4a62a] bg-white p-3">
+            <div className="rounded-lg border-2 border-[#f4a62a] bg-paper p-3">
               <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-[#b86e00]"><DdIcon name="attention-circled" size={13} />{t(`sec.sev.${rule.severity}`)} · {t('sec.failed')}</p>
               <p className="text-[13px]">{t(`sec.fix.${rule.title}`)}</p>
               <NavLink to={resource.to} className="btn btn-sm mt-3">{t('sec.remediate')}</NavLink>

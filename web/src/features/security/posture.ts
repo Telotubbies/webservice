@@ -29,9 +29,13 @@ export interface SecRule {
 }
 
 const DAY = 86_400_000;
+// A key untouched (and older than) this many days counts as unused.
 const UNUSED_AFTER_DAYS = 90;
+/** Service identities (device/service subjects) — not human sign-ins. */
 const isSvc = (m: Member) => m.sub.startsWith('dev:') || m.sub.startsWith('svc:');
 
+/** Evaluates every posture rule against the fetched resources; rules with no
+ *  resources to check (or whose source is admin-gated) drop out of the list. */
 export function buildRules(input: {
   keys: ApiKey[] | null; members: Member[] | null; audit: AuditRow[] | null; edges: FleetEdge[]; now: number;
 }): SecRule[] {
@@ -61,7 +65,7 @@ export function buildRules(input: {
       ...split(owners, () => owners.length <= 2, memRes) });
     out.push({ id: 'member-disabled-role', control: 'access', ref: 'AC-4', severity: 'info', title: 'memberDisabled', resourceKind: 'member',
       ...split(members.filter((m) => m.disabled), (m) => m.role === 'viewer' || m.role === 'none', memRes) });
-    void humans;
+    void humans; // humans-only rules land here later; keep the filter handy
   }
   const edgeRes = (e: FleetEdge): Resource => ({ id: e.id, kind: 'edge', name: e.name, detail: e.adapter ?? undefined, to: '/infrastructure' });
   const active = edges.filter((e) => e.status !== 'disabled');
@@ -89,6 +93,8 @@ export interface Posture {
   audit: AuditRow[]; keys: ApiKey[]; members: Member[];
 }
 
+/** Fetches the admin-gated sources (skipped entirely for non-admins) and
+ *  derives rules, per-severity tallies, the score, and the worst failures. */
 export function usePosture(): Posture {
   const admin = canAdmin(useRole());
   const { orgId } = useAdminOrg();
@@ -129,4 +135,5 @@ export function findingsOf(rules: SecRule[]): Finding[] {
   return rules.flatMap((rule) => rule.failed.map((resource) => ({ id: `${rule.id}:${resource.id}`, rule, resource })));
 }
 
+/** Severity → sort rank (critical first), matching RULE_SEVERITIES order. */
 export const SEV_RANK = (s: RuleSeverity) => RULE_SEVERITIES.indexOf(s);

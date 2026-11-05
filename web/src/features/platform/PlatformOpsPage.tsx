@@ -12,6 +12,7 @@ import { Segmented } from '../../shared/ui/Segmented';
 
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : '—');
 
+/** Staff view of every support session, with revoke. */
 export function PlatformSupportPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -49,6 +50,7 @@ export function PlatformSupportPage() {
   );
 }
 
+/** Compose + revoke tenant-facing announcements (all orgs or one). */
 export function PlatformAnnouncementsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();

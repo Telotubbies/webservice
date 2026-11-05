@@ -29,7 +29,7 @@ export function SyntheticsSettingsPage() {
           <h2 className="text-[16px] font-semibold">{t('syn.setTitle')}</h2>
           <p className="text-[13px] text-ink-68">{t('syn.setLede')}</p>
         </div>
-        <dl className="divide-y divide-line rounded-[5px] border border-line bg-white text-[13px]">
+        <dl className="divide-y divide-line rounded-[5px] border border-line bg-paper text-[13px]">
           {items.map(([h, b, v]) => (
             <div key={h} className="grid gap-1 px-4 py-3 sm:grid-cols-[200px_1fr]">
               <dt className="font-semibold">{t(`syn.${h}`)}</dt>

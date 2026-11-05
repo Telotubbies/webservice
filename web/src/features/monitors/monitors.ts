@@ -1,5 +1,5 @@
-// Rule → monitor row: a Datadog "monitor" is our alarm rule plus the live
-// state of its alarms. Pure so the page and tests share one derivation.
+// Rule → monitor row: a monitor row is the alarm rule plus the live state
+// of its alarms. Pure so the page and tests share one derivation.
 import { live, STALE_MS } from '../../lib/live';
 import { equipmentOf } from '../../lib/plant';
 import { normSeverity } from '../../shared/ui/Status';
@@ -13,6 +13,8 @@ export interface MonitorRow {
   muted: boolean; area: string; severity: 'critical' | 'warning' | 'info';
 }
 
+/** One row per rule, in rule order. `nodata` means the rule is healthy but
+ *  its signal has gone silent or bad-quality — silence is itself a status. */
 export function monitorRows(rules: AlarmRule[], alarms: Alarm[], now: number): MonitorRow[] {
   const live_ = alarms.filter((a) => a.state !== 'cleared');
   // the alarm's rule string is the rule name, sometimes with the limit appended
@@ -34,6 +36,8 @@ export function monitorRows(rules: AlarmRule[], alarms: Alarm[], now: number): M
   });
 }
 
+/** Free-text search: every whitespace token must appear somewhere in the
+ *  rule's name, tag, translated signal label, equipment or kind. */
 export function matchMonitor(r: MonitorRow, q: string, label: (tag: string) => string): boolean {
   const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
   if (!tokens.length) return true;

@@ -16,6 +16,7 @@ import { saveBlob } from '../../lib/saveBlob';
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : '—');
 const kb = (n: number | null) => (n == null ? '—' : `${(n / 1024).toFixed(0)} KB`);
 
+/** Owner-only export zips: request a new one, poll the list, download done rows. */
 function Exports({ orgId, isOwner }: { orgId: string; isOwner: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -42,7 +43,7 @@ function Exports({ orgId, isOwner }: { orgId: string; isOwner: boolean }) {
       {req.isError && <Notice tone="error">{t('plat.errGeneric', { reason: String(req.error) })}</Notice>}
       <Table head={[t('plat.exportStatus'), t('plat.exportReady'), t('plat.expires'), '']}>
         {rows.length === 0 && (
-          <tr><td colSpan={4} className="text-ink-68">{t('plat.webhookNone')}</td></tr>)}
+          <tr><td colSpan={4} className="text-ink-68">{t('plat.exportNone')}</td></tr>)}
         {rows.map((r: ExportRow) => (
           <tr key={r.id}>
             <td>{r.status === 'done' ? t('plat.exportReady') : r.status}</td>
@@ -62,6 +63,7 @@ function Exports({ orgId, isOwner }: { orgId: string; isOwner: boolean }) {
   );
 }
 
+/** Outbound webhook endpoints; the signing secret is shown once on create. */
 function Webhooks({ orgId, canWrite }: { orgId: string; canWrite: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -197,10 +199,11 @@ export function DangerZone() {
                   </button>)
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className="btn h-9 text-[13px] font-semibold"
+                  {/* both are destructive: leave is the secondary (red text), delete the danger fill */}
+                  <button type="button" className="btn btn-ghost h-9 text-[13px] font-semibold text-[var(--color-danger)]"
                           onClick={() => setConfirmLeave(true)}>{t('plat.leave')}</button>
                   {isOwner && (
-                    <button type="button" className="btn h-9 text-[13px] font-semibold text-[var(--color-danger)]"
+                    <button type="button" className="btn btn-danger h-9 text-[13px] font-semibold"
                             onClick={() => setConfirmDelete(true)}>{t('plat.deleteOrg')}</button>)}
                 </div>)}
             </Card>

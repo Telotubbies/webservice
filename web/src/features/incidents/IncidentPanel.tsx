@@ -1,7 +1,7 @@
 // Incident detail — right-hand triage drawer (WP-E; WP-F reuses this panel).
-// Header + Next steps bar (dd case page: Set severity [P] / Set status [S] /
-// Assign [A] / Escalate [!], with keyboard shortcut hints), time-in-status
-// strip, linked alarm card and the append-only notes timeline.
+// Header + Next steps bar (Set severity [P] / Set status [S] / Assign [A] /
+// Escalate [!], each with a keyboard shortcut hint), time-in-status strip,
+// linked alarm card and the append-only notes timeline.
 //
 // Backend honesty: only Set status and notes have real endpoints today.
 // Severity is fixed at declaration and there is no re-assign or incident
@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink } from 'react-router';
 import { ApiError, incidentApi, type IncidentStatus } from '../../lib/api';
 import { notifyApi } from '../notify/api';
-import { fmtAge, fmtDuration } from '../../lib/format';
+import { fmtAge, fmtDateTime, fmtDuration } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { DdIcon } from '../../shared/ui/DdIcon';
 import { Dropdown } from '../../shared/ui/Dropdown';
@@ -23,20 +23,23 @@ import { statusSegments, type LinkedAlarms } from './incidents';
 import '../notify/i18n';
 import './i18n';
 
-const fmt = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+// ── Pieces ───────────────────────────────────────────────────────────────────
 
+/* Red/amber and ▲◆● belong to severity (ISA-101: colour = priority). The
+   lifecycle is coded by emphasis instead — active is the loudest neutral,
+   resolved recedes — so an Active·Warning row doesn't read as critical. */
 const STATUS_STYLE: Record<IncidentStatus, string> = {
-  active: 'bg-danger-soft text-[var(--color-danger)]',
-  acknowledged: 'bg-caution-soft text-[var(--color-caution-ink)]',
-  resolved: 'bg-ok-soft text-[var(--color-ok-ink)]',
+  active: 'border-ink bg-paper text-ink',
+  acknowledged: 'border-control-line bg-paper text-ink-68',
+  resolved: 'border-transparent bg-neutral-soft text-ink-muted',
 };
-const STATUS_GLYPH: Record<IncidentStatus, string> = { active: '●', acknowledged: '◆', resolved: '✓' };
+const STATUS_GLYPH: Record<IncidentStatus, string> = { active: '○', acknowledged: '◐', resolved: '✓' };
 
-/** Status chip — colour + shape glyph + text (never colour alone). */
+/** Status chip — emphasis + glyph + text, no severity colours. */
 export function IncStatusPill({ status }: { status: IncidentStatus }) {
   const { t } = useTranslation();
   return (
-    <span className={`inline-flex h-5 items-center gap-1 rounded-[3px] px-1.5 text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[status]}`}>
+    <span className={`overline inline-flex h-5 items-center gap-1 rounded-[3px] border px-1.5 font-bold ${STATUS_STYLE[status]}`}>
       <span aria-hidden className="text-[8px] leading-none">{STATUS_GLYPH[status]}</span>
       {t(`inc.status.${status}`)}
     </span>
@@ -61,6 +64,8 @@ function MenuItem({ onClick, disabled, children }: { onClick?: () => void; disab
     </button>
   );
 }
+
+// ── Panel ────────────────────────────────────────────────────────────────────
 
 export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose }: {
   orgId: string; id: string; operable: boolean; linked: LinkedAlarms;
@@ -133,7 +138,7 @@ export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose 
       <div
         ref={ref} role="dialog" aria-modal="true"
         aria-label={inc?.title ?? t('inc.title')} tabIndex={-1}
-        className="fixed inset-y-0 right-0 z-50 flex w-[min(680px,100vw)] flex-col overflow-y-auto bg-white shadow-flyout outline-none"
+        className="fixed inset-y-0 right-0 z-50 flex w-[min(680px,100vw)] flex-col overflow-y-auto bg-paper shadow-flyout outline-none"
       >
         {/* header */}
         <div className="flex h-9 shrink-0 items-center justify-between border-b border-line px-4 text-[13px]">
@@ -157,7 +162,7 @@ export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose 
               </div>
               <h2 className="text-[18px] font-semibold leading-6">{inc.title}</h2>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-68">
-                <span className="inline-flex items-center gap-1"><DdIcon name="clock" size={12} />{fmt(inc.created_at)}</span>
+                <span className="inline-flex items-center gap-1"><DdIcon name="clock" size={12} />{fmtDateTime(inc.created_at)}</span>
                 <span className="inline-flex items-center gap-1"><DdIcon name="users" size={12} />{team ?? t('inc.unassigned')}</span>
               </div>
             </header>
@@ -165,12 +170,12 @@ export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose 
             {/* Next steps — operate+ only; viewers get a read-only note */}
             {operable ? (
               <div className="flex flex-wrap items-center gap-2 border-y border-line bg-subtle px-5 py-2.5" role="group" aria-label={t('inc.nextSteps')}>
-                <span className="mr-1 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-46">{t('inc.nextSteps')}</span>
+                <span className="overline mr-1">{t('inc.nextSteps')}</span>
                 <div ref={(el) => { trig.current.sev = el; }}>
                   <Dropdown align="left" title={t('inc.setSeverity')}
                     label={<>{t('inc.setSeverity')}<Kbd>P</Kbd></>}>
                     <div className="p-1.5">
-                      <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-46">{t('inc.sevNow', { sev: t(`alarms.${inc.severity}`) })}</p>
+                      <p className="overline px-2 pb-1 pt-1">{t('inc.sevNow', { sev: t(`alarms.${inc.severity}`) })}</p>
                       {(['critical', 'warning', 'info'] as const).map((s) => (
                         <MenuItem key={s} disabled><SeverityBadge severity={s} />{s === inc.severity && <DdIcon name="check" size={12} className="ml-auto" />}</MenuItem>
                       ))}
@@ -187,16 +192,16 @@ export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose 
                       <div className="p-1.5">
                         {inc.status === 'active' && (
                           <MenuItem onClick={() => { close(); status.mutate('acknowledged'); }}>
-                            <span aria-hidden className="text-[10px] text-[var(--color-caution-ink)]">◆</span>{t('inc.ackAction')}
+                            <span aria-hidden className="text-[10px] text-ink-68">{STATUS_GLYPH.acknowledged}</span>{t('inc.ackAction')}
                           </MenuItem>
                         )}
                         {inc.status !== 'resolved' && (
                           <MenuItem onClick={() => { close(); status.mutate('resolved'); }}>
-                            <span aria-hidden className="text-[10px] text-[var(--color-ok-ink)]">✓</span>{t('inc.resolveAction')}
+                            <span aria-hidden className="text-[10px] text-ink-68">{STATUS_GLYPH.resolved}</span>{t('inc.resolveAction')}
                           </MenuItem>
                         )}
                         {inc.status === 'resolved' && (
-                          <p className="px-2 py-1.5 text-[12px] text-ink-46">{t('inc.resolved')} {inc.resolved_at ? `· ${fmt(inc.resolved_at)}` : ''}</p>
+                          <p className="px-2 py-1.5 text-[12px] text-ink-46">{t('inc.resolved')} {inc.resolved_at ? `· ${fmtDateTime(inc.resolved_at)}` : ''}</p>
                         )}
                       </div>
                     )}
@@ -206,7 +211,7 @@ export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose 
                   <Dropdown align="left" title={t('inc.assign')}
                     label={<>{t('inc.assign')}<Kbd>A</Kbd></>}>
                     <div className="p-1.5">
-                      <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-46">
+                      <p className="overline px-2 pb-1 pt-1">
                         {t('inc.assignTitle', { team: team ?? t('inc.unassigned') })}
                       </p>
                       <p className="max-w-64 px-2 pb-1 text-[11px] leading-4 text-ink-46">{t('inc.assignBody')}</p>
@@ -258,9 +263,9 @@ export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose 
                 <ol className="flex overflow-hidden rounded-[5px] border border-line">
                   {statusSegments(inc).map((seg, i) => (
                     <li key={seg.status}
-                      className={`min-w-0 flex-1 px-3 py-2 ${i > 0 ? 'border-l border-line' : ''} ${seg.current ? 'bg-info-soft' : seg.reached ? 'bg-white' : 'bg-subtle'}`}
+                      className={`min-w-0 flex-1 px-3 py-2 ${i > 0 ? 'border-l border-line' : ''} ${seg.current ? 'bg-info-soft' : seg.reached ? 'bg-paper' : 'bg-subtle'}`}
                       aria-current={seg.current ? 'step' : undefined}>
-                      <span className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide ${seg.reached ? 'text-ink-68' : 'text-ink-35'}`}>
+                      <span className={`overline flex items-center gap-1 ${seg.reached ? 'text-ink-68' : 'text-ink-35'}`}>
                         <span aria-hidden className="text-[8px]">{STATUS_GLYPH[seg.status]}</span>
                         {t(`inc.status.${seg.status}`)}
                       </span>
@@ -280,7 +285,7 @@ export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose 
                 ) : !alarm ? (
                   <p className="rounded-[5px] border border-line bg-subtle px-3 py-2 text-[12px] text-ink-46">{t('inc.alarmGone')}</p>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[5px] border border-line bg-white px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[5px] border border-line bg-paper px-3 py-2">
                     <AlarmStateBadge state={alarm.state} ackedBy={alarm.acked_by} />
                     <SeverityBadge severity={alarm.severity} />
                     <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{alarm.rule}</span>
@@ -308,7 +313,7 @@ export function IncidentPanel({ orgId, id, operable, linked, onChanged, onClose 
                     {(d.data?.events ?? []).map((e, k) => (
                       <li key={k} className="relative py-1 text-[12px]">
                         <span className={`absolute -left-[17px] top-1.5 h-2 w-2 rounded-full ${e.kind === 'note' ? 'bg-blue' : 'bg-line-hard'}`} aria-hidden />
-                        <span className="font-mono text-ink-46">{fmt(e.at)}</span>{' '}
+                        <span className="text-ink-46">{fmtDateTime(e.at)}</span>{' '}
                         <span className="font-semibold">{e.who}</span>{' '}
                         <span className="text-ink-68">
                           {e.kind === 'note' ? e.body : e.kind === 'created' ? t('inc.evCreated') : t(`inc.status.${e.body}`)}

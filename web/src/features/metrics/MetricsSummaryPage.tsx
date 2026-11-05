@@ -16,93 +16,16 @@ import { HelpLink } from '../onboarding/HelpLink';
 import '../onboarding/i18n';
 import '../misc/i18n';
 
+// Equipment group — the path segment above the leaf ("line1/conv1/speed"
+// groups under "conv1"); a single-segment path groups under itself.
 const group = (path: string) => path.split('/').slice(-2, -1)[0] ?? path.split('/')[0];
 const PAGE = 100;
 
 const fmt = (v: number | null) =>
   v == null ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: 3 });
 
-export function MetricsSummaryPage() {
-  const { t } = useTranslation();
-  const { orgId, siteId } = usePrimaryScope();
-  const [q, setQ] = useState('');
-  const [offGroup, setOffGroup] = useState<Set<string>>(new Set());
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const [limit, setLimit] = useState(PAGE);
-
-  const stats = useQuery({
-    queryKey: ['tag-stats', orgId, siteId],
-    queryFn: () => tagQueryApi.stats(orgId!, siteId!),
-    enabled: !!orgId && !!siteId,
-    refetchInterval: 30_000,
-  });
-
-  const items = useMemo(() => stats.data?.items ?? [], [stats.data]);
-  const shown = items
-    .filter((s) => !offGroup.has(group(s.path)))
-    .filter((s) => !q || `${s.path} ${s.name}`.toLowerCase().includes(q.toLowerCase()));
-  const staleCount = items.filter((s) => s.count === 0).length;
-
-  return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="metric" title={t('nav.metricsSummary')}
-        lede={t('msum.lede', { total: items.length, stale: staleCount })} />
-      <div className="border-b border-line bg-white px-4 py-2">
-        <div className="relative">
-          <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" aria-hidden />
-          <input className="input w-full pl-7" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }}
-            placeholder={t('msum.searchPh')} aria-label={t('msum.searchPh')} />
-        </div>
-      </div>
-      <div className="flex flex-1 gap-4 p-4">
-        <aside className="hidden w-[220px] shrink-0 self-start border border-line bg-white md:block">
-          <FacetGroup title={t('msum.group')} off={offGroup} emptyLabel="—"
-            onToggle={(v) => setOffGroup((s) => toggleIn(s, v))} options={facetOptions(items, (s) => group(s.path))} />
-        </aside>
-        <section className="min-w-0 flex-1 overflow-x-auto rounded-[5px] border border-line bg-white">
-          {stats.isLoading ? (
-            <SkeletonRows rows={8} />
-          ) : stats.isError ? (
-            <ErrorState onRetry={stats.refetch} />
-          ) : shown.length === 0 ? (
-            <EmptyState
-              title={items.length === 0 ? t('msum.emptyAll') : t('msum.empty')}
-              body={items.length === 0 ? t('msum.emptyAllBody') : undefined}
-              icon="search"
-              action={items.length === 0 ? <HelpLink doc="dataSource" /> : undefined}
-            />
-          ) : (
-            <table className="w-full border-collapse text-[13px]">
-              <thead>
-                <tr className="border-b border-line text-left">
-                  <th className="w-8" aria-hidden />
-                  {(['signal', 'min', 'max', 'avg', 'count', 'value', 'gaps', 'updated'] as const).map((c) => (
-                    <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">
-                      {t(`msum.${c}`)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {shown.slice(0, limit).map((s) => (
-                  <StatRow key={s.tag_id} s={s} isOpen={open.has(s.tag_id)}
-                    onToggle={() => setOpen((o) => toggleIn(o, s.tag_id))} />
-                ))}
-              </tbody>
-            </table>
-          )}
-          {shown.length > limit && (
-            <div className="flex items-center justify-between border-t border-line px-3 py-2 text-[12px] text-ink-68">
-              {t('evx.shownOf', { shown: limit, total: shown.length })}
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLimit((n) => n + PAGE)}>{t('evx.showMore')}</button>
-            </div>
-          )}
-        </section>
-      </div>
-    </div>
-  );
-}
-
+/** One signal row — chevron expands a detail line under it with the same
+ *  numbers spelled out and a link through to Trends. */
 function StatRow({ s, isOpen, onToggle }: { s: TagStat; isOpen: boolean; onToggle: () => void }) {
   const { t } = useTranslation();
   return (
@@ -140,5 +63,88 @@ function StatRow({ s, isOpen, onToggle }: { s: TagStat; isOpen: boolean; onToggl
         </tr>
       )}
     </>
+  );
+}
+
+export function MetricsSummaryPage() {
+  const { t } = useTranslation();
+  const { orgId, siteId } = usePrimaryScope();
+  const [q, setQ] = useState('');
+  const [offGroup, setOffGroup] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const [limit, setLimit] = useState(PAGE);
+
+  const stats = useQuery({
+    queryKey: ['tag-stats', orgId, siteId],
+    queryFn: () => tagQueryApi.stats(orgId!, siteId!),
+    enabled: !!orgId && !!siteId,
+    refetchInterval: 30_000,
+  });
+
+  const items = useMemo(() => stats.data?.items ?? [], [stats.data]);
+  const shown = items
+    .filter((s) => !offGroup.has(group(s.path)))
+    .filter((s) => !q || `${s.path} ${s.name}`.toLowerCase().includes(q.toLowerCase()));
+  const staleCount = items.filter((s) => s.count === 0).length;
+
+  return (
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      <ProductHeader icon="metric" title={t('nav.metricsSummary')}
+        lede={stats.isLoading ? t('msum.loadingLede') : t('msum.lede', { total: items.length, stale: staleCount })} />
+      <div className="border-b border-line bg-paper px-4 py-2">
+        <div className="relative">
+          <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" aria-hidden />
+          <input className="input w-full pl-7" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }}
+            placeholder={t('msum.searchPh')} aria-label={t('msum.searchPh')} />
+        </div>
+      </div>
+      <div className="flex flex-1 gap-4 p-4">
+        <aside className="hidden w-[220px] shrink-0 self-start border border-line bg-paper md:block">
+          {stats.isLoading ? <div className="p-3"><SkeletonRows rows={4} /></div> : (
+            <FacetGroup title={t('msum.group')} off={offGroup} emptyLabel="—"
+              onToggle={(v) => setOffGroup((s) => toggleIn(s, v))} options={facetOptions(items, (s) => group(s.path))} />
+          )}
+        </aside>
+        <section className="min-w-0 flex-1 overflow-x-auto rounded-[5px] border border-line bg-paper">
+          {stats.isLoading ? (
+            <SkeletonRows rows={8} />
+          ) : stats.isError ? (
+            <ErrorState onRetry={stats.refetch} />
+          ) : shown.length === 0 ? (
+            <EmptyState
+              title={items.length === 0 ? t('msum.emptyAll') : t('msum.empty')}
+              body={items.length === 0 ? t('msum.emptyAllBody') : undefined}
+              icon="search"
+              action={items.length === 0 ? <HelpLink doc="dataSource" /> : undefined}
+            />
+          ) : (
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-line text-left">
+                  <th className="w-8" aria-hidden />
+                  {(['signal', 'min', 'max', 'avg', 'count', 'value', 'gaps', 'updated'] as const).map((c) => (
+                    <th key={c} scope="col" className="overline h-8 px-3">
+                      {t(`msum.${c}`)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.slice(0, limit).map((s) => (
+                  <StatRow key={s.tag_id} s={s} isOpen={open.has(s.tag_id)}
+                    onToggle={() => setOpen((o) => toggleIn(o, s.tag_id))} />
+                ))}
+              </tbody>
+            </table>
+          )}
+          {shown.length > limit && (
+            <div className="flex items-center justify-between border-t border-line px-3 py-2 text-[12px] text-ink-68">
+              {t('evx.shownOf', { shown: limit, total: shown.length })}
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLimit((n) => n + PAGE)}>{t('evx.showMore')}</button>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
   );
 }

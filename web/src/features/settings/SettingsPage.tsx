@@ -123,7 +123,8 @@ export function SettingsPage() {
             </Card>
 
             <Card>
-              <button type="button" className="btn btn-ghost h-9 text-[13px] font-semibold text-[var(--color-danger)]" onClick={signOut}>
+              {/* sign-out is not an abnormal action — ink, not red (same rule as the user menu) */}
+              <button type="button" className="btn btn-ghost h-9 text-[13px] font-semibold" onClick={signOut}>
                 <Icon name="logout" size={13} /> {t('shell.signOut')}
               </button>
             </Card>

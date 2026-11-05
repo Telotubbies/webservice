@@ -23,6 +23,7 @@ const W = 600; const H = 80;
 
 const isBucket = (r: TagHistoryRow | TagBucket): r is TagBucket => 'n' in r;
 
+/** Server-rendered CSV → file download; a manual fetch attaches the token. */
 async function downloadServerCsv(url: string, filename: string) {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -89,9 +90,9 @@ export function QueryPage() {
   };
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="database" title={t('px.query.title')} />
-      <div className="flex flex-wrap items-end gap-3 border-b border-line bg-white px-4 py-2">
+      <div className="flex flex-wrap items-end gap-3 border-b border-line bg-paper px-4 py-2">
         <label className="text-[12px] font-semibold text-ink-68">{t('px.query.metric')}
           <select className="input mt-1 block w-72 font-mono" value={tag} onChange={(e) => setTag(e.target.value)}>
             <option value="">{t('px.query.pick')}</option>
@@ -108,12 +109,12 @@ export function QueryPage() {
           <EmptyState title={t('px.query.noData')} icon="search" />
         ) : (
           <>
-            <div className="flex flex-wrap gap-6 rounded-[5px] border border-line bg-white p-4 text-[12px] text-ink-68">
+            <div className="flex flex-wrap gap-6 rounded-[5px] border border-line bg-paper p-4 text-[12px] text-ink-68">
               {(['count', 'min', 'max', 'avg', 'last'] as const).map((k) => (
                 <span key={k}><b className="block font-mono text-[20px] text-ink">{n(stats[k])}</b>{t(`px.query.${k}`)}</span>
               ))}
             </div>
-            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-24 w-full rounded-[5px] border border-line bg-white" role="img" aria-label={tag}>
+            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-24 w-full rounded-[5px] border border-line bg-paper" role="img" aria-label={tag}>
               <path d={path} fill="none" stroke="var(--color-blue)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
             </svg>
             {hist.data?.truncated && <p className="text-[12px] text-ink-46">{t('px.query.truncated')}</p>}

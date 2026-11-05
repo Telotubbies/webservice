@@ -11,46 +11,8 @@ import { canAdmin, useRole } from '../../app/session';
 import { EmptyState, Notice } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
 
-export function TeamsPage() {
-  const { t } = useTranslation();
-  const admin = canAdmin(useRole());
-  const { orgId } = useAdminOrg();
-  const qc = useQueryClient();
-  const list = useQuery({ queryKey: ['teams', orgId], queryFn: () => teamApi.list(orgId!), enabled: !!orgId });
-  const members = useQuery({ queryKey: ['members', orgId], queryFn: () => adminApi.members(orgId!), enabled: !!orgId && admin });
-  const done = () => qc.invalidateQueries({ queryKey: ['teams', orgId] });
-  const create = useMutation({ mutationFn: (name: string) => teamApi.create(orgId!, { name, description: '' }), onSuccess: done });
-  const setMembers = useMutation({ mutationFn: (v: { id: string; ids: string[] }) => teamApi.setMembers(orgId!, v.id, v.ids), onSuccess: done });
-  const remove = useMutation({ mutationFn: (id: string) => teamApi.remove(orgId!, id), onSuccess: done });
-  const [name, setName] = useState('');
-  const err = list.error ?? create.error ?? setMembers.error ?? remove.error;
-  const teams = list.data?.teams ?? [];
-
-  return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="on-call" title={t('team.title')} />
-      {err && <div className="px-4 pt-2"><Notice>{err instanceof ApiError && err.status === 409 ? t('team.duplicate') : t('team.failed')}</Notice></div>}
-      <div className="p-4">
-        {admin && (
-          <form className="mb-3 flex max-w-md gap-2" onSubmit={(e) => { e.preventDefault(); if (name.trim()) { create.mutate(name.trim()); setName(''); } }}>
-            <input className="input flex-1" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={t('team.namePh')} aria-label={t('team.namePh')} />
-            <button type="submit" className="btn btn-sm" disabled={!name.trim()}>{t('team.create')}</button>
-          </form>
-        )}
-        {teams.length === 0 ? <EmptyState title={t('team.empty')} icon="search" /> : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {teams.map((tm) => (
-              <TeamCard key={tm.id} team={tm} admin={admin} orgId={orgId!}
-                all={(members.data?.items ?? []).filter((m) => !m.disabled)}
-                onSave={(ids) => setMembers.mutate({ id: tm.id, ids })} onDelete={() => remove.mutate(tm.id)} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
+/** One team card — member list, a checkbox membership editor, and the
+ *  on-call panel underneath. Edit/delete are admin-only. */
 function TeamCard({ team, admin, orgId, all, onSave, onDelete }: {
   team: TeamRow; admin: boolean; orgId: string;
   all: { user_id: string; display_name: string | null; sub: string }[];
@@ -62,7 +24,7 @@ function TeamCard({ team, admin, orgId, all, onSave, onDelete }: {
   const start = () => { setSel(new Set(team.members.map((m) => m.user_id))); setEditing(true); };
   const flip = (id: string) => setSel((s) => { const n = new Set(s); if (!n.delete(id)) n.add(id); return n; });
   return (
-    <section className="rounded-[5px] border border-line bg-white p-4 text-[13px]">
+    <section className="rounded-[5px] border border-line bg-paper p-4 text-[13px]">
       <div className="flex items-center gap-2">
         <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold">{team.name}</h2>
         <span className="font-mono text-[11px] text-ink-46">{t('team.count', { count: team.members.length })}</span>
@@ -96,5 +58,45 @@ function TeamCard({ team, admin, orgId, all, onSave, onDelete }: {
         </>
       )}
     </section>
+  );
+}
+
+export function TeamsPage() {
+  const { t } = useTranslation();
+  const admin = canAdmin(useRole());
+  const { orgId } = useAdminOrg();
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ['teams', orgId], queryFn: () => teamApi.list(orgId!), enabled: !!orgId });
+  const members = useQuery({ queryKey: ['members', orgId], queryFn: () => adminApi.members(orgId!), enabled: !!orgId && admin });
+  const done = () => qc.invalidateQueries({ queryKey: ['teams', orgId] });
+  const create = useMutation({ mutationFn: (name: string) => teamApi.create(orgId!, { name, description: '' }), onSuccess: done });
+  const setMembers = useMutation({ mutationFn: (v: { id: string; ids: string[] }) => teamApi.setMembers(orgId!, v.id, v.ids), onSuccess: done });
+  const remove = useMutation({ mutationFn: (id: string) => teamApi.remove(orgId!, id), onSuccess: done });
+  const [name, setName] = useState('');
+  const err = list.error ?? create.error ?? setMembers.error ?? remove.error;
+  const teams = list.data?.teams ?? [];
+
+  return (
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      <ProductHeader icon="on-call" title={t('team.title')} />
+      {err && <div className="px-4 pt-2"><Notice>{err instanceof ApiError && err.status === 409 ? t('team.duplicate') : t('team.failed')}</Notice></div>}
+      <div className="p-4">
+        {admin && (
+          <form className="mb-3 flex max-w-md gap-2" onSubmit={(e) => { e.preventDefault(); if (name.trim()) { create.mutate(name.trim()); setName(''); } }}>
+            <input className="input flex-1" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={t('team.namePh')} aria-label={t('team.namePh')} />
+            <button type="submit" className="btn btn-sm" disabled={!name.trim()}>{t('team.create')}</button>
+          </form>
+        )}
+        {teams.length === 0 ? <EmptyState title={t('team.empty')} icon="search" /> : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {teams.map((tm) => (
+              <TeamCard key={tm.id} team={tm} admin={admin} orgId={orgId!}
+                all={(members.data?.items ?? []).filter((m) => !m.disabled)}
+                onSave={(ids) => setMembers.mutate({ id: tm.id, ids })} onDelete={() => remove.mutate(tm.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

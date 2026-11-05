@@ -9,6 +9,7 @@ export const SLO_WINDOW_KEYS = Object.keys(SLO_WINDOWS) as SloWindowKey[];
 const WIN_KEY = 'wds.slo.window';
 const PRESET_KEY = 'wds.slo.newDefaults';
 
+/** The list page's last-selected window; defaults to 30d. */
 export function listWindow(): SloWindowKey {
   try {
     const v = localStorage.getItem(WIN_KEY);
@@ -23,6 +24,7 @@ export function setListWindow(w: SloWindowKey): void {
 
 export interface SloPreset { target: number | null; warning: number | null }
 
+/** Saved defaults for the "New SLO" form; invalid stored values → nulls. */
 export function newSloPreset(): SloPreset {
   try {
     const raw = localStorage.getItem(PRESET_KEY);

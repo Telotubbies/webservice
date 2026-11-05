@@ -34,6 +34,7 @@ i18n.addResourceBundle('en', 'translation', { px: {
 msum: {
   lede: '{{total}} signals, {{stale}} with no stored samples.',
   searchPh: 'Filter signals…', group: 'Equipment group',
+  loadingLede: 'Counting signals…',
   signal: 'Signal', min: 'Min', max: 'Max', avg: 'Avg', count: 'Samples', value: 'Last', gaps: 'Gaps', updated: 'Updated',
   empty: 'No signals match', emptyAll: 'No tag history yet',
   emptyAllBody: 'History starts recording once a gateway ships tag samples.',
@@ -71,6 +72,7 @@ i18n.addResourceBundle('th', 'translation', { px: {
 msum: {
   lede: 'สัญญาณ {{total}} รายการ ไม่มีตัวอย่างที่บันทึก {{stale}} รายการ',
   searchPh: 'กรองสัญญาณ…', group: 'กลุ่มอุปกรณ์',
+  loadingLede: 'กำลังนับสัญญาณ…',
   signal: 'สัญญาณ', min: 'ต่ำสุด', max: 'สูงสุด', avg: 'เฉลี่ย', count: 'ตัวอย่าง', value: 'ล่าสุด', gaps: 'ช่องว่าง', updated: 'อัปเดต',
   empty: 'ไม่มีสัญญาณที่ตรง', emptyAll: 'ยังไม่มีประวัติแท็ก',
   emptyAllBody: 'ประวัติจะเริ่มบันทึกเมื่อเกตเวย์ส่งตัวอย่างแท็ก',

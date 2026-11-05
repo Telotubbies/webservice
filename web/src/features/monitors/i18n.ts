@@ -60,7 +60,7 @@ i18n.addResourceBundle('th', 'translation', { mon: {
   fStatus: 'สถานะ', fSeverity: 'ลำดับความสำคัญ', fMuted: 'ปิดเสียง', fKind: 'ชนิดกฎ', fArea: 'อุปกรณ์', fSignal: 'สัญญาณ',
   fTriggered: 'ที่ทริกเกอร์', viewMore: 'ดูค่าเพิ่มเติม', clear: 'ล้างตัวกรอง',
   alert: 'วิกฤต', warn: 'เตือน', nodata: 'ไม่มีข้อมูล', ok: 'ปกติ', disabled: 'ปิดใช้งาน',
-  muted: 'ปิดเสียง', notMuted: 'ไม่ปิดเสียง', mutedHint: 'แอลาร์มที่เปิดอยู่ของกฎนี้ถูกพักไว้',
+  muted: 'ปิดเสียง', notMuted: 'ไม่ปิดเสียง', mutedHint: 'สัญญาณเตือนที่เปิดอยู่ของกฎนี้ถูกพักไว้',
   openAlarms: 'เปิดอยู่ {{count}}', otherArea: 'อื่น ๆ',
   kind: { hi: 'สูง', hihi: 'สูงมาก', lo: 'ต่ำ', lolo: 'ต่ำมาก', stale: 'ขาดสัญญาณ', roc: 'อัตราเปลี่ยน', anomaly: 'ผิดปกติ', forecast: 'พยากรณ์' },
   cond: { gt: '> {{v}}', lt: '< {{v}}', stale: 'เงียบ > {{v}} วินาที', roc: 'อัตรา > {{v}}', none: 'เรียนรู้เอง' },
@@ -87,7 +87,7 @@ i18n.addResourceBundle('th', 'translation', { mon: {
   },
   onb: {
     noRules: 'ยังไม่มีมอนิเตอร์', noRulesBody: 'เริ่มจากชุดเทมเพลตหรือสร้างกฎแจ้งเตือนเพื่อเฝ้าดูสัญญาณ',
-    noAlarms: 'มี {{count}} กฎกำลังเฝ้าดู — ยังไม่มีแอลาร์มเกิดขึ้น',
+    noAlarms: 'มี {{count}} กฎกำลังเฝ้าดู — ยังไม่มีสัญญาณเตือนเกิดขึ้น',
     noAlarmsBody: 'การเฝ้าระวังทำงานอยู่ เพิ่มกฎเสริมจากชุดเทมเพลต หรือตรวจปลายทางการแจ้งเตือน',
     templates: 'ดูเทมเพลต', newRule: 'กฎใหม่', notify: 'ตั้งค่าการแจ้งเตือน',
   },

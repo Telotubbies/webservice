@@ -4,6 +4,8 @@
 import i18n from '../../lib/i18n';
 
 const en = {
+  exportNone: 'No exports yet. Request one to download all of this organization’s data.',
+  webhookDeleteTitle: 'Delete this webhook?', webhookDeleteBody: 'Events stop going to this URL right away. This cannot be undone.', webhookHttps: 'The URL must start with https://',
   // ---- plan / usage (settings -> plan)
   planTitle: 'Plan & usage',
   planLede: 'What this organization can use on its current plan.',
@@ -58,6 +60,8 @@ const en = {
 };
 
 const th = {
+  exportNone: 'ยังไม่มีไฟล์ส่งออก กดขอส่งออกเพื่อดาวน์โหลดข้อมูลทั้งหมดขององค์กรนี้',
+  webhookDeleteTitle: 'ลบเว็บฮุกนี้หรือไม่', webhookDeleteBody: 'ระบบจะหยุดส่งเหตุการณ์ไปยัง URL นี้ทันที และย้อนกลับไม่ได้', webhookHttps: 'URL ต้องขึ้นต้นด้วย https://',
   planTitle: 'แผนและการใช้งาน',
   planLede: 'สิ่งที่องค์กรนี้ใช้ได้ในแผนปัจจุบัน',
   plan: 'แผน', trialEnds: 'ทดลองใช้สิ้นสุด', suspended: 'ถูกระงับ',

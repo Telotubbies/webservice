@@ -1,6 +1,6 @@
-// shortcut: mock data, replace with API when an error-tracking endpoint exists.
-// Issues are plant-stack failures (edge bridge, ingest, vision, API, console)
-// so the page reads as part of this product, not a copy of someone else's.
+// Mock issue data — replace with a real feed when an error-tracking endpoint
+// exists. Issues are plant-stack failures (edge bridge, ingest, vision, API,
+// console) so the page reads as this product's own telemetry.
 
 export type IssueStatus = 'review' | 'reviewed' | 'ignored';
 

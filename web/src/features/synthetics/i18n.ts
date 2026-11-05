@@ -1,4 +1,4 @@
-// Heartbeat-check copy (Synthetics analog). Namespace `syn`.
+// Synthetics copy — the heartbeat-check pages. Namespaced `syn`.
 import i18n from '../../lib/i18n';
 
 i18n.addResourceBundle('en', 'translation', { syn: {

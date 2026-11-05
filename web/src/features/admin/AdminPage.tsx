@@ -12,7 +12,7 @@ import { AdminFrame, OrgScope } from './access';
 
 /* Edge status: glyph + text in ink on a tinted chip — the tint carries the
    colour cue, the glyph the shape cue, so contrast never depends on hue. */
-const EDGE_GLYPH: Record<string, string> = { up: '●', down: '■' };
+const EDGE_GLYPH: Record<string, string> = { up: '●', down: '▲', stale: '◆' };  // same shapes as Devices / Health
 
 export function AdminPage() {
   const { t } = useTranslation();
@@ -64,17 +64,16 @@ export function AdminPage() {
             <Table head={[t('health.colName'), t('admin.colStatus'), t('health.colHb'), t('health.colBuffer'), t('health.colClock')]}>
               {edgeItems.map((e) => (
                 <tr key={e.id}>
-                  <td className="font-medium">{e.name}</td>
+                  <td className="whitespace-nowrap font-medium">{e.name}</td>
                   <td>
-                    {/* up ● / down ■ / stale ◆ — colour + shape + text (ISA-101, WCAG 1.4.1) */}
-                    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold text-ink ${
-                      e.status === 'up' ? 'bg-[var(--color-ok-soft)]'
-                        : e.status === 'down' ? 'bg-[var(--color-danger-soft)]'
-                        : 'bg-[var(--color-caution-soft)]'
+                    {/* down ▲ / stale ◆ take colour; up and any status we don't know stay
+                        neutral — a healthy gateway is not news (ISA-101, WCAG 1.4.1) */}
+                    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      e.status === 'down' ? 'bg-danger-soft text-[var(--color-danger)]'
+                        : e.status === 'stale' ? 'bg-caution-soft text-[var(--color-caution-ink)]'
+                        : 'bg-neutral-soft text-ink'
                     }`}>
-                      <span aria-hidden className={`text-[9px] ${
-                        e.status === 'up' ? 'text-[var(--color-ok)]' : e.status === 'down' ? 'text-[var(--color-danger)]' : 'text-[var(--color-caution)]'
-                      }`}>{EDGE_GLYPH[e.status] ?? '◆'}</span>
+                      <span aria-hidden className="text-[9px]">{EDGE_GLYPH[e.status] ?? '●'}</span>
                       {t(`health.${e.status}`, { defaultValue: e.status })}
                     </span>
                   </td>
@@ -82,7 +81,7 @@ export function AdminPage() {
                   <td className="w-36">
                     <span className="flex items-center gap-1.5 font-mono text-[12px]">
                       {e.buffer_depth}
-                      {/* inline %-bar — dd host-list metric cell; cap from BUFFER_CAP=3600 */}
+                      {/* inline %-bar metric cell; cap from BUFFER_CAP=3600 */}
                       <span aria-hidden className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
                         <span className="block h-full bg-blue" style={{ width: `${Math.min(100, (e.buffer_depth / 3600) * 100)}%` }} />
                       </span>

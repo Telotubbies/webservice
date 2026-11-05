@@ -11,7 +11,7 @@ export function ProcessesPage() {
   const { t } = useTranslation();
   const f = useEdgeFleet();
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="container" title={t('px.processes.title')} />
       <div className="space-y-3 p-4">
         <p className="text-[12px] text-ink-68">

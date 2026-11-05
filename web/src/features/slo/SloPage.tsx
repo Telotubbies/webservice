@@ -1,5 +1,5 @@
 // SLOs — service-level objectives over tag availability, stored per org
-// (/api/v1/orgs/{org}/slos). WP-C: dd explorer layout — FacetSidebar on the
+// (/api/v1/orgs/{org}/slos). Explorer layout — FacetSidebar on the
 // left (state / type / equipment / signal), omnibar with `state:` tokens,
 // Breached/Warning/OK summary tiles, and a right-side detail panel opened
 // per row and deep-linked with `?slo=<id>`.
@@ -78,7 +78,8 @@ export function SloPage() {
   };
   const shown = base.filter((r) => passesFacets(sel, pick(r)));
 
-  // facet counts ignore that facet's own selection (dd behaviour)
+  // facet counts ignore that facet's own selection so a picked value
+  // doesn't collapse its own group to one row
   const count = (facet: string, value: string) =>
     base.filter((r) => passesFacets(sel, pick(r), facet) && pick(r)(facet) === value).length;
   const uniq = (f: string) => [...new Set(rows.map((r) => pick(r)(f)))].filter(Boolean).sort();
@@ -143,7 +144,7 @@ export function SloPage() {
       </div>
       <div className="grid md:grid-cols-[248px_minmax(0,1fr)]">
         <FacetSidebar
-          className={`border-b border-line bg-white p-3 md:sticky md:top-[80px] md:block md:max-h-[calc(100svh-80px)] md:overflow-y-auto md:border-b-0 md:border-r ${showFilters ? '' : 'hidden'}`}
+          className={`border-b border-line bg-paper p-3 md:sticky md:top-[80px] md:block md:max-h-[calc(100svh-80px)] md:overflow-y-auto md:border-b-0 md:border-r ${showFilters ? '' : 'hidden'}`}
           facets={facets} sel={sel}
           onToggle={(f, v) => setSel((s) => toggleFacet(s, f, v))}
           onClear={() => setSel({})}
@@ -156,19 +157,19 @@ export function SloPage() {
               placeholder={t('slos.queryPh')} aria-label={t('slos.queryPh')} />
           </div>
 
-          {/* summary tiles — Breached / Warning / OK (+ no-data and total) */}
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {STATUS_ORDER.map((s) => (
-              <div key={s} className={`rounded-[4px] px-3 py-2 ${STATUS_TILE[s]}`}>
-                <div className="text-[11px] font-semibold uppercase tracking-wide">
-                  <span aria-hidden>{STATUS_GLYPH[s]} </span>{t(`slos.status.${s}`)}
-                </div>
-                <div className="mt-1 font-mono text-[22px] font-semibold">{tileCount(s)}</div>
+          {/* summary strip — Breached / Warning / OK / no data + total; a segment
+              takes its status tint only when its count is non-zero */}
+          <div className="mt-3 grid grid-cols-2 overflow-hidden rounded-[5px] border border-line bg-paper sm:grid-cols-3 lg:grid-cols-5">
+            {STATUS_ORDER.map((s, i) => (
+              <div key={s} className={`flex min-w-0 items-center gap-2 px-3 py-2 text-[12px] ${i > 0 ? 'lg:border-l lg:border-line' : ''} ${tileCount(s) > 0 ? STATUS_TILE[s] : 'text-ink-68'}`}>
+                <span aria-hidden className="w-3 text-center text-[10px]">{STATUS_GLYPH[s]}</span>
+                <span className="min-w-0 truncate">{t(`slos.status.${s}`)}</span>
+                <span className={`ml-auto text-[16px] font-semibold tabular-nums ${tileCount(s) === 0 ? 'text-ink-46' : ''}`}>{tileCount(s)}</span>
               </div>
             ))}
-            <div className="rounded-[4px] border border-line bg-white px-3 py-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-68">{t('slos.total')}</div>
-              <div className="mt-1 font-mono text-[22px] font-semibold text-ink">{rows.length}</div>
+            <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-[12px] text-ink-68 lg:border-l lg:border-line">
+              <span className="min-w-0 truncate">{t('slos.total')}</span>
+              <span className="ml-auto text-[16px] font-semibold tabular-nums text-ink">{rows.length}</span>
             </div>
           </div>
 
@@ -182,7 +183,7 @@ export function SloPage() {
           {stat.isError && <div className="mt-2"><Notice tone="error">{t('slos.loadError')}</Notice></div>}
           {err && <div className="mt-2"><Notice tone="error">{err}</Notice></div>}
 
-          <section className="mt-2 overflow-x-auto rounded-[5px] border border-line bg-white">
+          <section className="mt-2 overflow-x-auto rounded-[5px] border border-line bg-paper">
             {defs.isLoading ? <div className="p-4"><Skeleton h={80} /></div> : defs.isError ? (
               <ErrorState onRetry={() => void defs.refetch()} />
             ) : rows.length === 0 ? (

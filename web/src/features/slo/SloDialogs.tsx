@@ -10,6 +10,7 @@ import { api, ApiError, sloApi, type SloDef } from '../../lib/api';
 import { Notice, PermissionNotice } from '../../shared/ui/Feedback';
 import { newSloPreset } from './prefs';
 
+/** Native <dialog> shell: backdrop click and Esc close via the browser. */
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDialogElement>(null);
@@ -27,6 +28,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
+/** Create/edit one SLO; new SLOs prefill from the browser-saved preset. */
 export function SloEditor({ org, initial, onSaved, onClose }: {
   org: string; initial: SloDef | null; onSaved: () => void; onClose: () => void;
 }) {
@@ -92,6 +94,7 @@ export function SloEditor({ org, initial, onSaved, onClose }: {
   );
 }
 
+// datetime-local wants local wall time, not UTC — shift off the timezone.
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
 /** Correction list + (for admins) the add/remove controls. Rendered inside
@@ -122,7 +125,7 @@ export function CorrectionsBody({ org, slo, admin, onChanged }: {
             <li key={c.id} className="flex items-start gap-2 px-3 py-2 text-[12px]">
               <div className="min-w-0 flex-1">
                 <p className="font-medium">{c.reason}</p>
-                <p className="font-mono text-ink-68">{new Date(c.starts_at).toLocaleString()} → {new Date(c.ends_at).toLocaleString()}</p>
+                <p className="text-ink-68">{new Date(c.starts_at).toLocaleString()} → {new Date(c.ends_at).toLocaleString()}</p>
               </div>
               {admin && (
                 <button type="button" className="grid h-7 w-7 place-items-center rounded text-[var(--color-danger)] hover:bg-subtle" aria-label={t('slos.removeCorrection')}

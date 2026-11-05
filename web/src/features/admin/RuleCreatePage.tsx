@@ -1,4 +1,4 @@
-// New rule — dd monitor-create pattern: numbered step sections, detection
+// New rule — a monitor-create layout: numbered step sections, detection
 // method cards, right sticky preview, bottom action bar. POSTs via
 // adminApi.createRule then returns to the rules list.
 // A11y: one <form> (Enter submits from any text field), method cards are a
@@ -34,7 +34,7 @@ const thresholdHint = (k: Kind) => (k === 'hi' ? 'access.thresholdHintHi' : k ==
 function StepHead({ n, title, as: As = 'h2' }: { n: number; title: string; as?: 'h2' | 'legend' }) {
   return (
     <As className="mb-2 flex items-center gap-2 text-[15px] font-semibold">
-      <span aria-hidden className="grid h-5 w-5 place-items-center rounded-full bg-purple-dd text-[11px] font-bold text-white">{n}</span>
+      <span aria-hidden className="grid h-5 w-5 place-items-center rounded-full border border-ink-46 bg-paper text-[11px] font-bold text-ink-68">{n}</span>
       {title}
     </As>
   );
@@ -191,7 +191,7 @@ export function RuleCreatePage() {
 
               <section className="mb-6" aria-labelledby={id('step2')}>
                 <h2 id={id('step2')} className="mb-2 flex items-center gap-2 text-[15px] font-semibold">
-                  <span aria-hidden className="grid h-5 w-5 place-items-center rounded-full bg-purple-dd text-[11px] font-bold text-white">2</span>
+                  <span aria-hidden className="grid h-5 w-5 place-items-center rounded-full border border-ink-46 bg-paper text-[11px] font-bold text-ink-68">2</span>
                   {t('admin.stepDefine')}
                 </h2>
                 <Card>
@@ -296,7 +296,7 @@ export function RuleCreatePage() {
 
               <section className="mb-6" aria-labelledby={id('step3')}>
                 <h2 id={id('step3')} className="mb-2 flex items-center gap-2 text-[15px] font-semibold">
-                  <span aria-hidden className="grid h-5 w-5 place-items-center rounded-full bg-purple-dd text-[11px] font-bold text-white">3</span>
+                  <span aria-hidden className="grid h-5 w-5 place-items-center rounded-full border border-ink-46 bg-paper text-[11px] font-bold text-ink-68">3</span>
                   {t('rn.step')}
                 </h2>
                 <Card>
@@ -305,7 +305,7 @@ export function RuleCreatePage() {
               </section>
             </div>
 
-            {/* right sticky preview — dd monitor-create right rail */}
+            {/* right sticky preview rail — follows the form while scrolling */}
             <aside className="hidden w-72 shrink-0 lg:block" aria-label={t('admin.rulePreview')}>
               <div className="sticky top-24">
                 <Card title={t('admin.rulePreview')}>
@@ -326,8 +326,8 @@ export function RuleCreatePage() {
           </div>
         </AdminFrame>
 
-        {/* bottom action bar — dd monitor-create */}
-        <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-line bg-white/95 px-4 py-2 backdrop-blur">
+        {/* bottom action bar — sticky so submit is always in reach */}
+        <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-line bg-paper/95 px-4 py-2 backdrop-blur">
           <span className="min-w-0 flex-1 text-[12px]" role="alert">
             {err ? <span className="text-[var(--color-danger)]">{err}</span>
               : errCount > 0 ? <span className="text-[var(--color-danger)]">{t('access.fixErrors')}</span> : null}

@@ -26,7 +26,7 @@ import './i18n';
 const AUTH_EVENTS = /^(auth|session|invite\.accepted|member\.)/;
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : '—');
 const th = 'h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68';
-const table = 'w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]';
+const table = 'w-full border-collapse rounded-[5px] border border-line bg-paper text-[13px]';
 
 export function AccessPage() {
   const { t } = useTranslation();
@@ -43,7 +43,7 @@ export function AccessPage() {
         <section>
           <h2 className="mb-2 text-[13px] font-semibold">{t('sec.rotation')}</h2>
           {fleet.loading ? <SkeletonRows rows={2} /> : due.length === 0 ? <Notice tone="ok">{t('sec.noRotation')}</Notice> : (
-            <ul className="rounded-[5px] border border-line bg-white text-[13px]">
+            <ul className="rounded-[5px] border border-line bg-paper text-[13px]">
               {due.map((e) => <li key={e.id} className="border-b border-line px-3 py-2 last:border-0"><span aria-hidden className="text-[var(--color-caution-ink)]">◆ </span>{e.name}</li>)}
             </ul>
           )}
@@ -61,7 +61,7 @@ export function AccessPage() {
                     <tbody>
                       {signins.map((a) => (
                         <tr key={a.seq} className="h-9 border-b border-line last:border-0">
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(a.at)}</td>
+                          <td className="whitespace-nowrap px-3 text-[12px]">{fmt(a.at)}</td>
                           <td className="px-3 font-mono text-[12px] text-ink-68">{a.actor}</td>
                           <td className="px-3">{a.action}</td>
                         </tr>
@@ -82,8 +82,8 @@ export function AccessPage() {
                         <tr key={k.id} className="h-9 border-b border-line last:border-0">
                           <td className="px-3">{k.name}</td>
                           <td className="px-3 font-mono text-[12px] text-ink-68">{k.prefix}…</td>
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(k.last_used_at)}</td>
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(k.expires_at)}</td>
+                          <td className="whitespace-nowrap px-3 text-[12px]">{fmt(k.last_used_at)}</td>
+                          <td className="whitespace-nowrap px-3 text-[12px]">{fmt(k.expires_at)}</td>
                           <td className="px-3 text-[12px]">{k.revoked_at ? t('sec.revoked') : t('sec.active')}</td>
                         </tr>
                       ))}
@@ -141,7 +141,7 @@ function MfaPolicy() {
   if (!q.data) return null;
   const err = m.error instanceof ApiError && m.error.status !== 401 ? m.error.message : null;
   return (
-    <section className="rounded-[5px] border border-line bg-white p-3 text-[13px]">
+    <section className="rounded-[5px] border border-line bg-paper p-3 text-[13px]">
       <label className="flex items-center gap-2 font-semibold">
         <input type="checkbox" checked={q.data.mfa_required} disabled={m.isPending}
           onChange={(e) => m.mutate(e.target.checked)} />

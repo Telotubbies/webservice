@@ -1,8 +1,8 @@
-// Heartbeat checks (the plant analog of Datadog Synthetics): one passing /
-// failing check per signal (fresh, good-quality sample inside the stale
-// window) plus the edge gateway heartbeats. Nothing is probed from outside —
-// every status is read from the live store and the edge fleet. Suites group
-// the checks by equipment, as dd groups tests into suites.
+// Synthetics — heartbeat checks for this site: one passing / failing check
+// per signal (a fresh, good-quality sample inside the stale window) plus the
+// edge gateway heartbeats. Nothing is probed from outside — every status is
+// read from the live store and the edge fleet. Checks group into suites by
+// equipment.
 
 import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -47,7 +47,7 @@ export function SyntheticsPage() {
     <>
       <PageBar icon="multi-heartbeat" title={t('px.synthetics.title')} tabs={tabs} />
       <div className="space-y-4 p-4">
-        <div className="flex flex-wrap gap-6 rounded-[5px] border border-line bg-white p-4 text-[12px] text-ink-68">
+        <div className="flex flex-wrap gap-6 rounded-[5px] border border-line bg-paper p-4 text-[12px] text-ink-68">
           {(['ok', 'stale', 'bad', 'none'] as const).map((s) => (
             <span key={s}><b className="block font-mono text-[22px] text-ink">{n(s)}</b><span aria-hidden>{GLYPH[s]}</span> {t(`px.synthetics.${s}`)}</span>
           ))}
@@ -58,7 +58,7 @@ export function SyntheticsPage() {
             {suites.map((s) => {
               const pct = Math.round((s.pass / s.list.length) * 100);
               return (
-                <li key={s.area} className="rounded-[5px] border border-line bg-white p-3">
+                <li key={s.area} className="rounded-[5px] border border-line bg-paper p-3">
                   <p className="text-[13px] font-semibold">{s.area === 'other' ? t('syn.otherArea') : t(`line.${s.area}`, { defaultValue: s.area })}</p>
                   <p className="mt-1 font-mono text-[22px] tabular-nums">{pct}<span className="text-[13px] text-ink-46">%</span></p>
                   <p className="text-[12px] text-ink-68">{t('syn.passing', { pass: s.pass, total: s.list.length })}</p>
@@ -69,7 +69,7 @@ export function SyntheticsPage() {
           </ul>
         </section>
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]">
+          <table className="w-full border-collapse rounded-[5px] border border-line bg-paper text-[13px]">
             <thead>
               <tr className="border-b border-line text-left">
                 {['colCheck', 'colStatus', 'colAge'].map((c) => (
@@ -85,7 +85,7 @@ export function SyntheticsPage() {
                     <tr key={r.tag} className="h-9 border-b border-line last:border-0">
                       <td className="px-3 font-mono text-[12px]">{r.tag}</td>
                       <td className="px-3"><span aria-hidden>{GLYPH[r.status]}</span> {t(`px.synthetics.${r.status}`)}</td>
-                      <td className="px-3 font-mono text-[12px] text-ink-68">{r.tv ? fmtAge(r.tv.ts, now) : '—'}</td>
+                      <td className="px-3 text-[12px] text-ink-68">{r.tv ? fmtAge(r.tv.ts, now) : '—'}</td>
                     </tr>
                   ))}
                 </Fragment>

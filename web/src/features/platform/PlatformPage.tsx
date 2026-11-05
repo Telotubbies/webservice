@@ -12,6 +12,7 @@ import { PageSkeleton, ErrorState, Notice } from '../../shared/ui/Feedback';
 
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : '—');
 
+/** Fleet-wide health counters for the staff landing view (30s refresh). */
 function Health() {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ['platform-health'], queryFn: platformApi.health, refetchInterval: 30_000 });

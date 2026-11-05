@@ -1,4 +1,4 @@
-// Security overview (dd Cloud Security › Overview): posture score, the three
+// Security overview: posture score, the three
 // worst high-severity rules, a severity breakdown, then one collapsible
 // section per control family listing each rule with its passed resources.
 // All numbers are computed from real org data (see posture.ts).
@@ -13,11 +13,14 @@ import { RULE_SEVERITIES, usePosture, type RuleSeverity, type SecRule } from './
 import { SEV_BAR, SevChip, useSecurityTabs } from './ui';
 import './i18n';
 
+// Control families in display order — one collapsible section each.
 const CONTROLS: SecRule['control'][] = ['access', 'credentials', 'edge', 'monitoring'];
 
+/** Score → text colour: green ≥ 80, amber ≥ 50, red below. */
 function scoreTone(p: number) {
   return p >= 80 ? 'text-[#1c7a4f]' : p >= 50 ? 'text-[#b86e00]' : 'text-[#c6283c]';
 }
+/** Round pass/fail badge used next to percentages. */
 const Mark = ({ ok }: { ok: boolean }) => (
   <span aria-label={ok ? 'pass' : 'fail'} className={`inline-grid h-5 w-5 shrink-0 place-items-center rounded-full text-white ${ok ? 'bg-[#1c9a67]' : 'bg-[#e5304f]'}`}>
     <DdIcon name={ok ? 'check' : 'cancel'} size={11} />
@@ -41,11 +44,11 @@ export function SecurityPage() {
           <EmptyState title={t('sec.empty')} icon="shield" />
         ) : (
           <>
-            <section className="grid gap-6 rounded-[5px] border border-line bg-white p-4 shadow-card lg:grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)_minmax(0,2fr)]">
+            <section className="grid gap-6 rounded-[5px] border border-line bg-paper p-4 shadow-card lg:grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)_minmax(0,2fr)]">
               <div>
                 <p className="text-[13px] font-semibold text-ink-68">{t('sec.frameworkRef')}</p>
                 <div className="mt-2 flex items-center gap-4">
-                  <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-blue text-white"><DdIcon name="security-monitoring" size={26} /></span>
+                  <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-neutral-soft text-ink-68"><DdIcon name="security-monitoring" size={26} /></span>
                   <div>
                     <p className="text-[13px] font-semibold">{t('sec.score')}</p>
                     <p className={`font-mono text-[44px] font-bold leading-none tabular-nums ${scoreTone(p.score ?? 0)}`}>{p.score}<span className="text-[22px]">%</span></p>
@@ -96,7 +99,7 @@ export function SecurityPage() {
               const pct = Math.round((passed / rules.length) * 100);
               const open = !closed.has(c);
               return (
-                <section key={c} className="rounded-[5px] border border-line bg-white shadow-card">
+                <section key={c} className="rounded-[5px] border border-line bg-paper shadow-card">
                   <button
                     type="button" aria-expanded={open}
                     className="flex min-h-12 w-full items-center gap-2 px-4 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue"

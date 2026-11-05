@@ -12,7 +12,6 @@ import { AdminNav } from './AdminNav';
 
 import { ROLE_ORDER, roleDesc, type OrgRole } from './access-util';
 
-
 /* Each role gets its own glyph, so the badge never relies on colour alone
    (WCAG 1.4.1 / ISA-101). Neutral palette: roles are not alarm states. */
 const ROLE_ICON: Record<string, DdIconName> = {
@@ -26,7 +25,7 @@ export function RoleBadge({ role, describedBy }: { role: string; describedBy?: s
   return (
     <span
       className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded border px-1.5 text-[11px] font-semibold ${
-        strong ? 'border-blue bg-info-soft text-ink' : 'border-line-hard bg-white text-ink'
+        strong ? 'border-blue bg-info-soft text-ink' : 'border-line-hard bg-paper text-ink'
       }`}
       data-role={role}
       aria-describedby={describedBy}
@@ -36,7 +35,6 @@ export function RoleBadge({ role, describedBy }: { role: string; describedBy?: s
     </span>
   );
 }
-
 
 /** Org + site + "your role here" strip. Rendered on every admin page so an
  *  admin who belongs to several organizations always sees which tenant the
@@ -115,7 +113,7 @@ const CAPS: { key: string; roles: OrgRole[] }[] = [
 export function RoleGuide({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const { t } = useTranslation();
   return (
-    <details className="group rounded-[5px] border border-line bg-white" open={defaultOpen}>
+    <details className="group rounded-[5px] border border-line bg-paper" open={defaultOpen}>
       <summary className="flex min-h-9 cursor-pointer items-center gap-2 px-3 text-[13px] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue">
         <DdIcon name="help" size={14} />
         {t('access.roleGuideTitle')}
@@ -154,7 +152,6 @@ export function RoleGuide({ defaultOpen = false }: { defaultOpen?: boolean }) {
     </details>
   );
 }
-
 
 /** Polite live region for "saved" confirmations (WCAG 4.1.3). Always
  *  mounted so screen readers pick up the text change. */

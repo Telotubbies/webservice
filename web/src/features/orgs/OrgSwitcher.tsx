@@ -31,7 +31,7 @@ export function OrgSwitcher() {
     <label className="flex min-w-0 items-center gap-1 text-[12px] text-white/80">
       <span className="sr-only">{t('org.switcher')}</span>
       <select
-        className="h-6 max-w-[160px] truncate rounded border border-white/20 bg-white/[0.08] px-1 text-[12px] text-white"
+        className="h-6 min-w-[84px] max-w-[160px] truncate rounded border border-white/20 bg-white/[0.08] px-1 text-[12px] text-white"
         value={active.orgId}
         onChange={(e) => onChange(e.target.value)}
       >

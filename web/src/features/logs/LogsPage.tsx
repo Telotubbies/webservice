@@ -51,9 +51,9 @@ export function LogsPage() {
     edges.data?.items.find((e) => e.id === id)?.name ?? id.slice(0, 8);
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="log-pipelines" title={t('px.logs.title')} />
-      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-white px-4 py-2">
+      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-paper px-4 py-2">
         <div className="relative flex-1">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" aria-hidden />
           <input className="input w-full pl-7 font-mono" value={q} onChange={(e) => setQ(e.target.value)}
@@ -66,12 +66,12 @@ export function LogsPage() {
         </select>
       </div>
       <div className="flex flex-1 gap-4 p-4">
-        <aside className="hidden w-[180px] shrink-0 self-start border border-line bg-white md:block" aria-label={t('evx.facets')}>
+        <aside className="hidden w-[180px] shrink-0 self-start border border-line bg-paper md:block" aria-label={t('evx.facets')}>
           <FacetGroup title={t('px.logs.colLevel')} off={offLevel} emptyLabel="—"
             onToggle={(v) => setOffLevel((s) => toggleIn(s, v))}
             options={LEVELS.map((l) => ({ value: l, label: l, count: items.filter((i) => i.level === l).length }))} />
         </aside>
-        <section className="min-w-0 flex-1 overflow-x-auto rounded-[5px] border border-line bg-white">
+        <section className="min-w-0 flex-1 overflow-x-auto rounded-[5px] border border-line bg-paper">
           {logs.isLoading ? (
             <SkeletonRows rows={10} />
           ) : logs.isError ? (

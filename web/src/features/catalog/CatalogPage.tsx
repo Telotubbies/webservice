@@ -26,19 +26,19 @@ export function CatalogPage() {
   const eqLabel = (v: string) => { const e = EQUIPMENT.find((x) => x.id === v); return e ? t(e.labelKey) : t('px.catalog.other'); };
   const shown = rows.filter((r) => !off.has(r.eq) && `${r.name} ${r.unit ?? ''} ${eqLabel(r.eq)}`.toLowerCase().includes(q.toLowerCase()));
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="books" title={t('px.catalog.title')} />
-      <div className="border-b border-line bg-white px-4 py-2">
+      <div className="border-b border-line bg-paper px-4 py-2">
         <input className="input w-full font-mono" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('px.catalog.queryPh')} aria-label={t('px.catalog.queryPh')} />
       </div>
       <div className="flex flex-1 gap-4 p-4">
-        <aside className="w-[220px] shrink-0 self-start border border-line bg-white">
+        <aside className="w-[220px] shrink-0 self-start border border-line bg-paper">
           <FacetGroup title={t('px.catalog.facetEquipment')} off={off} emptyLabel={t('px.empty')} onToggle={(v) => setOff((s) => toggleIn(s, v))}
             options={facetOptions(rows, (r) => r.eq, eqLabel)} />
         </aside>
         <div className="min-w-0 flex-1 overflow-x-auto">
           {tags.isLoading ? <SkeletonRows /> : tags.isError ? <ErrorState onRetry={tags.refetch} /> : shown.length === 0 ? <EmptyState title={t('px.empty')} icon="search" /> : (
-            <table className="w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]">
+            <table className="w-full border-collapse rounded-[5px] border border-line bg-paper text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">
                   {['colSignal', 'colEquipment', 'colUnit', 'colWritable', 'colQuality', 'colAge'].map((c) => (
@@ -57,7 +57,7 @@ export function CatalogPage() {
                       <td className="px-3 text-ink-68">{r.unit ?? '—'}</td>
                       <td className="px-3">{r.writable ? t('px.yes') : t('px.no')}</td>
                       <td className="px-3">{tv ? <QualityMark q={tv.q} stale={stale} /> : '—'}</td>
-                      <td className="px-3 font-mono text-[12px] text-ink-68">{tv ? fmtAge(tv.ts, now) : '—'}</td>
+                      <td className="px-3 text-[12px] text-ink-68">{tv ? fmtAge(tv.ts, now) : '—'}</td>
                     </tr>
                   );
                 })}

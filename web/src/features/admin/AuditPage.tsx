@@ -101,7 +101,7 @@ export function AuditPage() {
       <AdminFrame>
         {scope}
         <form
-          className="admin-export-form mb-3 flex flex-wrap items-end gap-3 rounded-[5px] border border-line bg-white p-3"
+          className="admin-export-form mb-3 flex flex-wrap items-end gap-3 rounded-[5px] border border-line bg-paper p-3"
           aria-label={t('access.auditFilters')}
           onSubmit={(e) => { e.preventDefault(); exportCsv(); }}
         >
@@ -156,7 +156,7 @@ export function AuditPage() {
                 {shown.map((r) => (
                   <tr key={r.seq}>
                     <td className="whitespace-nowrap py-1.5 text-[12px]">
-                      <time dateTime={r.at}>{new Date(r.at).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'medium' })}</time>
+                      <time dateTime={r.at}>{new Date(r.at).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'medium', hourCycle: 'h23' })}</time>
                     </td>
                     <td className="max-w-48 truncate py-1.5 text-[12px] font-medium" title={r.actor}>{who(r.actor)}</td>
                     <td className="py-1.5 text-[12px]">

@@ -18,10 +18,11 @@ import { useSyntheticsTabs } from './SyntheticsPage';
 import '../misc/i18n';
 import './i18n';
 
+/** Coverage tile — percent bar + fraction for one metric. */
 function Tile({ label, value, total }: { label: string; value: number; total: number }) {
   const pct = total ? Math.round((value / total) * 100) : 0;
   return (
-    <div className="rounded-[5px] border border-line bg-white p-4">
+    <div className="rounded-[5px] border border-line bg-paper p-4">
       <p className="text-[12px] text-ink-68">{label}</p>
       <p className="mt-1 font-mono text-[28px] font-semibold tabular-nums">{pct}<span className="text-[15px] text-ink-46">%</span></p>
       <p className="font-mono text-[12px] text-ink-46">{value}/{total}</p>
@@ -68,7 +69,7 @@ export function SyntheticsCoveragePage() {
             <section>
               <h3 className="mb-2 text-[13px] font-semibold">{t('syn.gaps')}</h3>
               {gaps.length === 0 ? <p className="text-[13px] text-ink-68">{t('syn.noGaps')}</p> : (
-                <ul className="divide-y divide-line rounded-[5px] border border-line bg-white text-[13px]">
+                <ul className="divide-y divide-line rounded-[5px] border border-line bg-paper text-[13px]">
                   {gaps.map((g) => (
                     <li key={g.tag} className="flex min-h-10 items-center gap-3 px-3">
                       <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{g.tag}</span>
@@ -79,7 +80,7 @@ export function SyntheticsCoveragePage() {
               )}
             </section>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] border-collapse rounded-[5px] border border-line bg-white text-[13px]">
+              <table className="w-full min-w-[560px] border-collapse rounded-[5px] border border-line bg-paper text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-left">
                     {['colSignal', 'colRules', 'colStaleRule', 'colLive'].map((c) => <th key={c} scope="col" className="overline h-8 px-3">{t(`syn.${c}`)}</th>)}

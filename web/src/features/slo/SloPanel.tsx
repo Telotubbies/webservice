@@ -1,4 +1,4 @@
-// SLO detail side panel — dd pattern: right drawer over the list with a
+// SLO detail side panel — a right drawer over the list with a
 // meta strip (time window · target · status · error budget), then tabs
 // Overview / Alerts / Corrections / Audit history.
 //
@@ -111,7 +111,7 @@ export function SloPanel({ org, row, admin, win, onWin, onEdit, onDelete, onClos
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} aria-hidden />
       <div
         ref={ref} role="dialog" aria-modal="true" aria-label={row.name} tabIndex={-1}
-        className="fixed inset-y-0 right-0 z-50 flex w-[min(760px,100vw)] flex-col overflow-y-auto bg-white shadow-flyout outline-none"
+        className="fixed inset-y-0 right-0 z-50 flex w-[min(760px,100vw)] flex-col overflow-y-auto bg-paper shadow-flyout outline-none"
       >
         {/* header: name + admin actions + close */}
         <header className="flex items-start gap-2 px-5 pb-2 pt-4">
@@ -185,7 +185,7 @@ export function SloPanel({ org, row, admin, win, onWin, onEdit, onDelete, onClos
             />
           )}
           {tab === 'alerts' && (
-            <div className="rounded-[5px] border border-line bg-white">
+            <div className="rounded-[5px] border border-line bg-paper">
               {alarms.isLoading ? <div className="p-4"><SkeletonRows rows={3} /></div>
                 : alarms.isError ? <ErrorState compact onRetry={() => void alarms.refetch()} />
                 : sliAlerts.length === 0 ? (
@@ -203,7 +203,7 @@ export function SloPanel({ org, row, admin, win, onWin, onEdit, onDelete, onClos
                       <tbody>
                         {sliAlerts.map((a) => (
                           <tr key={a.id} className="h-9 border-b border-line last:border-0 hover:bg-info-soft">
-                            <td className="whitespace-nowrap px-3 font-mono text-[12px] text-ink-68">{fmtAge(a.ts)}</td>
+                            <td className="whitespace-nowrap px-3 text-[12px] text-ink-68">{fmtAge(a.ts)}</td>
                             <td className="px-3"><SeverityBadge severity={a.severity} /></td>
                             <td className="max-w-0 truncate px-3" title={a.rule}>
                               <NavLink to={`/alarms?alarm=${encodeURIComponent(String(a.id))}`} className="text-blue hover:underline focus-visible:outline-2 focus-visible:outline-blue">
@@ -226,12 +226,12 @@ export function SloPanel({ org, row, admin, win, onWin, onEdit, onDelete, onClos
             </div>
           )}
           {tab === 'corrections' && (
-            <div className="rounded-[5px] border border-line bg-white p-4">
+            <div className="rounded-[5px] border border-line bg-paper p-4">
               <CorrectionsBody org={org} slo={row} admin={admin} onChanged={onChanged} />
             </div>
           )}
           {tab === 'audit' && (
-            <div className="rounded-[5px] border border-line bg-white">
+            <div className="rounded-[5px] border border-line bg-paper">
               {!admin ? <div className="p-4"><PermissionNotice role="admin" /></div>
                 : audit.isLoading ? <div className="p-4"><SkeletonRows rows={3} /></div>
                 : audit.isError ? <ErrorState compact onRetry={() => void audit.refetch()} />
@@ -286,7 +286,7 @@ function Overview({ row, win, onWin, hist, bd, rates, overS, truncated, toMs }: 
     <div className="space-y-4">
       {/* identity rows — creator/team aren't in the SLO contract; what exists:
           signal, equipment, type, updated, and the tag chips. */}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 rounded-[5px] border border-line bg-white px-4 py-3 text-[13px]">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 rounded-[5px] border border-line bg-paper px-4 py-3 text-[13px]">
         <dt className="text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-46">{t('slos.panel.signal')}</dt>
         <dd className="truncate font-mono" title={row.tag}>{row.tag || '—'}</dd>
         <dt className="text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-46">{t('slos.panel.equipment')}</dt>
@@ -300,11 +300,11 @@ function Overview({ row, win, onWin, hist, bd, rates, overS, truncated, toMs }: 
         {[`type:availability`, row.equipment !== 'other' && `equipment:${row.equipment}`, row.tag && `signal:${row.tag}`]
           .filter((x): x is string => typeof x === 'string')
           .map((tag) => (
-            <span key={tag} className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-[11px] text-ink-68">{tag}</span>
+            <span key={tag} className="rounded border border-line bg-paper px-1.5 py-0.5 font-mono text-[11px] text-ink-68">{tag}</span>
           ))}
       </div>
 
-      <details className="rounded-[5px] border border-line bg-white px-4 py-2.5">
+      <details className="rounded-[5px] border border-line bg-paper px-4 py-2.5">
         <summary className="cursor-pointer text-[13px] font-semibold focus-visible:outline-2 focus-visible:outline-blue">{t('slos.panel.details')}</summary>
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 pb-1 text-[13px]">
           {row.description && (
@@ -329,7 +329,7 @@ function Overview({ row, win, onWin, hist, bd, rates, overS, truncated, toMs }: 
             options={SLO_WINDOW_KEYS.map((w) => ({ value: w, label: w }))} />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-[5px] border border-line bg-white p-3">
+          <div className="rounded-[5px] border border-line bg-paper p-3">
             <p className="text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-46">{t('slos.panel.statusTile')}</p>
             <div className="mt-1 flex items-baseline gap-2">
               <span className={`font-mono text-[28px] font-semibold leading-none ${STATUS_TILE[row.status].split(' ')[1]}`}>
@@ -341,7 +341,7 @@ function Overview({ row, win, onWin, hist, bd, rates, overS, truncated, toMs }: 
             </div>
             <p className="mt-1 font-mono text-[11px] text-ink-46">{t('slos.panel.ofTarget', { target: row.target })}</p>
           </div>
-          <div className="rounded-[5px] border border-line bg-white p-3">
+          <div className="rounded-[5px] border border-line bg-paper p-3">
             <p className="text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-46">{t('slos.panel.budgetTile')}</p>
             <div className="mt-1 font-mono text-[28px] font-semibold leading-none">
               {row.budgetLeft == null ? '—' : `${row.budgetLeft.toFixed(0)}%`}
@@ -361,17 +361,17 @@ function Overview({ row, win, onWin, hist, bd, rates, overS, truncated, toMs }: 
       </div>
 
       {/* charts */}
-      {hist.isLoading ? <div className="rounded-[5px] border border-line bg-white p-4"><Skeleton h={190} /></div>
+      {hist.isLoading ? <div className="rounded-[5px] border border-line bg-paper p-4"><Skeleton h={190} /></div>
         : hist.isError ? <ErrorState compact onRetry={() => void hist.refetch()} />
         : !bd || bd.totalSamples === 0 ? (
           <EmptyState compact icon="search" title={t('slos.panel.noHistory')} body={t('slos.panel.noHistoryBody')} />
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-[5px] border border-line bg-white p-3">
+            <div className="rounded-[5px] border border-line bg-paper p-3">
               <h3 className="mb-1 text-[13px] font-semibold">{t('slos.panel.burndown')}</h3>
               <BurndownChart from={fromMs} to={toMs} bd={bd} corrections={row.corrections} />
             </div>
-            <div className="rounded-[5px] border border-line bg-white p-3">
+            <div className="rounded-[5px] border border-line bg-paper p-3">
               <h3 className="mb-1 text-[13px] font-semibold">{t('slos.panel.burnRate')}</h3>
               <BurnRateChart from={fromMs} to={toMs} buckets={bd.buckets} rates={rates} corrections={row.corrections} />
             </div>

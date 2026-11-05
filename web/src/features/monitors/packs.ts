@@ -1,7 +1,7 @@
-// Monitor template packs (dd "Create monitors from templates") — curated
-// plant rule bundles. Each rule definition binds to site tags by suffix
-// regex so a pack adapts to however many conveyors/bins/cameras the plant
-// actually has. Pure: page and tests share the derivation.
+// Monitor template packs — curated plant rule bundles. Each rule definition
+// binds to site tags by suffix regex so a pack adapts to however many
+// conveyors/bins/cameras the plant actually has. Pure: page and tests share
+// the derivation.
 
 import type { AdminRule, AdminTag, RuleInput } from '../../lib/api';
 import type { DdIconName } from '../../shared/ui/ddicons';

@@ -1,4 +1,4 @@
-// Monitor templates — dd "Monitors › Templates". Curated plant rule packs
+// Monitor templates — the rule-pack gallery. Curated plant rule packs
 // rendered as cards; Preview expands the exact rules a pack would create
 // (bound signal + will-create / already-exists / no-signal status); Install
 // writes real alarm rules via the v2 config endpoint. Admin installs;
@@ -27,6 +27,8 @@ const CHIP: Record<PackItem['status'], { cls: string; key: string }> = {
   notag: { cls: 'bg-sev-medium-soft text-sev-ink', key: 'mon.tpl.stNoTag' },
 };
 
+// One pack: name + rule count on the card, an expandable preview of the
+// resolved rules, and the gated Install action.
 function PackCard({ pack, orgId, siteId, admin }: {
   pack: RulePack; orgId: string; siteId: string; admin: boolean;
 }) {

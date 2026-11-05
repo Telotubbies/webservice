@@ -1,4 +1,4 @@
-// /slos/settings — dd "SLO settings" surface adapted to what this backend
+// /slos/settings — the SLO settings surface, shaped by what this backend
 // actually exposes. There is no org-preferences endpoint and no archived-SLO
 // store, so the page carries: (1) per-browser list defaults, labelled as
 // local; (2) the read-only service limits the backend enforces; (3) the

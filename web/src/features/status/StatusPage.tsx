@@ -41,7 +41,7 @@ export function StatusPage() {
 
       {q.isLoading && <SkeletonRows rows={4} />}
       {q.isError && (
-        <div className="rounded border border-line bg-white p-4" role="alert">
+        <div className="rounded border border-line bg-paper p-4" role="alert">
           <span className="flex items-center gap-2 text-[14px] font-semibold text-[var(--color-danger)]">
             <Icon name="warn" size={18} /> {t('st.failed')}
           </span>
@@ -50,13 +50,13 @@ export function StatusPage() {
 
       {q.data && (
         <>
-          <div className="rounded border border-line bg-white p-4" role="status">
+          <div className="rounded border border-line bg-paper p-4" role="status">
             <span className="flex items-center gap-2 text-[15px] font-semibold" style={{ color: tone }}>
               <Icon name={status === 'operational' ? 'check-circle' : 'warn'} size={20} />
               {t(`st.${status}`)}
             </span>
           </div>
-          <ul className="divide-y divide-line rounded border border-line bg-white">
+          <ul className="divide-y divide-line rounded border border-line bg-paper">
             {q.data.components.map((c) => (
               <li key={c.name} className="flex min-h-11 items-center gap-3 px-4 py-2">
                 <span className={c.ok ? 'text-[var(--color-ok)]' : 'text-[var(--color-danger)]'}>

@@ -10,8 +10,10 @@ import { dismissInstall, isIOS, promptInstall, useInstallOffer, useOnline, canPr
 import './i18n';
 
 const TABS: { to: string; key: string; icon: DdIconName; end?: boolean; badge?: boolean }[] = [
-  { to: '/', key: 'nav.overview', icon: 'home', end: true },
+  // phones get the light KPI summary; the 3D twin (/) stays one tap away in More
+  { to: '/overview', key: 'nav.overview', icon: 'home', end: true },
   { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled', badge: true },
+  { to: '/stops', key: 'nav.stops', icon: 'pause' },
   { to: '/trends', key: 'nav.trends', icon: 'graph-line' },
 ];
 
@@ -49,7 +51,7 @@ export function OfflineBanner() {
   const { t } = useTranslation();
   if (useOnline()) return null;
   return (
-    <div role="status" className="fixed inset-x-0 top-9 z-30 flex items-center gap-2 bg-[var(--color-warn)] px-4 py-2 text-[13px] font-semibold text-black">
+    <div role="status" className="fixed inset-x-0 top-10 z-30 flex items-center gap-2 bg-[var(--color-warn)] px-4 py-2 text-[13px] font-semibold text-black">
       <span aria-hidden>⚠</span> {t('mob.offline')}
     </div>
   );
@@ -62,7 +64,7 @@ export function InstallHint() {
   const offer = useInstallOffer();
   if (!offer) return null;
   return (
-    <div className="fixed inset-x-2 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] z-30 rounded-[5px] border border-line bg-white p-3 text-[13px] shadow-flyout md:hidden" role="region" aria-label={t('mob.installTitle')}>
+    <div className="fixed inset-x-2 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] z-30 rounded-[5px] border border-line bg-paper p-3 text-[13px] shadow-flyout md:hidden" role="region" aria-label={t('mob.installTitle')}>
       <p className="font-semibold">{t('mob.install')}</p>
       {!canPromptInstall() && isIOS() && <p className="mt-1 text-ink-68">{t('mob.installIos')}</p>}
       <div className="mt-2 flex justify-end gap-2">

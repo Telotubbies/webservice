@@ -22,12 +22,12 @@ export function TracesPage() {
   const detail = useQuery({ queryKey: ['trace', orgId, siteId, open], queryFn: () => adminApi.siteCommand(orgId!, siteId!, open!), enabled: on && !!open });
   const rows = list.data?.items ?? [];
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="service-map" title={t('px.traces.title')} />
       <div className="p-4">
         {!operable ? <Notice>{t('px.needOperator')}</Notice> : list.isLoading ? <SkeletonRows /> : list.isError ? <ErrorState onRetry={list.refetch} /> : rows.length === 0 ? <EmptyState title={t('px.empty')} icon="search" /> : (
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]">
+            <table className="w-full border-collapse rounded-[5px] border border-line bg-paper text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">
                   {['colId', 'colStatus', 'colIssued', 'colActor'].map((c) => (
@@ -41,7 +41,7 @@ export function TracesPage() {
                     <tr className="h-9 cursor-pointer border-b border-line hover:bg-info-soft" onClick={() => setOpen(open === c.id ? null : c.id)}>
                       <td className="px-3 font-mono text-[12px]"><button type="button" aria-expanded={open === c.id} className="text-blue hover:underline">…{c.id.slice(-8)}</button></td>
                       <td className="px-3">{c.status}</td>
-                      <td className="whitespace-nowrap px-3 font-mono text-[12px]">{new Date(c.issued_at).toLocaleString()}</td>
+                      <td className="whitespace-nowrap px-3 text-[12px]">{new Date(c.issued_at).toLocaleString()}</td>
                       <td className="px-3 text-ink-68">{c.actor?.display_name ?? '—'}</td>
                     </tr>
                     {open === c.id && (
@@ -51,7 +51,7 @@ export function TracesPage() {
                             <ol className="text-[12px]">
                               {(detail.data?.command.events ?? []).map((e, i) => (
                                 <li key={i} className="py-0.5">
-                                  <span className="font-mono text-ink-46">{new Date(e.at).toLocaleTimeString()}</span>{' '}
+                                  <span className="text-ink-46">{new Date(e.at).toLocaleTimeString()}</span>{' '}
                                   {e.from ?? '∅'} → <b>{e.to}</b> <span className="text-ink-68">{e.reason ?? ''}</span>
                                 </li>
                               ))}

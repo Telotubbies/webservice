@@ -1,4 +1,4 @@
-// Security › Issues — the inbox (dd "Security inbox"): every failing
+// Security › Issues — the security inbox: every failing
 // (rule, resource) pair, highest severity first. Selecting a row opens the
 // detail panel with where the resource sits, the fix, and the blast radius
 // (other resources failing the same rule).
@@ -40,7 +40,7 @@ export function IssuesPage() {
         {p.loading ? <SkeletonRows rows={6} h={44} /> : findings.length === 0 ? (
           <EmptyState title={t('sec.allPass')} icon="check" />
         ) : (
-          <div className="overflow-x-auto rounded-[5px] border border-line bg-white shadow-card">
+          <div className="overflow-x-auto rounded-[5px] border border-line bg-paper shadow-card">
             <table className="w-full min-w-[760px] border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">

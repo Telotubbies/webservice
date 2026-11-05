@@ -18,14 +18,14 @@ export const STATUS_ORDER: Status[] = ['breached', 'warning', 'ok', 'nodata'];
  *  alone. TILE = soft fill + strong ink; CHIP = pill text; BAR = bar fill. */
 export const STATUS_GLYPH: Record<Status, string> = { breached: '▲', warning: '◆', ok: '●', nodata: '○' };
 export const STATUS_TILE: Record<Status, string> = {
-  breached: 'bg-sev-high-soft text-sev-critical',
-  warning: 'bg-sev-medium-soft text-sev-ink',
+  breached: 'bg-danger-soft text-[var(--color-danger)]',
+  warning: 'bg-caution-soft text-[var(--color-caution-ink)]',
   ok: 'bg-ok-soft text-ok-ink',
   nodata: 'bg-neutral-soft text-ink-muted',
 };
 export const STATUS_CHIP: Record<Status, string> = {
-  breached: 'bg-sev-high-soft text-sev-critical',
-  warning: 'bg-sev-medium-soft text-sev-ink',
+  breached: 'bg-danger-soft text-[var(--color-danger)]',
+  warning: 'bg-caution-soft text-[var(--color-caution-ink)]',
   ok: 'bg-ok-soft text-ok-ink',
   nodata: 'bg-neutral-soft text-ink-muted',
 };
@@ -36,11 +36,12 @@ export const STATUS_BAR: Record<Status, string> = {
   nodata: 'bg-[var(--color-line-hard)]',
 };
 
+/** SLI vs target/warning thresholds → display status. */
 export const sloStatus = (sli: number | null, target: number, warning: number): Status =>
   sli == null ? 'nodata' : sli < target ? 'breached' : sli < warning ? 'warning' : 'ok';
 
 /** Share of the allowed bad fraction still unspent, in percent.
- *  Negative = out of budget (the "−446%" dd shows). */
+ *  Negative = out of budget (e.g. −446% when the budget is long spent). */
 export function budgetLeftPct(sli: number | null, target: number): number | null {
   if (sli == null || target >= 100) return null;
   return (1 - (100 - sli) / (100 - target)) * 100;
@@ -91,6 +92,7 @@ const STATE_ALIAS: Record<string, Status> = {
   nodata: 'nodata', 'no_data': 'nodata', none: 'nodata',
 };
 
+/** True when every token in the omnibar query matches (ANDed). */
 export function matchSlo(r: SloRow, query: string): boolean {
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!tokens.length) return true;

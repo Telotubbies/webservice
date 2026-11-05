@@ -30,7 +30,7 @@ const mb = (b: number) => (b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(2)} GB` : b
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="min-w-0 flex-1 rounded border border-line bg-white px-3 py-2">
+    <div className="min-w-0 flex-1 rounded border border-line bg-paper px-3 py-2">
       <p className="truncate text-[11px] text-ink-46">{label}</p>
       <p className="text-[28px] font-semibold leading-tight tabular-nums">{value}</p>
       {sub && <p className="truncate text-[11px] text-ink-46">{sub}</p>}

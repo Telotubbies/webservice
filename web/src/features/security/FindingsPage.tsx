@@ -1,4 +1,4 @@
-// Security › Findings — explorer (dd Vulnerabilities explorer shape): search,
+// Security › Findings — the findings explorer: search,
 // "group by" tabs, a facet sidebar, an expandable group list, and the same
 // detail panel as the inbox. `?rule=<id>` pre-filters to one rule (linked from
 // the overview). Findings are failing (rule, resource) pairs — see posture.ts.
@@ -73,7 +73,7 @@ export function FindingsPage() {
       <PageBar icon="security-monitoring" title={t('sec.title')} tabs={tabs} />
       <div className="space-y-3 p-4 pb-0">
         {!p.admin && <Notice>{t('sec.needAdmin')}</Notice>}
-        <div className="flex items-center gap-2 rounded-[5px] border border-line bg-white px-3">
+        <div className="flex items-center gap-2 rounded-[5px] border border-line bg-paper px-3">
           <Icon name="search" size={13} className="text-ink-35" />
           <input className="h-9 min-w-0 flex-1 bg-transparent font-mono text-[13px] outline-none placeholder:font-sans" placeholder={t('sec.search')} aria-label={t('sec.search')} value={q} onChange={(e) => setQ(e.target.value)} />
           {ruleParam && (
@@ -84,7 +84,7 @@ export function FindingsPage() {
         </div>
         <div className="flex items-center gap-2 text-[13px] text-ink-68">
           <span>{t('sec.groupBy')}</span>
-          <div role="tablist" aria-label={t('sec.groupBy')} className="inline-flex overflow-hidden rounded border border-line-hard bg-white">
+          <div role="tablist" aria-label={t('sec.groupBy')} className="inline-flex overflow-hidden rounded border border-line-hard bg-paper">
             {([['rule', 'sec.gRule'], ['resource', 'sec.gResource'], ['none', 'sec.gNone']] as const).map(([v, k]) => (
               <button
                 key={v} type="button" role="tab" aria-selected={group === v}
@@ -98,7 +98,7 @@ export function FindingsPage() {
       <div className={`grid pt-3 ${hide ? '' : 'md:grid-cols-[260px_minmax(0,1fr)]'}`}>
         {!hide && (
           <FacetSidebar
-            className="hidden border-b border-line bg-white p-3 md:block md:border-b-0 md:border-r"
+            className="hidden border-b border-line bg-paper p-3 md:block md:border-b-0 md:border-r"
             facets={facets} sel={sel} onToggle={(f, v) => setSel((s) => toggleFacet(s, f, v))} onClear={() => setSel({})}
             viewMore={t('sec.viewMore')} clearLabel={t('sec.clear')}
           />
@@ -113,7 +113,7 @@ export function FindingsPage() {
           {p.loading ? <SkeletonRows rows={6} h={44} /> : groups.length === 0 ? (
             <EmptyState title={all.length === 0 ? t('sec.allPass') : t('sec.noFindings')} icon={all.length === 0 ? 'check' : 'search'} />
           ) : (
-            <div className="overflow-x-auto rounded-[5px] border border-line bg-white shadow-card">
+            <div className="overflow-x-auto rounded-[5px] border border-line bg-paper shadow-card">
               <table className="w-full min-w-[640px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-left">

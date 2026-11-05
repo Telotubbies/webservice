@@ -20,6 +20,43 @@ import { Confirm } from '../../shared/ui/Confirm';
 import { AdminFrame, OrgScope, LiveStatus } from './access';
 import { explainError } from './access-util';
 
+/** Inline routing editor for one rule — loads the current PUT body, edits
+ * it through the shared RuleNotifyEditor, saves back over the same path. */
+function RuleRoutingRow({ orgId, rule, onClose }: {
+  orgId: string; rule: AdminRule; onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const cur = useQuery({
+    queryKey: ['rule-notify', orgId, rule.id],
+    queryFn: () => notifyApi.ruleNotify(orgId, rule.id),
+  });
+  const [v, setV] = useState<RuleNotify | null>(null);
+  const [err, setErr] = useState('');
+  const [saved, setSaved] = useState(false);
+  const value = v ?? cur.data?.notify ?? EMPTY_NOTIFY;
+
+  const save = useMutation({
+    mutationFn: () => notifyApi.setRuleNotify(orgId, rule.id, value),
+    onSuccess: () => { setSaved(true); setErr(''); },
+    onError: () => { setErr(t('rn.failed')); setSaved(false); },
+  });
+
+  return (
+    <div>
+      <RuleNotifyEditor orgId={orgId} value={value} onChange={(x) => { setV(x); setSaved(false); }} />
+      <div className="mt-2 flex items-center gap-2">
+        <button type="button" className="btn btn-sm" disabled={save.isPending || cur.isLoading}
+          onClick={() => save.mutate()}>
+          {t('rn.save')}
+        </button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>{t('common.close')}</button>
+        {saved && <span className="text-[12px] text-[var(--color-ok)]" role="status">✓ {t('rn.saved')}</span>}
+        {err && <span className="text-[12px] text-[var(--color-danger)]" role="alert">{err}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function AlarmRulesPage() {
   const { t } = useTranslation();
   const { orgId, orgName, orgRole, loading } = useAdminOrg();
@@ -195,42 +232,5 @@ export function AlarmRulesPage() {
         />
       )}
     </>
-  );
-}
-
-/** Inline routing editor for one rule — loads the current PUT body, edits
- * it through the shared RuleNotifyEditor, saves back over the same path. */
-function RuleRoutingRow({ orgId, rule, onClose }: {
-  orgId: string; rule: AdminRule; onClose: () => void;
-}) {
-  const { t } = useTranslation();
-  const cur = useQuery({
-    queryKey: ['rule-notify', orgId, rule.id],
-    queryFn: () => notifyApi.ruleNotify(orgId, rule.id),
-  });
-  const [v, setV] = useState<RuleNotify | null>(null);
-  const [err, setErr] = useState('');
-  const [saved, setSaved] = useState(false);
-  const value = v ?? cur.data?.notify ?? EMPTY_NOTIFY;
-
-  const save = useMutation({
-    mutationFn: () => notifyApi.setRuleNotify(orgId, rule.id, value),
-    onSuccess: () => { setSaved(true); setErr(''); },
-    onError: () => { setErr(t('rn.failed')); setSaved(false); },
-  });
-
-  return (
-    <div>
-      <RuleNotifyEditor orgId={orgId} value={value} onChange={(x) => { setV(x); setSaved(false); }} />
-      <div className="mt-2 flex items-center gap-2">
-        <button type="button" className="btn btn-sm" disabled={save.isPending || cur.isLoading}
-          onClick={() => save.mutate()}>
-          {t('rn.save')}
-        </button>
-        <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>{t('common.close')}</button>
-        {saved && <span className="text-[12px] text-[var(--color-ok)]" role="status">✓ {t('rn.saved')}</span>}
-        {err && <span className="text-[12px] text-[var(--color-danger)]" role="alert">{err}</span>}
-      </div>
-    </div>
   );
 }

@@ -161,8 +161,8 @@ export function UsersPage() {
                             )}
                           </td>
                           <td className="py-1.5">
-                            <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold text-ink ${m.disabled ? 'bg-[var(--color-danger-soft)]' : 'bg-[var(--color-ok-soft)]'}`}>
-                              <span aria-hidden className={`text-[9px] ${m.disabled ? 'text-[var(--color-danger)]' : 'text-[var(--color-ok)]'}`}>{m.disabled ? '■' : '●'}</span>
+                            <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold text-ink ${m.disabled ? 'bg-[var(--color-danger-soft)]' : 'bg-neutral-soft'}`}>
+                              <span aria-hidden className={`text-[9px] ${m.disabled ? 'text-[var(--color-danger)]' : 'text-ink-46'}`}>{m.disabled ? '■' : '●'}</span>
                               {m.disabled ? t('admin.disabled') : t('admin.active')}
                             </span>
                           </td>
@@ -246,7 +246,7 @@ export function UsersPage() {
             {invToken && (
               <div className="border-b border-line bg-subtle px-3 py-2">
                 <p className="flex items-center gap-1 text-[12px] font-semibold text-ink"><Icon name="warn" size={12} />{t('admin.inviteTokenOnce')}</p>
-                <code className="mt-1 block break-all rounded border border-line bg-white p-1.5 font-mono text-[11px]">{invToken}</code>
+                <code className="mt-1 block break-all rounded border border-line bg-paper p-1.5 font-mono text-[11px]">{invToken}</code>
                 <button
                   type="button"
                   className="btn btn-sm btn-ghost mt-1.5"

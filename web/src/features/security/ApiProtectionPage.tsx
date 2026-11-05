@@ -1,5 +1,5 @@
-// Security › API protection (dd "App & API Protection › Policies › Business
-// Logic"): the sensitive API events the plant records, each with its 7-day
+// Security › API protection: the sensitive API events the plant records,
+// each with its 7-day
 // volume and the actors raising it. Events are the org audit log's distinct
 // `entity.verb` actions — nothing is hard-coded, so a new audited action
 // appears here on its own. A second tab lists the API clients (keys) that
@@ -17,18 +17,20 @@ import { useSecurityTabs } from './ui';
 import './i18n';
 
 const WEEK = 7 * 86_400_000;
+// Audit actions about accounts/access split from the plant-operations rest.
 const ACCOUNT = /^(auth|session|member|invite|api_key|edge|org|user)\b/;
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : '—');
 
 interface EventRow { action: string; count: number; actors: string[]; last: string }
 
+/** One titled table of audited API events (count, actors, per-row fix link). */
 function Section({ title, body, list, describe }: { title: string; body: string; list: EventRow[]; describe: (a: string) => string }) {
   const { t } = useTranslation();
   return (
     <section>
       <h2 className="text-[16px] font-semibold">{title}</h2>
       <p className="mb-2 text-[13px] text-ink-68">{body}</p>
-      <div className="overflow-x-auto rounded-[5px] border border-line bg-white shadow-card">
+      <div className="overflow-x-auto rounded-[5px] border border-line bg-paper shadow-card">
         <table className="w-full min-w-[760px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-line text-left">
@@ -48,8 +50,8 @@ function Section({ title, body, list, describe }: { title: string; body: string;
                 <td className="px-3 font-mono tabular-nums text-blue">{r.count.toLocaleString()}</td>
                 <td className="px-3">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-[12px]">{r.actors[0]}</span>
-                    {r.actors.length > 1 && <span className="rounded border border-line bg-white px-1.5 py-0.5 text-[12px]">+{r.actors.length - 1}</span>}
+                    <span className="rounded border border-line bg-paper px-1.5 py-0.5 font-mono text-[12px]">{r.actors[0]}</span>
+                    {r.actors.length > 1 && <span className="rounded border border-line bg-paper px-1.5 py-0.5 text-[12px]">+{r.actors.length - 1}</span>}
                   </span>
                 </td>
                 <td className="px-3 text-ink-68">{t('sec.noRule')} <NavLink to="/admin/rules/new" className="text-blue hover:underline">{t('sec.createRule')}</NavLink></td>
@@ -117,7 +119,7 @@ export function ApiProtectionPage() {
             <Section title={t('sec.opsTitle')} body={t('sec.opsBody')} list={plant} describe={describe} />
           </>
         ) : p.keys.length === 0 ? <EmptyState title={t('sec.noKeys')} icon="search" /> : (
-          <div className="overflow-x-auto rounded-[5px] border border-line bg-white shadow-card">
+          <div className="overflow-x-auto rounded-[5px] border border-line bg-paper shadow-card">
             <table className="w-full min-w-[640px] border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">{['colName', 'colPrefix', 'colRole', 'colLastUsed', 'colExpires', 'colState'].map((c) => <th key={c} scope="col" className="overline h-8 px-3">{t(`sec.${c}`)}</th>)}</tr>
@@ -128,8 +130,8 @@ export function ApiProtectionPage() {
                     <td className="px-3 font-semibold">{k.name}</td>
                     <td className="px-3 font-mono text-[12px] text-ink-68">{k.prefix}…</td>
                     <td className="px-3">{t(`roles.${k.role}`, { defaultValue: k.role })}</td>
-                    <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(k.last_used_at)}</td>
-                    <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(k.expires_at)}</td>
+                    <td className="whitespace-nowrap px-3 text-[12px]">{fmt(k.last_used_at)}</td>
+                    <td className="whitespace-nowrap px-3 text-[12px]">{fmt(k.expires_at)}</td>
                     <td className="px-3 text-[12px]">{k.revoked_at ? t('sec.revoked') : t('sec.active')}</td>
                   </tr>
                 ))}

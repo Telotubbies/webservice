@@ -130,7 +130,8 @@ export const platformApi = {
   health: () => request<PlatformHealth>(`${P}/health`),
 };
 
-/** true when the caller holds a platform_admins row (probe once per mount). */
+/** True when the API rejected the call as non-platform-admin (401/403) —
+ *  pages render the restricted notice instead of throwing. */
 export function isPlatformDenied(e: unknown): boolean {
   return e instanceof ApiError && (e.status === 403 || e.status === 401);
 }

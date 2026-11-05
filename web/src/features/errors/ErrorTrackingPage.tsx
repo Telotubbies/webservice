@@ -1,6 +1,6 @@
 // Error Tracking — issue explorer: facet panel (left), issue list (centre),
-// issue detail with hourly histogram + stack trace (right). Layout follows
-// the issue-explorer anatomy studied in ref/datadog (reference only).
+// issue detail with hourly histogram + stack trace (right). Data is the
+// local mock in ./errors.mock until a backend endpoint exists.
 
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -34,140 +34,8 @@ function ago(minutes: number, t: TFunction): string {
   return t('errtrack.agoD', { n: Math.round(minutes / 1440) });
 }
 
-export function ErrorTrackingPage() {
-  const { t } = useTranslation();
-  const [tab, setTab] = useState<'issues' | 'settings'>('issues');
-  const [q, setQ] = useState('');
-  // unchecked values per facet; empty set = everything shown
-  const [off, setOff] = useState<Record<FacetKey, Set<string>>>(
-    () => ({ service: new Set(), env: new Set(), type: new Set(), status: new Set() }),
-  );
-  const [selId, setSelId] = useState<string>(ISSUES[0].id);
-
-  const shown = useMemo(
-    () => ISSUES.filter((i) => FACETS.every((f) => !off[f].has(String(i[f])))).filter((i) => matchQuery(i, q)),
-    [off, q],
-  );
-  const sel = shown.find((i) => i.id === selId) ?? shown[0] ?? null;
-
-  const counts = (f: FacetKey) => {
-    const m = new Map<string, number>();
-    for (const i of ISSUES) m.set(String(i[f]), (m.get(String(i[f])) ?? 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  };
-  const toggle = (f: FacetKey, v: string) => setOff((o) => {
-    const next = new Set(o[f]);
-    if (next.has(v)) next.delete(v); else next.add(v);
-    return { ...o, [f]: next };
-  });
-  const anyOff = FACETS.some((f) => off[f].size > 0);
-
-  const tabBtn = (v: 'issues' | 'settings', label: string) => (
-    <button
-      type="button" role="tab" aria-selected={tab === v} onClick={() => setTab(v)}
-      className={`flex h-11 items-center border-b-2 px-3 text-[13px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue ${
-        tab === v ? 'border-blue font-semibold text-ink' : 'border-transparent text-ink-68 hover:text-blue'
-      }`}
-    >{label}</button>
-  );
-
-  return (
-    <div className="errors-page flex min-h-[calc(100svh-36px)] flex-col">
-      {/* page header — product icon + title + tabs, settings at right */}
-      <div className="sticky top-9 z-10 flex h-11 items-center gap-1 border-b border-line bg-white px-4">
-        <DdIcon name="error-tracking" size={16} />
-        <h1 className="mr-4 ml-1.5 text-[15px] font-semibold">{t('errtrack.title')}</h1>
-        <div role="tablist" aria-label={t('errtrack.title')} className="flex">
-          {tabBtn('issues', t('errtrack.tabIssues'))}
-          {tabBtn('settings', t('errtrack.tabSettings'))}
-        </div>
-      </div>
-
-      {tab === 'settings' ? (
-        <div className="p-4"><Notice>{t('errtrack.settingsSoon')}</Notice></div>
-      ) : (
-        <>
-          <div className="flex items-center gap-2 border-b border-line bg-white px-4 py-2">
-            <div className="relative flex-1">
-              <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
-              <input
-                className="input w-full pl-7" value={q} onChange={(e) => setQ(e.target.value)}
-                placeholder={t('errtrack.queryPh')} aria-label={t('errtrack.queryLabel')}
-              />
-            </div>
-            <span className="rounded border border-line px-2 py-1 font-mono text-[11px] text-ink-68">{t('errtrack.last24h')}</span>
-          </div>
-          <div className="px-4 pt-2"><Notice>{t('errtrack.mock')}</Notice></div>
-
-          <div className="flex min-h-0 flex-1 gap-0 p-4 pt-2">
-            {/* facets */}
-            <aside className="w-[220px] shrink-0 overflow-y-auto border border-line bg-white" aria-label={t('errtrack.facets')}>
-              <div className="flex items-center justify-between border-b border-line px-3 py-2 text-[11px] text-ink-46">
-                <span>{t('errtrack.showing', { shown: shown.length, total: ISSUES.length })}</span>
-                {anyOff && (
-                  <button type="button" className="text-blue hover:underline" onClick={() => setOff({ service: new Set(), env: new Set(), type: new Set(), status: new Set() })}>
-                    {t('errtrack.clearFacets')}
-                  </button>
-                )}
-              </div>
-              {FACETS.map((f) => (
-                <fieldset key={f} className="border-b border-line px-3 py-2 last:border-0">
-                  <legend className="mb-1 text-[12px] font-semibold text-ink">{t(`errtrack.facet.${f}`)}</legend>
-                  {counts(f).map(([v, n]) => (
-                    <label key={v} className="flex cursor-pointer items-center gap-2 py-0.5 text-[12px] text-ink-68 hover:text-ink">
-                      <input type="checkbox" checked={!off[f].has(v)} onChange={() => toggle(f, v)} />
-                      <span className="min-w-0 flex-1 truncate">{f === 'status' ? t(`errtrack.status.${v}`) : v}</span>
-                      <span className="font-mono text-[11px] text-ink-46">{n}</span>
-                    </label>
-                  ))}
-                </fieldset>
-              ))}
-            </aside>
-
-            {/* issue list */}
-            <section className="w-[340px] shrink-0 overflow-y-auto border-y border-r border-line bg-white" aria-label={t('errtrack.tabIssues')}>
-              <div className="border-b border-line px-3 py-2 text-[11px] font-semibold uppercase tracking-[1.8px] text-ink-68">
-                {t('errtrack.issueDetails')}
-              </div>
-              {shown.length === 0 ? (
-                <EmptyState title={t('errtrack.empty')} body={t('errtrack.emptyBody')} icon="search" />
-              ) : (
-                <ul>
-                  {shown.map((i) => (
-                    <li key={i.id}>
-                      <button
-                        type="button" onClick={() => setSelId(i.id)} aria-current={sel?.id === i.id}
-                        className={`block w-full border-b border-line px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
-                          sel?.id === i.id ? 'bg-info-soft' : 'hover:bg-subtle'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
-                          <DdIcon name="error-tracking" size={12} />{i.type}
-                          <span className="ml-auto font-mono text-[11px] font-normal text-ink-68">{i.count}</span>
-                        </span>
-                        <span className="mt-0.5 block truncate text-[12px] text-ink-68">{i.message}</span>
-                        <span className="mt-1 flex items-center gap-2 text-[11px] text-ink-46">
-                          <span className="rounded bg-subtle px-1.5 font-mono text-ink-68">{i.service}</span>
-                          {t('errtrack.lastSeen')} {ago(i.lastSeenM, t)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            {/* detail */}
-            <section className="min-w-0 flex-1 overflow-y-auto border-y border-r border-line bg-white" aria-label={t('errtrack.detail')}>
-              {sel ? <IssueDetail issue={sel} /> : <EmptyState title={t('errtrack.select')} icon="search" />}
-            </section>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
+/** Detail pane — status pill, first/last-seen, occurrence histogram and the
+ *  captured stack frame with its source excerpt. */
 function IssueDetail({ issue }: { issue: Issue }) {
   const { t } = useTranslation();
   const bars = histogram(issue);
@@ -227,6 +95,140 @@ function IssueDetail({ issue }: { issue: Issue }) {
         ))}
       </pre>
       <p className="mt-1 font-mono text-[11px] text-ink-46">{issue.file}:{issue.line}</p>
+    </div>
+  );
+}
+
+export function ErrorTrackingPage() {
+  const { t } = useTranslation();
+  const [tab, setTab] = useState<'issues' | 'settings'>('issues');
+  const [q, setQ] = useState('');
+  // unchecked values per facet; empty set = everything shown
+  const [off, setOff] = useState<Record<FacetKey, Set<string>>>(
+    () => ({ service: new Set(), env: new Set(), type: new Set(), status: new Set() }),
+  );
+  const [selId, setSelId] = useState<string>(ISSUES[0].id);
+
+  const shown = useMemo(
+    () => ISSUES.filter((i) => FACETS.every((f) => !off[f].has(String(i[f])))).filter((i) => matchQuery(i, q)),
+    [off, q],
+  );
+  const sel = shown.find((i) => i.id === selId) ?? shown[0] ?? null;
+
+  const counts = (f: FacetKey) => {
+    const m = new Map<string, number>();
+    for (const i of ISSUES) m.set(String(i[f]), (m.get(String(i[f])) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+  const toggle = (f: FacetKey, v: string) => setOff((o) => {
+    const next = new Set(o[f]);
+    if (next.has(v)) next.delete(v); else next.add(v);
+    return { ...o, [f]: next };
+  });
+  const anyOff = FACETS.some((f) => off[f].size > 0);
+
+  const tabBtn = (v: 'issues' | 'settings', label: string) => (
+    <button
+      type="button" role="tab" aria-selected={tab === v} onClick={() => setTab(v)}
+      className={`flex h-11 items-center border-b-2 px-3 text-[13px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue ${
+        tab === v ? 'border-blue font-semibold text-ink' : 'border-transparent text-ink-68 hover:text-blue'
+      }`}
+    >{label}</button>
+  );
+
+  return (
+    <div className="errors-page flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      {/* page header — product icon + title + tabs, settings at right */}
+      <div className="sticky top-[var(--h-topbar)] z-10 flex h-11 items-center gap-1 border-b border-line bg-paper px-4">
+        <DdIcon name="error-tracking" size={16} />
+        <h1 className="mr-4 ml-1.5 text-[15px] font-semibold">{t('errtrack.title')}</h1>
+        <div role="tablist" aria-label={t('errtrack.title')} className="flex">
+          {tabBtn('issues', t('errtrack.tabIssues'))}
+          {tabBtn('settings', t('errtrack.tabSettings'))}
+        </div>
+      </div>
+
+      {tab === 'settings' ? (
+        <div className="p-4"><Notice>{t('errtrack.settingsSoon')}</Notice></div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 border-b border-line bg-paper px-4 py-2">
+            <div className="relative flex-1">
+              <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
+              <input
+                className="input w-full pl-7" value={q} onChange={(e) => setQ(e.target.value)}
+                placeholder={t('errtrack.queryPh')} aria-label={t('errtrack.queryLabel')}
+              />
+            </div>
+            <span className="rounded border border-line px-2 py-1 font-mono text-[11px] text-ink-68">{t('errtrack.last24h')}</span>
+          </div>
+          <div className="px-4 pt-2"><Notice>{t('errtrack.mock')}</Notice></div>
+
+          <div className="flex min-h-0 flex-1 gap-0 p-4 pt-2">
+            {/* facets */}
+            <aside className="w-[220px] shrink-0 overflow-y-auto border border-line bg-paper" aria-label={t('errtrack.facets')}>
+              <div className="flex items-center justify-between border-b border-line px-3 py-2 text-[11px] text-ink-46">
+                <span>{t('errtrack.showing', { shown: shown.length, total: ISSUES.length })}</span>
+                {anyOff && (
+                  <button type="button" className="text-blue hover:underline" onClick={() => setOff({ service: new Set(), env: new Set(), type: new Set(), status: new Set() })}>
+                    {t('errtrack.clearFacets')}
+                  </button>
+                )}
+              </div>
+              {FACETS.map((f) => (
+                <fieldset key={f} className="border-b border-line px-3 py-2 last:border-0">
+                  <legend className="mb-1 text-[12px] font-semibold text-ink">{t(`errtrack.facet.${f}`)}</legend>
+                  {counts(f).map(([v, n]) => (
+                    <label key={v} className="flex cursor-pointer items-center gap-2 py-0.5 text-[12px] text-ink-68 hover:text-ink">
+                      <input type="checkbox" checked={!off[f].has(v)} onChange={() => toggle(f, v)} />
+                      <span className="min-w-0 flex-1 truncate">{f === 'status' ? t(`errtrack.status.${v}`) : v}</span>
+                      <span className="font-mono text-[11px] text-ink-46">{n}</span>
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+            </aside>
+
+            {/* issue list */}
+            <section className="w-[340px] shrink-0 overflow-y-auto border-y border-r border-line bg-paper" aria-label={t('errtrack.tabIssues')}>
+              <div className="border-b border-line px-3 py-2 text-[11px] font-semibold uppercase tracking-[1.8px] text-ink-68">
+                {t('errtrack.issueDetails')}
+              </div>
+              {shown.length === 0 ? (
+                <EmptyState title={t('errtrack.empty')} body={t('errtrack.emptyBody')} icon="search" />
+              ) : (
+                <ul>
+                  {shown.map((i) => (
+                    <li key={i.id}>
+                      <button
+                        type="button" onClick={() => setSelId(i.id)} aria-current={sel?.id === i.id}
+                        className={`block w-full border-b border-line px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
+                          sel?.id === i.id ? 'bg-info-soft' : 'hover:bg-subtle'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
+                          <DdIcon name="error-tracking" size={12} />{i.type}
+                          <span className="ml-auto font-mono text-[11px] font-normal text-ink-68">{i.count}</span>
+                        </span>
+                        <span className="mt-0.5 block truncate text-[12px] text-ink-68">{i.message}</span>
+                        <span className="mt-1 flex items-center gap-2 text-[11px] text-ink-46">
+                          <span className="rounded bg-subtle px-1.5 font-mono text-ink-68">{i.service}</span>
+                          {t('errtrack.lastSeen')} {ago(i.lastSeenM, t)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* detail */}
+            <section className="min-w-0 flex-1 overflow-y-auto border-y border-r border-line bg-paper" aria-label={t('errtrack.detail')}>
+              {sel ? <IssueDetail issue={sel} /> : <EmptyState title={t('errtrack.select')} icon="search" />}
+            </section>
+          </div>
+        </>
+      )}
     </div>
   );
 }

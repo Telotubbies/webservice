@@ -1,5 +1,5 @@
-// AdminNav — dd org-settings pattern: in-content left panel with section
-// headers and blue-fill active row. Shared by all /admin/* pages.
+// AdminNav — in-content left panel with section headers and a blue-fill
+// active row, in the org-settings style. Shared by all /admin/* pages.
 // Below md it becomes a horizontally scrolling row of 44 px tabs (390 px
 // phones), and NavLink supplies aria-current="page" on the active item.
 
@@ -12,7 +12,7 @@ const SECTIONS: { headKey: string; items: { to: string; key: string; icon: DdIco
   { headKey: 'admin.navOrg', items: [
     { to: '/admin', key: 'nav.adminOrg', icon: 'organization' },
     { to: '/admin/rules', key: 'nav.adminRules', icon: 'assert-list' },
-    { to: '/admin/storage', key: 'nav.adminStorage', icon: 'metric' },
+    { to: '/admin/storage', key: 'nav.adminStorage', icon: 'datastores' },
   ] },
   { headKey: 'admin.navIdentity', items: [
     { to: '/admin/users', key: 'nav.adminUsers', icon: 'users' },
@@ -24,9 +24,7 @@ const SECTIONS: { headKey: string; items: { to: string; key: string; icon: DdIco
 ];
 
 export function AdminNav() {
-  const { t, i18n } = useTranslation();
-  // letter-spacing/uppercase splits Thai combining marks — Latin only
-  const overline = i18n.language === 'th' ? '' : 'uppercase tracking-wide';
+  const { t } = useTranslation();
   return (
     <nav
       aria-label={t('nav.admin')}
@@ -34,7 +32,7 @@ export function AdminNav() {
     >
       {SECTIONS.map((s) => (
         <div key={s.headKey} className="contents md:mb-3 md:block">
-          <p className={`hidden px-3 pb-1 pt-2 text-[11px] font-semibold leading-snug text-ink-68 md:block ${overline}`}>{t(s.headKey)}</p>
+          <p className="overline hidden px-3 pb-1 pt-2 md:block">{t(s.headKey)}</p>
           {s.items.map((i) => (
             <NavLink
               key={i.to}
@@ -42,7 +40,7 @@ export function AdminNav() {
               end={i.to === '/admin'}
               className={({ isActive }) =>
                 `flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded px-3 text-[13px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue md:h-[34px] md:px-4 ${
-                  isActive ? 'bg-blue font-semibold text-white' : 'text-ink-68 hover:bg-subtle hover:text-ink'
+                  isActive ? 'bg-info-soft font-semibold text-blue' : 'text-ink-68 hover:bg-subtle hover:text-ink'
                 }`
               }
             >

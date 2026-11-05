@@ -16,7 +16,7 @@ export function AssistantPage() {
   const q = useQuery({ queryKey: ['inference', orgId], queryFn: () => inferenceApi.get(orgId!), enabled: !!orgId, refetchInterval: 10_000 });
   const d = q.data;
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="ai-search" title={t('ai.title')} />
       <div className="p-4">
         {q.isLoading && <Skeleton h={80} />}
@@ -31,7 +31,7 @@ export function AssistantPage() {
             {d.error && <Notice>{t('ai.unreachable', { error: d.error })}</Notice>}
             {!d.error && !d.results?.length && <EmptyState title={t('ai.noResults')} icon="search" />}
             {!!d.results?.length && (
-              <ul className="rounded-[5px] border border-line bg-white">
+              <ul className="rounded-[5px] border border-line bg-paper">
                 {d.results.map((r, i) => (
                   <li key={i} className="flex items-center gap-3 border-b border-line px-3 py-2 text-[13px] last:border-0">
                     <SeverityBadge severity={r.severity} />

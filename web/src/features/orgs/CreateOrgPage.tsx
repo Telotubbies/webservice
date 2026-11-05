@@ -17,6 +17,7 @@ import '../onboarding/i18n';
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/** Org slug derived from the display name — lowercase a–z/0–9, dashes, ≤40 chars. */
 export function slugify(name: string): string {
   return name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }

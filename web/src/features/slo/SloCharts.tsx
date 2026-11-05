@@ -20,12 +20,14 @@ const IH = H - MT - MB;
 
 interface Span { a: number; b: number }
 
+/** Axis tick label: date for multi-day spans, time of day otherwise. */
 function fmtTick(t: number, spanMs: number, lang: string): string {
   const d = new Date(t);
   if (spanMs > 2 * 86400e3) return d.toLocaleDateString(lang, { month: 'short', day: 'numeric' });
   return d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
+/** Five evenly spaced x ticks across the window. */
 function xTicks(from: number, to: number, lang: string) {
   const span = to - from;
   const n = 4;
@@ -35,6 +37,7 @@ function xTicks(from: number, to: number, lang: string) {
   });
 }
 
+/** Hatched bands marking correction windows (excluded samples). */
 function Corrections({ spans, sx, hatchId }: { spans: Span[]; sx: (t: number) => number; hatchId: string }) {
   return (
     <>
@@ -46,6 +49,7 @@ function Corrections({ spans, sx, hatchId }: { spans: Span[]; sx: (t: number) =>
   );
 }
 
+/** Correction windows clamped to the visible range. */
 function corrSpans(corrections: SloCorrection[], from: number, to: number): Span[] {
   return corrections
     .map((c) => ({ a: Date.parse(c.starts_at), b: Date.parse(c.ends_at) }))
@@ -103,7 +107,10 @@ export function BurndownChart({ from, to, bd, corrections }: {
   const sy = (v: number) => MT + IH * (1 - (v - yMin) / (100 - yMin));
   const y0 = sy(0);
   return (
-    <Frame from={from} to={to} corrections={corrections} gapTo={bd.coveredFrom} label={t('slos.panel.burndown')}>
+    <Frame from={from} to={to} corrections={corrections} gapTo={bd.coveredFrom} label={`${t('slos.panel.burndown')}. ${
+      bd.line.length
+        ? t('slos.panel.burndownSum', { now: Math.round(bd.line[bd.line.length - 1].pct), low: Math.round(Math.min(...bd.line.map((p) => p.pct))) })
+        : t('slos.panel.noSamples')}`}>
       {({ sx, corr, hatchId }) => (
         <>
           {/* y labels */}
@@ -133,6 +140,7 @@ export function BurndownChart({ from, to, bd, corrections }: {
   );
 }
 
+/** SVG path for the remaining-budget step line (starts at 100%). */
 function stepPath(pts: { t: number; pct: number }[], sx: (t: number) => number, sy: (v: number) => number): string {
   if (!pts.length) return '';
   let d = `M ${sx(pts[0].t)} ${sy(100)}`;
@@ -179,6 +187,15 @@ function belowZeroPath(pts: { t: number; pct: number }[], sx: (t: number) => num
   return d;
 }
 
+/** Text alternative for the burn-rate bars: latest, peak, and how many
+ *  periods ran over the target pace (rate > 1). */
+function burnSummary(rates: (number | null)[], t: (k: string, o?: Record<string, unknown>) => string): string {
+  const ok = rates.filter((r): r is number => r != null && Number.isFinite(r));
+  if (!ok.length) return t('slos.panel.noSamples');
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  return t('slos.panel.burnRateSum', { last: r1(ok[ok.length - 1]), peak: r1(Math.max(...ok)), over: ok.filter((r) => r > 1).length, n: ok.length });
+}
+
 /** Burn rate per bucket — bad share ÷ allowed share. Bars over the dashed
  *  "target pace" line at 1.0 are burning faster than the budget allows. */
 export function BurnRateChart({ from, to, buckets, rates, corrections }: {
@@ -188,7 +205,7 @@ export function BurnRateChart({ from, to, buckets, rates, corrections }: {
   const rMax = Math.max(1.5, ...rates.map((r) => (r == null || !Number.isFinite(r) ? 0 : Math.min(r, 20))));
   const sy = (v: number) => MT + IH * (1 - v / (rMax * 1.15));
   return (
-    <Frame from={from} to={to} corrections={corrections} gapTo={firstBucket(buckets)} label={t('slos.panel.burnRate')}>
+    <Frame from={from} to={to} corrections={corrections} gapTo={firstBucket(buckets)} label={`${t('slos.panel.burnRate')}. ${burnSummary(rates, t)}`}>
       {({ sx, corr, hatchId }) => (
         <>
           {[0, 1, rMax].map((v) => (
@@ -217,6 +234,7 @@ export function BurnRateChart({ from, to, buckets, rates, corrections }: {
   );
 }
 
+/** Start of the first bucket with samples — the no-history shade boundary. */
 function firstBucket(buckets: BurnBucket[]): number | null {
   const b = buckets.find((x) => x.samples > 0);
   return b ? b.t0 : null;
