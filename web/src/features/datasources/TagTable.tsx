@@ -24,6 +24,66 @@ const fromTag = (x: SourceTag): Draft => ({
   writable: x.writable, min: x.min == null ? '' : String(x.min), max: x.max == null ? '' : String(x.max), scale: x.scale == null ? '' : String(x.scale),
 });
 
+// ── CSV paste dialog ─────────────────────────────────────────────────────────
+
+/** Modal paste box for bulk tag import. Validates locally first so a bad row
+ *  never reaches the server; server-side row errors render identically. */
+function CsvDialog({ orgId, edgeId, source, onClose, onDone }: {
+  orgId: string; edgeId: string; source: DataSource; onClose: () => void; onDone: () => void;
+}) {
+  const { t } = useTranslation();
+  const [text, setText] = useState('');
+  const [errors, setErrors] = useState<CsvRowError[]>([]);
+  const [other, setOther] = useState('');
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', k);
+    return () => document.removeEventListener('keydown', k);
+  }, [onClose]);
+
+  const submit = async () => {
+    setOther('');
+    const local = parseTagCsv(text);
+    if (local.errors.length) { setErrors(local.errors); return; }
+    setErrors([]); setBusy(true);
+    try {
+      await dsApi.bulkTags(orgId, edgeId, source.id, tagsToCsv(local.rows));
+      onDone();
+    } catch (e) {
+      const rows = e instanceof ApiError ? csvErrorsFromBody(e.body) : null;
+      if (rows) setErrors(rows); else setOther(e instanceof ApiError ? t('ds.errGeneric', { reason: e.message }) : t('dev.errNetwork'));
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={t('ds.csvTitle')}>
+      <div className="max-h-full w-full max-w-3xl overflow-auto rounded-[5px] bg-paper p-4 shadow-card">
+        <h2 className="text-[15px] font-semibold">{t('ds.csvTitle')}</h2>
+        <p className="mt-1 text-[12px] text-ink-68">{t('ds.csvHelp')}</p>
+        <p className="mt-1 font-mono text-[12px]">{CSV_COLUMNS.join(',')}</p>
+        <p className="mt-1 font-mono text-[12px] text-ink-46">sort,motor1,speed_sp,{addressPlaceholder(source.protocol)},number,Hz,true,0,60,0.1</p>
+        <textarea ref={ref} className="input mt-2 h-48 w-full font-mono text-[12px]" value={text} onChange={(e) => { setText(e.target.value); setErrors([]); }} aria-label={t('ds.csvTitle')} spellCheck={false} />
+        {errors.length > 0 && (
+          <div role="alert" className="mt-2 max-h-40 overflow-auto rounded border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-2 text-[12px]">
+            <p className="font-semibold">{t('ds.csvErrors', { count: errors.length })}</p>
+            <ul className="mt-1 list-disc pl-4">{errors.map((r, i) => <li key={i}>{t('ds.rowErr', { row: r.row, field: r.field, message: r.message })}</li>)}</ul>
+          </div>
+        )}
+        {other && <div className="mt-2"><Notice tone="error">{other}</Notice></div>}
+        <div className="mt-3 flex justify-end gap-2">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>{t('ds.cancel')}</button>
+          <button type="button" className="btn" disabled={!text.trim() || busy} onClick={() => void submit()}>{busy ? t('ds.loading') : t('ds.csvImport')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Tag table ────────────────────────────────────────────────────────────────
+
 export function TagTable({ orgId, edgeId, source, siteId, canEdit }: {
   orgId: string; edgeId: string; source: DataSource; siteId: string; canEdit: boolean;
 }) {
@@ -126,7 +186,7 @@ export function TagTable({ orgId, edgeId, source, siteId, canEdit }: {
       )}
 
       {tags.isError ? <ErrorState onRetry={() => void tags.refetch()} /> : tags.isLoading ? <SkeletonRows rows={4} /> : (
-        <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+        <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
           <table className="w-full border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left">
@@ -190,60 +250,6 @@ export function TagTable({ orgId, edgeId, source, siteId, canEdit }: {
         <Confirm title={t('ds.deleteTagTitle', { path: del.path })} body={t('ds.deleteTagBody')} confirm={t('ds.delete')}
           onYes={() => remove.mutate(del)} onNo={() => setDel(null)} />
       )}
-    </div>
-  );
-}
-
-function CsvDialog({ orgId, edgeId, source, onClose, onDone }: {
-  orgId: string; edgeId: string; source: DataSource; onClose: () => void; onDone: () => void;
-}) {
-  const { t } = useTranslation();
-  const [text, setText] = useState('');
-  const [errors, setErrors] = useState<CsvRowError[]>([]);
-  const [other, setOther] = useState('');
-  const [busy, setBusy] = useState(false);
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { ref.current?.focus(); }, []);
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', k);
-    return () => document.removeEventListener('keydown', k);
-  }, [onClose]);
-
-  const submit = async () => {
-    setOther('');
-    const local = parseTagCsv(text);
-    if (local.errors.length) { setErrors(local.errors); return; }
-    setErrors([]); setBusy(true);
-    try {
-      await dsApi.bulkTags(orgId, edgeId, source.id, tagsToCsv(local.rows));
-      onDone();
-    } catch (e) {
-      const rows = e instanceof ApiError ? csvErrorsFromBody(e.body) : null;
-      if (rows) setErrors(rows); else setOther(e instanceof ApiError ? t('ds.errGeneric', { reason: e.message }) : t('dev.errNetwork'));
-    } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={t('ds.csvTitle')}>
-      <div className="max-h-full w-full max-w-3xl overflow-auto rounded-[5px] bg-white p-4 shadow-card">
-        <h2 className="text-[15px] font-semibold">{t('ds.csvTitle')}</h2>
-        <p className="mt-1 text-[12px] text-ink-68">{t('ds.csvHelp')}</p>
-        <p className="mt-1 font-mono text-[12px]">{CSV_COLUMNS.join(',')}</p>
-        <p className="mt-1 font-mono text-[12px] text-ink-46">sort,motor1,speed_sp,{addressPlaceholder(source.protocol)},number,Hz,true,0,60,0.1</p>
-        <textarea ref={ref} className="input mt-2 h-48 w-full font-mono text-[12px]" value={text} onChange={(e) => { setText(e.target.value); setErrors([]); }} aria-label={t('ds.csvTitle')} spellCheck={false} />
-        {errors.length > 0 && (
-          <div role="alert" className="mt-2 max-h-40 overflow-auto rounded border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-2 text-[12px]">
-            <p className="font-semibold">{t('ds.csvErrors', { count: errors.length })}</p>
-            <ul className="mt-1 list-disc pl-4">{errors.map((r, i) => <li key={i}>{t('ds.rowErr', { row: r.row, field: r.field, message: r.message })}</li>)}</ul>
-          </div>
-        )}
-        {other && <div className="mt-2"><Notice tone="error">{other}</Notice></div>}
-        <div className="mt-3 flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>{t('ds.cancel')}</button>
-          <button type="button" className="btn" disabled={!text.trim() || busy} onClick={() => void submit()}>{busy ? t('ds.loading') : t('ds.csvImport')}</button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -40,7 +40,7 @@ function TagFlyout({ tag, onClose, derived, canEdit, onEdit, onDelete }: {
   const tv = live.latest.get(tag);
   const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
   return (
-    <aside className="fixed bottom-0 right-0 top-9 z-20 w-[400px] border-l border-line bg-white shadow-flyout" role="dialog" aria-label={tag}>
+    <aside className="fixed bottom-0 right-0 top-9 z-20 w-[400px] border-l border-line bg-paper shadow-flyout" role="dialog" aria-label={tag}>
       <div className="flex h-11 items-center gap-2 border-b border-line px-4">
         <span className="min-w-0 flex-1 truncate font-mono text-[13px] font-semibold">{tag}</span>
         <button
@@ -65,7 +65,7 @@ function TagFlyout({ tag, onClose, derived, canEdit, onEdit, onDelete }: {
         </div>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
           <dt className="text-ink-46">{t('tags.colQuality')}</dt><dd><QualityMark q={tv?.q} stale={stale} /></dd>
-          <dt className="text-ink-46">{t('tags.colUpdated')}</dt><dd className="font-mono">{tv ? fmtAge(tv.ts, now) : '—'}</dd>
+          <dt className="text-ink-46">{t('tags.colUpdated')}</dt><dd className="">{tv ? fmtAge(tv.ts, now) : '—'}</dd>
           <dt className="text-ink-46">{t('tags.colAccess')}</dt><dd>{ti?.writable ? t('tags.writable') : t('tags.readonly')}</dd>
         </dl>
         {derived && (
@@ -180,7 +180,7 @@ export function TagsPage() {
         </div>
       )}
       {/* omnibar row — full width */}
-      <div className="border-b border-line bg-white px-4 py-2">
+      <div className="border-b border-line bg-paper px-4 py-2">
         <div className="relative">
           <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
           <input

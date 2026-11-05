@@ -45,13 +45,13 @@ export function DataSourcesPage() {
     .map((d: Device) => ({ d, state: deviceState(d, now), cfg: configState(d) })), [list.data, now]);
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="server" title={t('dev.product')} tabs={DEVICE_TABS(t)} lede={t('ds.lede')} />
       <div className="flex-1 p-4">
         {list.isError ? <ErrorState onRetry={() => void list.refetch()} /> : list.isLoading || !site ? <SkeletonRows rows={4} /> : rows.length === 0 ? (
           <EmptyState icon="info" title={t('ds.noGateways')} body={t('ds.noGatewaysHint')} action={<Link to="/infrastructure/add" className="btn btn-sm">{t('dev.add')}</Link>} />
         ) : (
-          <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+          <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">

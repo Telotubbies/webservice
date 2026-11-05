@@ -14,8 +14,8 @@ import { useAdminOrg } from '../admin/admin';
 import { Confirm } from '../../shared/ui/Confirm';
 import { EmptyState, ErrorState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
-import { DEVICE_TABS } from '../devices/tabs';
-import { visionApi, type RuleAction, type RuleBody, type VisionRule } from './api';
+import { VISION_TABS } from '../devices/tabs';
+import { describeRule, visionApi, type RuleAction, type RuleBody, type VisionRule } from './api';
 import { CameraCascade, useCameraPick, type CameraChoice } from './CameraSelect';
 import './i18n';
 
@@ -224,8 +224,8 @@ export function RulesPage() {
 
   const items = rules.data?.items ?? [];
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="server" title={t('vis.rulesTab')} tabs={DEVICE_TABS(t)} lede={t('vis.rulesLede')}
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      <ProductHeader icon="eye" title={t('nav.vision')} tabs={VISION_TABS(t)} lede={t('vis.rulesLede')}
         actions={admin && cam && !draft ? (
           <button type="button" className="btn btn-sm" onClick={() => {
             setEditId(null);
@@ -234,14 +234,14 @@ export function RulesPage() {
         ) : undefined} />
       <div className="flex-1 space-y-3 p-4">
         <CameraCascade pick={pick} choice={cam?.id ?? null} t={t} />
-        {!admin && <Notice tone="info">{t('vis.readOnly')}</Notice>}
+        {!admin && <Notice tone="info">{t('vis.rulesReadOnly')}</Notice>}
         {msg && <Notice tone="error">{msg}</Notice>}
         {!cam ? <Notice tone="info">{t('vis.noCameras')}</Notice> : rules.isError ? (
           <ErrorState onRetry={() => void rules.refetch()} />
         ) : rules.isLoading ? <SkeletonRows rows={3} /> : null}
 
         {draft ? (
-          <form className="space-y-3 rounded-[5px] border border-line bg-white p-3"
+          <form className="space-y-3 rounded-[5px] border border-line bg-paper p-3"
             onSubmit={(e) => { e.preventDefault(); trySave(); }}>
             <div className="flex flex-wrap items-center gap-2">
               <input className="input h-8 w-64" placeholder={t('vis.name')} value={draft.name}
@@ -375,7 +375,7 @@ export function RulesPage() {
             </div>
             <div className="flex items-center gap-2">
               <button type="submit" className="btn btn-sm" disabled={save.isPending}>
-                {t('vis.saveClassSettings')}
+                {t('vis.saveRule')}
               </button>
               <button type="button" className="btn btn-sm btn-ghost"
                 onClick={() => { setDraft(null); setEditId(null); }}>{t('vis.cancel')}</button>
@@ -402,12 +402,12 @@ export function RulesPage() {
           cam && (rules.isLoading ? null : items.length === 0 ? (
             <EmptyState icon="info" title={t('vis.noRules')} />
           ) : (
-            <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+            <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-left text-[11px] text-ink-68">
                     <th className="px-3 py-2 font-medium">{t('vis.name')}</th>
-                    <th className="px-3 py-2 font-medium">{t('vis.colKind')}</th>
+                    <th className="px-3 py-2 font-medium">{t('vis.colMode')}</th>
                     <th className="px-3 py-2 font-medium">{t('vis.enabled')}</th>
                     <th className="px-3 py-2 font-medium text-right">{t('vis.colActions')}</th>
                   </tr>
@@ -418,8 +418,11 @@ export function RulesPage() {
                       <td className="px-3 py-2 font-medium">{r.name}
                         {r.actions.some((a) => a.kind === 'plc_write' || a.kind === 'counter') && (
                           <span className="ml-2 rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-800">{t('vis.writesPlc')}</span>)}
+                        <div className="font-normal text-[11px] text-ink-68">
+                          {t('vis.sentenceWhen')} {describeRule(r, className).join(' ')}
+                        </div>
                       </td>
-                      <td className="px-3 py-2">{r.dry_run ? t('vis.dryRun') : t('vis.kind_rule_fire')}</td>
+                      <td className="px-3 py-2">{r.dry_run ? t('vis.dryRun') : t('vis.live')}</td>
                       <td className="px-3 py-2">{r.enabled ? '✓' : '—'}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         {admin && <button type="button" className="btn btn-sm btn-ghost"
@@ -431,7 +434,7 @@ export function RulesPage() {
                               offline_write_window_s: r.offline_write_window_s ?? null,
                               conditions: r.conditions, actions: r.actions,
                             });
-                          }}>{t('vis.test')}</button>}
+                          }}>{t('vis.edit')}</button>}
                         {admin && <button type="button" className="btn btn-sm btn-ghost"
                           aria-label={`${t('vis.delete')} ${r.name}`}
                           onClick={() => setDel(r)}><Trash2 size={14} aria-hidden /></button>}

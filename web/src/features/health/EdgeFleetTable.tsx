@@ -3,6 +3,7 @@
 // forward buffer, PLC adapter and credential health. Member-read v2 data
 // only, so it renders for every role without a 4xx.
 
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useNow } from '../../lib/hooks';
@@ -16,6 +17,7 @@ import './fleetI18n';
 /** backlog above this is worth a technician's look (UI policy, not a limit) */
 const BUFFER_WARN = 100;
 
+/** Edge status pill — glyph + word, never colour alone (ISA-101). */
 export function EdgeStatePill({ state }: { state: EdgeState }) {
   const { t } = useTranslation();
   return (
@@ -26,6 +28,8 @@ export function EdgeStatePill({ state }: { state: EdgeState }) {
   );
 }
 
+/** Clock-sync cell — in sync / drift / not reported. Drift matters because
+ *  a skewed edge timestamps its samples wrong. */
 export function ClockCell({ ok }: { ok: boolean | null }) {
   const { t } = useTranslation();
   if (ok == null) return <span className="text-ink-46">{t('fleet.clockNone')}</span>;
@@ -34,6 +38,7 @@ export function ClockCell({ ok }: { ok: boolean | null }) {
     : <span className="font-semibold text-[var(--color-caution-ink)]"><span aria-hidden>◆ </span>{t('fleet.clockBad')}</span>;
 }
 
+/** Store-and-forward backlog cell; a depth above BUFFER_WARN gets flagged. */
 export function BufferCell({ depth }: { depth: number | null }) {
   const { t } = useTranslation();
   if (depth == null) return <span className="text-ink-46">{t('fleet.bufferNone')}</span>;
@@ -53,7 +58,7 @@ function Row({ e, now }: { e: FleetEdge; now: number }) {
         <div className="font-mono text-[11px] text-ink-46">…{shortId(e.id)}</div>
       </td>
       <td><EdgeStatePill state={st} /></td>
-      <td className="whitespace-nowrap font-mono text-[12px] text-ink-68" title={e.lastHb ?? undefined}>
+      <td className="whitespace-nowrap text-[12px] text-ink-68" title={e.lastHb ?? undefined}>
         {e.lastHb ? fmtAge(e.lastHb, now) : t('fleet.noHb')}
       </td>
       <td className="whitespace-nowrap text-[12px]"><ClockCell ok={e.clockOk} /></td>
@@ -80,6 +85,11 @@ export function EdgeFleetTable() {
   const fleet = useEdgeFleet();
   const states = fleet.edges.map((e) => edgeState(e, now));
   const n = (s: EdgeState) => states.filter((x) => x === s).length;
+  // Disabled and never-connected gateways are parked: hidden by default so
+  // the table leads with gateways that can actually carry data.
+  const [showParked, setShowParked] = useState(false);
+  const parked = n('disabled') + n('never');
+  const visible = showParked ? fleet.edges : fleet.edges.filter((_, i) => states[i] !== 'disabled' && states[i] !== 'never');
 
   const head = [t('fleet.colName'), t('fleet.colState'), t('fleet.colHb'), t('fleet.colClock'), t('fleet.colBuffer'), t('fleet.colAdapter'), t('fleet.colCred')];
 
@@ -102,12 +112,12 @@ export function EdgeFleetTable() {
             <thead>
               <tr className="border-b border-line text-left">
                 {head.map((h) => (
-                  <th key={h} scope="col" className="h-7 px-3 text-[11px] font-semibold text-ink-68">{h}</th>
+                  <th key={h} scope="col" className="overline h-7 px-3">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="[&>tr]:h-11 [&>tr]:border-b [&>tr]:border-line [&>tr:last-child]:border-0 [&>tr:hover]:bg-info-soft [&_td]:px-3">
-              {fleet.edges.map((e) => <Row key={e.id} e={e} now={now} />)}
+              {visible.map((e) => <Row key={e.id} e={e} now={now} />)}
             </tbody>
           </table>
         </div>
@@ -117,7 +127,7 @@ export function EdgeFleetTable() {
   }
 
   return (
-    <section aria-labelledby="edge-fleet-title" className="rounded-[5px] border border-line bg-white shadow-card">
+    <section aria-labelledby="edge-fleet-title" className="rounded-[5px] border border-line bg-paper shadow-card">
       <header className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1.5">
         <h2 id="edge-fleet-title" className="text-[13px] font-semibold">{t('fleet.title')}</h2>
         {fleet.edges.length > 0 && (
@@ -126,6 +136,11 @@ export function EdgeFleetTable() {
           </span>
         )}
         <span className="flex-1" />
+        {parked > 0 && (
+          <button type="button" className="btn btn-sm btn-ghost" aria-pressed={showParked} onClick={() => setShowParked((v) => !v)}>
+            {showParked ? t('fleet.hideParked') : t('fleet.showParked', { count: parked })}
+          </button>
+        )}
         {fleet.updatedAt > 0 && (
           <span className="text-[11px] text-ink-46">{t('fleet.updated', { age: fmtAge(new Date(fleet.updatedAt).toISOString(), now) })}</span>
         )}

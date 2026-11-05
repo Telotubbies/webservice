@@ -10,7 +10,7 @@ import { useAdminOrg } from '../admin/admin';
 import { Confirm } from '../../shared/ui/Confirm';
 import { EmptyState, ErrorState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
-import { DEVICE_TABS } from '../devices/tabs';
+import { VISION_TABS } from '../devices/tabs';
 import { visionApi, type ModelVersion, type Task, type VisionModel } from './api';
 import { modelFileError, nameCountError, namesFromText } from './logic';
 import { TestPanel } from './TestPanel';
@@ -79,7 +79,7 @@ function VersionRow({ orgId, model, v, admin, testing, onTest, onChanged, onErro
       )}
       {attest !== null && (
         <tr><td colSpan={6} className="px-3 py-3">
-          <div className="rounded-[5px] border border-line bg-white p-3" role="group" aria-label={t('vis.attestTitle', { v: v.version })}>
+          <div className="rounded-[5px] border border-line bg-paper p-3" role="group" aria-label={t('vis.attestTitle', { v: v.version })}>
             <h4 className="text-[14px] font-semibold">{t('vis.attestTitle', { v: v.version })}</h4>
             <p className="mt-1 text-[13px] text-ink-68">{t('vis.attestBody')}</p>
             <label className="mt-2 flex items-start gap-2 text-[13px]"><input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} />{t('vis.attest')}</label>
@@ -129,7 +129,7 @@ function ModelCard({ orgId, model, admin, onModelChanged, onError }: {
     : null;
 
   return (
-    <section className="rounded-[5px] border border-line bg-white" aria-label={model.name}>
+    <section className="rounded-[5px] border border-line bg-paper" aria-label={model.name}>
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
         <h3 className="text-[14px] font-semibold">{model.name} <span className="ml-1 text-[12px] font-normal text-ink-46">{t(`vis.task_${model.task}`)}</span></h3>
         {admin && (
@@ -191,15 +191,15 @@ export function ModelsPage() {
   const items = list.data?.items ?? [];
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="server" title={t('dev.product')} tabs={DEVICE_TABS(t)} lede={t('vis.lede')}
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      <ProductHeader icon="eye" title={t('nav.vision')} tabs={VISION_TABS(t)} lede={t('vis.lede')}
         actions={admin ? <button type="button" className="btn btn-sm" onClick={() => setAdding(true)}><Plus size={14} aria-hidden /> {t('vis.newModel')}</button> : undefined} />
       <div className="flex-1 space-y-3 p-4">
         {!admin && <Notice tone="info">{t('vis.readOnly')}</Notice>}
         <Notice tone="info">{t('vis.convertHint')}</Notice>
         {msg && <Notice tone="error">{msg}</Notice>}
         {adding && (
-          <form className="rounded-[5px] border border-line bg-white p-3" onSubmit={(e) => { e.preventDefault(); if (name.trim()) create.mutate(); }}>
+          <form className="rounded-[5px] border border-line bg-paper p-3" onSubmit={(e) => { e.preventDefault(); if (name.trim()) create.mutate(); }}>
             <div className="flex flex-wrap items-end gap-3">
               <div><label className="field-label" htmlFor="vm-name">{t('vis.name')}</label><input id="vm-name" className="input h-8" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} /></div>
               <div><label className="field-label" htmlFor="vm-task">{t('vis.task')}</label>

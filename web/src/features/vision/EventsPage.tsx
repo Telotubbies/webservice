@@ -12,7 +12,7 @@ import { saveBlob } from '../../lib/saveBlob';
 import { useAdminOrg } from '../admin/admin';
 import { EmptyState, ErrorState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
-import { DEVICE_TABS } from '../devices/tabs';
+import { VISION_TABS } from '../devices/tabs';
 import { visionApi, type EventFilter, type VisionEvent } from './api';
 import { CameraCascade, useCameraPick, type CameraChoice } from './CameraSelect';
 import './i18n';
@@ -37,6 +37,33 @@ function useAuthedThumb(orgId: string | null, ev: VisionEvent | null): string | 
 }
 
 const fmt = (iso: string) => new Date(iso).toLocaleString();
+
+// ── Row pieces ───────────────────────────────────────────────────────────────
+
+function RowThumb({ orgId, ev }: { orgId: string | null; ev: VisionEvent }) {
+  const url = useAuthedThumb(orgId, ev.has_thumb ? ev : null);
+  return url
+    ? <img src={url} alt="" className="h-10 w-14 rounded border border-line object-cover" />
+    : <div className="h-10 w-14 rounded border border-line bg-paper" aria-hidden />;
+}
+
+/** "Correct class" picker in the detail panel — picking one files a 'wrong'
+ *  review with the corrected class id in the same call. */
+function WrongPicker({ ev, classes, onPick, t }: {
+  orgId: string | null; ev: VisionEvent; classes: string[];
+  onPick: (cid: number | null) => void; t: (k: string) => string;
+}) {
+  return (
+    <select className="input h-8" aria-label={t('vis.pickWrong')}
+      value={ev.review?.corrected_class_id ?? ''}
+      onChange={(e) => onPick(e.target.value === '' ? null : Number(e.target.value))}>
+      <option value="">{t('vis.pickWrong')}</option>
+      {classes.map((c, i) => <option key={i} value={i}>{c}</option>)}
+    </select>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export function EventsPage() {
   const { t } = useTranslation();
@@ -157,8 +184,8 @@ export function EventsPage() {
   };
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="server" title={t('vis.eventsTab')} tabs={DEVICE_TABS(t)} lede={t('vis.eventsLede')}
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      <ProductHeader icon="eye" title={t('nav.vision')} tabs={VISION_TABS(t)} lede={t('vis.eventsLede')}
         actions={<button type="button" className="btn btn-sm" title={t('vis.exportHint')} onClick={() => void doExport()}>
           <Download size={14} aria-hidden /> {t('vis.exportZip')}
         </button>} />
@@ -196,7 +223,7 @@ export function EventsPage() {
             {events.isError ? <ErrorState onRetry={() => void events.refetch()} />
               : events.isLoading && !items.length ? <SkeletonRows rows={6} />
               : items.length === 0 ? <EmptyState icon="info" title={t('vis.noEvents')} /> : (
-              <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+              <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
                 <table className="w-full text-[13px]">
                   <thead>
                     <tr className="border-b border-line text-left text-[11px] text-ink-68">
@@ -242,7 +269,7 @@ export function EventsPage() {
             )}
           </div>
           {cur && (
-            <aside className="w-80 shrink-0 space-y-2 rounded-[5px] border border-line bg-white p-3 text-[13px]">
+            <aside className="w-80 shrink-0 space-y-2 rounded-[5px] border border-line bg-paper p-3 text-[13px]">
               {thumb ? <img src={thumb} alt="" className="w-full rounded border border-line" />
                 : <div className="flex h-40 items-center justify-center rounded border border-line text-ink-68">{t('vis.noThumb')}</div>}
               <div><span className="text-ink-68">{t('vis.colTime')}:</span> {fmt(cur.fired_at)}</div>
@@ -271,26 +298,5 @@ export function EventsPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-function RowThumb({ orgId, ev }: { orgId: string | null; ev: VisionEvent }) {
-  const url = useAuthedThumb(orgId, ev.has_thumb ? ev : null);
-  return url
-    ? <img src={url} alt="" className="h-10 w-14 rounded border border-line object-cover" />
-    : <div className="h-10 w-14 rounded border border-line bg-paper" aria-hidden />;
-}
-
-function WrongPicker({ ev, classes, onPick, t }: {
-  orgId: string | null; ev: VisionEvent; classes: string[];
-  onPick: (cid: number | null) => void; t: (k: string) => string;
-}) {
-  return (
-    <select className="input h-8" aria-label={t('vis.pickWrong')}
-      value={ev.review?.corrected_class_id ?? ''}
-      onChange={(e) => onPick(e.target.value === '' ? null : Number(e.target.value))}>
-      <option value="">{t('vis.pickWrong')}</option>
-      {classes.map((c, i) => <option key={i} value={i}>{c}</option>)}
-    </select>
   );
 }

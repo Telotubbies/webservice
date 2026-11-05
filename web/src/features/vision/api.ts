@@ -40,6 +40,8 @@ const call = request;
 
 const org = (o: string) => `/api/v1/orgs/${encodeURIComponent(o)}`;
 const vm = (o: string) => `${org(o)}/vision/models`;
+const vr = (o: string) => `${org(o)}/vision/rules`;
+const ve = (o: string) => `${org(o)}/vision/events`;
 const json = (method: string, body: unknown): RequestInit => ({
   method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' },
 });
@@ -113,10 +115,7 @@ export const visionApi = {
       .then((r) => r.blob),
 };
 
-const vr = (o: string) => `${org(o)}/vision/rules`;
-const ve = (o: string) => `${org(o)}/vision/events`;
-
-// ---- types for the rules + events surfaces -------------------------------
+// ── Types for the rules + events surfaces ────────────────────────────────────
 export interface RuleZonePoint extends Array<number> { 0: number; 1: number }
 export interface RuleConditions {
   class_ids: number[]; min_score?: number; zone?: number[][]; min_area?: number;

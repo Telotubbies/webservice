@@ -14,6 +14,7 @@ import { PageSkeleton, Notice, EmptyState, ErrorState } from '../../shared/ui/Fe
 import { Toggle } from '../../shared/ui/Toggle';
 import { Confirm } from '../../shared/ui/Confirm';
 import { Icon } from '../../shared/ui/Icon';
+import { DdIcon } from '../../shared/ui/DdIcon';
 import './i18n';
 
 const TYPES: ChannelType[] = ['email', 'line', 'webhook', 'teams', 'slack'];
@@ -77,7 +78,7 @@ export function ChannelsPage() {
   const teamName = (id: string | null) => teams.data?.teams.find((x) => x.id === id)?.name;
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <PageBar title={t('nc.title')} lede={t('nc.lede')} />
       {!admin && <div className="px-4 pt-3"><Notice tone="info" icon="lock">{t('access.whyReadOnly', { role: t(`roles.${orgRole ?? 'none'}`, { defaultValue: orgRole ?? '' }) })}</Notice></div>}
       {err && <div className="px-4 pt-3"><Notice tone="error">{err}</Notice></div>}
@@ -165,9 +166,9 @@ export function ChannelsPage() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Create form — per-type fields; secrets go into `secrets`, never `config`.
-// ---------------------------------------------------------------------------
+// ── Create form ──────────────────────────────────────────────────────────────
+
+// Per-type fields; secrets go into `secrets`, never `config`.
 function ChannelForm({ orgId, teams, onDone }: {
   orgId: string; teams: { id: string; name: string }[]; onDone: () => void;
 }) {
@@ -217,7 +218,7 @@ function ChannelForm({ orgId, teams, onDone }: {
   };
 
   if (!open) {
-    return <button type="button" className="btn" onClick={() => setOpen(true)}>+ {t('nc.add')}</button>;
+    return <button type="button" className="btn" onClick={() => setOpen(true)}><DdIcon name="plus" size={13} /> {t('nc.add')}</button>;
   }
   return (
     <Card title={t('nc.add')}>
@@ -304,10 +305,9 @@ function ChannelForm({ orgId, teams, onDone }: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Escalation policies — levels editor; channel/team pickers from the same
-// queries as the channel list.
-// ---------------------------------------------------------------------------
+// ── Escalation policies ──────────────────────────────────────────────────────
+
+// Levels editor; channel/team pickers read the same queries as the channel list.
 function EscalationSection({ orgId, admin }: { orgId: string; admin: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -372,6 +372,8 @@ function PolicyForm({ orgId, onDone }: { orgId: string; onDone: () => void }) {
     onError: () => setErr(t('esc.failed')),
   });
 
+  // Each level's wait must be strictly longer than the previous one and no
+  // more than a week (10080 min) — a level that never fires is worse than none.
   const valid = useMemo(() => {
     let prev = 0;
     for (const l of levels) {
@@ -386,7 +388,7 @@ function PolicyForm({ orgId, onDone }: { orgId: string; onDone: () => void }) {
   const flip = (i: number, key: 'channel_ids' | 'team_ids', id: string) =>
     setLv(i, { [key]: levels[i][key].includes(id) ? levels[i][key].filter((x) => x !== id) : [...levels[i][key], id] });
 
-  if (!open) return <div className="px-4 py-3"><button type="button" className="btn btn-sm" onClick={() => setOpen(true)}>+ {t('esc.add')}</button></div>;
+  if (!open) return <div className="px-4 py-3"><button type="button" className="btn btn-sm" onClick={() => setOpen(true)}><DdIcon name="plus" size={12} /> {t('esc.add')}</button></div>;
   return (
     <form className="space-y-3 border-t border-line px-4 py-3" onSubmit={(e) => { e.preventDefault(); if (valid) create.mutate(); else setErr(t('esc.badLevels')); }}>
       <div className="field max-w-xs">
@@ -435,7 +437,7 @@ function PolicyForm({ orgId, onDone }: { orgId: string; onDone: () => void }) {
       ))}
       <button type="button" className="btn btn-sm btn-ghost"
         onClick={() => setLevels((ls) => [...ls, { after_minutes: (ls[ls.length - 1]?.after_minutes ?? 15) + 30, channel_ids: [], team_ids: [], oncall_team: null }])}>
-        + {t('esc.addLevel')}
+        <DdIcon name="plus" size={12} /> {t('esc.addLevel')}
       </button>
       <div className="flex items-center gap-2">
         <button type="submit" className="btn btn-sm" disabled={create.isPending || !name.trim() || !valid}>{t('esc.create')}</button>

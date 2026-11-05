@@ -91,7 +91,7 @@ export function SourceWizard({ orgId, edgeId, existing, onDone, onCancel }: {
   const detail = result ? (result.detail === 'no_tags_to_test' ? t('ds.noProbe') : result.detail) : '';
 
   return (
-    <section className="rounded-[5px] border border-line bg-white p-4" aria-label={t('ds.wizardTitle')}>
+    <section className="rounded-[5px] border border-line bg-paper p-4" aria-label={t('ds.wizardTitle')}>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-[15px] font-semibold">{existing ? t('ds.editSource') : t('ds.addSource')}</h2>
         <ol className="flex gap-3 text-[12px] text-ink-46" aria-label={t('ds.steps')}>

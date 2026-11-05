@@ -30,7 +30,7 @@ export function AreaAccess({ orgId, siteId }: { orgId: string; siteId: string })
       {err && <Notice tone="error">{err}</Notice>}
       {areas.length === 0 || operators.length === 0 ? <p className="text-[12px] text-ink-68">{t(areas.length === 0 ? 'asset.areaAccessNone' : 'asset.areaAccessNoOps')}</p> : (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]">
+          <table className="w-full border-collapse rounded-[5px] border border-line bg-paper text-[13px]">
             <thead>
               <tr className="border-b border-line text-left">
                 <th scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t('asset.areaAccessUser')}</th>

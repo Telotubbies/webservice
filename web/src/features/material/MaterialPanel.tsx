@@ -14,6 +14,7 @@ import './i18n';
 
 type Ranges = Record<string, { min: number | null; max: number | null }>;
 
+/** Labelled range input — bounds come from the server schema, not the UI. */
 function Slider({ id, label, hint, value, range, step, unit, onChange, disabled }: {
   id: string; label: string; hint?: string; value: number; range?: { min: number | null; max: number | null };
   step: number; unit?: string; onChange: (v: number) => void; disabled?: boolean;
@@ -51,7 +52,7 @@ export function MaterialPanel({ orgId, cam, admin, onClose }: { orgId: string; c
     onSuccess: () => { setSaved(true); setMsg(''); void qc.invalidateQueries({ queryKey: ['mat-cams'] }); void qc.invalidateQueries({ queryKey: ['cameras'] }); },
     onError: (e) => setMsg(t('mat.errSave', { why: e instanceof ApiError ? e.message : '?' })),
   });
-  if (!s || !schema.data) return <section className="rounded-[5px] border border-line bg-white p-4"><SkeletonRows rows={4} /></section>;
+  if (!s || !schema.data) return <section className="rounded-[5px] border border-line bg-paper p-4"><SkeletonRows rows={4} /></section>;
 
   const R: Ranges = schema.data.ranges;
   const set = (p: Partial<MatSettings>) => { setS({ ...s, ...p }); setSaved(false); };
@@ -73,7 +74,7 @@ export function MaterialPanel({ orgId, cam, admin, onClose }: { orgId: string; c
   const live = cam.material_live;
 
   return (
-    <section className="rounded-[5px] border border-line bg-white p-4" aria-label={`${t('mat.title')} — ${cam.name}`}>
+    <section className="rounded-[5px] border border-line bg-paper p-4" aria-label={`${t('mat.title')} — ${cam.name}`}>
       <div className="mb-1 flex items-center justify-between">
         <h2 className="text-[15px] font-semibold">{t('mat.title')} — {cam.name}</h2>
         <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>{t('cam.close')}</button>

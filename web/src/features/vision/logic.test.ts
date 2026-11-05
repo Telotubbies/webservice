@@ -1,3 +1,6 @@
+// Unit tests for the Models page pure helpers: file validation, class-name
+// parsing, class config rows, and the upgrade diff summary.
+
 import { describe, expect, test } from 'bun:test';
 import { classRows, diffSummary, modelFileError, nameCountError, namesFromText, patchClass, scoreOk } from './logic';
 

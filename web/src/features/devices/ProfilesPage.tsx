@@ -14,6 +14,8 @@ import { ProductHeader } from '../../shared/ui/Product';
 import { DEVICE_TABS } from './tabs';
 
 interface Profile { id: string; ready: boolean; settings: string[]; tagTypes: string[]; }
+// Mirror of the adapters shipped in edge-bridge; `ready: false` rows render
+// as "soon" so the page can announce profiles before they ship.
 const PROFILES: Profile[] = [
   { id: 'modbus', ready: true, settings: ['MODBUS_HOST', 'MODBUS_PORT', 'unit_id', 'request_timeout_ms'], tagTypes: ['coil', 'discrete_input', 'holding_register', 'input_register'] },
   { id: 'sim', ready: true, settings: ['POLL_MS'], tagTypes: ['state', 'conv_speed', 'conv_temp', 'bin_level', 'random_walk'] },
@@ -40,11 +42,11 @@ export function ProfilesPage() {
   }, [devices.data]);
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="server" title={t('dev.product')} tabs={DEVICE_TABS(t)} lede={t('dev.profLede')} />
       <div className="flex-1 p-4">
         {devices.isError ? <ErrorState onRetry={() => void devices.refetch()} /> : devices.isLoading ? <Skeleton h={200} /> : (
-          <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+          <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">
@@ -66,7 +68,7 @@ export function ProfilesPage() {
                     <td className="px-3 py-3 font-mono text-[12px] text-ink-68">{p.tagTypes.join(', ') || '—'}</td>
                     <td className="px-3 py-3">
                       {p.ready ? (
-                        <Link to={`/infrastructure?q=${encodeURIComponent(`adapter:${p.id}`)}`} className="text-blue hover:underline">
+                        <Link to={`/infrastructure?q=${encodeURIComponent(`adapter:${p.id}`)}`} className="whitespace-nowrap text-blue hover:underline">
                           {t('dev.profDevices', { count: used.get(p.id) ?? 0 })}
                         </Link>
                       ) : '—'}

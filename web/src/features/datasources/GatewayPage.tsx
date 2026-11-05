@@ -94,7 +94,7 @@ export function GatewayPage() {
   const glyph = (s: StepStatus) => ({ pending: '○', running: '…', done: '✓', failed: '▲' })[s];
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="server" title={edge?.name ?? t('dev.product')} tabs={DEVICE_TABS(t)}
         back={{ to: '/infrastructure/sources', label: t('ds.tab') }}
         status={edge ? <span className="flex items-center gap-3 text-[12px]"><StateChip state={deviceState(edge, now)} /><ConfigChip state={configState(edge)} /></span> : undefined}
@@ -112,7 +112,7 @@ export function GatewayPage() {
               {msg && <div className="mb-3"><Notice tone="error">{msg}</Notice></div>}
 
               {progress && (
-                <section className="mb-4 rounded-[5px] border border-line bg-white p-3" aria-live="polite" aria-label={t('ds.applyTitle')}>
+                <section className="mb-4 rounded-[5px] border border-line bg-paper p-3" aria-live="polite" aria-label={t('ds.applyTitle')}>
                   <h2 className="text-[14px] font-semibold">{t('ds.applyTitle')}</h2>
                   <ol className="mt-2 space-y-0.5 text-[13px]">
                     {progress.plan.map((s, i) => (
@@ -141,7 +141,7 @@ export function GatewayPage() {
                   ) : undefined} />
               ) : items.length > 0 && (
                 <>
-                  <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+                  <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
                     <table className="w-full border-collapse text-[13px]">
                       <thead>
                         <tr className="border-b border-line text-left">

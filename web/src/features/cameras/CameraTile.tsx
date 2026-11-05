@@ -19,6 +19,8 @@ export function CameraTile({ orgId, cam, admin, onToggle, onDelete, onModel, onM
   const [broken, setBroken] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
+  // Each signed URL is short-lived, so the tile re-opens the stream on a
+  // timer instead of holding one URL; a failed open retries fast (5 s).
   useEffect(() => {
     if (!cam.enabled) { setSrc(null); return; }
     let alive = true;
@@ -41,7 +43,7 @@ export function CameraTile({ orgId, cam, admin, onToggle, onDelete, onModel, onM
     : cam.status === 'ok' || loaded ? 'text-[var(--color-success,#1a7f37)]' : 'text-ink-46';
 
   return (
-    <figure className="overflow-hidden rounded-[5px] border border-line bg-white">
+    <figure className="overflow-hidden rounded-[5px] border border-line bg-paper">
       <div className="relative aspect-video bg-ink/90">
         {src ? (
           <img src={src} alt={cam.name} className="h-full w-full object-contain" onError={() => { setBroken(true); setLoaded(false); }} onLoad={() => { setBroken(false); setLoaded(true); }} />

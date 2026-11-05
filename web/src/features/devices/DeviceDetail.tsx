@@ -14,10 +14,13 @@ import { CopyButton } from './SecretReveal';
 import { Troubleshoot } from './Troubleshoot';
 import { CAUTION_TEXT_CLASS, isAbnormal, STATE_STYLE, type DeviceState } from './devices';
 
+/** A device with its derived UI state and adapter key precomputed. */
 export type DeviceRow = Device & { state: DeviceState; adapterKey: string };
 
+/** Selector for the elements the panel's Tab trap cycles through. */
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+/** Coloured state chip — glyph + word, never colour alone. */
 export function StatePill({ state }: { state: DeviceState }) {
   const { t } = useTranslation();
   return (
@@ -67,7 +70,7 @@ export function DeviceDetail({ d, now, admin, siteName, buffer, busy, onClose, o
   return (
     <div className="fixed inset-0 z-[80] flex justify-end bg-ink/30" onClick={onClose}>
       <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full max-w-[460px] flex-col bg-white shadow-flyout" data-device={d.id}>
+        className="flex h-full w-full max-w-[460px] flex-col bg-paper shadow-flyout" data-device={d.id}>
         <header className="flex items-start gap-2 border-b border-line px-4 py-3">
           <Server size={18} className="mt-0.5 shrink-0 text-ink-46" aria-hidden />
           <div className="min-w-0 flex-1">

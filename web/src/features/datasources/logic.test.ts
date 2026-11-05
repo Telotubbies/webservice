@@ -1,7 +1,10 @@
+// Unit tests for the data-source console's pure logic: CSV parse/serialise,
+// config sync state, the template plan, and address formatting.
+
 import { describe, expect, test } from 'bun:test';
 import {
-  addressPlaceholder, configState, csvErrorsFromBody, opcuaIssues, parseTagCsv,
-  remapDashboardTag, splitCsv, tagsToCsv, templatePlan,
+  addressInput, addressPlaceholder, browseToDrafts, configState, csvErrorsFromBody,
+  formatAddress, opcuaIssues, parseTagCsv, remapDashboardTag, splitCsv, tagsToCsv, templatePlan,
 } from './logic';
 import { factoryioSorting } from './templates';
 
@@ -116,8 +119,6 @@ describe('opcuaIssues', () => {
     expect(opcuaIssues({ security: 'none', auth: 'user' })).toEqual(['authNeedsEncryption']);
   });
 });
-
-import { addressInput, browseToDrafts, formatAddress } from './logic';
 
 describe('formatAddress', () => {
   test('modbus / s7 / opcua', () => {

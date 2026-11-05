@@ -67,13 +67,13 @@ export function AssetTreePage() {
               action={admin ? <button type="button" className="btn" onClick={quickStart} disabled={run.isPending}>{t('asset.quickStart')}</button> : undefined} />
           ) : (
             <div className="grid gap-4 md:grid-cols-[minmax(260px,340px)_1fr]">
-              <nav aria-label={t('asset.title')} className="self-start rounded-[5px] border border-line bg-white p-1">
+              <nav aria-label={t('asset.title')} className="self-start rounded-[5px] border border-line bg-paper p-1">
                 <ul role="tree" className="text-[13px]">
                   {areas.map((a) => <TreeArea key={a.id} a={a} open={open} toggle={toggle} sel={sel} onSel={setSel} />)}
                 </ul>
                 {admin && <AddArea onAdd={(name) => run.mutate(() => hierarchyApi.createArea(orgId!, site!.id, { name, code: slug(name) }))} />}
               </nav>
-              <section aria-live="polite" className="min-w-0 rounded-[5px] border border-line bg-white p-4">
+              <section aria-live="polite" className="min-w-0 rounded-[5px] border border-line bg-paper p-4">
                 {!found || !sel ? <p className="text-[13px] text-ink-68">{t('asset.pick')}</p> : (
                   <Detail sel={sel} node={found} areas={areas} lines={lines} admin={admin}
                     onMove={(label, fn) => setMove({ label, run: fn })}

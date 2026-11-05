@@ -23,10 +23,10 @@ export function deviceState(d: Device, now: number): DeviceState {
 const OK_TEXT = 'text-[color-mix(in_srgb,var(--color-ok)_70%,black)]';
 const CAUTION_TEXT = 'text-[color-mix(in_srgb,var(--color-caution)_70%,black)]';
 export const STATE_STYLE: Record<DeviceState, { pill: string; tile: string; glyph: string }> = {
-  online: { pill: `bg-[var(--color-ok-soft)] ${OK_TEXT}`, tile: `border-[var(--color-ok)] bg-[var(--color-ok-soft)] ${OK_TEXT}`, glyph: '●' },
+  online: { pill: 'bg-neutral-soft text-ink', tile: 'border-line bg-paper text-ink', glyph: '●' },  // online is normal: neutral, not green
   stale: { pill: `bg-[var(--color-caution-soft)] ${CAUTION_TEXT}`, tile: `border-[var(--color-caution)] bg-[var(--color-caution-soft)] ${CAUTION_TEXT}`, glyph: '◆' },
   offline: { pill: 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]', tile: 'border-[var(--color-danger)] bg-[var(--color-danger-soft)] text-[var(--color-danger)]', glyph: '▲' },
-  never: { pill: 'border border-line bg-white text-ink-68', tile: 'border-line bg-white text-ink-68', glyph: '○' },
+  never: { pill: 'border border-line bg-paper text-ink-68', tile: 'border-line bg-paper text-ink-68', glyph: '○' },
   disabled: { pill: 'bg-subtle text-ink-46 line-through decoration-ink-35', tile: 'border-line bg-subtle text-ink-46', glyph: '■' },
 };
 export const CAUTION_TEXT_CLASS = CAUTION_TEXT;
@@ -119,6 +119,7 @@ export function envFile(p: InstallParams): string {
   return [`WDS_URL=${p.wdsUrl}`, `ENROLL_CODE=${p.code}`].join('\n');
 }
 
+/** One-shot docker command that enrolls a gateway and keeps it running. */
 export function dockerRun(p: InstallParams): string {
   return [
     `docker run -d --name ${containerName(p.edgeId)} --restart unless-stopped \\`,

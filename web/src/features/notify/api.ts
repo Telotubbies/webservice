@@ -12,7 +12,8 @@ const json = (method: string, body: unknown): RequestInit => ({
   method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' },
 });
 
-// ---------------------------------------------------------------- channels
+// ── Channels ─────────────────────────────────────────────────────────────────
+
 export type ChannelType = 'email' | 'line' | 'webhook' | 'teams' | 'slack';
 
 export interface NotifyChannel {
@@ -32,13 +33,15 @@ export interface Delivery {
   attempts: number; at: string;
 }
 
-// ------------------------------------------------------------- rule routing
+// ── Rule routing ─────────────────────────────────────────────────────────────
+
 export interface RuleNotify {
   channel_ids: string[]; team_ids: string[]; oncall_team: string | null;
   min_severity: 'info' | 'warning' | 'critical'; on_clear: boolean;
 }
 
-// ------------------------------------------------------------------- oncall
+// ── On-call ──────────────────────────────────────────────────────────────────
+
 export interface OnCallNow {
   team_id: string; team: string; user_id: string | null; name: string | null;
   source: 'rotation' | 'override' | null; rotation: string[];
@@ -47,7 +50,8 @@ export interface Override {
   id: string; user_id: string; name: string | null; starts_at: string; ends_at: string;
 }
 
-// ----------------------------------------------------------- escalation
+// ── Escalation ───────────────────────────────────────────────────────────────
+
 export interface EscLevel {
   after_minutes: number; channel_ids: string[]; team_ids: string[];
   oncall_team: string | null;
@@ -57,13 +61,15 @@ export interface EscPolicy {
   enabled: boolean; created_at: string;
 }
 
-// --------------------------------------------------------------- lifecycle
+// ── Alarm lifecycle ──────────────────────────────────────────────────────────
+
 export interface AlarmEvent {
   kind: 'comment' | 'assign' | 'shelve' | 'unshelve' | 'ack';
   author: string; body: string; at: string;
 }
 
-// ------------------------------------------------------------ alarm quality
+// ── Alarm quality (ISA-18.2 metrics) ─────────────────────────────────────────
+
 export interface QualityRuleRow {
   rule_id: string; rule: string; severity: string; count: number; share: number;
   chatter: number; standing: number; unacked: number; mtta_s: number | null;

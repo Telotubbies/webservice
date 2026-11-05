@@ -17,7 +17,7 @@ import { CopyButton } from './SecretReveal';
 import { Troubleshoot } from './Troubleshoot';
 import { actionError, codeCountdown, dockerRun, downloadText, envFile, OK_TEXT_CLASS, type Adapter } from './devices';
 
-// every type is configured after enrollment, under Data sources
+// Every type is configured after enrollment, under Data sources.
 const TYPES: { id: Adapter; icon: LucideIcon; ready: boolean }[] = [
   { id: 'modbus', icon: Cable, ready: true },
   { id: 'sim', icon: Cpu, ready: true },
@@ -82,8 +82,8 @@ export function AddDeviceWizard() {
 
   if (orgRole && !canAdmin(orgRole)) {
     return (
-      <div className="flex min-h-[calc(100svh-36px)] flex-col">
-        <ProductHeader icon="server" title={t('dev.addTitle')} tabs={[{ to: '/infrastructure', label: t('dev.tabDevices'), end: true }]} />
+      <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+        <ProductHeader icon="server" title={t('dev.addTitle')} back={{ to: '/infrastructure', label: t('dev.tabDevices') }} />
         <div className="mx-auto w-full max-w-[880px] p-4 sm:p-6"><Notice tone="warn">{t('dev.needAdmin')}</Notice>
           <Link to="/infrastructure" className="btn btn-ghost mt-3">{t('dev.toFleet')}</Link></div>
       </div>
@@ -109,8 +109,8 @@ export function AddDeviceWizard() {
   const goVerify = () => { setVerifyFrom((v) => v ?? Date.now()); setStep(3); };
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="server" title={t('dev.addTitle')} tabs={[{ to: '/infrastructure', label: t('dev.tabDevices'), end: true }]} />
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      <ProductHeader icon="server" title={t('dev.addTitle')} back={{ to: '/infrastructure', label: t('dev.tabDevices') }} />
       <div className="mx-auto w-full max-w-[880px] p-4 sm:p-6">
         {/* stepper — every label on desktop; on a phone only the current one + "Step n of 4" */}
         <p className="mb-2 text-[12px] font-semibold text-ink-68 sm:hidden">{t('dev.stepOf', { n: step + 1, total: STEPS.length })}</p>
@@ -118,7 +118,7 @@ export function AddDeviceWizard() {
           {STEPS.map((s, i) => (
             <li key={s} className={`flex items-center gap-2 ${i < STEPS.length - 1 ? 'flex-1' : ''}`} aria-current={i === step ? 'step' : undefined}>
               <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full border text-[12px] font-semibold ${
-                i < step ? 'border-blue bg-white text-blue' : i === step ? 'border-blue bg-blue text-white' : 'border-line bg-subtle text-ink-68'}`}>
+                i < step ? 'border-blue bg-paper text-blue' : i === step ? 'border-blue bg-blue text-white' : 'border-line bg-subtle text-ink-68'}`}>
                 {i < step ? <Check size={14} aria-label={t('dev.stepDone')} /> : i + 1}
               </span>
               <span className={`whitespace-nowrap text-[13px] ${i === step ? 'font-semibold text-ink' : 'hidden text-ink-68 sm:inline'}`}>{t(`dev.step.${s}`)}</span>
@@ -127,7 +127,7 @@ export function AddDeviceWizard() {
           ))}
         </ol>
 
-        <section className="rounded-[6px] border border-line bg-white p-4 sm:p-5">
+        <section className="rounded-[6px] border border-line bg-paper p-4 sm:p-5">
           {step === 0 && (
             <>
               <h2 ref={headingRef} tabIndex={-1} style={NO_RING} className="text-[16px] font-semibold">{t('dev.typeTitle')}</h2>
@@ -144,7 +144,7 @@ export function AddDeviceWizard() {
                       <Ico size={22} className={`shrink-0 ${on ? 'text-blue' : 'text-ink-46'}`} aria-hidden />
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-2 text-[14px] font-semibold">{t(`dev.type.${id}.name`)}
-                          {!ready && <span className="rounded border border-line bg-white px-1.5 text-[11px] font-semibold text-ink-68">{t('dev.soon')}</span>}
+                          {!ready && <span className="rounded border border-line bg-paper px-1.5 text-[11px] font-semibold text-ink-68">{t('dev.soon')}</span>}
                         </span>
                         <span className={`mt-0.5 block text-[12px] ${ready ? 'text-ink-68' : 'text-ink-46'}`}>{t(`dev.type.${id}.body`)}</span>
                       </span>
@@ -215,7 +215,7 @@ export function AddDeviceWizard() {
                   <Snippet title={t('dev.runCmd')} text={dockerRun(params)} copyLabel={t('dev.copyRun')} />
                   <div className="mt-3">
                     <Snippet title={t('dev.envFile')} text={envFile(params)} note={t('dev.envAlt')} copyLabel={t('dev.copyEnv')}
-                      extra={<button type="button" className="inline-flex h-8 items-center gap-1 rounded border border-line-hard bg-white px-2.5 text-[12px] font-medium hover:bg-subtle"
+                      extra={<button type="button" className="inline-flex h-8 items-center gap-1 rounded border border-line-hard bg-paper px-2.5 text-[12px] font-medium hover:bg-subtle"
                         onClick={() => downloadText('edge.env', envFile(params))}><Download size={14} aria-hidden /> {t('dev.download')}</button>} />
                   </div>
                 </InstallStep>
@@ -264,6 +264,8 @@ export function AddDeviceWizard() {
     </div>
   );
 }
+
+// ── Pieces ───────────────────────────────────────────────────────────────────
 
 /** Label + control + helper + inline error, error tied to the field (WCAG 3.3.1). */
 function Field({ id, label, help, error, warn, children }: {

@@ -36,6 +36,7 @@ i18n.addResourceBundle('en', 'translation', { fleet: {
   healthErr: 'Buffer depth is unavailable right now. The other columns are current.',
   scopeNone: 'No site found for your organization.',
   updated: 'Updated {{age}}',
+  showParked: 'Show parked ({{count}})', hideParked: 'Hide parked',
 } }, true, true);
 
 i18n.addResourceBundle('th', 'translation', { fleet: {
@@ -70,4 +71,5 @@ i18n.addResourceBundle('th', 'translation', { fleet: {
   healthErr: 'ตอนนี้ดูจำนวนค้างส่งไม่ได้ คอลัมน์อื่นเป็นข้อมูลปัจจุบัน',
   scopeNone: 'ไม่พบไซต์ขององค์กรคุณ',
   updated: 'อัปเดต{{age}}',
+  showParked: 'แสดงที่พักไว้ ({{count}})', hideParked: 'ซ่อนที่พักไว้',
 } }, true, true);

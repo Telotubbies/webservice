@@ -14,7 +14,7 @@ export function Troubleshoot({ host, edgeId, className = 'mx-auto mt-4 max-w-[56
       <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-ink-68">
         <li>{t('dev.slow.running')}
           <span className="mt-1 flex items-center gap-2">
-            <code className="min-w-0 flex-1 select-all break-all rounded bg-white px-2 py-1 font-mono text-[12px] text-ink">{logs}</code>
+            <code className="min-w-0 flex-1 select-all break-all rounded bg-paper px-2 py-1 font-mono text-[12px] text-ink">{logs}</code>
             <CopyButton text={logs} label={t('dev.copyRun')} />
           </span>
         </li>

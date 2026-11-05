@@ -26,7 +26,7 @@ export function CopyButton({ text, label, onCopied }: { text: string; label: str
       className={`inline-flex h-8 shrink-0 items-center gap-1 rounded border px-2.5 text-[12px] font-medium focus-visible:outline-2 focus-visible:outline-blue ${
         state === 'done' ? 'border-[var(--color-ok)] bg-[var(--color-ok-soft)]'
           : state === 'fail' ? 'border-[var(--color-danger)] bg-[var(--color-danger-soft)] text-[var(--color-danger)]'
-            : 'border-line-hard bg-white hover:bg-subtle'}`}>
+            : 'border-line-hard bg-paper hover:bg-subtle'}`}>
       {state === 'done' ? <Check size={14} aria-hidden /> : state === 'fail' ? <X size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
       <span aria-live="polite">{state === 'done' ? t('dev.copied') : state === 'fail' ? t('dev.copyFail') : t('dev.copy')}</span>
     </button>
@@ -56,7 +56,7 @@ export function SecretReveal({ username, secret, onCopied }: { username: string;
         </code>
         <span className="flex justify-end gap-1.5">
           <button type="button" aria-label={show ? t('dev.hide') : t('dev.show')} title={show ? t('dev.hide') : t('dev.show')} aria-pressed={show} onClick={() => setShow((s) => !s)}
-            className="grid h-8 w-8 place-items-center rounded border border-line-hard bg-white hover:bg-subtle focus-visible:outline-2 focus-visible:outline-blue">
+            className="grid h-8 w-8 place-items-center rounded border border-line-hard bg-paper hover:bg-subtle focus-visible:outline-2 focus-visible:outline-blue">
             {show ? <EyeOff size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
           </button>
           <CopyButton text={secret} label={t('dev.copySecret')} onCopied={onCopied} />

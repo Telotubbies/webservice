@@ -3,6 +3,7 @@
 import i18n from '../../lib/i18n';
 
 const en = {
+  pickSite: 'Choose a site', pickEdge: 'Choose a gateway',
   tab: 'Models', lede: 'Upload your own YOLO26 model, check its classes, and activate a version for your cameras.',
   readOnly: 'View only. Admin role is required to change models.',
   noModels: 'No models yet', noModelsHint: 'Create a model, then upload a .onnx file, or a .pt file that will be converted for you.',
@@ -60,6 +61,8 @@ const en = {
   errRuleName: 'Give the rule a name.', errRuleClass: 'Pick at least one class.', errRuleAction: 'Add at least one action.',
   errRuleTag: 'Every write/count action needs a tag path.', ruleSaved: 'Rule saved.',
   dryResults: 'Recent dry-run results', noDryResults: 'Nothing yet — dry-run results appear once the rule has evaluated frames.',
+  rulesReadOnly: 'View only. Admin role is required to change rules.',
+  edit: 'Edit', saveRule: 'Save rule', colMode: 'Mode', live: 'Live',
   // vision events (roadmap 9.8)
   eventsTab: 'Events',
   eventsLede: 'What the cameras saw — rule firings, blocked actions and alert objects.',
@@ -76,6 +79,7 @@ const en = {
 };
 
 const th = {
+  pickSite: 'เลือกไซต์', pickEdge: 'เลือกเกตเวย์',
   tab: 'โมเดล', lede: 'อัปโหลดโมเดล YOLO26 ของคุณเอง ตรวจสอบคลาส และเปิดใช้เวอร์ชันสำหรับกล้อง',
   readOnly: 'ดูได้อย่างเดียว ต้องมีบทบาทผู้ดูแลเพื่อแก้ไขโมเดล',
   noModels: 'ยังไม่มีโมเดล', noModelsHint: 'สร้างโมเดล แล้วอัปโหลดไฟล์ .onnx หรือไฟล์ .pt ที่ระบบจะแปลงให้',
@@ -131,6 +135,8 @@ const th = {
   errRuleName: 'ตั้งชื่อกฎ', errRuleClass: 'เลือกอย่างน้อยหนึ่งคลาส', errRuleAction: 'เพิ่มอย่างน้อยหนึ่งการกระทำ',
   errRuleTag: 'การกระทำเขียน/นับทุกรายการต้องมีพาธแท็ก', ruleSaved: 'บันทึกกฎแล้ว',
   dryResults: 'ผลโหมดทดลองล่าสุด', noDryResults: 'ยังไม่มี — ผลโหมดทดลองจะแสดงเมื่อกฎประเมินเฟรมแล้ว',
+  rulesReadOnly: 'ดูได้อย่างเดียว ต้องมีบทบาทผู้ดูแลเพื่อแก้ไขกฎ',
+  edit: 'แก้ไข', saveRule: 'บันทึกกฎ', colMode: 'โหมด', live: 'ใช้งานจริง',
   // เหตุการณ์วิชัน (แผนงาน 9.8)
   eventsTab: 'เหตุการณ์',
   eventsLede: 'สิ่งที่กล้องเห็น — การทำงานของกฎ การกระทำที่ถูกบล็อก และวัตถุแจ้งเตือน',

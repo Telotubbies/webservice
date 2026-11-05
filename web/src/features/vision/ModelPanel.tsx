@@ -72,7 +72,7 @@ export function ModelPanel({ orgId, cam, admin, onClose }: { orgId: string; cam:
   const edit = (id: string, p: Parameters<typeof patchClass>[2]) => { setSaved(false); setCfg((c) => patchClass(c, id, p)); };
 
   return (
-    <section className="rounded-[5px] border border-line bg-white p-4" aria-label={`${t('vis.panelTitle')} — ${cam.name}`}>
+    <section className="rounded-[5px] border border-line bg-paper p-4" aria-label={`${t('vis.panelTitle')} — ${cam.name}`}>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-[15px] font-semibold">{t('vis.panelTitle')} — {cam.name}</h2>
         <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>{t('vis.close')}</button>

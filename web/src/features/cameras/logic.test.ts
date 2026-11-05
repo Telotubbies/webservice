@@ -1,3 +1,6 @@
+// Unit tests for the Cameras page helpers (logic.ts): stream timing, the
+// RTSP URL rule, the create body, and upload pre-validation.
+
 import { describe, expect, test } from 'bun:test';
 import { buildCameraBody, rtspError, streamRefreshMs, videoUploadError } from './logic';
 

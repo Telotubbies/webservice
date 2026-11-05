@@ -11,7 +11,7 @@ import { useAdminOrg, useAdminSite } from '../admin/admin';
 import { Confirm } from '../../shared/ui/Confirm';
 import { EmptyState, ErrorState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
-import { DEVICE_TABS } from '../devices/tabs';
+import { VISION_TABS } from '../devices/tabs';
 import { AddCameraDialog } from './AddCameraDialog';
 import { camApi, type Camera } from './api';
 import { CameraTile } from './CameraTile';
@@ -37,6 +37,7 @@ export function CamerasPage() {
     enabled: !!orgId && !!site, refetchInterval: 10_000,
   });
   const gateways = (edges.data?.items ?? []).filter((e) => e.status !== 'disabled');
+  // No picker is rendered for a single gateway — it becomes the implicit pick.
   const edgeId = picked ?? gateways[0]?.id ?? '';
   const key = ['cameras', orgId, edgeId];
   const cams = useQuery({
@@ -56,8 +57,8 @@ export function CamerasPage() {
 
   const items = cams.data?.items ?? [];
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="server" title={t('dev.product')} tabs={DEVICE_TABS(t)} lede={t('cam.lede')}
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      <ProductHeader icon="eye" title={t('nav.vision')} tabs={VISION_TABS(t)} lede={t('cam.lede')}
         actions={admin && edgeId ? <button type="button" className="btn btn-sm" onClick={() => setAdding(true)}><Plus size={14} aria-hidden /> {t('cam.add')}</button> : undefined} />
       <div className="flex-1 space-y-3 p-4">
         {!admin && <Notice tone="info">{t('cam.readOnly')}</Notice>}

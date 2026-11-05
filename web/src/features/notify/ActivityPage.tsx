@@ -1,4 +1,4 @@
-// Activity feed — dd event-explorer pattern over the session journal:
+// Activity feed — an event-explorer layout over the session journal:
 // kind facet chips left, timeline rows right, mark-all-read action.
 // Session-scoped data (live.journal, WS-driven) — not server history.
 
@@ -102,7 +102,7 @@ export function ActivityPage() {
       <div className="flex gap-4 p-4">
         {/* kind facet rail — info-soft active style matches the tags facets */}
         <aside className="w-44 shrink-0" aria-label={t('act.filterType')}>
-          <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-46">
+          <p className="overline px-2 pb-1">
             {t('act.filterType')}
           </p>
           <ul className="space-y-0.5 text-[13px]">
@@ -112,7 +112,7 @@ export function ActivityPage() {
                 onClick={() => setKind(null)}
               >
                 {t('feed.all')}
-                <span className={`rounded-[34px] px-1.5 text-[11px] font-semibold ${kind === null ? 'bg-white text-blue' : 'bg-subtle'}`}>{entries.length}</span>
+                <span className={`rounded-[34px] px-1.5 text-[11px] font-semibold ${kind === null ? 'bg-paper text-blue' : 'bg-subtle'}`}>{entries.length}</span>
               </button>
             </li>
             {KINDS.map((k) => (
@@ -122,14 +122,15 @@ export function ActivityPage() {
                   onClick={() => setKind(k)}
                 >
                   {t(KIND_KEY[k])}
-                  <span className={`rounded-[34px] px-1.5 text-[11px] font-semibold ${kind === k ? 'bg-white text-blue' : 'bg-subtle'}`}>{counts.get(k) ?? 0}</span>
+                  <span className={`rounded-[34px] px-1.5 text-[11px] font-semibold ${kind === k ? 'bg-paper text-blue' : 'bg-subtle'}`}>{counts.get(k) ?? 0}</span>
                 </button>
               </li>
             ))}
           </ul>
         </aside>
 
-        {/* timeline */}
+        {/* timeline — min-w-0 flex-1 so the card fills the row instead of shrinking to its content */}
+        <div className="min-w-0 flex-1">
         <Card pad={false}>
           <ul className="w-full">
             {shown.length === 0 && (
@@ -142,7 +143,7 @@ export function ActivityPage() {
             )}
             {sections.map(([key, list]) => (
               <Fragment key={key}>
-                <li className="border-b border-line bg-subtle px-4 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-46">
+                <li className="overline border-b border-line bg-subtle px-4 py-1">
                   {t(key)}
                 </li>
                 {list.map(renderRow)}
@@ -150,6 +151,7 @@ export function ActivityPage() {
             ))}
           </ul>
         </Card>
+        </div>
       </div>
     </>
   );

@@ -29,7 +29,7 @@ export function MoveTags({ orgId, siteId, names, onClose, onDone }: {
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={t('asset.moveTagsTitle', { count: names.length })}
       onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
-      <div className="w-full max-w-[460px] space-y-3 rounded-[5px] border border-line bg-white p-4 text-[13px] shadow-flyout">
+      <div className="w-full max-w-[460px] space-y-3 rounded-[5px] border border-line bg-paper p-4 text-[13px] shadow-flyout">
         <h2 className="text-[15px] font-semibold">{t('asset.moveTagsTitle', { count: names.length })}</h2>
         {tree.isLoading || tags.isLoading ? <SkeletonRows rows={2} /> : (
           <label className="block">

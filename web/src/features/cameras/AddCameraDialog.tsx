@@ -24,6 +24,7 @@ export function AddCameraDialog({ orgId, siteId, edgeId, onDone, onCancel }: {
   const urlErr = kind === 'rtsp' ? rtspError(url) : null;
   const fileErr = kind === 'upload' ? (file ? videoUploadError(file) : 'required') : null;
   const valid = name.trim() !== '' && !urlErr && !fileErr;
+  // Error codes from logic.ts camelise into the cam.err* i18n keys.
   const errText = (e: string | null) => e && t(`cam.err${e[0].toUpperCase()}${e.slice(1)}`);
 
   const save = useMutation({
@@ -47,7 +48,7 @@ export function AddCameraDialog({ orgId, siteId, edgeId, onDone, onCancel }: {
   });
 
   return (
-    <form className="rounded-[5px] border border-line bg-white p-4" onSubmit={(e) => { e.preventDefault(); setTouched(true); if (valid) { setFail(''); save.mutate(); } }}>
+    <form className="rounded-[5px] border border-line bg-paper p-4" onSubmit={(e) => { e.preventDefault(); setTouched(true); if (valid) { setFail(''); save.mutate(); } }}>
       <h2 className="mb-3 text-[15px] font-semibold">{t('cam.add')}</h2>
       <div role="radiogroup" aria-label={t('cam.add')} className="grid gap-2 sm:grid-cols-2">
         {(['upload', 'rtsp'] as const).map((k) => (

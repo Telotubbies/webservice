@@ -61,7 +61,7 @@ function TagPicker({ tags, value, onChange, label }: {
         onKeyDown={(e) => { if (e.key === 'Enter' && hits[0]) { e.preventDefault(); onChange(hits[0].id); setOpen(false); } }}
       />
       {open && (
-        <ul id={listId} role="listbox" className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-[5px] border border-line bg-white py-1 text-[12px] shadow-flyout">
+        <ul id={listId} role="listbox" className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-[5px] border border-line bg-paper py-1 text-[12px] shadow-flyout">
           {hits.length === 0 && <li className="px-3 py-1.5 text-ink-46">{t('calc.noMatch')}</li>}
           {hits.map((h) => (
             <li key={h.id} role="option" aria-selected={h.id === value}>
@@ -152,7 +152,7 @@ export function FormulaDialog({ orgId, siteId, existing, onClose, onDone }: {
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <div className="max-h-[92vh] w-full max-w-[640px] space-y-4 overflow-auto rounded-[5px] border border-line bg-white p-5 text-[13px] shadow-flyout">
+      <div className="max-h-[92vh] w-full max-w-[640px] space-y-4 overflow-auto rounded-[5px] border border-line bg-paper p-5 text-[13px] shadow-flyout">
         <h2 id={titleId} className="text-[15px] font-semibold">{t(existing ? 'calc.titleEdit' : 'calc.titleNew')}</h2>
 
         <div className="grid gap-3 sm:grid-cols-[1fr_120px]">

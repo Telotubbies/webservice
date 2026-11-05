@@ -22,6 +22,8 @@ import { SecretReveal } from './SecretReveal';
 import { DEVICE_TABS } from './tabs';
 
 const STATES: DeviceState[] = ['online', 'stale', 'offline', 'never', 'disabled'];
+// Disabled gateways are noise in the day-to-day fleet view, so they start
+// filtered out (the facet can bring them back).
 const DEFAULT_OFF = ['disabled'];
 
 export function DevicesPage() {
@@ -111,13 +113,13 @@ export function DevicesPage() {
   );
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="server" title={t('dev.product')} tabs={DEVICE_TABS(t)}
         actions={admin
           ? <Link to="/infrastructure/add" className="btn btn-sm whitespace-nowrap"><Plus size={14} aria-hidden /> {t('dev.add')}</Link>
           : <span className="hidden text-[11px] text-ink-46 md:inline">{t('dev.needAdmin')}</span>} />
 
-      <div className="border-b border-line bg-white px-4 py-2">
+      <div className="border-b border-line bg-paper px-4 py-2">
         <div className="relative">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" aria-hidden />
           <input className="input h-8 w-full pl-7" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('dev.searchHint')} aria-label={t('dev.searchPh')} />
@@ -125,7 +127,7 @@ export function DevicesPage() {
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-4 lg:flex-row">
-        <aside className="w-full shrink-0 self-start border border-line bg-white lg:w-[220px]" aria-label={t('errtrack.facets')}>
+        <aside className="w-full shrink-0 self-start border border-line bg-paper lg:w-[220px]" aria-label={t('errtrack.facets')}>
           <FacetGroup title={t('dev.facetStatus')} off={offState} emptyLabel={t('slos.noValues')}
             onToggle={(v) => setOffState((s) => toggleIn(s, v))}
             options={facetOptions(rows, (d) => d.state, (v) => t(`dev.state.${v}`))} />
@@ -135,20 +137,22 @@ export function DevicesPage() {
         </aside>
 
         <div className="min-w-0 flex-1">
-          {/* status tiles: colour only when the count is abnormal AND non-zero */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-            {STATES.map((s) => {
+          {/* fleet summary strip — each segment filters to its state; colour
+              only when the count is abnormal AND non-zero */}
+          <div className="grid grid-cols-2 overflow-hidden rounded-[5px] border border-line bg-paper sm:grid-cols-3 xl:grid-cols-5" role="group" aria-label={t('dev.facetStatus')}>
+            {STATES.map((s, i) => {
               const n = count(s);
               const hot = isAbnormal(s) && n > 0;
               const on = onlyState(s);
               return (
                 <button key={s} type="button" aria-pressed={on} onClick={() => toggleTile(s)}
                   title={t('dev.tileFilter', { state: t(`dev.state.${s}`) })}
-                  className={`rounded-[4px] border px-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-blue ${
-                    hot ? STATE_STYLE[s].tile : s === 'online' && n > 0 ? `border-line bg-white ${OK_TEXT_CLASS}` : 'border-line bg-white text-ink-68'
-                  } ${on ? 'ring-2 ring-blue' : 'hover:border-ink-35'}`}>
-                  <span className="block text-[11px] font-semibold uppercase tracking-wide"><span aria-hidden>{STATE_STYLE[s].glyph} </span>{t(`dev.state.${s}`)}</span>
-                  <span className={`mt-1 block font-mono text-[22px] font-semibold ${n === 0 ? 'text-ink-35' : ''}`}>{n}</span>
+                  className={`flex min-w-0 items-center gap-2 px-3 py-2 text-left text-[12px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${i > 0 ? 'xl:border-l xl:border-line' : ''} ${
+                    hot ? STATE_STYLE[s].pill : on ? 'bg-info-soft text-ink' : 'text-ink-68 hover:bg-subtle'
+                  } ${on ? 'shadow-[inset_0_-2px_0_var(--color-blue)] font-semibold' : ''}`}>
+                  <span aria-hidden className="w-3 text-center text-[10px]">{STATE_STYLE[s].glyph}</span>
+                  <span className="min-w-0 truncate">{t(`dev.state.${s}`)}</span>
+                  <span className={`ml-auto text-[16px] font-semibold tabular-nums ${n === 0 ? 'text-ink-46' : ''}`}>{n}</span>
                 </button>
               );
             })}
@@ -174,7 +178,7 @@ export function DevicesPage() {
             </div>
           )}
 
-          <section className="mt-2 rounded-[5px] border border-line bg-white">
+          <section className="mt-2 rounded-[5px] border border-line bg-paper">
             {list.isLoading || !site ? (
               <div className="space-y-2 p-3">{[0, 1, 2].map((i) => <Skeleton key={i} h={28} />)}</div>
             ) : list.isError ? (
@@ -257,7 +261,7 @@ export function DevicesPage() {
       )}
       {rotated && (
         <div className="fixed inset-0 z-[90] grid place-items-center bg-ink/30 p-4" role="dialog" aria-modal="true" aria-labelledby="rot-title">
-          <div className="max-h-[calc(100svh-32px)] w-[560px] max-w-full overflow-y-auto rounded-[6px] border border-line bg-white p-4 shadow-flyout">
+          <div className="max-h-[calc(100svh-32px)] w-[560px] max-w-full overflow-y-auto rounded-[6px] border border-line bg-paper p-4 shadow-flyout">
             <h2 id="rot-title" className="mb-3 text-[15px] font-semibold">{t('dev.rotatedTitle', { name: rotated.device.name })}</h2>
             <SecretReveal username={rotated.username} secret={rotated.secret} />
             <p className="mt-3 text-[12.5px] text-ink-68">{t('dev.rotatedGrace', { hours: rotated.graceH })}</p>

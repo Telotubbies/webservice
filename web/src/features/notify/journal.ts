@@ -1,4 +1,4 @@
-// F05 notification journal helpers (Datadog notification-center pattern).
+// F05 notification journal helpers — the read side of the notify bell.
 // The ring itself lives on the live store (`live.journal`, written only by
 // lib/ws.ts dispatch — zero fetches); this module owns the read-side state
 // the bell needs: the lastSeen watermark and per-kind presentation maps.

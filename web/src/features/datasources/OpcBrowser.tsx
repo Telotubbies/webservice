@@ -13,6 +13,8 @@ import './i18n';
 interface Node extends BrowseItem { children?: Node[]; open?: boolean; loading?: boolean }
 
 const isVar = (n: BrowseItem) => /variable/i.test(n.node_class);
+/** Line/device inputs only need to contain something name-able. */
+const normOk = (s: string) => /[a-z0-9]/i.test(s);
 
 export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
   orgId: string; edgeId: string; sourceId: string; onAdded: () => void; onClose: () => void;
@@ -92,7 +94,7 @@ export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
 
   const ready = picked.size > 0 && normOk(line) && normOk(device);
   return (
-    <section className="mt-3 rounded-[5px] border border-line bg-white p-3" aria-label={t('ds.browseTitle')}>
+    <section className="mt-3 rounded-[5px] border border-line bg-paper p-3" aria-label={t('ds.browseTitle')}>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-[14px] font-semibold">{t('ds.browseTitle')}</h3>
         <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>{t('ds.close')}</button>
@@ -120,4 +122,3 @@ export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
   );
 }
 
-const normOk = (s: string) => /[a-z0-9]/i.test(s);

@@ -52,7 +52,7 @@ export const EDGE_PILL: Record<EdgeState, string> = {
   online: 'bg-[var(--color-ok-soft)] text-[var(--color-ok-ink)]',
   stale: 'bg-[var(--color-caution-soft)] text-[var(--color-caution-ink)]',
   offline: 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]',
-  never: 'border border-line bg-white text-ink-68',
+  never: 'border border-line bg-paper text-ink-68',
   disabled: 'bg-subtle text-ink-46',
 };
 
@@ -71,6 +71,8 @@ export interface EdgeFleet {
   refetch: () => void;
 }
 
+/** Joined edge fleet for the primary site — inventory + site health, each
+ *  refreshed every 15 s. */
 export function useEdgeFleet(): EdgeFleet {
   const { orgId, siteId, loading: scopeLoading } = usePrimaryScope();
   const on = !!orgId && !!siteId;
