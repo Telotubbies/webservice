@@ -95,6 +95,7 @@ async def _pinned_version(tc, cam_id: UUID):
         "SELECT model_version_id FROM camera_models WHERE camera_id=$1", cam_id)
 
 
+# ── Routes ──
 @router.get("/api/v1/orgs/{org}/cameras/{camera}/rules")
 async def list_camera_rules(org: str, camera: str, request: Request, p=Depends(_user)):
     m = _m()

@@ -78,6 +78,7 @@ def validate_class_config(cfg: dict, classes: list[str]) -> dict:
 
 
 def class_diff(old: list[str], new: list[str]) -> dict:
+    """Class-id diff between two versions' class lists (added/removed/renamed)."""
     common = min(len(old), len(new))
     return {"added": list(range(len(old), len(new))), "removed": list(range(len(new), len(old))),
             "renamed": [i for i in range(common) if old[i] != new[i]]}
@@ -128,7 +129,7 @@ def model_cfg(r, edge_id: UUID, task: str, base_url: str, external: dict | None 
     return out
 
 
-# ------------------------------------------------------------------ routes
+# ── Routes ──
 router = APIRouter()
 
 
@@ -360,7 +361,7 @@ async def delete_preset(org: str, model: str, preset: str, request: Request, p=D
         await audit.append(tc, f"user:{p.user_id}", "vision.preset.deleted", {"preset_id": str(pid)}, {})
 
 
-# ------------------------------------------------- gateway model download
+# ── Gateway model download ──
 @router.get("/api/v1/edge-models/{version}")
 async def edge_model(version: str, edge: str, sig: str, request: Request):
     """Gateway download of one exact version. The signature is the credential; any failure is a plain 404."""

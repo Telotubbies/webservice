@@ -163,6 +163,7 @@ def _ids(org: str, edge: str, p, need: str):
     return m._v2_org(org, p, need), m._uuid_or_404(edge, "edge")
 
 
+# ── Routes ──
 @router.get("/api/v1/orgs/{org}/edges/{edge}/cameras")
 async def list_cameras(org: str, edge: str, request: Request, p=Depends(_user)):
     org_id, edge_id = _ids(org, edge, p, _m()._READ)

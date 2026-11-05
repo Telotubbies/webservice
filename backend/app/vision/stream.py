@@ -49,7 +49,7 @@ def cameras_lookup(pools):
     return lookup
 
 
-# ----------------------------------------------------------- MQTT handlers
+# ── MQTT handlers ──
 async def handle_frame(st, msg, edge, camera: str) -> None:
     try:
         cid = UUID(camera)
@@ -144,7 +144,7 @@ async def handle_caps(st, msg, edge) -> None:
             caps["providers"], caps["loaded"])
 
 
-# ------------------------------------------------------------------ routes
+# ── Routes ──
 async def _camera_or_404(request: Request, org: str, camera: str, p):
     m = _m()
     org_id = m._v2_org(org, p, m._READ)

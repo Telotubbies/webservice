@@ -63,6 +63,7 @@ def _globals(data: bytes):
 
 
 def scan_bytes(data: bytes) -> None:
+    """Raise UnsafeCheckpoint if the pickle names any import outside the allow-lists."""
     for mod, name in _globals(data):
         root = mod.split(".")[0]
         if root in ("builtins", "__builtin__"):

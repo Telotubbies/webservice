@@ -29,6 +29,7 @@ def _num(v, lo: float, hi: float):
 
 
 def _clean_detection(d, classes: list) -> dict | None:
+    """One raw detection -> bounded copy for the response, or None to drop it."""
     if not isinstance(d, dict):
         return None
     cid = d.get("class_id")

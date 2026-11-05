@@ -52,6 +52,8 @@ def _int(v) -> int | None:
 
 
 def inspect_onnx(path: Path) -> dict:
+    """Fact sheet for one .onnx: task (inferred from the output shapes),
+    classes, imgsz, stride, opset. InspectError on anything unusable."""
     import onnx
     from google.protobuf.message import DecodeError
     try:

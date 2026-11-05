@@ -90,7 +90,7 @@ def _ids(org: str, model: str | None, p, need: str, version: str | None = None):
             m._uuid_or_404(version, "version") if version else None)
 
 
-# ------------------------------------------------------------------ models
+# ── Models ──
 @router.post(_V, status_code=201)
 async def create_model(org: str, body: ModelIn, request: Request, p=Depends(_user)):
     m = _m()
@@ -158,7 +158,7 @@ def _remove_files(org_id: UUID, version_id: UUID) -> None:
     spool.cleanup(version_id)
 
 
-# ---------------------------------------------------------------- versions
+# ── Versions ──
 @router.get(_V + "/{model}/versions")
 async def list_versions(org: str, model: str, request: Request, p=Depends(_user)):
     m = _m()
@@ -345,7 +345,7 @@ async def delete_version(org: str, model: str, version: str, request: Request, p
     await _remove_copies(org_id, vid)
 
 
-# ---------------------------------------------------------------- test op
+# ── Test op ──
 MAX_TEST_IMAGE_BYTES = 5 * 1024 * 1024
 _TEST_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")   # JPEG / PNG
 
@@ -424,7 +424,7 @@ async def test_version(org: str, model: str, version: str, request: Request,
     return out
 
 
-# -------------------------------------------------------- converter results
+# ── Converter results ──
 _failures: dict = {}
 
 
@@ -493,16 +493,18 @@ async def _apply(pools, org_id: UUID, vid: UUID, fields: dict) -> None:
 
 
 async def expire_stale(pools) -> None:
+    """Fail versions stuck in 'processing' past the stale timeout."""
     async with global_tx(pools.system) as conn:
         rows = await conn.fetch(
-            "SELECT id, org_id FROM vision_model_versions WHERE status='processing' AND created_at < now() - $1::interval",
-            f"{spool.STALE_S} seconds")
+            "SELECT id, org_id FROM vision_model_versions WHERE status='processing' AND created_at < now() - make_interval(secs => $1)",
+            float(spool.STALE_S))
     for r in rows:
         await _apply(pools, r["org_id"], r["id"], {"status": "failed", "failure_reason": "conversion timed out"})
         spool.cleanup(r["id"])
 
 
 async def ingest_loop(pools, period_s: float = 2.0) -> None:
+    """Periodic conversion-ingest + expiry loop, scheduled by main.py."""
     last_sweep = 0.0
     while True:
         try:

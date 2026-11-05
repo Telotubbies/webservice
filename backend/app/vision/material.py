@@ -135,7 +135,7 @@ async def check_output_tags(tc, site_id: UUID, outputs: dict) -> None:
             raise HTTPException(422, f"output tag is read-only: {p}")
 
 
-# ------------------------------------------------------------------ metrics
+# ── Metrics ──
 def clean_material_stat(v) -> dict | None:
     """The `material` block of one camera's vision/stat entry, bounded."""
     if not isinstance(v, dict):

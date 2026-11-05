@@ -56,7 +56,7 @@ async def _user(request: Request):
     return await _m().require_user(request)
 
 
-# ------------------------------------------------------------ ingest parsing
+# ── Ingest parsing ──
 def _num(v, lo: float, hi: float):
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         return None
@@ -146,6 +146,8 @@ def _audit_message(rec: dict) -> bytes:
 
 
 def parse_audit(raw: bytes) -> dict | None:
+    """One vision/audit message -> validated record dict, or None (drop).
+    `sig` is verified by the caller against this edge's live credentials."""
     if len(raw) > MAX_AUDIT_BYTES:
         return None
     try:
@@ -191,6 +193,7 @@ async def _edge_fingerprints(st, edge_id: UUID) -> list[bytes]:
 
 
 async def handle_event(st, msg, edge) -> None:
+    """Store one vision/event row (thumb and all) for a camera this edge owns."""
     ev = parse_event(bytes(msg.payload))
     if ev is None or not await st.relay.owns(edge.id, ev["camera_id"]):
         return
@@ -253,7 +256,7 @@ async def handle_count(st, msg, edge) -> None:
     st.relay.note_count(cam_id, clean)
 
 
-# ------------------------------------------------------------------- queries
+# ── Queries ──
 def _event_json(r, review=None) -> dict:
     return {"id": str(r["id"]), "camera_id": str(r["camera_id"]),
             "rule_id": str(r["rule_id"]) if r["rule_id"] else None,
@@ -453,7 +456,7 @@ async def export_wrong(org: str, request: Request, camera: str | None = None,
         "Content-Disposition": 'attachment; filename="vision-review-export.zip"'})
 
 
-# ----------------------------------------------------- cloud inference path
+# ── Cloud inference path ──
 @router.post("/api/v1/edge-cloud-infer/{camera}")
 async def edge_cloud_infer(camera: str, edge: str, sig: str, request: Request):
     """Gateway -> cloud fallback inference (9.5). The signed URL (issued inside

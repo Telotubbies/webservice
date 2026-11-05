@@ -54,6 +54,7 @@ def validate_zone(zone) -> list[list[float]]:
 
 
 def validate_conditions(raw) -> dict:
+    """Normalized conditions dict for the wire contract; ValueError on bad input."""
     if not isinstance(raw, dict):
         raise ValueError("conditions must be an object")
     if set(raw) - {"class_ids", "min_score", "zone", "min_area",
@@ -94,6 +95,7 @@ def _tag_path(v) -> str:
 
 
 def validate_actions(raw) -> list[dict]:
+    """Normalized 1..MAX_ACTIONS action list for the wire contract; ValueError on bad input."""
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_ACTIONS:
         raise ValueError(f"actions must name 1 to {MAX_ACTIONS} actions")
     out = []
