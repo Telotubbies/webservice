@@ -3,7 +3,7 @@
   "enabled": true,
   "displayName": "WDS",
   "registrationAllowed": true,
-  "registrationEmailAsUsername": false,
+  "registrationEmailAsUsername": true,
   "resetPasswordAllowed": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
@@ -162,17 +162,6 @@
       "realmRoles": [
         "wds-viewer"
       ]
-    },
-    {
-      "username": "admin",
-      "enabled": true,
-      "email": "admin@vissointan.local",
-      "emailVerified": true,
-      "firstName": "Plant",
-      "lastName": "Admin",
-      "realmRoles": [
-        "wds-admin"
-      ]
     }
   ],
   "otpPolicyType": "totp",
@@ -296,5 +285,5 @@
       ]
     }
   ],
-  "passwordPolicy": "length(5) and notEmail"
+  "passwordPolicy": "length(12) and notUsername and notEmail"
 }
