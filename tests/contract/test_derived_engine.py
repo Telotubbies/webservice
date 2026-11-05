@@ -11,7 +11,9 @@ from app.production import derived as D
 from app.production.formula import WindowStore, check_variables, compile_formula
 
 ORG, SITE = uuid.uuid4(), uuid.uuid4()
-T0 = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+# Relative to the real clock: the engine marks inputs older than STALE_INPUT_S as
+# stale, so a fixed date makes these tests start failing once it has passed.
+T0 = datetime.now(timezone.utc)
 
 
 class Reg:
