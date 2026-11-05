@@ -32,6 +32,10 @@ RETAIN_1M_DAYS = 90
 _EPOCH = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 _last_deep = 0.0
+# Orgs whose first-run backfill probe already ran in this process. An org with
+# no raw samples has no rollup rows either, so without this the probe below
+# (a full min(ts) scan of tag_history) repeats every refresh.
+_probed: set = set()
 
 
 def numeric_value(v) -> float | None:
@@ -76,12 +80,13 @@ ON CONFLICT (tag_id, bucket) DO UPDATE
 """
 
 
-async def refresh_org(tc, now: datetime, window: timedelta) -> int:
+async def refresh_org(tc, now: datetime, window: timedelta, org_id=None) -> int:
     """Re-aggregate [now - window, now] for the tenant in `tc`. When the org
     has raw samples but no rollup yet (first run, or a restored database) the
     window starts at its oldest raw sample and is walked a day at a time."""
     start = floor_to(now - window, 3600)
-    if not await tc.fetchval("SELECT 1 FROM tag_rollup_1m LIMIT 1"):
+    probing = org_id not in _probed
+    if probing and not await tc.fetchval("SELECT 1 FROM tag_rollup_1m LIMIT 1"):
         first = await tc.fetchval("SELECT min(ts) FROM tag_history")
         if first is not None:
             start = min(start, floor_to(first, 3600))
@@ -94,6 +99,8 @@ async def refresh_org(tc, now: datetime, window: timedelta) -> int:
         await tc.execute(_SQL_1H, cur, nxt)
         rows += 1
         cur = nxt
+    if probing:
+        _probed.add(org_id)      # only after the backfill committed cleanly
     return rows
 
 
@@ -112,7 +119,7 @@ async def refresh_all(pools) -> int:
             for org_id in await active_org_ids(pools.system):
                 try:
                     async with tenant_tx(pools.system, org_id) as tc:
-                        await refresh_org(tc, now, window)
+                        await refresh_org(tc, now, window, org_id)
                     done += 1
                 except Exception:  # noqa: BLE001 — one org must not stall the rest
                     log.exception("rollup refresh failed", extra={"org": str(org_id)})

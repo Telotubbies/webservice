@@ -48,7 +48,8 @@ async def _user(request: Request):
     return await _m().require_user(request)
 
 
-# ------------------------------------------------------------------ models
+# ── Request models ──
+
 class SourceIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     protocol: Literal["sim", "modbus", "s7", "opcua"]
@@ -78,7 +79,8 @@ class TagPatch(BaseModel):
     deadband: float | None = Field(default=None, ge=0)
 
 
-# ----------------------------------------------------------------- helpers
+# ── Helpers ──
+
 def _bad_field(e: AddressError) -> JSONResponse:
     return JSONResponse(status_code=422, content={
         "detail": "invalid_field", "field": e.field, "message": e.message})
@@ -203,7 +205,8 @@ async def _insert_tag(tc, org_id: UUID, site_id: UUID, src, t: dict, cache: dict
         t["address"], t["scale"], t["offset_value"], t["deadband"])
 
 
-# ----------------------------------------------------------------- sources
+# ── Source endpoints ──
+
 @router.get("/api/v1/orgs/{org}/edges/{edge}/sources")
 async def list_sources(org: str, edge: str, request: Request, p=Depends(_user)):
     org_id, edge_id, _, _ = _ids(org, edge, p, _m()._READ)
@@ -307,7 +310,8 @@ async def delete_source(org: str, edge: str, source: str, request: Request,
     return Response(status_code=204)
 
 
-# -------------------------------------------------------------------- tags
+# ── Tag endpoints ──
+
 @router.get("/api/v1/orgs/{org}/edges/{edge}/sources/{source}/tags")
 async def list_source_tags(org: str, edge: str, source: str, request: Request,
                            p=Depends(_user)):
@@ -483,8 +487,8 @@ async def delete_tag(org: str, edge: str, source: str, tag: str, request: Reques
     return Response(status_code=204)
 
 
-# ---------------------------------------------------- registry NOTIFY (5.6)
-# ------------------------------------------------- edge ops (test / browse)
+# ── Edge ops (test / browse) ──
+
 OP_TIMEOUT_S = 10
 
 
@@ -591,6 +595,8 @@ async def browse_source(org: str, edge: str, source: str, body: BrowseIn,
         {"source_id": str(sid), "edge_id": str(edge_id)},
         {"node_id": body.node_id})
 
+
+# ── Registry NOTIFY listener (spec 5.6) ──
 
 async def tags_notify_listener(registry, pools) -> None:
     """LISTEN wds_tags on a dedicated system-pool connection; every NOTIFY

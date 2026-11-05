@@ -1,4 +1,4 @@
-"""v2 admin API: incidents routes. Moved verbatim from main.py."""
+"""v2 admin API: teams + incidents, plus the AI-inference read. Moved verbatim from main.py."""
 
 from __future__ import annotations
 

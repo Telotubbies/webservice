@@ -29,6 +29,13 @@ log = logging.getLogger("backend.seed")
 
 BASE = Path(__file__).resolve().parents[2]
 
+# SEED_PROFILE=concrete seeds the demo plant only: the concrete batching plant
+# (tags `batch/...`, its hierarchy and alarm rules), org "Concrete Plant Demo",
+# and no dev-token users (the single demo login comes from seed_oidc). The
+# default `contract` profile keeps the sorting-line contract the tests use.
+PROFILE = os.environ.get("SEED_PROFILE", "contract")
+CONCRETE = PROFILE == "concrete"
+
 # demo bearer token (v1 shim) -> (fixed user id, role)
 DEMO_USERS = {
     "demo-operator": (uuid.UUID("0199d000-0000-7000-8000-00000000d001"), "operator"),
@@ -95,8 +102,33 @@ def load_rule_specs(path: str | None = None) -> list[dict]:
     return out
 
 
+def _seeded_tags() -> list[dict]:
+    specs = load_tag_specs()
+    return [t for t in specs if t["path"].startswith("batch/")] if CONCRETE else specs
+
+
+def _seeded_rules() -> list[dict]:
+    specs = load_rule_specs()
+    return [r for r in specs if r["path"].startswith("batch/")] if CONCRETE else specs
+
+
 async def seed(pools: Pools) -> None:
     org, site, edge = config.V1_ORG_ID, config.V1_SITE_ID, config.V1_EDGE_ID
+    if not CONCRETE:
+        await _seed_token_users(pools)
+    org_name, site_name = ("Concrete Plant Demo", "Batching plant 1") if CONCRETE else ("Demo", "Plant 1")
+    async with tenant_tx(pools.app, org) as tc:
+        # enterprise = uncapped: the dev/test org must not hit trial seat/site
+        # limits (plans, 0032) - plan-limit behaviour is tested on its own orgs.
+        await tc.execute("INSERT INTO organizations(id, name, plan) VALUES ($1,$2,'enterprise')"
+                         " ON CONFLICT (id) DO UPDATE SET plan = 'enterprise'", org, org_name)
+        await tc.execute("INSERT INTO sites(id, org_id, name, code) VALUES ($1,$2,$3,$4)"
+                         " ON CONFLICT (id) DO NOTHING", site, org, site_name, config.V1_SITE_CODE)
+        await _seed_site(tc, org, site, edge)
+    log.info("dev seed applied", extra={"org_id": str(org), "site_id": str(site), "profile": PROFILE})
+
+
+async def _seed_token_users(pools: Pools) -> None:
     async with global_tx(pools.app) as conn:
         for token, (uid, _role) in DEMO_USERS.items():
             # email_verified + a stable dev email so the invite-accept path
@@ -118,59 +150,61 @@ async def seed(pools: Pools) -> None:
                         "INSERT INTO consents(user_id, doc, version)"
                         " VALUES ($1,$2,$3) ON CONFLICT (user_id, doc) DO NOTHING",
                         uid, doc, ver)
+    org = config.V1_ORG_ID
     async with tenant_tx(pools.app, org) as tc:
-        # enterprise = uncapped: the dev/test org must not hit trial seat/site
-        # limits (plans, 0032) - plan-limit behaviour is tested on its own orgs.
         await tc.execute("INSERT INTO organizations(id, name, plan) VALUES ($1,'Demo','enterprise')"
                          " ON CONFLICT (id) DO UPDATE SET plan = 'enterprise'", org)
-        await tc.execute("INSERT INTO sites(id, org_id, name, code) VALUES ($1,$2,'Plant 1',$3)"
-                         " ON CONFLICT (id) DO NOTHING", site, org, config.V1_SITE_CODE)
-        await tc.execute(
-            "INSERT INTO edges(id, org_id, site_id, name, status, mqtt_username,"
-            " credential_version)"
-            " VALUES ($1,$2,$3,'Edge 1','active',$4,1) ON CONFLICT (id) DO NOTHING",
-            edge, org, site, edge_client_name(edge, 1))
-        # identity row for the reconciler. The DB stores ONLY the sha256
-        # fingerprint of the bootstrap secret (the secret itself lives in
-        # infra/secrets/edge_bootstrap_pw, mounted file-only — doc 17 §5).
-        # Fingerprint may be '' when no secret file is mounted (bare local
-        # dev): the reconciler then adopts whatever it mints.
-        fp = _bootstrap_fingerprint()
-        await tc.execute(
-            "INSERT INTO edge_identities(org_id, edge_id, version, username,"
-            " fingerprint, status, secret_issued)"
-            " VALUES ($1,$2,1,$3,$4,'active',false)"
-            " ON CONFLICT (org_id, edge_id, version) DO NOTHING",
-            org, edge, edge_client_name(edge, 1), fp)
         for token, (uid, role) in DEMO_USERS.items():
             await tc.execute("INSERT INTO memberships(org_id, user_id, role) VALUES ($1,$2,$3)"
                              " ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role",
                              org, uid, role)
-        for t in load_tag_specs():
-            # self-healing upsert: tags.yaml edits take effect on next boot
-            await tc.execute(
-                "INSERT INTO tags(id, org_id, site_id, edge_id, path, name, type, unit, writable,"
-                "  min_value, max_value, description)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)"
-                " ON CONFLICT (org_id, site_id, path) DO UPDATE SET name=excluded.name,"
-                "  type=excluded.type, unit=excluded.unit, writable=excluded.writable,"
-                "  min_value=excluded.min_value, max_value=excluded.max_value,"
-                "  description=excluded.description, edge_id=excluded.edge_id",
-                _tag_id(t["path"]), org, site, edge, t["path"], t["name"], t["type"], t["unit"],
-                t["writable"], t["min"], t["max"], t["description"])
-        await _attach_batching_source(tc, org, site, edge)
-        for r in load_rule_specs():
-            tag_id = await tc.fetchval("SELECT id FROM tags WHERE site_id=$1 AND path=$2",
-                                       site, r["path"])
-            if tag_id is None:
-                raise ValueError(f"alarm rule {r['name']} references unknown tag {r['path']}")
-            await tc.execute(
-                "INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold, severity)"
-                " VALUES ($1,$2,$3,$4,$5,$6)"
-                " ON CONFLICT (org_id, tag_id, name) DO UPDATE SET kind=excluded.kind,"
-                "  threshold=excluded.threshold, severity=excluded.severity",
-                org, tag_id, r["name"], r["kind"], r["threshold"], r["severity"])
-    log.info("dev seed applied", extra={"org_id": str(org), "site_id": str(site)})
+
+
+async def _seed_site(tc, org, site, edge) -> None:
+    await tc.execute(
+        "INSERT INTO edges(id, org_id, site_id, name, status, mqtt_username,"
+        " credential_version)"
+        " VALUES ($1,$2,$3,'Edge 1','active',$4,1) ON CONFLICT (id) DO NOTHING",
+        edge, org, site, edge_client_name(edge, 1))
+    # identity row for the reconciler. The DB stores ONLY the sha256
+    # fingerprint of the bootstrap secret (the secret itself lives in
+    # infra/secrets/edge_bootstrap_pw, mounted file-only — doc 17 §5).
+    # Fingerprint may be '' when no secret file is mounted (bare local
+    # dev): the reconciler then adopts whatever it mints.
+    fp = _bootstrap_fingerprint()
+    await tc.execute(
+        "INSERT INTO edge_identities(org_id, edge_id, version, username,"
+        " fingerprint, status, secret_issued)"
+        " VALUES ($1,$2,1,$3,$4,'active',false)"
+        " ON CONFLICT (org_id, edge_id, version) DO NOTHING",
+        org, edge, edge_client_name(edge, 1), fp)
+    for t in _seeded_tags():
+        # self-healing upsert: tags.yaml edits take effect on next boot
+        await tc.execute(
+            "INSERT INTO tags(id, org_id, site_id, edge_id, path, name, type, unit, writable,"
+            "  min_value, max_value, description)"
+            " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)"
+            " ON CONFLICT (org_id, site_id, path) DO UPDATE SET name=excluded.name,"
+            "  type=excluded.type, unit=excluded.unit, writable=excluded.writable,"
+            "  min_value=excluded.min_value, max_value=excluded.max_value,"
+            "  description=excluded.description, edge_id=excluded.edge_id",
+            _tag_id(t["path"]), org, site, edge, t["path"], t["name"], t["type"], t["unit"],
+            t["writable"], t["min"], t["max"], t["description"])
+    await _attach_batching_source(tc, org, site, edge)
+    if CONCRETE:
+        from .concrete import seed_hierarchy
+        await seed_hierarchy(tc, org, site)
+    for r in _seeded_rules():
+        tag_id = await tc.fetchval("SELECT id FROM tags WHERE site_id=$1 AND path=$2",
+                                   site, r["path"])
+        if tag_id is None:
+            raise ValueError(f"alarm rule {r['name']} references unknown tag {r['path']}")
+        await tc.execute(
+            "INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold, severity)"
+            " VALUES ($1,$2,$3,$4,$5,$6)"
+            " ON CONFLICT (org_id, tag_id, name) DO UPDATE SET kind=excluded.kind,"
+            "  threshold=excluded.threshold, severity=excluded.severity",
+            org, tag_id, r["name"], r["kind"], r["threshold"], r["severity"])
 
 
 BATCH_SOURCE = "Batching plant (sim)"

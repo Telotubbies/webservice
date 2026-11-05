@@ -36,7 +36,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .core import config
+from .core import config, jobs
 from .iam import consents, orgguard
 from .edge import credpush, edgelogs, enroll_codes
 from .production import eventsfeed, rollup, statuspage, tagquery
@@ -462,6 +462,11 @@ def _handle_cmd_resp(st: State, msg, org_id: UUID, edge_id: UUID) -> None:
         org_id, edge_id))
 
 
+async def _prune_jobs(st) -> None:
+    async with st.pools.system.acquire() as conn:
+        await jobs.prune(conn)
+
+
 async def _every(seconds: float, fn, name: str) -> None:
     while True:
         await asyncio.sleep(seconds)
@@ -535,6 +540,8 @@ async def lifespan(app: FastAPI):
                                    lambda: rollup.refresh_all(st.pools), "rollup refresh")),
         asyncio.create_task(_every(86400.0, lambda: rollup.ensure_partitions(st.pools),
                                    "history partitions")),
+        # finished/dead queue rows were never deleted (86k notify_send rows)
+        asyncio.create_task(_every(86400.0, lambda: _prune_jobs(st), "jobs prune")),
         asyncio.create_task(_every(config.STALE_RULE_CHECK_S, st.alarms.sweep_stale,
                                    "stale-rule sweep")),
         asyncio.create_task(st.insights.run_forever()),

@@ -1,4 +1,4 @@
-"""v2 admin API: members routes. Moved verbatim from main.py."""
+"""v2 admin API: memberships + invites (member:manage). Moved verbatim from main.py."""
 
 from __future__ import annotations
 

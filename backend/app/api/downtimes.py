@@ -1,4 +1,4 @@
-"""v2 admin API: downtimes routes. Moved verbatim from main.py."""
+"""v2 admin API: downtimes — maintenance windows that mute alarm raising. Moved verbatim from main.py."""
 
 from __future__ import annotations
 

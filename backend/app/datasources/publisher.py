@@ -33,7 +33,8 @@ def cfg_topic(org_id, site_id, edge_id, leaf: str = "cfg") -> str:
     return f"v2/{org_id}/{site_id}/{edge_id}/{leaf}"
 
 
-# ------------------------------------------------------------------- pure
+# ── Pure wire helpers ──
+
 def cfg_payload(version: int, sources: list[dict], tags_by_source: dict[str, list[dict]],
                 cameras: list[dict] | None = None) -> dict:
     """`sources`: rows as dicts (id, protocol, connection, poll_ms, enabled,
@@ -127,7 +128,8 @@ def parse_cfg_ack(raw) -> Ack | None:
     return Ack(ver, ok, tuple(errs))
 
 
-# --------------------------------------------------------------------- db
+# ── DB build + publisher ──
+
 async def build_cfg(pool, org_id: UUID, edge_id: UUID) -> dict:
     """Full config for one edge. Runs at READ COMMITTED (tenant_tx has already
     issued a query, so the isolation level cannot be raised), and the version

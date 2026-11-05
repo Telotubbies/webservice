@@ -1,4 +1,4 @@
-"""v2 admin API: slos routes. Moved verbatim from main.py."""
+"""v2 admin API: SLOs and correction windows on tags. Moved verbatim from main.py."""
 
 from __future__ import annotations
 

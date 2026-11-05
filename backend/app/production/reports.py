@@ -255,6 +255,7 @@ async def collect_report(tc, template: str, org_id: UUID, site_id: UUID | None,
 # Schedule due computation (pure — unit tested)
 # ---------------------------------------------------------------------------
 def _send_time(v) -> dtime:
+    """Accept datetime.time (asyncpg) or an 'HH:MM[:SS]' string."""
     if isinstance(v, dtime):
         return v
     h, m, *rest = str(v).split(":")
@@ -445,6 +446,7 @@ async def create_schedule(org: str, body: ScheduleIn, request: Request, p=Depend
 
 
 def _check_day(template: str, send_day: int | None) -> None:
+    """send_day is required (and ranged) for the weekly/monthly templates."""
     if template == "weekly_oee" and not (send_day and 1 <= send_day <= 7):
         raise HTTPException(422, "weekly_oee needs send_day 1..7")
     if template == "monthly_alarms" and not (send_day and 1 <= send_day <= 28):

@@ -220,6 +220,7 @@ def state_intervals(samples, states_map: dict,
 
 
 def state_durations(samples, states_map, t_from: datetime, t_to: datetime) -> dict:
+    """Total seconds per state over [t_from, t_to)."""
     out = {s: 0.0 for s in STATES}
     out["unknown"] = 0.0
     for st, a, b in state_intervals(samples, states_map, t_from, t_to):
@@ -993,6 +994,7 @@ async def classify_dt(org: str, site: str, dt: str, body: ClassifyIn,
 # OEE
 # ---------------------------------------------------------------------------
 def _range(from_: str | None, to: str | None, default_days: int = 1):
+    """from/to query params -> bounded [t_from, t_to) (max 93 days)."""
     try:
         t_to = parse_ts(to) if to else utcnow()
         t_from = parse_ts(from_) if from_ else t_to - timedelta(days=default_days)
@@ -1122,6 +1124,8 @@ async def oee_trend(org: str, site: str, request: Request,
 # closes the open row when the machine runs again.
 # ---------------------------------------------------------------------------
 async def _sweep_machine(tc, mp: dict, now: datetime) -> None:
+    """Apply the sweep decision for one mapped machine: open a stop row, or
+    close the open one once the machine runs again."""
     open_dt = await tc.fetchrow(
         "SELECT id, starts_at FROM downtimes"
         " WHERE kind='stop' AND device_id=$1 AND ends_at IS NULL", mp["device_id"])

@@ -35,7 +35,7 @@ def _check_keys(d: dict, allowed: set[str], prefix: str) -> None:
             raise AddressError(f"{prefix}.{k}", "unknown field")
 
 
-# ---------------------------------------------------------------- modbus
+# ── Modbus ──
 
 _MB_AREAS = ("coil", "discrete_input", "holding_register", "input_register")
 _MB_BIT = ("coil", "discrete_input")
@@ -106,7 +106,7 @@ def _modbus(raw: object, tag_type: str) -> dict:
                        "(use %QX0.0, %IW4, 40001, ...)")
 
 
-# -------------------------------------------------------------------- s7
+# ── S7 ──
 
 _S7_AREAS = ("DB", "M", "I", "Q")
 _S7_DT = ("bool", "int", "dint", "real", "word")
@@ -200,7 +200,7 @@ def _s7(raw: object, tag_type: str) -> dict:
     return out
 
 
-# ------------------------------------------------------------------ opcua
+# ── OPC UA ──
 
 _NODE_ID = re.compile(r"ns=[0-9]+;(?:s=.+|i=[0-9]+|g=[0-9A-Fa-f-]{36}|b=[A-Za-z0-9+/=]+)")
 
@@ -217,7 +217,7 @@ def _opcua(raw: object, tag_type: str) -> dict:
     return {"node_id": raw.strip()}
 
 
-# -------------------------------------------------------------------- sim
+# ── Sim ──
 
 def _sim(raw: object, tag_type: str) -> dict:
     if not isinstance(raw, dict):
@@ -255,7 +255,7 @@ def parse_address(protocol: str, raw: str | dict, tag_type: str) -> dict:
     return parser(raw, tag_type)
 
 
-# ------------------------------------------------------------- connection
+# ── Connection ──
 
 def _host(conn: dict) -> str:
     h = conn.get("host")

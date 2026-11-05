@@ -1,4 +1,4 @@
-"""v2 admin API: dashboards routes. Moved verbatim from main.py."""
+"""v2 admin API: dashboards and notebooks — saved boards and shared notes. Moved verbatim from main.py."""
 
 from __future__ import annotations
 

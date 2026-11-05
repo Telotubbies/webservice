@@ -57,7 +57,30 @@ USERS = {
     "admin@demo": "admin",
     "operator@demo": "operator",
     "viewer@demo": "viewer",
+    "admin": "owner",
 }
+
+# The local "admin / admin" owner account. Dev only: `_main` refuses outside
+# APP_ENV=dev and the prod realm (infra/keycloak-prod) is never touched.
+DEV_ADMIN = "admin"
+DEV_ADMIN_PW = os.environ.get("DEV_ADMIN_PASSWORD", "admin")
+DEV_ADMIN_EMAIL = "admin@vissointan.local"
+# A bare username + a 5-char password need these two realm settings relaxed;
+# the shipped realm keeps email-as-username and length(12) for everyone else.
+DEV_REALM_PATCH = {"registrationEmailAsUsername": False,
+                   "passwordPolicy": "length(5) and notEmail"}
+
+# SEED_PROFILE=concrete (the demo plant, see ops/seed.py): exactly one login,
+# `demo` / `demo`, owner of the demo org. Every other user of the dev realm is
+# removed so the members list shows the single demo account.
+CONCRETE = os.environ.get("SEED_PROFILE", "contract") == "concrete"
+if CONCRETE:
+    USERS = {"demo": "owner"}
+    DEV_ADMIN = "demo"
+    DEV_ADMIN_PW = os.environ.get("DEMO_LOGIN_PASSWORD", "demo")
+    DEV_ADMIN_EMAIL = "demo@vissointan.local"
+    DEV_REALM_PATCH = {"registrationEmailAsUsername": False,
+                       "passwordPolicy": "length(4) and notEmail"}
 
 
 def _post_form(url: str, fields: dict) -> dict:
@@ -101,17 +124,33 @@ def _provision_users() -> dict[str, str]:
         f"{KC_URL}/realms/master/protocol/openid-connect/token",
         {"grant_type": "password", "client_id": "admin-cli",
          "username": ADMIN, "password": ADMIN_PW})["access_token"]
+    _admin_req("PUT", f"{KC_URL}/admin/realms/{REALM}", tok, DEV_REALM_PATCH)
+    users_url = f"{KC_URL}/admin/realms/{REALM}/users"
+
+    def find(username: str) -> list:
+        return _admin_req(
+            "GET", f"{users_url}?username={urllib.parse.quote(username)}&exact=true", tok)
+
+    # the realm JSON is only imported on a fresh volume — create the local
+    # admin through the API so an existing Keycloak picks it up too
+    if not find(DEV_ADMIN):
+        _admin_req("POST", users_url, tok, {
+            "username": DEV_ADMIN, "email": DEV_ADMIN_EMAIL, "emailVerified": True,
+            "enabled": True, "firstName": "Plant", "lastName": "Demo" if CONCRETE else "Admin"})
+    if CONCRETE:
+        for u in _admin_req("GET", f"{users_url}?max=500", tok) or []:
+            if u["username"] not in USERS:
+                _admin_req("DELETE", f"{users_url}/{u['id']}", tok)
     out = {}
     for username in USERS:
-        rows = _admin_req(
-            "GET", f"{KC_URL}/admin/realms/{REALM}/users"
-                   f"?username={urllib.parse.quote(username)}&exact=true", tok)
+        rows = find(username)
         if not rows:
             raise RuntimeError(f"realm user {username!r} not found — "
                                f"is infra/keycloak/realm-wds.json imported?")
         uid = rows[0]["id"]
-        _admin_req("PUT", f"{KC_URL}/admin/realms/{REALM}/users/{uid}/reset-password",
-                   tok, {"type": "password", "value": DEMO_PW, "temporary": False})
+        pw = DEV_ADMIN_PW if username == DEV_ADMIN else DEMO_PW
+        _admin_req("PUT", f"{users_url}/{uid}/reset-password",
+                   tok, {"type": "password", "value": pw, "temporary": False})
         out[username] = uid
     return out
 
@@ -126,7 +165,9 @@ async def _grant_memberships(subs: dict[str, str]) -> None:
                     "INSERT INTO users(sub, email, email_verified, display_name)"
                     " VALUES ($1,$2,true,$3)"
                     " ON CONFLICT (sub) DO UPDATE SET email=excluded.email",
-                    sub, username, f"Demo {username.split('@')[0].title()}")
+                    sub, DEV_ADMIN_EMAIL if username == DEV_ADMIN else username,
+                    ("Plant Demo" if CONCRETE else "Plant Admin") if username == DEV_ADMIN
+                    else f"Demo {username.split('@')[0].title()}")
         async with tenant_tx(pools.app, org) as tc:
             for username, sub in subs.items():
                 uid = await tc.fetchval("SELECT id FROM users WHERE sub=$1", sub)
@@ -135,6 +176,19 @@ async def _grant_memberships(subs: dict[str, str]) -> None:
                     " VALUES ($1,$2,$3)"
                     " ON CONFLICT (org_id, user_id) DO UPDATE SET role=excluded.role",
                     org, uid, USERS[username])
+        if CONCRETE:
+            # current-version consents, so the first login lands on the plant
+            # instead of the consent wall (the demo is a fixture, not a person)
+            from ..db.context import user_tx
+            for sub in subs.values():
+                async with global_tx(pools.app) as conn:
+                    uid = await conn.fetchval("SELECT id FROM users WHERE sub=$1", sub)
+                async with user_tx(pools.app, uid) as uconn:
+                    for doc, ver in config.CONSENT_VERSION.items():
+                        await uconn.execute(
+                            "INSERT INTO consents(user_id, doc, version) VALUES ($1,$2,$3)"
+                            " ON CONFLICT (user_id, doc) DO UPDATE SET version = excluded.version",
+                            uid, doc, ver)
     finally:
         await pools.close()
 

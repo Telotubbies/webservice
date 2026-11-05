@@ -127,6 +127,7 @@ async def _model_or_404(tc, site_id: UUID, model_id: UUID):
     return row
 
 
+# ── Models ──
 @router.get("/api/v1/orgs/{org}/sites/{site}/plant-models")
 async def list_models(org: str, site: str, request: Request, p=Depends(_user)):
     m = _m()
@@ -268,7 +269,10 @@ async def delete_model(org: str, site: str, model: str, request: Request, p=Depe
     storage.delete(org_id, mid)
 
 
+# ── Part mapping ──
 def _check_part(part: PartIn, node_count: int, tags: dict[str, asyncpg.Record]) -> None:
+    """Validate one part against the model's node count and the site's tags;
+    params are normalized in place. Raises 422 on any violation."""
     kind = KINDS.get(part.kind)
     if kind is None:
         raise HTTPException(422, f"unknown kind {part.kind!r}")

@@ -1,4 +1,4 @@
-"""v2 admin API: audit routes. Moved verbatim from main.py."""
+"""v2 admin API: tenant-scoped audit-log export (JSON/CSV). Moved verbatim from main.py."""
 
 from __future__ import annotations
 

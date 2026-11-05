@@ -1,4 +1,4 @@
-"""v2 admin API: alarm rules routes. Moved verbatim from main.py."""
+"""v2 admin API: alarm-rule CRUD scoped to a site's tags. Moved verbatim from main.py."""
 
 from __future__ import annotations
 

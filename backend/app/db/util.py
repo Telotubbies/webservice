@@ -1,3 +1,5 @@
+"""Wire-format helpers: RFC 3339 'Z' timestamps, UUID coercion, JSON-safe floats."""
+
 from __future__ import annotations
 
 import math
