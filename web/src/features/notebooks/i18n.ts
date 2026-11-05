@@ -1,3 +1,5 @@
+// Notebook strings (nb.*) — list view, cell editor and seed-template copy.
+
 import i18n from '../../lib/i18n';
 
 i18n.addResourceBundle('en', 'translation', {

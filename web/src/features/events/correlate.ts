@@ -1,6 +1,6 @@
 // Event correlation: fold events that belong together into one cluster so a
-// burst reads as one story, not forty rows (Datadog event correlation, ISA-18.2
-// flood handling). Pure: same input and settings always give the same groups.
+// burst reads as one story, not forty rows (alarm-flood handling, ISA-18.2).
+// Pure: same input and settings always give the same groups.
 
 import type { PlantEvent } from './model';
 import type { Severity } from '../../shared/ui/Status';
@@ -71,7 +71,9 @@ function toCluster(key: string, asc: PlantEvent[]): Cluster {
   };
 }
 
-const KEY = 'wds.eventCorr'; // UI pref only
+const KEY = 'wds.eventCorr'; // UI pref only — per-browser, not per-user.
+
+/** Correlation prefs from localStorage; unknown values fall back to defaults. */
 export function loadCorr(): { on: boolean } & CorrSettings {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<CorrSettings> & { on?: boolean };
@@ -82,6 +84,7 @@ export function loadCorr(): { on: boolean } & CorrSettings {
     };
   } catch { return { on: false, ...DEFAULT_CORR }; }
 }
+/** Persists correlation prefs; storage failures are ignored (prefs are best-effort). */
 export function saveCorr(v: { on: boolean } & CorrSettings): void {
   try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* prefs are best-effort */ }
 }

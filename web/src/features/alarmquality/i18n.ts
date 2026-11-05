@@ -1,3 +1,6 @@
+// Alarm-quality page strings (aq.*) — ISA-18.2 metric labels, finding text
+// and table chrome for the quality tab.
+
 import i18n from '../../lib/i18n';
 
 i18n.addResourceBundle('en', 'translation', { aq: {
@@ -10,7 +13,7 @@ i18n.addResourceBundle('en', 'translation', { aq: {
   kpiStanding: 'Standing > 24 h', kpiStandingHint: 'Active alarms older than 24 h',
   kpiUnacked: 'Unacknowledged', kpiUnackedHint: 'Active and never acknowledged',
   ok: 'Within target', manageable: 'Manageable', overloaded: 'Overloaded', flood: 'Flood',
-  rateChart: 'Alarms per hour (last 24 h)', rateUnit: 'alarms/h',
+  rateChart: 'Alarms per operator per hour (last {{n}} h)', rateUnit: 'alarms per operator-hour',
   target6: 'Target 6/h', target12: 'Overload 12/h',
   findings: 'Findings', badActors: 'Bad actors',
   fFrequent: '{{n}} rules generate a high share of alarms', fFrequentBody: 'Top 10 rules by count account for {{pct}}% of all alarms. ISA-18.2 recommends reviewing the top 10 every week.',
@@ -36,7 +39,7 @@ i18n.addResourceBundle('th', 'translation', { aq: {
   kpiStanding: 'ค้างเกิน 24 ชม.', kpiStandingHint: 'สัญญาณที่ยังทำงานนานกว่า 24 ชม.',
   kpiUnacked: 'ยังไม่รับทราบ', kpiUnackedHint: 'ยังทำงานและไม่เคยรับทราบ',
   ok: 'อยู่ในเป้า', manageable: 'จัดการได้', overloaded: 'เกินภาระ', flood: 'น้ำท่วมสัญญาณ',
-  rateChart: 'สัญญาณเตือนต่อชั่วโมง (24 ชม.)', rateUnit: 'ครั้ง/ชม.',
+  rateChart: 'สัญญาณเตือนต่อผู้ควบคุมต่อชั่วโมง ({{n}} ชม.ล่าสุด)', rateUnit: 'ครั้งต่อผู้ควบคุมต่อชั่วโมง',
   target6: 'เป้า 6/ชม.', target12: 'เกินภาระ 12/ชม.',
   findings: 'ข้อค้นพบ', badActors: 'กฎที่ก่อปัญหา',
   fFrequent: '{{n}} กฎสร้างสัญญาณเตือนจำนวนมาก', fFrequentBody: '10 กฎสูงสุดคิดเป็น {{pct}}% ของสัญญาณทั้งหมด ISA-18.2 แนะนำให้ทบทวนทุกสัปดาห์',

@@ -4,6 +4,7 @@
 
 import { request, requestBlob } from '../../lib/api';
 
+// Local alias so the endpoint table below reads verb-first.
 const call = request;
 
 const org = (o: string) => `/api/v1/orgs/${encodeURIComponent(o)}`;

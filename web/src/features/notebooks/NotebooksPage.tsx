@@ -9,11 +9,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Markdown from 'react-markdown';
 import { ApiError, notebookApi, type NotebookRow } from '../../lib/api';
 import { useAdminOrg } from '../admin/admin';
+import { fmtDateTime } from '../../lib/format';
 import { Confirm } from '../../shared/ui/Confirm';
 import { EmptyState, Notice, PageSkeleton } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
 
-const fmt = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
 function useNotebooks() {
   const { orgId, orgRole } = useAdminOrg();
@@ -41,17 +41,17 @@ export function NotebooksPage() {
   const rows = useMemo(() => (list.data?.notebooks ?? []).filter((n) => n.title.toLowerCase().includes(q.toLowerCase())), [list.data, q]);
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="notebook" title={t('notebook.title')} actions={canWrite && (
         <button type="button" className="btn btn-sm" disabled={create.isPending} onClick={() => create.mutate()}>{t('notebook.new')}</button>
       )} />
-      <div className="border-b border-line bg-white px-4 py-2">
+      <div className="border-b border-line bg-paper px-4 py-2">
         <input className="input w-full" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('notebook.searchPh')} aria-label={t('notebook.searchPh')} />
       </div>
       {(list.error || create.error) && <div className="px-4 pt-2"><Notice>{t('notebook.failed')}</Notice></div>}
       <div className="p-4">
         {list.isLoading ? <PageSkeleton /> : rows.length === 0 ? <EmptyState title={t('notebook.empty')} icon="search" /> : (
-          <table className="w-full border-collapse rounded-[5px] border border-line bg-white text-[13px]">
+          <table className="w-full border-collapse rounded-[5px] border border-line bg-paper text-[13px]">
             <thead><tr className="border-b border-line text-left">
               {['colTitle', 'colVisibility', 'colUpdated'].map((c) => (
                 <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t(`notebook.${c}`)}</th>
@@ -62,7 +62,7 @@ export function NotebooksPage() {
                 <tr key={n.id} className="h-10 border-b border-line last:border-0 hover:bg-info-soft">
                   <td className="px-3 font-medium"><Link className="text-blue hover:underline" to={`/notebooks/${n.id}`}>{n.title}</Link></td>
                   <td className="px-3 text-ink-68">{n.shared ? t('notebook.shared') : t('notebook.private')}{n.mine ? ` · ${t('notebook.mine')}` : ''}</td>
-                  <td className="whitespace-nowrap px-3 font-mono text-[12px]">{fmt(n.updated_at)}</td>
+                  <td className="whitespace-nowrap px-3 text-[12px]">{fmtDateTime(n.updated_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -97,7 +97,7 @@ export function NotebookViewPage() {
   const body = edit ? draft.body : nb.body;
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="notebook" title={edit ? t('notebook.edit') : nb.title} back={{ to: '/notebooks', label: t('notebook.back') }} actions={canWrite && (
         edit ? (<>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setEdit(false); setDraft(nb); }}>{t('common.close')}</button>
@@ -118,7 +118,7 @@ export function NotebookViewPage() {
             </label>
           </div>
         )}
-        <article className="min-w-0 rounded-[5px] border border-line bg-white p-4 text-[14px] leading-relaxed [&_a]:text-blue [&_code]:font-mono [&_h1]:text-[20px] [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:text-[16px] [&_h2]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:bg-subtle [&_pre]:p-2">
+        <article className="min-w-0 rounded-[5px] border border-line bg-paper p-4 text-[14px] leading-relaxed [&_a]:text-blue [&_code]:font-mono [&_h1]:text-[20px] [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:text-[16px] [&_h2]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:bg-subtle [&_pre]:p-2">
           {body.trim() ? <Markdown>{body}</Markdown> : <p className="text-ink-46">{t('notebook.emptyBody')}</p>}
         </article>
       </div>

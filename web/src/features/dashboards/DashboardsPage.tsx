@@ -2,12 +2,13 @@
 // edit mode: drag by the widget header, resize from the corner, add / edit /
 // duplicate / delete widgets through the widget editor.
 
+import { Panel } from '../../viz/Panel';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import ReactGridLayout, { useContainerWidth, verticalCompactor, type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
-import { Check, Copy, FastForward, FileText, GripVertical, Layers, LayoutDashboard, Maximize2, Pencil, Pause, Play, Plus, Rewind, RotateCcw, Search, Share2, Star, Trash2, X } from 'lucide-react';
+import { Check, Copy, FastForward, FileText, GripVertical, Layers, LayoutDashboard, Pencil, Pause, Play, Plus, Rewind, RotateCcw, Search, Share2, Star, Trash2, X } from 'lucide-react';
 import { EmptyState, Notice } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
 import { Confirm } from '../../shared/ui/Confirm';
@@ -92,11 +93,12 @@ type Sort = 'recent' | 'title' | 'widgets';
 const PRESETS: Preset[] = ['all', 'mine', 'shared', 'starred', 'custom', 'builtin', 'templates'];
 const SORTS: Sort[] = ['recent', 'title', 'widgets'];
 
+/** Route `/dashboards`: searchable list of built-in, custom, and template boards. */
 export function DashboardsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { list, commit, canWrite } = useDashboards();
-  // List state lives in the URL (dd: the query string IS the saved view) —
+  // List state lives in the URL — the query string IS the saved view, and
   // SavedViews saves/applies it wholesale.
   const [sp, setSp] = useSearchParams();
   const preset = (PRESETS.includes(sp.get('view') as Preset) ? sp.get('view') : 'all') as Preset;
@@ -157,8 +159,8 @@ export function DashboardsPage() {
   const presets = PRESETS.map((k) => [k, t(`dash.preset${k[0].toUpperCase()}${k.slice(1)}`)] as const);
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
-      <ProductHeader icon="dashboard" title={t('dash.title')} tabs={[{ to: '/dashboards', label: t('dash.tabList'), end: true }]}
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
+      <ProductHeader icon="dashboard" title={t('dash.title')}
         actions={
           <div className="flex items-center gap-2">
             <SavedViews page="dashboards" />
@@ -209,7 +211,7 @@ export function DashboardsPage() {
           {preset === 'templates' && (
             <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {DASH_TEMPLATES.map((tpl) => (
-                <li key={tpl.id} className="flex flex-col rounded-[5px] border border-line bg-white p-4 shadow-card">
+                <li key={tpl.id} className="flex flex-col rounded-[5px] border border-line bg-paper p-4 shadow-card">
                   <h3 className="flex items-center gap-2 text-[14px] font-semibold"><LayoutDashboard size={15} aria-hidden className="text-ink-46" />{t(`dash.tpl_${tpl.id}`)}</h3>
                   <p className="mt-1 flex-1 text-[12px] text-ink-68">{t(`dash.tpl_${tpl.id}_d`)}</p>
                   <div className="mt-3 flex items-center justify-between">
@@ -220,7 +222,7 @@ export function DashboardsPage() {
               ))}
             </ul>
           )}
-          {preset !== 'templates' && <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+          {preset !== 'templates' && <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
             <div className="border-b border-line px-3 py-2 text-[12px] text-ink-68">{t('dash.count', { count: shown.length })}</div>
             {shown.length === 0 ? <EmptyState title={t('dash.empty')} icon="search" /> : (
               <table className="w-full border-collapse text-[13px]">
@@ -234,7 +236,7 @@ export function DashboardsPage() {
                 </thead>
                 <tbody>
                   {shown.map((d) => (
-                    <tr key={d.id} className="h-14 border-b border-line last:border-0 hover:bg-info-soft">
+                    <tr key={d.id} className="h-11 border-b border-line last:border-0 hover:bg-info-soft">
                       <td className="px-3">
                         <button type="button" role="checkbox" aria-checked={stars.has(d.id)} aria-label={t('dash.starNamed', { name: d.title })} onClick={() => toggleStar(d.id)}
                           className={`grid h-8 w-8 place-items-center rounded focus-visible:outline-2 focus-visible:outline-blue ${stars.has(d.id) ? 'text-[var(--color-warn)]' : 'text-ink-35 hover:text-ink-68'}`}>
@@ -245,7 +247,7 @@ export function DashboardsPage() {
                       <td className="px-3"><span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-68">{t(d.preset === 'builtin' ? 'dash.presetBuiltin' : 'dash.presetCustom')}</span></td>
                       <td className="px-3 text-ink-68">{d.author}</td>
                       <td className="px-3 font-mono text-[12px]">{d.widgets.length}</td>
-                      <td className="px-3 text-[12px] text-ink-68">{new Date(d.updatedAt).toLocaleDateString()}</td>
+                      <td className="px-3 text-[12px] text-ink-68">{new Date(d.updatedAt).toLocaleDateString(i18n.language, { dateStyle: 'medium' })}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -264,6 +266,8 @@ const RANGES: RangeKey[] = ['15m', '1h', '4h', '24h'];
 const ROW_H = 50;
 const UNIT = 2;
 
+/** Route `/dashboards/:id`: one board on a drag/resize grid, with pause/rewind
+ *  time controls, template variables, and edit mode for writers. */
 export function DashboardViewPage() {
   const { t } = useTranslation();
   const { id } = useParams();
@@ -340,7 +344,7 @@ export function DashboardViewPage() {
   };
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="dashboard" title={dash.title}
         actions={
           /* header stays lean so 390px doesn't overflow — labels collapse to
@@ -452,10 +456,11 @@ export function DashboardViewPage() {
             {dash.widgets.map((w) => (
               <div key={w.id} className="min-w-0">
                 {w.kind === 'group' ? (
-                  /* dd group header: pastel themed bar + one-line description; the tiles below it belong to it */
+                  /* group header: a quiet grey bar (spec §10: no saturated blocks);
+                     the group's tone survives only as a 3 px accent on the left */
                   <section
-                    className={`flex h-full flex-col justify-center gap-0 rounded-[3px] px-2 ${editable ? 'outline-dashed outline-1 outline-white/60' : ''}`}
-                    style={{ background: GROUP_TONE_STYLE[w.tone ?? 'blue'].header, color: GROUP_TONE_STYLE[w.tone ?? 'blue'].ink }}
+                    className={`flex h-full flex-col justify-center gap-0 rounded-[3px] border-l-[3px] bg-panel-2 px-2 text-ink ${editable ? 'outline-dashed outline-1 outline-line-strong' : ''}`}
+                    style={{ borderLeftColor: GROUP_TONE_STYLE[w.tone ?? 'blue'].ink }}
                     aria-label={w.title || autoTitle(w)}>
                     <div className="flex items-center gap-1">
                       {editable && <span className="widget-drag grid h-6 w-5 cursor-move place-items-center opacity-70" aria-hidden><GripVertical size={14} /></span>}
@@ -467,24 +472,27 @@ export function DashboardViewPage() {
                         </>
                       )}
                     </div>
-                    {w.note && <p className="truncate px-5 pb-0.5 text-[11px] opacity-80">{w.note}</p>}
+                    {w.note && <p className="truncate px-5 pb-0.5 text-[11px] text-ink-2">{w.note}</p>}
                   </section>
                 ) : (
-                <section className={`flex h-full flex-col overflow-hidden rounded-[5px] border bg-white ${editable ? 'border-dashed border-blue' : 'border-line'}`} aria-label={w.title || autoTitle(w)}>
-                  <header className="flex h-8 shrink-0 items-center gap-1 border-b border-line pl-2 pr-1">
-                    {editable && <span className="widget-drag grid h-6 w-5 cursor-move place-items-center text-ink-46" aria-hidden><GripVertical size={14} /></span>}
-                    <h3 className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink">{w.title || autoTitle(w)}</h3>
-                    <IconBtn label={t('dash.fullscreen')} onClick={() => setFull(w)}><Maximize2 size={13} /></IconBtn>
-                    {editable && (
+                <Panel.Root state="ready" label={w.title || autoTitle(w)} className={`h-full overflow-hidden ${editable ? '!border-dashed !border-accent' : ''}`}>
+                  <Panel.Header
+                    title={<span className="flex items-center gap-1">
+                      {editable && <span className="widget-drag grid h-6 w-5 cursor-move place-items-center text-ink-3" aria-hidden><GripVertical size={14} /></span>}
+                      {w.title || autoTitle(w)}
+                    </span>}
+                    badge={dash.range}
+                    onFullscreen={() => setFull(w)}
+                    actions={editable && (
                       <>
                         <IconBtn label={t('dash.editWidgetNamed', { name: w.title || autoTitle(w) })} onClick={() => setEditing(w)}><Pencil size={13} /></IconBtn>
                         <IconBtn label={t('dash.duplicate')} onClick={() => update({ widgets: [...dash.widgets, { ...structuredClone(w), id: newId(), y: bottom }] })}><Copy size={13} /></IconBtn>
                         <IconBtn label={t('dash.removeWidget')} onClick={() => update({ widgets: dash.widgets.filter((x) => x.id !== w.id) })}><Trash2 size={13} /></IconBtn>
                       </>
                     )}
-                  </header>
-                  <div className="min-h-0 flex-1 p-2"><WidgetBody w={w} range={dash.range} /></div>
-                </section>
+                  />
+                  <Panel.Body className="p-2"><WidgetBody w={w} range={dash.range} /></Panel.Body>
+                </Panel.Root>
                 )}
               </div>
             ))}
@@ -506,7 +514,7 @@ export function DashboardViewPage() {
   );
 }
 
-/** Datadog-style full-screen view of one widget; Esc / backdrop click closes. */
+/** Full-screen view of one widget; Esc / backdrop click closes. */
 function FullWidget({ w, range, onClose }: { w: Widget; range: RangeKey; onClose: () => void }) {
   const { t } = useTranslation();
   const dlg = useRef<HTMLDialogElement>(null);

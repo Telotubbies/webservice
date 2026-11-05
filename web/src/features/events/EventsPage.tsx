@@ -15,13 +15,14 @@ import { EQUIPMENT } from '../../lib/plant';
 import { GAPS, correlate, isCluster, loadCorr, saveCorr, type CorrBy, type Cluster } from './correlate';
 import { EventHistogram, type HistBucket } from './EventHistogram';
 import { SOURCES, eventFields, useEventStream, type PlantEvent } from './model';
-import { RAIL, SOURCE_KEY, SessionBadge, SourceGlyph, eventTitle, fmtTime, signalLabel } from './ui';
+import { SOURCE_KEY, SessionBadge, SourceGlyph, eventTitle, fmtTime, signalLabel } from './ui';
 import './i18n';
 
 const RANGES = { '1h': 1, '4h': 4, '8h': 8, '24h': 24, '7d': 168 } as const;
 type Range = keyof typeof RANGES;
 const PAGE = 100;
 
+// Every cell is quoted so titles containing commas or quotes stay in one column.
 const csvCell = (v: string) => `"${v.replace(/"/g, '""')}"`;
 
 export function EventsPage() {
@@ -37,6 +38,8 @@ export function EventsPage() {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const setCorrPref = (p: Partial<typeof corr>) => setCorr((c) => { const n = { ...c, ...p }; saveCorr(n); return n; });
 
+  // "Now" recomputes only when the stream grows or the range changes, so a
+  // re-render doesn't slide the window and change which events are in it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const to = useMemo(() => Date.now(), [stream.events.length, range]);
   const from = to - RANGES[range] * 3600_000;
@@ -51,6 +54,8 @@ export function EventsPage() {
   const items = useMemo(() => (corr.on ? correlate(shown, corr) : shown), [corr, shown]);
   const clusterCount = useMemo(() => items.filter(isCluster).length, [items]);
   const toggleOpen = (id: string) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  // Cluster heading: the grouping key resolved to something an operator
+  // recognizes — translated equipment name, signal label, or 'whole plant'.
   const keyLabel = (c: Cluster) => {
     if (corr.by === 'all') return t('evx.corrPlant');
     if (corr.by === 'equipment') { const eq = EQUIPMENT.find((x) => x.id === c.key); return eq ? t(eq.labelKey) : c.key; }
@@ -59,8 +64,7 @@ export function EventsPage() {
 
   const row = (e: PlantEvent, nested = false) => (
     <tr key={e.id} className={`h-10 border-b border-line last:border-0 hover:bg-info-soft ${nested ? 'bg-subtle/50' : ''}`}>
-      <td className={`w-1 p-0 ${RAIL[e.severity ?? 'none']}`} />
-      <td className={`whitespace-nowrap px-3 font-mono text-[12px] text-ink-68 ${nested ? 'pl-8' : ''}`}>{fmtTime(e.at, i18n.language, range === '7d')}</td>
+      <td className={`whitespace-nowrap px-3 text-[12px] text-ink-68 ${nested ? 'pl-8' : ''}`}>{fmtTime(e.at, i18n.language, range === '7d')}</td>
       <td className="px-3"><span className="flex items-center gap-1.5 text-ink-68"><SourceGlyph source={e.source} />{t(SOURCE_KEY[e.source])}</span></td>
       <td className="px-3">
         <span className="flex items-center gap-2">
@@ -85,7 +89,7 @@ export function EventsPage() {
   const sources = SOURCES.filter((s) => s !== 'command' || stream.commandsVisible);
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="events" title={t('evx.title')} lede={t('evx.lede')}
         actions={
           <div className="flex items-center gap-2">
@@ -96,7 +100,7 @@ export function EventsPage() {
             </button>
           </div>
         } />
-      <div className="border-b border-line bg-white px-4 py-2">
+      <div className="border-b border-line bg-paper px-4 py-2">
         <div className="relative">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" aria-hidden />
           <input className="input w-full pl-7" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }}
@@ -105,7 +109,7 @@ export function EventsPage() {
       </div>
 
       <div className="flex flex-1 gap-4 p-4">
-        <aside className="w-[220px] shrink-0 self-start border border-line bg-white" aria-label={t('evx.facets')}>
+        <aside className="w-[220px] shrink-0 self-start border border-line bg-paper" aria-label={t('evx.facets')}>
           <FacetGroup title={t('evx.fSource')} off={offSource} emptyLabel="—" onToggle={(v) => setOffSource((s) => toggleIn(s, v))}
             options={facetOptions(inRange, (e) => e.source, (v) => t(SOURCE_KEY[v as PlantEvent['source']]))
               .concat(sources.filter((s) => !inRange.some((e) => e.source === s)).map((s) => ({ value: s, label: t(SOURCE_KEY[s]), count: 0 })))} />
@@ -129,7 +133,7 @@ export function EventsPage() {
           {!stream.alarmTimesKnown && !stream.loading && <Notice tone="info">{t('evx.timesUnknown')}</Notice>}
           <EventHistogram events={inRange} from={from} to={to} picked={picked} onPick={(b) => { setPicked(b); setLimit(PAGE); }} />
 
-          <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+          <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
             <div className="flex flex-wrap items-center gap-3 border-b border-line px-3 py-2 text-[12px] text-ink-68">
               <span>{t('evx.count', { count: shown.length })}{corr.on && clusterCount > 0 ? ` · ${t('evx.clusters', { count: clusterCount })}` : ''}</span>
               {!stream.commandsVisible && <span className="italic">{t('evx.noCommands')}</span>}
@@ -160,9 +164,8 @@ export function EventsPage() {
               <table className="w-full border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-left">
-                    <th className="w-1" aria-hidden />
                     {(['colTime', 'colSource', 'colEvent', 'colSignal', 'colBy'] as const).map((c) => (
-                      <th key={c} scope="col" className="h-8 px-3 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{t(`evx.${c}`)}</th>
+                      <th key={c} scope="col" className="overline h-8 px-3">{t(`evx.${c}`)}</th>
                     ))}
                   </tr>
                 </thead>
@@ -173,8 +176,7 @@ export function EventsPage() {
                     return (
                       <Fragment key={it.id}>
                         <tr className="h-10 border-b border-line bg-subtle hover:bg-info-soft">
-                          <td className={`w-1 p-0 ${RAIL[it.worst ?? 'none']}`} />
-                          <td className="whitespace-nowrap px-3 font-mono text-[12px] text-ink-68">{fmtTime(it.to, i18n.language, range === '7d')}</td>
+                          <td className="whitespace-nowrap px-3 text-[12px] text-ink-68">{fmtTime(it.to, i18n.language, range === '7d')}</td>
                           <td colSpan={4} className="px-3">
                             <button type="button" aria-expanded={isOpen} onClick={() => toggleOpen(it.id)}
                               className="flex w-full items-center gap-2 text-left focus-visible:outline-2 focus-visible:outline-blue">

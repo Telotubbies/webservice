@@ -19,6 +19,9 @@ export interface SceneSource {
 
 const EMPTY: Kinds = {};
 
+/** Resolves the model URL + part mapping for the current site's scope.
+ *  A site model is fetched as a blob object URL, revoked on unmount or when
+ *  the scope changes; falls back to the bundled demo when none is uploaded. */
 export function useSceneSource(): SceneSource {
   const [state, setState] = useState<Omit<SceneSource, 'reload'>>({
     status: 'loading', url: '', parts: [], model: null, kinds: EMPTY,

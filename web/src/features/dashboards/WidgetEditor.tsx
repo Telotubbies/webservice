@@ -1,7 +1,8 @@
 // Widget editor — "Select your visualization → Graph your data → Display →
-// Layout" with a live preview on the left (Datadog widget-editor anatomy).
+// Layout" with a live preview on the left.
 // Layout size inputs double as the keyboard alternative to drag/resize.
 
+import { RETIRED_KINDS } from './renderers';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -53,6 +54,7 @@ const HAS_RANGE: VizKind[] = ['gauge', 'bargauge', 'timeseries'];
 
 const numOrNull = (s: string) => (s.trim() === '' || Number.isNaN(Number(s)) ? null : Number(s));
 
+/** Inline field errors as i18n keys; an empty record means the widget can save. */
 export function validate(w: Widget): Partial<Record<'tags' | 'thresholds' | 'yaxis' | 'note', string>> {
   const e: Partial<Record<'tags' | 'thresholds' | 'yaxis' | 'note', string>> = {};
   if (!w.varTag && MULTI.includes(w.kind) && (w.tags.length < 1 || w.tags.length > MAX_SERIES)) e.tags = 'dash.errSeries';
@@ -105,7 +107,7 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
           {/* live preview */}
           <section className="flex w-[45%] flex-col border-r border-line bg-subtle p-4" aria-label={t('dash.preview')}>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-46">{t('dash.preview')}</p>
-            <div className="flex h-[320px] flex-col rounded-[5px] border border-line bg-white">
+            <div className="flex h-[320px] flex-col rounded-[5px] border border-line bg-paper">
               <h3 className="flex h-8 shrink-0 items-center border-b border-line px-3 text-[12px] font-semibold">{w.title || autoTitle(w)}</h3>
               <div className="min-h-0 flex-1 p-3">{ok ? <WidgetBody w={w} range={range} /> : <p className="text-[12px] text-ink-46">{t('dash.previewFix')}</p>}</div>
             </div>
@@ -116,7 +118,9 @@ export function WidgetEditor({ initial, range, onSave, onClose }: {
             <fieldset>
               <legend className="mb-2 text-[13px] font-semibold"><Step n={1} />{t('dash.stepViz')}</legend>
               <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('dash.stepViz')}>
-                {KINDS.map(({ kind, icon: Ico }) => (
+                {/* retired forms (gauge, pie, treemap) are not offered for new widgets;
+                    a saved widget that already uses one keeps it */}
+                {KINDS.filter(({ kind }) => !RETIRED_KINDS.has(kind) || initial.kind === kind).map(({ kind, icon: Ico }) => (
                   <button key={kind} type="button" role="radio" aria-checked={w.kind === kind}
                     onClick={() => set({ kind, tags: SINGLE.includes(kind) ? w.tags.slice(0, 1) : w.tags })}
                     className={`flex h-16 w-28 flex-col items-center justify-center gap-1 rounded border text-[12px] focus-visible:outline-2 focus-visible:outline-blue ${
@@ -326,6 +330,7 @@ function Step({ n }: { n: number }) {
   return <span className="mr-2 inline-grid h-5 w-5 place-items-center rounded-full bg-blue text-[11px] text-white" aria-hidden>{n}</span>;
 }
 
+/** Fallback title derived from the widget kind and tags when the author leaves it blank. */
 export function autoTitle(w: Widget): string {
   if (w.kind === 'note') return 'Note';
   if (w.kind === 'alarms') return 'Active alarms';

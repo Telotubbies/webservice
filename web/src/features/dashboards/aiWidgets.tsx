@@ -19,11 +19,13 @@ import { useNow } from '../../lib/hooks';
 import { RANGE_MIN, type RangeKey, type Widget } from './model';
 import '../material/i18n';
 
+/** Widget kinds rendered here; the editor hides their data-config step since the material API feeds them. */
 export const AI_KINDS = ['matlive', 'matdecision', 'matkpi', 'matmix', 'matmargin', 'matlog', 'ailatency', 'aithroughput'] as const;
 
 const minutesOf = (range: RangeKey) => RANGE_MIN[range];
 const pct = (x: number | null | undefined) => (x == null ? '—' : `${Math.round(x * 100)}%`);
 
+/** The camera these widgets bind to: first material-enabled one, else the first camera. */
 function useMainCamera(): MatCamera | undefined {
   const cams = useMatCameras().data;
   return cams?.find((c) => c.material?.enabled && c.enabled) ?? cams?.[0];
@@ -81,6 +83,7 @@ function MixBar({ frac }: { frac: number | undefined }) {
   );
 }
 
+/** matlive: MJPEG frame plus gate presence and the current truck's class mix. */
 export function MatLiveBody() {
   const { t } = useTranslation();
   const cam = useMainCamera();
@@ -99,6 +102,7 @@ export function MatLiveBody() {
   );
 }
 
+/** matdecision: large verdict tile for the latest truck decision. */
 export function MatDecisionBody() {
   const { t } = useTranslation();
   const now = useNow();
@@ -130,6 +134,7 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
   );
 }
 
+/** matkpi: trucks, uncertain share, latency and inference rate for the range. */
 export function MatKpiBody({ range }: { range: RangeKey }) {
   const { t } = useTranslation();
   const min = minutesOf(range);
@@ -148,6 +153,7 @@ export function MatKpiBody({ range }: { range: RangeKey }) {
   );
 }
 
+/** matmix: gravel/sand decision counts as a proportional split bar. */
 export function MatMixBody({ range }: { range: RangeKey }) {
   const { t } = useTranslation();
   const sum = useMatSummary(minutesOf(range)).data;
@@ -174,6 +180,7 @@ export function MatMixBody({ range }: { range: RangeKey }) {
   );
 }
 
+/** matmargin: decision-confidence histogram with the min_margin threshold marked. */
 export function MatMarginBody({ range }: { range: RangeKey }) {
   const { t } = useTranslation();
   const sum = useMatSummary(minutesOf(range)).data;
@@ -198,6 +205,7 @@ export function MatMarginBody({ range }: { range: RangeKey }) {
   );
 }
 
+/** matlog: recent truck decisions with margin, frames and PLC write outcome. */
 export function MatLogBody() {
   const { t, i18n } = useTranslation();
   const events = useMatEvents(15).data;
@@ -206,7 +214,7 @@ export function MatLogBody() {
   return (
     <div className="h-full overflow-auto">
       <table className="w-full text-[12px]">
-        <thead className="sticky top-0 bg-white text-left text-[11px] uppercase text-ink-46">
+        <thead className="sticky top-0 bg-paper text-left text-[11px] uppercase text-ink-46">
           <tr><th className="py-1 pr-2 font-medium">{t('mat.time')}</th><th className="pr-2 font-medium">{t('mat.decision')}</th><th className="pr-2 font-medium">{t('mat.margin')}</th><th className="pr-2 font-medium">{t('mat.frames')}</th><th className="font-medium">{t('mat.plc')}</th></tr>
         </thead>
         <tbody>
@@ -217,7 +225,7 @@ export function MatLogBody() {
             const blocked = d.outputs?.find((o) => o.result === 'blocked');
             return (
               <tr key={e.id} className="border-t border-line">
-                <td className="py-1 pr-2 font-mono text-ink-68">{new Date(e.fired_at).toLocaleTimeString(i18n.language, { hour12: false })}</td>
+                <td className="py-1 pr-2 text-ink-68">{new Date(e.fired_at).toLocaleTimeString(i18n.language, { hour12: false })}</td>
                 <td className="pr-2"><span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-2 w-2 rounded-sm" style={{ background: colorOfDecision(d.decision) }} />{t(`mat.${d.decision === 'no-material' ? 'none' : d.decision}`)}{d.uncertain && <b className="rounded bg-subtle px-1 text-[10px] text-ink-68">{t('mat.review')}</b>}</span></td>
                 <td className="pr-2">
                   <span className="inline-block h-1.5 w-12 rounded-full bg-line align-middle"><span className="block h-full rounded-full bg-[var(--color-blue)]" style={{ width: pct(d.margin) }} /></span>
@@ -242,6 +250,7 @@ function usePerf(range: RangeKey) {
   return { q, from, to, pts, step: q.data?.step_s ?? 60 };
 }
 
+/** ailatency: p50/p95 inference latency over the range on the shared TimeChart. */
 export function AiLatencyBody({ w, range }: { w: Widget; range: RangeKey }) {
   const { t } = useTranslation();
   const { q, from, to, pts } = usePerf(range);
@@ -253,6 +262,7 @@ export function AiLatencyBody({ w, range }: { w: Widget; range: RangeKey }) {
   return <TimeChart fill compact series={series} unit="ms" xRange={[from, to]} yMin={0} loading={q.isLoading} error={q.isError} onRetry={() => void q.refetch()} />;
 }
 
+/** aithroughput: inferences and detections per minute over the range. */
 export function AiThroughputBody({ w, range }: { w: Widget; range: RangeKey }) {
   const { t } = useTranslation();
   const { q, from, to, pts, step } = usePerf(range);

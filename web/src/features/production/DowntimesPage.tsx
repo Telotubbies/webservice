@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { ApiError } from '../../lib/api';
-import { fmtAge } from '../../lib/format';
+import { fmtAge, fmtDateTime } from '../../lib/format';
 import { PageBar, PageBody, Card, Table } from '../../shared/ui/Page';
 import { EmptyState, ErrorState, PermissionNotice, SkeletonRows } from '../../shared/ui/Feedback';
 import { Confirm } from '../../shared/ui/Confirm';
@@ -45,7 +45,7 @@ export function DowntimesPage() {
   const err = eventsQ.error ?? reasonsQ.error;
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <PageBar icon="pause" title={t('prod.dtTitle')} lede={t('prod.dtLede')}
         actions={
           <>
@@ -87,6 +87,10 @@ export function DowntimesPage() {
     </div>
   );
 }
+
+// ── Pieces ───────────────────────────────────────────────────────────────────
+
+/** One downtime event: collapsed summary row, expanded classify form. */
 function DtCard({ orgId, siteId, ev, roots, all, reasonName, canClassify, onSaved }: {
   orgId: string; siteId: string; ev: DtEvent; roots: ReasonRow[]; all: ReasonRow[];
   reasonName: (r: ReasonRow) => string; canClassify: boolean; onSaved: () => void;
@@ -104,7 +108,7 @@ function DtCard({ orgId, siteId, ev, roots, all, reasonName, canClassify, onSave
   });
 
   return (
-    <li className="rounded-[5px] border border-line bg-white shadow-card">
+    <li className="rounded-[5px] border border-line bg-paper shadow-card">
       <button type="button" onClick={() => setOpen((v) => !v)}
         aria-expanded={open} aria-label={`${ev.device ?? ev.device_id} ${fmtDur(ev.seconds)}`}
         className="flex w-full items-center gap-2 p-3 text-left">
@@ -130,15 +134,15 @@ function DtCard({ orgId, siteId, ev, roots, all, reasonName, canClassify, onSave
         <div className="border-t border-line p-3">
           <dl className="mb-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
             <dt className="text-ink-46">{t('prod.start')}</dt>
-            <dd className="font-mono tabular-nums">{new Date(ev.starts_at).toLocaleString()}</dd>
+            <dd className="tabular-nums">{fmtDateTime(ev.starts_at)}</dd>
             <dt className="text-ink-46">{t('prod.end')}</dt>
-            <dd className="font-mono tabular-nums">{ev.ends_at ? new Date(ev.ends_at).toLocaleString() : '—'}</dd>
+            <dd className="tabular-nums">{ev.ends_at ? fmtDateTime(ev.ends_at) : '—'}</dd>
             <dt className="text-ink-46">{t('prod.duration')}</dt>
             <dd className="font-mono tabular-nums">{fmtDur(ev.seconds)}</dd>
             {ev.classified_at && (
               <>
                 <dt className="text-ink-46">{t('prod.dtClassified')}</dt>
-                <dd className="font-mono tabular-nums">{new Date(ev.classified_at).toLocaleString()}</dd>
+                <dd className="tabular-nums">{fmtDateTime(ev.classified_at)}</dd>
               </>
             )}
           </dl>
@@ -184,6 +188,7 @@ function DtCard({ orgId, siteId, ev, roots, all, reasonName, canClassify, onSave
   );
 }
 
+/** Admin-only editor for the two-level downtime-reason tree. */
 function ReasonManager({ orgId }: { orgId: string }) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();

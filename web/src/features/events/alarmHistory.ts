@@ -43,6 +43,7 @@ function useSiteTagNames(): Map<string, string> | null {
   }, [tags.data, code]);
 }
 
+// v2 site-alarm row → the v1 Alarm shape the rest of the UI already renders.
 function fromSite(r: SiteAlarm, tagName: string): Alarm {
   return {
     id: r.id, tag: tagName, rule: r.rule, severity: r.severity, state: r.state,

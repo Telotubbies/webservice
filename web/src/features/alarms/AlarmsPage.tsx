@@ -15,9 +15,9 @@ import { canAdmin, canOperate, useRole } from '../../app/session';
 import { useAdminOrg } from '../admin/admin';
 import { matchAlarmQuery, useAlarms, alarmStateKey, bucketAlarms, GROUP_BY, type GroupBy } from './alarms';
 import { AlarmDensity, type Bucket } from './AlarmDensity';
-import { ackAlarm, ackMany, errText } from './ackAlarm';
+import { ackMany, errText } from './ackAlarm';
 import './i18n';
-import { SeverityBadge, AlarmStateBadge, QualityMark, normSeverity } from '../../shared/ui/Status';
+import { SeverityBadge, QualityMark, normSeverity } from '../../shared/ui/Status';
 import { Card, Table } from '../../shared/ui/Page';
 import { Notice } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
@@ -27,18 +27,12 @@ import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/Feedback';
 import { Icon } from '../../shared/ui/Icon';
 import { DdIcon } from '../../shared/ui/DdIcon';
 import { TriggeredOnboarding } from '../monitors/TriggeredOnboarding';
-import type { Alarm } from '../../types';
+import { AckButton, AlarmCard, StateCell } from './AlarmRow';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 type StateFilter = 'active' | 'acked' | 'cleared' | 'all';
 
-/** Severity edge bar for unacknowledged rows (inset, no layout shift). */
-const EDGE: Record<'critical' | 'warning' | 'info', string> = {
-  critical: 'shadow-[inset_4px_0_0_var(--color-danger-bright)]',
-  warning: 'shadow-[inset_4px_0_0_var(--color-warn)]',
-  info: 'shadow-[inset_4px_0_0_var(--color-muted-pill)]',
-};
 
 /** Absolute time next to the relative one: clock today, date + clock otherwise. */
 function absTime(ts: string, lang: string): string {
@@ -48,77 +42,6 @@ function absTime(ts: string, lang: string): string {
   return today
     ? d.toLocaleTimeString(lang, { hour12: false })
     : d.toLocaleString(lang, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
-}
-
-// ── Row pieces ───────────────────────────────────────────────────────────────
-
-function AckButton({ alarm }: { alarm: Alarm }) {
-  const { t } = useTranslation();
-  const role = useRole();
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-  // viewers get one "view only" note in the toolbar, not a line per row
-  if (alarm.state !== 'active' || !canOperate(role)) return null;
-  return (
-    <span className="flex flex-col items-start gap-0.5">
-      <button
-        type="button"
-        className="btn btn-sm btn-ack whitespace-nowrap max-md:min-h-11 max-md:min-w-[5.5rem] max-md:px-4 max-md:text-[13px]"
-        disabled={busy}
-        aria-label={`${t('alarms.ack')}: ${alarm.rule}`}
-        onClick={() => {
-          setBusy(true);
-          setErr('');
-          ackAlarm(alarm)
-            .catch((e) => setErr(t('alx.ackFailed', { reason: errText(e, t) })))
-            .finally(() => setBusy(false));
-        }}
-      >
-        <Icon name="check" size={13} /> {busy ? t('alx.ackBusy') : t('alarms.ack')}
-      </button>
-      {err && <span className="max-w-48 text-[11px] text-[var(--color-danger)]" role="alert">{err}</span>}
-    </span>
-  );
-}
-
-/** "Shelved until …" pill — notifications are muted while it shows. */
-function ShelvedMark({ alarm, now }: { alarm: Alarm; now: number }) {
-  const { t } = useTranslation();
-  if (!alarm.shelved_until || Date.parse(alarm.shelved_until) <= now) return null;
-  return (
-    <span className="rounded-full bg-subtle px-1.5 py-0.5 text-[10px] font-medium text-ink-68"
-      title={t('al.shelvedBadge', { at: new Date(alarm.shelved_until).toLocaleString() })}>
-      {t('al.shelve')}
-    </span>
-  );
-}
-
-/** State badge + who/when, in text — ownership readable without hovering. */
-function StateCell({ alarm, now }: { alarm: Alarm; now: number }) {
-  const { t } = useTranslation();
-  const s = alarm.state;
-  return (
-    <span className="flex flex-col items-start gap-0.5">
-      <span className="flex items-center gap-1.5">
-        <AlarmStateBadge state={s} ackedBy={alarm.acked_by} />
-        <ShelvedMark alarm={alarm} now={now} />
-      </span>
-      {s === 'acked' && (
-        <span className="alarm-acked-label text-[11px] text-ink-68">
-          {alarm.acked_by
-            ? alarm.acked_at
-              ? t('alx.ackedWhoWhen', { who: alarm.acked_by, age: fmtAge(alarm.acked_at, now) })
-              : t('alx.ackedWho', { who: alarm.acked_by })
-            : t('alx.ackedUnknownWho')}
-        </span>
-      )}
-      {s === 'cleared' && (
-        <span className="alarm-cleared-label text-[11px] text-ink-46">
-          {alarm.acked_by ? t('alx.ackedWho', { who: alarm.acked_by }) : alarm.cleared_at ? fmtAge(alarm.cleared_at, now) : ''}
-        </span>
-      )}
-    </span>
-  );
 }
 
 /** Live value of the alarm's signal — stale / bad quality look different. */
@@ -290,7 +213,7 @@ export function AlarmsPage() {
 
   return (
     <>
-      <div className="sticky top-9 z-10 border-b border-line bg-white/95 backdrop-blur">
+      <div className="sticky top-[var(--h-topbar)] z-10 border-b border-line bg-paper/95 backdrop-blur">
         <div className="flex h-11 items-center gap-2 px-4">
           <h1 className="text-[15px] font-semibold">{t('alarms.title')}</h1>
           {/* at-a-glance summary: unacked count + criticals, shape + text */}
@@ -388,8 +311,8 @@ export function AlarmsPage() {
             <Card pad={false}>
               {rows.length === 0 ? (
                 <EmptyState
-                  title={state === 'active' && !q ? t('alarms.emptyActive') : t('alarms.empty')}
-                  body={state === 'active' && !q ? t('alarms.emptyActiveBody') : t('alarms.emptyFilteredBody')}
+                  title={ws !== 'open' ? t('alarms.emptyUnknown') : state === 'active' && !q ? t('alarms.emptyActive') : t('alarms.empty')}
+                  body={ws !== 'open' ? t('alarms.emptyUnknownBody') : state === 'active' && !q ? t('alarms.emptyActiveBody') : t('alarms.emptyFilteredBody')}
                 />
               ) : (
                 <>
@@ -408,37 +331,10 @@ export function AlarmsPage() {
                           <li key={a.id} data-alarm-id={id}
                             className={`border-b border-line last:border-0 ${id === focusId ? 'bg-info-soft' : ''}`}
                             {...swipeToAck(unackedRow && operable)}>
-                            <div
-                              className="flex items-start gap-2 px-3 py-2.5"
-                              role="button" tabIndex={0}
-                              onClick={() => navigate(`/alarms/${a.id}`)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/alarms/${a.id}`); }}
-                            >
-                              {operable && (
-                                <input type="checkbox" className="mt-1 h-4 w-4 shrink-0"
-                                  checked={sel.has(id)} onChange={() => toggle(id)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  aria-label={t('alarms.select', { name: a.rule })} />
-                              )}
-                              <span className="min-w-0 flex-1">
-                                <span className="flex items-center gap-1.5">
-                                  <SeverityBadge severity={a.severity} />
-                                  <ShelvedMark alarm={a} now={now} />
-                                  <span className="truncate text-[13px] font-semibold">{a.rule}</span>
-                                </span>
-                                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-ink-46">
-                                  {SIGNALS[a.tag] && <span>{signalLabel(a.tag)}</span>}
-                                  <span className="font-mono">{a.tag}</span>
-                                </span>
-                                <span className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-68">
-                                  <StateCell alarm={a} now={now} />
-                                  <span className="font-mono tabular-nums">{fmtAge(a.ts, now)}</span>
-                                </span>
-                              </span>
-                              <span onClick={(e) => e.stopPropagation()} className="shrink-0">
-                                {unackedRow ? <AckButton alarm={a} /> : null}
-                              </span>
-                            </div>
+                            <AlarmCard
+                              alarm={a} now={now} onOpen={() => navigate(`/alarms/${a.id}`)}
+                              select={operable ? { checked: sel.has(id), onToggle: () => toggle(id) } : undefined}
+                            />
                           </li>
                         );
                       })}
@@ -489,8 +385,7 @@ export function AlarmsPage() {
                       {!collapsed.has(b.key) && b.alarms.map((a) => {
                         const id = String(a.id);
                         const unackedRow = a.state === 'active';
-                        // unacked rows: severity edge bar + bold title; acked/cleared recede
-                        const edge = unackedRow ? EDGE[normSeverity(a.severity)] : '';
+                        // unacked rows: bold title + the ○ state badge carry it; acked/cleared recede
                         return (
                         <tr
                           key={a.id}
@@ -509,11 +404,11 @@ export function AlarmsPage() {
                           {operable && (
                             /* stopPropagation on keydown too — else the row's
                                Enter/Space handler swallows the press */
-                            <td className={edge} onClick={(e) => e.stopPropagation()}>
+                            <td onClick={(e) => e.stopPropagation()}>
                               <input type="checkbox" className="h-4 w-4" checked={sel.has(id)} onChange={() => toggle(id)} aria-label={t('alarms.select', { name: a.rule })} />
                             </td>
                           )}
-                          <td className={operable ? '' : edge}><SeverityBadge severity={a.severity} /></td>
+                          <td><SeverityBadge severity={a.severity} /></td>
                           <td className="py-1.5">
                             <span className={`block ${unackedRow ? 'font-semibold text-ink' : 'font-normal'}`}>{a.rule}</span>
                             <span className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink-46">
@@ -532,7 +427,7 @@ export function AlarmsPage() {
                             <span className="block text-[12px] text-ink-68">{fmtAge(a.ts, now)}</span>
                             <time className="block font-mono text-[11px] tabular-nums text-ink-46" dateTime={a.ts}>{absTime(a.ts, i18n.language)}</time>
                           </td>
-                          <td className="whitespace-nowrap font-mono text-[12px] tabular-nums">{fmtDuration(a.ts, now)}</td>
+                          <td className="whitespace-nowrap text-[12px] tabular-nums">{fmtDuration(a.ts, now)}</td>
                           <td><StateCell alarm={a} now={now} /></td>
                           <td onClick={(e) => e.stopPropagation()}><AckButton alarm={a} /></td>
                         </tr>

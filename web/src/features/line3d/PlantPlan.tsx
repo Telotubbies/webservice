@@ -9,6 +9,7 @@ import { useStore } from '../../lib/hooks';
 import { liveValue, truthy, type PlantPart } from '../../lib/plantModel';
 import type { LineSceneView, PlanImage, PlanKind } from './scene';
 import type { SceneSource } from './useSceneSource';
+import { pickLabels } from './planLabels';
 
 const cache = new Map<string, PlanImage>();
 
@@ -38,7 +39,9 @@ export function usePlantPlan(src: SceneSource, kind: PlanKind) {
 }
 
 /** 2D plan / front elevation: the model's flat render with each mapped part
- *  as a live hotspot (tinted while active, amber/red on alarm). */
+ *  as a live hotspot. Process register (ISA-101): thin neutral outline at
+ *  rest, darker neutral while running (never green), accent only for the
+ *  selection; colours live in index.css (.plan-box). */
 export function PlanView({ kind, img, view, parts, sel, onSelect }: {
   kind: PlanKind; img: PlanImage; view: LineSceneView | null; parts: PlantPart[];
   sel: string | null; onSelect: (k: string | null) => void;
@@ -46,38 +49,42 @@ export function PlanView({ kind, img, view, parts, sel, onSelect }: {
   const { t } = useTranslation();
   useStore(() => live.version);
   const [w, h] = [img.max[0] - img.min[0], img.max[1] - img.min[1]];
-  const boxes = view?.partBoxes() ?? [];
   const ax = (x: number) => x - img.min[0];
   // top: image row 0 = min z; front: image row 0 = max y
   const ay = (v: number) => (kind === 'top' ? v - img.min[1] : img.max[1] - v);
+  const label = Math.max(h / 55, 0.35);
+  const items = (view?.partBoxes() ?? []).flatMap((b) => {
+    const p = parts[Number(b.key)];
+    if (!p || p.kind === 'pipe') return [];       // a pipe's box spans the plant — flow shows in 3D
+    const [x0, x1] = [ax(b.min[0]), ax(b.max[0])];
+    const [y0, y1] = kind === 'top' ? [ay(b.min[2]), ay(b.max[2])] : [ay(b.max[1]), ay(b.min[1])];
+    return [{ key: b.key, p, x0, x1, y0, y1 }];
+  });
+  const labelled = pickLabels(items
+    .filter((it) => sel === it.key || ['vessel', 'mixer', 'pump', 'slider'].includes(it.p.kind))
+    .map((it) => ({ key: it.key, text: it.p.label, area: (it.x1 - it.x0) * (it.y1 - it.y0), selected: sel === it.key, cx: (it.x0 + it.x1) / 2, top: it.y0 })), label);
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="absolute inset-0 h-full w-full bg-white" preserveAspectRatio="xMidYMid meet"
+    <svg viewBox={`0 0 ${w} ${h}`} className="absolute inset-0 h-full w-full bg-paper" preserveAspectRatio="xMidYMid meet"
       role="group" aria-label={t(`plant.mode.${kind}`)} onClick={() => onSelect(null)}>
       <image href={img.url} x="0" y="0" width={w} height={h} />
-      {boxes.map((b) => {
-        const p = parts[Number(b.key)];
-        if (!p || p.kind === 'pipe') return null;     // a pipe's box spans the plant — flow shows in 3D
-        const [x0, x1] = [ax(b.min[0]), ax(b.max[0])];
-        const [y0, y1] = kind === 'top' ? [ay(b.min[2]), ay(b.max[2])] : [ay(b.max[1]), ay(b.min[1])];
+      {items.map(({ key, p, x0, x1, y0, y1 }) => {
         const flag = p.bindings.run ?? p.bindings.open ?? p.bindings.state;
         const active = truthy(liveValue(flag));
         const lvl = p.bindings.level ? Number(liveValue(p.bindings.level)) : NaN;
-        const selected = sel === b.key;
-        const label = Math.max(h / 55, 0.35);
+        const selected = sel === key;
+        const fill = Math.min(Math.max(lvl, 0), 100) / 100;
         return (
-          <g key={b.key} role="button" tabIndex={0} aria-label={p.label} aria-pressed={selected}
-            className="cursor-pointer focus-visible:outline-none"
-            onClick={(e) => { e.stopPropagation(); onSelect(selected ? null : b.key); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(selected ? null : b.key); } }}>
-            <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0}
-              fill={active ? '#1c9a67' : '#5e6dd6'} fillOpacity={active ? 0.35 : 0.14}
-              stroke={selected ? '#149eb4' : active ? '#1c9a67' : '#5e6dd6'} strokeWidth={selected ? h / 300 : h / 700} />
+          <g key={key} role="button" tabIndex={0} aria-label={p.label} aria-pressed={selected}
+            className="plan-part cursor-pointer focus-visible:outline-none"
+            onClick={(e) => { e.stopPropagation(); onSelect(selected ? null : key); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(selected ? null : key); } }}>
+            <rect className="plan-box" data-active={active || undefined} data-selected={selected || undefined}
+              x={x0} y={y0} width={x1 - x0} height={y1 - y0} />
             {Number.isFinite(lvl) && (
-              <rect x={x0} y={y1 - (y1 - y0) * (Math.min(Math.max(lvl, 0), 100) / 100)} width={x1 - x0}
-                height={(y1 - y0) * (Math.min(Math.max(lvl, 0), 100) / 100)} fill="#149eb4" fillOpacity={0.45} />
+              <rect className="plan-level" x={x0} y={y1 - (y1 - y0) * fill} width={x1 - x0} height={(y1 - y0) * fill} />
             )}
-            {(selected || ['vessel', 'mixer', 'pump', 'slider'].includes(p.kind)) && <text x={(x0 + x1) / 2} y={y0 - label * 0.3} textAnchor="middle" fontSize={label}
-              className="fill-ink-68 font-semibold" style={{ paintOrder: 'stroke', stroke: '#fff', strokeWidth: label / 5 }}>
+            {labelled.has(key) && <text x={(x0 + x1) / 2} y={y0 - label * 0.3} textAnchor="middle" fontSize={label}
+              className="plan-label" style={{ strokeWidth: label / 5 }}>
               {p.label}
             </text>}
           </g>

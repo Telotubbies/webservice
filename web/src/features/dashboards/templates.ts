@@ -1,7 +1,7 @@
-// Ready-made boards, the plant-ops answer to Datadog's prebuilt integration
-// dashboards (monitor alerts overview, reliability by service/team, system and
-// host metrics, host counts). A template is a recipe; "Use template" copies it
-// into a custom board the user then owns and can edit.
+// Ready-made board recipes for the plant's common views (alarm overview,
+// reliability, process metrics, drive, thermal, signal counts, quality,
+// shift). A template is a recipe; "Use template" copies it into a custom
+// board the user then owns and can edit.
 
 import { SIGNALS } from '../../lib/plant';
 import { makeWidget, type Widget, type RangeKey } from './model';

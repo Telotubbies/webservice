@@ -21,11 +21,14 @@ const FLOOD_10M = 10;
 const TOP_N = 10;
 const WINDOWS = [24, 72, 168] as const;
 
+// ISA-18.2 operator-loading bands: ≤6 alarms/operator-hour is manageable,
+// above 12 the operator is overloaded.
 const rateLevel = (r: number) => (r > 12 ? 'overloaded' : r > 6 ? 'manageable' : 'ok');
 
+/** One KPI tile — big value, an optional tone line, and the target hint. */
 function Kpi({ label, value, hint, tone }: { label: string; value: string; hint: string; tone?: string }) {
   return (
-    <div className="rounded-[5px] border border-line bg-white p-3">
+    <div className="rounded-[5px] border border-line bg-paper p-3">
       <p className="text-[12px] text-ink-68">{label}</p>
       <p className="mt-1 text-[24px] font-semibold leading-none text-ink">{value}</p>
       {tone && <p className="mt-1 text-[12px] font-semibold text-ink">{tone}</p>}
@@ -59,7 +62,13 @@ export function AlarmQualityPage() {
     .filter((r) => !offSev.has(r.severity))
     .filter((r) => r.flags.length === 0 ? !offFlag.has('none') : r.flags.some((f) => !offFlag.has(f)))
     .filter((r) => r.rule.toLowerCase().includes(q.toLowerCase()));
-  const max = Math.max(1, ...(m?.hourly ?? [0]));
+  // bars are per operator so they read against the ISA-18.2 lines; the scale
+  // always leaves the 6/h target in view with headroom for its label
+  const ops = Math.max(1, m?.operators ?? 1);
+  const perOp = (m?.hourly ?? []).map((n) => n / ops);
+  const max = Math.max(6, ...perOp) * 1.2;
+  // Finding cards — each entry fires only while its condition holds in the
+  // server-computed metrics, so a quiet window shows the "no issues" notice.
   const findings = m ? ([
     m.rules.length > TOP_N && m.top10_share > 0.8 && ['fFrequent', TOP_N, Math.round(m.top10_share * 100)],
     m.rules.some((r) => r.chatter) && ['fChatter', m.rules.filter((r) => r.chatter).length],
@@ -68,7 +77,7 @@ export function AlarmQualityPage() {
   ].filter(Boolean) as [string, number, number?][]) : [];
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <ProductHeader icon="bell-curve" title={t('aq.product')} lede={t('aq.lede', { n: m?.total ?? 0 })}
         tabs={[
           { to: '/alarms', label: t('aq.tabList'), end: true },
@@ -96,17 +105,17 @@ export function AlarmQualityPage() {
               <Kpi label={t('aq.kpiUnacked')} value={String(m.unacked)} hint={t('aq.kpiUnackedHint')} />
             </div>
 
-            <section className="rounded-[5px] border border-line bg-white p-3" aria-label={t('aq.rateChart')}>
-              <h2 className="mb-2 text-[13px] font-semibold">{t('aq.rateChart')}</h2>
+            <section className="rounded-[5px] border border-line bg-paper p-3" aria-label={t('aq.rateChart')}>
+              <h2 className="mb-2 text-[13px] font-semibold">{t('aq.rateChart', { n: m.hours })}</h2>
               <div className="relative flex h-24 items-end gap-1">
-                {[6, 12].map((l) => (
-                  <span key={l} className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-line-hard" style={{ bottom: `${Math.min(100, (l / max) * 100)}%` }}>
-                    <span className="bg-white pr-1 text-[10px] text-ink-46">{t(l === 6 ? 'aq.target6' : 'aq.target12')}</span>
+                {[6, 12].filter((l) => l < max).map((l) => (
+                  <span key={l} className="pointer-events-none absolute left-0 right-0 z-10 border-t border-dashed border-line-hard" style={{ bottom: `${(l / max) * 100}%` }}>
+                    <span className="absolute -top-[15px] right-0 bg-paper pl-1 text-[10px] text-ink-46">{t(l === 6 ? 'aq.target6' : 'aq.target12')}</span>
                   </span>
                 ))}
-                {m.hourly.map((n, i) => (
+                {perOp.map((n, i) => (
                   <span key={i} className="flex-1 bg-[var(--color-blue)]" style={{ height: `${(n / max) * 100}%`, minHeight: n ? 2 : 0 }}
-                    title={`${n} ${t('aq.rateUnit')}`} />
+                    title={`${n.toFixed(1)} ${t('aq.rateUnit')}`} />
                 ))}
               </div>
             </section>
@@ -118,7 +127,7 @@ export function AlarmQualityPage() {
               ) : (
                 <ul className="grid gap-2 lg:grid-cols-2">
                   {findings.map(([k, n, pct]) => (
-                    <li key={k} className="rounded-[5px] border border-line bg-white p-3">
+                    <li key={k} className="rounded-[5px] border border-line bg-paper p-3">
                       <p className="text-[13px] font-semibold">{t(`aq.${k}`, { n })}</p>
                       <p className="mt-0.5 text-[12px] text-ink-68">{t(`aq.${k}Body`, { pct })}</p>
                     </li>
@@ -128,7 +137,7 @@ export function AlarmQualityPage() {
             </section>
 
             <div className="flex gap-4">
-              <aside className="w-[220px] shrink-0 self-start border border-line bg-white">
+              <aside className="w-[220px] shrink-0 self-start border border-line bg-paper">
                 <FacetGroup title={t('aq.facetSev')} off={offSev} emptyLabel={t('aq.noValues')} onToggle={(v) => setOffSev((s) => toggleIn(s, v))}
                   options={facetOptions(m.rules, (r) => r.severity, (v) => t(`alarms.${v}`, { defaultValue: v }))} />
                 <FacetGroup title={t('aq.facetFlag')} off={offFlag} emptyLabel={t('aq.noValues')} onToggle={(v) => setOffFlag((s) => toggleIn(s, v))}
@@ -139,7 +148,7 @@ export function AlarmQualityPage() {
                   <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" aria-hidden />
                   <input className="input w-full pl-7" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('aq.searchPh')} aria-label={t('aq.searchPh')} />
                 </div>
-                <div className="overflow-x-auto rounded-[5px] border border-line bg-white">
+                <div className="overflow-x-auto rounded-[5px] border border-line bg-paper">
                   <table className="w-full border-collapse text-[13px]">
                     <thead>
                       <tr className="border-b border-line text-left">

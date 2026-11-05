@@ -10,15 +10,17 @@ import { PageBar, PageBody, Card, Table } from '../../shared/ui/Page';
 import { EmptyState, ErrorState, Notice, PermissionNotice, SkeletonRows } from '../../shared/ui/Feedback';
 import { Confirm } from '../../shared/ui/Confirm';
 import { Toggle } from '../../shared/ui/Toggle';
+import { DdIcon } from '../../shared/ui/DdIcon';
 import { useAdminOrg, useAdminSite, canAdmin } from '../admin/admin';
 import { useNow } from '../../lib/hooks';
 import { fmtAge } from '../../lib/format';
+import { saveBlob } from '../../lib/saveBlob';
 import { prodApi, type ReportTemplate, type ScheduleInput, type ScheduleRow } from './api';
 import './i18n';
 
+// Every report template the backend can render — drives both the download
+// list and the schedule form's picker.
 const TEMPLATES: ReportTemplate[] = ['shift', 'daily', 'weekly_oee', 'monthly_alarms'];
-
-import { saveBlob } from '../../lib/saveBlob';
 
 export function ReportsPage() {
   const { t } = useTranslation();
@@ -62,7 +64,7 @@ export function ReportsPage() {
   const now = useNow();
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <PageBar icon="download" title={t('prod.repTitle')} lede={t('prod.repLede')} />
       <PageBody>
         {!canEdit && <PermissionNotice role="admin">{t('prod.needSchedule')}</PermissionNotice>}
@@ -80,13 +82,15 @@ export function ReportsPage() {
                 </div>
                 <button type="button" className="btn btn-sm btn-ghost"
                   disabled={download.isPending}
+                  aria-label={`${t('prod.asCsv')}: ${t(`prod.tmpl_${tp}`)}`}
                   onClick={() => download.mutate({ template: tp, format: 'csv' })}>
-                  {t('prod.csv')}
+                  <DdIcon name="download" size={12} /> {t('prod.asCsv')}
                 </button>
                 <button type="button" className="btn btn-sm btn-ghost"
                   disabled={download.isPending}
+                  aria-label={`${t('prod.asHtml')}: ${t(`prod.tmpl_${tp}`)}`}
                   onClick={() => download.mutate({ template: tp, format: 'html' })}>
-                  {t('prod.html')}
+                  <DdIcon name="download" size={12} /> {t('prod.asHtml')}
                 </button>
               </li>
             ))}
@@ -149,6 +153,9 @@ export function ReportsPage() {
   );
 }
 
+// ── Dialog ───────────────────────────────────────────────────────────────────
+
+/** Create/edit a delivery schedule; keyed by row id so state resets per open. */
 function ScheduleDialog({ dlgRef, row, siteId, pending, onSave }: {
   dlgRef: RefObject<HTMLDialogElement | null>;
   row: ScheduleRow | null; siteId: string | null; pending: boolean;

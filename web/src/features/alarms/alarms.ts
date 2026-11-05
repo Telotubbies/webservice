@@ -1,3 +1,8 @@
+// Alarm-list logic shared by the alarms page, the shell chrome and the
+// detail page: ISA-18.2 ordering, the omnibar `key:value` filter, and the
+// `?group=` bucketing that keeps an alarm flood readable. All pure except
+// useAlarms, which reads the live store.
+
 import { useMemo } from 'react';
 import { live } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
@@ -16,6 +21,8 @@ export function sortAlarms(list: Alarm[]): Alarm[] {
     || (Date.parse(b.ts) || 0) - (Date.parse(a.ts) || 0));
 }
 
+/** Live alarms sorted, plus the subsets the UI needs (open / active /
+ *  critical). Recomputed whenever the store's alarmRev ticks. */
 export function useAlarms() {
   const rev = useStore(() => live.alarmRev);
   return useMemo(() => {
@@ -28,13 +35,15 @@ export function useAlarms() {
   }, [rev]);
 }
 
+/** Alarms raised inside one analysis window at or above this count are
+ *  treated as a flood (ISA-18.2's ~10-per-10-minutes rule of thumb). */
 export const FLOOD_THRESHOLD = 10;
 
-/* ---------------------------------------------------------- omnibar query
- * Datadog `key:value` token grammar, evaluated purely on the client against
- * the fields an Alarm actually carries (tag / rule / severity / state /
- * acked_by). Unknown `key:value` tokens degrade to free text so nothing a
- * user types can exclude rows by accident. Tokens AND together. */
+// ── Omnibar query ────────────────────────────────────────────────────────────
+// Faceted `key:value` token grammar, evaluated purely on the client against
+// the fields an Alarm actually carries (tag / rule / severity / state /
+// acked_by). Unknown `key:value` tokens degrade to free text so nothing a
+// user types can exclude rows by accident. Tokens AND together.
 
 const SEV_ALIAS: Record<string, Severity> = {
   critical: 'critical', crit: 'critical',
@@ -48,6 +57,7 @@ const STATE_ALIAS: Record<string, string> = {
   cleared: 'cleared', resolved: 'cleared', closed: 'cleared',
 };
 
+/** True when the alarm satisfies every token of the omnibar query. */
 export function matchAlarmQuery(a: Alarm, query: string, signalLabel: (tag: string) => string): boolean {
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!tokens.length) return true;
@@ -79,11 +89,11 @@ export function matchAlarmQuery(a: Alarm, query: string, signalLabel: (tag: stri
   });
 }
 
-/* --------------------------------------------------------------- grouping
- * The list arrives already sortAlarms()-ordered, so grouping is a run-length
- * partition on (state, severity): unacked criticals form the top group, then
- * warnings/advisories, then acked and cleared groups — the sort stays honest,
- * headers only annotate it. */
+// ── Grouping ─────────────────────────────────────────────────────────────────
+// The list arrives already sortAlarms()-ordered, so grouping is a run-length
+// partition on (state, severity): unacked criticals form the top group, then
+// warnings/advisories, then acked and cleared groups — the sort stays honest,
+// headers only annotate it.
 
 export interface AlarmGroup {
   key: string;
@@ -92,6 +102,7 @@ export interface AlarmGroup {
   alarms: Alarm[];
 }
 
+/** Run-length partition of a sorted list into (state, severity) groups. */
 export function groupAlarms(sorted: Alarm[]): AlarmGroup[] {
   const groups: AlarmGroup[] = [];
   for (const a of sorted) {
@@ -111,10 +122,10 @@ export function alarmStateKey(state: string): 'active' | 'acked' | 'cleared' | n
   return KNOWN_STATES.has(state) ? (state as 'active' | 'acked' | 'cleared') : null;
 }
 
-/* ------------------------------------------------------- flood grouping (F03)
- * `?group=` buckets for the alarm list. `state` keeps the ISA-18.2 run-length
- * partition above; `rule` and `eq` collapse by rule name / equipment so one
- * flood reads as N rows under one parent (count + worst severity + span). */
+// ── Flood grouping (F03) ─────────────────────────────────────────────────────
+// `?group=` buckets for the alarm list. `state` keeps the ISA-18.2 run-length
+// partition above; `rule` and `eq` collapse by rule name / equipment so one
+// flood reads as N rows under one parent (count + worst severity + span).
 
 export type GroupBy = 'state' | 'rule' | 'eq';
 export const GROUP_BY: readonly GroupBy[] = ['state', 'rule', 'eq'];
@@ -131,6 +142,7 @@ export interface AlarmBucket {
   newest: string;
 }
 
+/** Bucket a sorted list per the `?group=` mode; state delegates to groupAlarms. */
 export function bucketAlarms(sorted: Alarm[], by: GroupBy): AlarmBucket[] {
   const toBucket = (key: string, labelKey: string | undefined, label: string | undefined, list: Alarm[]): AlarmBucket => {
     const ts = list.map((a) => a.ts).filter(Boolean).sort();

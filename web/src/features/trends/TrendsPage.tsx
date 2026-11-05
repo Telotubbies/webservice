@@ -2,12 +2,14 @@
 // right, one chart per engineering unit (never a second y-axis) with a
 // shared crosshair; full-resolution stats table under them. Everything that
 // defines the view lives in the URL so alarm → tag → trend pivots land on
-// the same picture:  ?tags=a,b  &w=15m|1h|4h|8h  (&from=&to= epoch ms).
-// Drag across a chart to zoom — the zoom becomes a from/to window.
+// the same picture:  ?tags=a,b  &range=15m|1h|…|1y  (or &from=&to= epoch ms;
+// old &w= links still resolve)  &cmp=1 overlays the previous period in grey.
+// Drag across a chart to zoom — the zoom becomes a from/to window. Alarms of
+// the selected signals are drawn as hairlines on their chart.
 
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router';
+import { useLocation, useSearchParams } from 'react-router';
 import { live, STALE_MS } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
 import { SIGNALS, T, displayNumber, shortName, unitOf } from '../../lib/plant';
@@ -20,8 +22,15 @@ import { EmptyState, Notice } from '../../shared/ui/Feedback';
 import { QualityMark } from '../../shared/ui/Status';
 import { TimeChart } from './TimeChart';
 import { useSeries, type TagSeries } from './useSeries';
-import { MAX_SERIES, SERIES_PALETTE, fmtNum, fmtRange, useLimits, type Pt } from './viz';
-import { WINDOWS, type WindowKey } from './links';
+import { MAX_SERIES, SERIES_PALETTE, fmtNum, fmtRange, seriesStroke, useLimits, type Pt } from './viz';
+import { cssVar, useThemeName } from '../../theme/useTheme';
+import { useAlarms } from '../alarms/alarms';
+import { normSeverity } from '../../shared/ui/severity';
+import { Panel } from '../../viz/Panel';
+import { TimeRangePicker } from '../../viz/TimeRangePicker';
+import { formatRange, parseRange, presetMs, type RangePreset, type TimeRange } from '../../viz/range';
+import { equipmentKey, pathSep } from '../devices/mapModel';
+import '../../viz/i18n';
 
 const DEFAULT_TAGS = [T.beltSpeed, T.beltTemp];
 const PICKABLE = Object.keys(SIGNALS).filter((k) => k !== T.running);
@@ -66,12 +75,14 @@ export function TrendsPage() {
     const list = raw == null ? DEFAULT_TAGS : raw.split(',').filter(Boolean);
     return [...new Set(list)].slice(0, MAX_SERIES);
   }, [params]);
-  const wParam = params.get('w') ?? '';
-  const w: WindowKey = wParam in WINDOWS ? (wParam as WindowKey) : '1h';
-  const fromP = Number(params.get('from'));
-  const toP = Number(params.get('to'));
-  const fixed = Number.isFinite(fromP) && Number.isFinite(toP) && fromP > 0 && toP > fromP;
-  const win = fixed ? { fromMs: fromP, toMs: toP, spanMs: toP - fromP } : { fromMs: 0, toMs: null, spanMs: WINDOWS[w] };
+  const { search } = useLocation();
+  const nowMin = useNow(60_000); // the picker's live window end; data windows come from useSeries
+  const range = parseRange(search, nowMin);
+  const fixed = !range.live;
+  const win = fixed
+    ? { fromMs: range.from, toMs: range.to, spanMs: range.to - range.from }
+    : { fromMs: 0, toMs: null, spanMs: presetMs(range.preset as RangePreset) };
+  const compare = params.get('cmp') === '1';
 
   // The URL is the single source of view state: patch merges keys, null
   // deletes. `replace` keeps trend drags out of the history stack.
@@ -87,9 +98,19 @@ export function TrendsPage() {
   };
 
   const slots = useSlots(sel);
-  const colorOf = (tag: string) => SERIES_PALETTE[slots.get(tag) ?? 0];
+  const theme = useThemeName();
+  const colorOf = (tag: string) => seriesStroke(SERIES_PALETTE[slots.get(tag) ?? 0], theme);
   const limits = useLimits();
   const data = useSeries(sel, win);
+  // previous period: the same span, one span earlier, shifted onto this axis
+  const prevWin = { fromMs: data.from - (data.to - data.from), toMs: data.from, spanMs: data.to - data.from };
+  const prev = useSeries(compare ? sel : [], prevWin);
+  const shift = data.to - data.from;
+  const { all: alarms } = useAlarms();
+  const setRange = (r: TimeRange) => {
+    const q = new URLSearchParams(formatRange(r));
+    patch({ range: q.get('range'), from: q.get('from'), to: q.get('to'), w: null });
+  };
 
   // picker rows: every known tag; plant-model signals first
   const rows = useMemo(() => {
@@ -99,6 +120,8 @@ export function TrendsPage() {
     const rest = names.filter((n) => !SIGNALS[n] || n === T.running).sort();
     return [...known, ...rest];
   }, [tagRev]);
+  const groupOf = (tag: string) => (SIGNALS[tag] ? '' : equipmentKey(tag));
+  const groupLabel = (g: string) => g.split(pathSep(g)).slice(-2).join(' › ');
   const unitFor = (tag: string) => unitOf(tag, live.tags.find((x) => x.name === tag)?.unit) ?? '';
 
   // one chart per unit — small multiples instead of a dual axis
@@ -157,10 +180,13 @@ export function TrendsPage() {
             </div>
           </div>
           <ul className="flex max-h-[240px] flex-col gap-0.5 overflow-y-auto p-2 lg:max-h-[60vh]" aria-label={t('trends.facets')}>
-            {rows.filter((tag) => !fq || tag.toLowerCase().includes(fq.toLowerCase()) || labelOf(tag, t).toLowerCase().includes(fq.toLowerCase())).map((tag) => {
+            {rows.filter((tag) => !fq || tag.toLowerCase().includes(fq.toLowerCase()) || labelOf(tag, t).toLowerCase().includes(fq.toLowerCase())).map((tag, i, list) => {
               const on = sel.includes(tag);
+              const g = groupOf(tag);
+              const header = g && (i === 0 || groupOf(list[i - 1]) !== g);
               return (
                 <li key={tag}>
+                  {header && <p className="overline mt-2 px-1.5 pb-0.5" title={g}>{groupLabel(g)}</p>}
                   <label className="flex min-h-8 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[13px] hover:bg-subtle has-[:focus-visible]:bg-subtle">
                     <input
                       type="checkbox"
@@ -169,7 +195,7 @@ export function TrendsPage() {
                       disabled={!on && sel.length >= MAX_SERIES}
                       className="accent-blue"
                     />
-                    <span className="h-[3px] w-3 shrink-0 rounded-full" style={{ background: on ? colorOf(tag) : '#c8cdd5' }} aria-hidden />
+                    <span className={`h-[3px] w-3 shrink-0 rounded-full ${on ? '' : 'bg-line-strong'}`} style={on ? { background: colorOf(tag) } : undefined} aria-hidden />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{labelOf(tag, t)}</span>
                       {!SIGNALS[tag] && <span className="block truncate font-mono text-[10px] text-ink-46">{tag}</span>}
@@ -186,28 +212,15 @@ export function TrendsPage() {
         <div className="flex min-w-0 flex-col gap-3">
           {/* window bar — filters in one row above the charts */}
           <div className="flex flex-wrap items-center gap-2">
-            {fixed ? (
-              <>
-                <span className="inline-flex h-7 items-center gap-1.5 rounded border border-line bg-white px-2 text-[12px]">
-                  <Icon name="clock" size={12} /> {t('viz.custom')}: <span className="font-mono">{fmtRange(fromP, toP, i18n.language)}</span>
-                </span>
-                <button type="button" className="btn btn-sm" onClick={() => patch({ from: null, to: null })}>
-                  {t('viz.backToLive')}
-                </button>
-              </>
-            ) : (
-              <>
-                <Segmented
-                  value={w}
-                  onChange={(v) => patch({ w: v })}
-                  label={t('viz.window')}
-                  options={(Object.keys(WINDOWS) as WindowKey[]).map((k) => ({ value: k, label: k }))}
-                />
-                <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-68">
-                  <span className="livedot" data-ws={live.ws === 'open' ? 'open' : 'reconnecting'} aria-hidden /> {t('viz.live')} · <span className="font-mono">{fmtRange(data.from, data.to, i18n.language)}</span>
-                </span>
-              </>
-            )}
+            <TimeRangePicker value={range} onChange={setRange} />
+            <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-68">
+              {!fixed && <span className="livedot" data-ws={live.ws === 'open' ? 'open' : 'reconnecting'} aria-hidden />}
+              {fixed ? t('viz.custom') : t('viz.live')} · <span className="font-mono">{fmtRange(data.from, data.to, i18n.language)}</span>
+            </span>
+            <label className="inline-flex items-center gap-1.5 text-[12px] text-ink-2">
+              <input type="checkbox" checked={compare} onChange={(e) => patch({ cmp: e.target.checked ? '1' : null })} className="accent-[var(--color-accent)]" />
+              {t('viz2.compare')}
+            </label>
             <span className="flex-1" />
             <span className="hidden text-[11px] text-ink-46 md:inline">{t('viz.zoomHint')}</span>
             <button type="button" className="btn btn-sm btn-ghost" onClick={exportCsv} disabled={!data.hasData}>
@@ -224,17 +237,28 @@ export function TrendsPage() {
           ) : [...groups.entries()].map(([unit, list]) => {
             const lim = list.length === 1 ? (limits.get(list[0].tag) ?? []).map((l) => ({ ...l, v: displayNumber(list[0].tag, l.v) })) : [];
             return (
-              <Card
-                key={unit || '—'}
-                title={`${list.map((s) => labelOf(s.tag, t)).join(' · ')}${unit ? ` (${unit})` : ''}`}
-                pad={false}
-              >
-                <div className="p-2">
+              <Panel.Root key={unit || '—'} state="ready" label={list.map((s) => labelOf(s.tag, t)).join(' · ')}>
+                <Panel.Header
+                  title={list.map((s) => labelOf(s.tag, t)).join(' · ')} unit={unit || undefined}
+                  badge={fixed ? undefined : range.preset ?? undefined} onFullscreen
+                  menu={[{ label: t('viz.exportCsv'), onSelect: exportCsv }]}
+                />
+                <Panel.Body className="p-2">
                   <TimeChart
-                    series={list.map((s) => ({
-                      key: s.tag, label: labelOf(s.tag, t), color: colorOf(s.tag),
-                      unit, decimals: decimalsOf(s.tag), pts: scalePts(s.tag, s.pts),
-                    }))}
+                    series={[
+                      ...list.map((s) => ({
+                        key: s.tag, label: labelOf(s.tag, t), color: colorOf(s.tag),
+                        unit, decimals: decimalsOf(s.tag), pts: scalePts(s.tag, s.pts),
+                      })),
+                      ...(compare ? list.map((s) => {
+                        const p0 = prev.series.find((x) => x.tag === s.tag);
+                        return {
+                          key: `${s.tag}~prev`, label: `${labelOf(s.tag, t)} (${t('viz2.previous')})`,
+                          color: cssVar('--color-ink-4', '#9aa4b1'), width: 1.5, unit, decimals: decimalsOf(s.tag),
+                          pts: scalePts(s.tag, (p0?.pts ?? []).map((p) => ({ t: p.t + shift, v: p.v }))),
+                        };
+                      }) : []),
+                    ]}
                     limits={lim}
                     unit={unit}
                     xRange={[data.from, data.to]}
@@ -242,11 +266,16 @@ export function TrendsPage() {
                     syncKey="trends"
                     onZoom={onZoom}
                     loading={data.isLoading}
+                    hasPrevious={data.hasData}
                     error={data.isError}
                     onRetry={data.refetch}
+                    annotations={alarms
+                      .filter((a) => list.some((s) => s.tag === a.tag))
+                      .map((a) => ({ t: Date.parse(a.ts), kind: 'alarm' as const, label: a.rule, severity: normSeverity(a.severity) === 'critical' ? 'critical' as const : 'warning' as const }))
+                      .filter((a) => a.t >= data.from && a.t <= data.to)}
                   />
-                </div>
-              </Card>
+                </Panel.Body>
+              </Panel.Root>
             );
           })}
 
@@ -312,7 +341,7 @@ function StatsTable({ series, colorOf, unitFor }: {
 function GridCard({ tag }: { tag: string }) {
   const { t } = useTranslation();
   const limits = useLimits();
-  const data = useSeries([tag], { fromMs: 0, toMs: null, spanMs: WINDOWS['15m'] });
+  const data = useSeries([tag], { fromMs: 0, toMs: null, spanMs: presetMs('15m') });
   const unit = unitOf(tag) ?? '';
   return (
     <Card pad={false}>

@@ -1,4 +1,4 @@
-// Alarm settings — deep-linkable subsections (dd "Monitors › Settings"):
+// Alarm settings — deep-linkable subsections:
 //   /alarms/settings/general        rule rollup (the old single page)
 //   /alarms/settings/notifications  channels + escalation policies (read,
 //                                   admin toggle) — the real notify contracts
@@ -31,7 +31,7 @@ function errText(e: unknown): string {
   return e instanceof ApiError ? e.message : String(e);
 }
 
-// ---------------------------------------------------------------- general
+// ── General ──────────────────────────────────────────────────────────────────
 
 function General() {
   const { t } = useTranslation();
@@ -44,7 +44,7 @@ function General() {
   if (rules.length === 0) return <EmptyState title={t('px.empty')} icon="search" />;
   return (
     <>
-      <div className="flex flex-wrap gap-6 rounded-[5px] border border-line bg-white p-4 text-[12px] text-ink-68">
+      <div className="flex flex-wrap gap-6 rounded-[5px] border border-line bg-paper p-4 text-[12px] text-ink-68">
         <span><b className="block font-mono text-[22px] text-ink">{rules.length}</b>{t('px.alarmSettings.total')}</span>
         <span><b className="block font-mono text-[22px] text-ink">{on}</b>{t('px.alarmSettings.enabled')}</span>
         <span><b className="block font-mono text-[22px] text-ink">{rules.length - on}</b>{t('px.alarmSettings.disabled')}</span>
@@ -70,7 +70,7 @@ function General() {
   );
 }
 
-// ----------------------------------------------------------- notifications
+// ── Notifications ────────────────────────────────────────────────────────────
 
 function Notifications({ orgId, admin, now }: { orgId: string; admin: boolean; now: number }) {
   const { t } = useTranslation();
@@ -121,7 +121,7 @@ function Notifications({ orgId, admin, now }: { orgId: string; admin: boolean; n
                       c.enabled ? t('px.alarmSettings.enabled') : t('px.alarmSettings.disabled')
                     )}
                   </td>
-                  <td className="font-mono text-[12px] text-ink-68">{fmtAge(c.created_at, now)}</td>
+                  <td className="text-[12px] text-ink-68">{fmtAge(c.created_at, now)}</td>
                 </tr>
               ))}
             </Table>
@@ -166,7 +166,7 @@ function Notifications({ orgId, admin, now }: { orgId: string; admin: boolean; n
   );
 }
 
-// ---------------------------------------------------------------- policies
+// ── Policies ─────────────────────────────────────────────────────────────────
 
 function Policies({ orgId, now }: { orgId: string; now: number }) {
   const { t, i18n } = useTranslation();
@@ -193,7 +193,7 @@ function Policies({ orgId, now }: { orgId: string; now: number }) {
                 <tr key={d.id}>
                   <td className="font-medium">{d.rule ?? t('aset.pol.scopeAll')}</td>
                   <td className="max-w-56 truncate text-[12px] text-ink-68" title={d.description}>{d.description || '—'}</td>
-                  <td className="whitespace-nowrap font-mono text-[12px] text-ink-68">{fmt(d.starts_at)} – {fmt(d.ends_at)}</td>
+                  <td className="whitespace-nowrap text-[12px] text-ink-68">{fmt(d.starts_at)} – {fmt(d.ends_at)}</td>
                   <td className="text-[12px]">{d.recurring ? t('aset.pol.recurring') : t('aset.pol.once')}</td>
                   <td>{t(`aset.pol.${state(d)}`)}</td>
                 </tr>
@@ -209,7 +209,7 @@ function Policies({ orgId, now }: { orgId: string; now: number }) {
   );
 }
 
-// ----------------------------------------------------------------- archive
+// ── Archive ──────────────────────────────────────────────────────────────────
 
 function Archive({ orgId, siteId, admin }: { orgId: string; siteId: string; admin: boolean }) {
   const { t } = useTranslation();
@@ -266,7 +266,7 @@ function Archive({ orgId, siteId, admin }: { orgId: string; siteId: string; admi
   );
 }
 
-// -------------------------------------------------------------------- page
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export function AlarmSettingsPage() {
   const { t } = useTranslation();

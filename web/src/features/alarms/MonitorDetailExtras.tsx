@@ -1,4 +1,4 @@
-// Monitor-detail additions (dd monitor status page): a collapsible
+// Monitor-detail additions for the alarm detail page: a collapsible
 // "Threshold conditions" panel spelling out exactly when the rule fires,
 // and a per-window status strip — ok / warn / alarm across the chart's
 // visible window, built from the live alarm history for this rule+signal.
@@ -99,7 +99,7 @@ export function StatusStrip({ all, ruleName, tag, raisedAt, now }: {
         ))}
       </div>
       <figcaption className="mt-1 flex items-center gap-3 text-[11px] text-ink-46">
-        <span className="font-mono tabular-nums">{new Date(from).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+        <span className="tabular-nums">{new Date(from).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
         <span className="flex items-center gap-1"><i aria-hidden className={`inline-block h-2 w-2 rounded-[1px] ${SEG_FILL.ok}`} />{t('mon.ok')}</span>
         <span className="flex items-center gap-1"><i aria-hidden className={`inline-block h-2 w-2 rounded-[1px] ${SEG_FILL.warn}`} />{t('mon.warn')}</span>
         <span className="flex items-center gap-1"><i aria-hidden className={`inline-block h-2 w-2 rounded-[1px] ${SEG_FILL.alarm}`} />{t('mon.alert')}</span>

@@ -124,8 +124,8 @@ export function AlarmDetailPage() {
 
   return (
     <>
-      {/* breadcrumb bar — dd monitor status: "Monitors > Status" */}
-      <div className="sticky top-9 z-10 border-b border-line bg-white/95 backdrop-blur">
+      {/* breadcrumb bar — list › rule name, with the copy-link action right */}
+      <div className="sticky top-[var(--h-topbar)] z-10 border-b border-line bg-paper/95 backdrop-blur">
         <div className="flex h-11 items-center gap-1.5 px-4 text-[13px]">
           <DdIcon name="assert-list" size={13} className="text-ink-46" />
           <NavLink to="/alarms" className="shrink-0 rounded text-ink-68 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue">{t('alarms.title')}</NavLink>
@@ -162,7 +162,7 @@ export function AlarmDetailPage() {
               <time className="font-mono tabular-nums" dateTime={alarm.ts}>
                 {new Date(alarm.ts).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'medium', hour12: false })}
               </time>
-              {alarm.state !== 'cleared' && <> · <span className="font-mono tabular-nums">{fmtDuration(alarm.ts, now)}</span></>}
+              {alarm.state !== 'cleared' && <> · <span className="tabular-nums">{fmtDuration(alarm.ts, now)}</span></>}
             </p>
           </div>
           {ackBtn}

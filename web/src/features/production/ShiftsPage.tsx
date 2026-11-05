@@ -13,6 +13,7 @@ import { useAdminOrg, useAdminSite, canAdmin } from '../admin/admin';
 import { prodApi, type MachineRow, type Shift, type ShiftInput, type TagRef } from './api';
 import './i18n';
 
+// ISO weekday numbers (1 = Monday … 7 = Sunday), matching the API.
 const DOW = [1, 2, 3, 4, 5, 6, 7];
 
 function parseBreaks(text: string): { start: string; end: string; name?: string }[] {
@@ -24,6 +25,13 @@ function parseBreaks(text: string): { start: string; end: string; name?: string 
   });
 }
 const breaksText = (s: Shift) => (s.breaks ?? []).map((b) => `${b.start}-${b.end} ${b.name ?? ''}`.trim()).join('\n');
+
+// Machine state names the OEE pipeline recognises; each maps to the tag
+// values that mean that state (comma-separated in the form).
+const STATE_KEYS = ['running', 'idle', 'stopped', 'fault'] as const;
+const parseVals = (s: string): unknown[] =>
+  s.split(',').map((x) => x.trim()).filter(Boolean).map((x) => (Number.isNaN(Number(x)) ? x : Number(x)));
+const valsText = (v: unknown[] | undefined) => (v ?? []).map(String).join(', ');
 
 export function ShiftsPage() {
   const { t } = useTranslation();
@@ -75,7 +83,7 @@ export function ShiftsPage() {
   const [newReason, setNewReason] = useState('');
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <PageBar icon="on-call" title={t('prod.shiftsTitle')} lede={t('prod.shiftsLede')}
         actions={sites.length > 1 ? (
           <select className="input h-8 w-auto text-[12px]" value={site?.id ?? ''}
@@ -198,6 +206,9 @@ export function ShiftsPage() {
   );
 }
 
+// ── Dialogs ──────────────────────────────────────────────────────────────────
+
+/** Create/edit a shift window; keyed by shift id so state resets per open. */
 function ShiftDialog({ dlgRef, shift, pending, onSave }: {
   dlgRef: RefObject<HTMLDialogElement | null>;
   shift: Shift | null; pending: boolean; onSave: (b: ShiftInput) => void;
@@ -263,11 +274,7 @@ function ShiftDialog({ dlgRef, shift, pending, onSave }: {
   );
 }
 
-const STATE_KEYS = ['running', 'idle', 'stopped', 'fault'] as const;
-const parseVals = (s: string): unknown[] =>
-  s.split(',').map((x) => x.trim()).filter(Boolean).map((x) => (Number.isNaN(Number(x)) ? x : Number(x)));
-const valsText = (v: unknown[] | undefined) => (v ?? []).map(String).join(', ');
-
+/** Per-machine tag mapping (state/count/reject) + product cycle times. */
 function MapDialog({ org, site, machine, tags, onClose }: {
   org: string; site: string; machine: MachineRow; tags: TagRef[]; onClose: () => void;
 }) {

@@ -1,6 +1,11 @@
 // Widget renderers. Data comes from the real API surface (history, latest)
 // and the live alarm store; no widget fetches anything the backend lacks.
 
+import { meanInterval } from './incidentStats';
+import { Meter, BulletBar } from '../../viz/BulletBar';
+import { BarList } from '../../viz/BarList';
+import { pareto } from '../../viz/pareto';
+import '../../viz/i18n';
 import { createContext, useContext, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { sloStatus, STATUS_GLYPH, STATUS_TILE, STATUS_ORDER, type Status } from '../slo/slo';
@@ -28,11 +33,11 @@ import {
 } from './aiWidgets';
 import type { Alarm, Quality, TagValue } from '../../types';
 
-/* ---------- board-level context ----------------------------------------
- * Set by DashboardViewPage: paused window end (null = live), the "show
- * overlays" flag (alarm markers under timeseries), and the selected
- * template-variable values. Defaults keep the widget preview and any
- * detached render live and unfiltered. */
+// ── Board-level context ──────────────────────────────────────────────────────
+// Set by DashboardViewPage: paused window end (null = live), the "show
+// overlays" flag (alarm markers under timeseries), and the selected
+// template-variable values. Defaults keep the widget preview and any
+// detached render live and unfiltered.
 export interface BoardView {
   endMs: number | null;
   overlays: boolean;
@@ -102,11 +107,12 @@ function alarmGroupKey(w: Widget, a: Alarm): string {
 
 function alarmGroupLabel(w: Widget, k: string, t: (k: string) => string): string {
   if (w.groupBy === 'severity') return t(`alarms.${k}`);
-  if (w.groupBy === 'eq') return k === 'other' ? t('ddb.groupOther') : (EQUIPMENT.some((e) => e.id === k) ? t(`line.${k}`) : k);
+  if (w.groupBy === 'eq') { const e = EQUIPMENT.find((x) => x.id === k); return k === 'other' ? t('ddb.groupOther') : e ? t(e.labelKey) : k; }
   return k;
 }
 
 const short = (tag: string) => tag.split('.').slice(-2).join('.');
+/** Display unit: an author-typed unit wins, else the first tag's declared unit. */
 export const unitOfWidget = (w: Widget) => w.unit || SIGNALS[w.tags[0]]?.unit || '';
 const num = (v: number | boolean) => (typeof v === 'number' ? v : v ? 1 : 0);
 /** Signal unit -> its display scale (ratio -> %); a custom unit keeps the
@@ -140,18 +146,17 @@ export function WidgetBody({ w, range }: { w: Widget; range: RangeKey }) {
     case 'timeseries': return <TimeseriesBody w={vw} minutes={minutes} />;
     case 'value': return <ValueBody w={vw} minutes={minutes} />;
     case 'stat': return <StatBody w={vw} minutes={minutes} />;
-    case 'gauge': return <GaugeBody w={vw} />;
-    case 'bargauge': return <BarGaugeBody w={vw} />;
+    // retired forms render as their honest replacement (renderers.ts)
+    case 'gauge': return <MeterBody w={vw} />;
+    case 'bargauge': return <BulletBody w={vw} />;
     case 'stateline': return <StateLineBody w={vw} minutes={minutes} />;
     case 'histogram': return <HistogramBody w={vw} minutes={minutes} />;
     case 'table': return <TableBody w={vw} />;
-    case 'toplist': return <ToplistBody w={vw} />;
-    case 'pie': return <PieBody w={vw} />;
+    case 'toplist': case 'pie': case 'treemap': return <AlarmShareBody w={vw} />;
     case 'alarms': return <AlarmsBody />;
     case 'change': return <ChangeBody w={vw} minutes={minutes} />;
     case 'slo': return <SloBody />;
     case 'monitors': return <MonitorsBody />;
-    case 'treemap': return <TreemapBody w={vw} />;
     case 'incidents': return <IncidentsBody />;
     case 'alarmkpi': return <AlarmKpiBody />;
     case 'matlive': return <MatLiveBody />;
@@ -176,7 +181,6 @@ export function rangeOf(w: Widget, tag: string): [number, number] {
   const hi = w.yMax ?? sig?.[1] ?? lo + 100;
   return hi > lo ? [lo, hi] : [lo, lo + 1];
 }
-const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
 /** Non-hook "latest" lookup: live store when running live, else the last
  *  buffered sample at or before the paused window end. */
@@ -189,7 +193,7 @@ function latestAt(tag: string, endMs: number | null): TagValue | undefined {
   return undefined;
 }
 
-/** latest displayed value for a tag: live first, then history tail */
+/** Latest displayed value for a tag: live value first, then history tail. */
 function useLatest(w: Widget, tag: string | undefined) {
   const win = useBoardWindow(15);
   const { endMs } = useContext(BoardCtx);
@@ -211,8 +215,8 @@ const LEVEL_STYLE: Record<Level, string> = {
 };
 
 const FILL_STYLE: Record<Level, string> = {
-  ok: 'bg-[var(--color-ok)] text-white',
-  warn: 'bg-sev-medium text-sev-ink',
+  ok: 'bg-panel-2 text-ink',
+  warn: 'bg-warn-soft text-ink ring-1 ring-inset ring-[var(--color-warn-ink)]',
   crit: 'bg-[var(--color-danger-bright)] text-white',
 };
 
@@ -237,7 +241,7 @@ function ValueBody({ w, minutes }: { w: Widget; minutes: number }) {
   const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
   const unit = unitOfWidget(w);
   if (w.fill) {
-    // solid tile: the threshold colour is the background (dd conditional format)
+    // solid tile: the threshold colour is the background (conditional fill)
     return (
       <div className={`flex h-full flex-col items-center justify-center rounded text-center ${FILL_STYLE[lvl]}`}>
         <span className={`font-mono text-[clamp(32px,5vw,60px)] font-bold leading-none tabular-nums ${stale ? 'opacity-60' : ''}`}>{fmtNum(v, w.decimals, i18n.language)}</span>
@@ -295,7 +299,7 @@ const SEV_BAR: Record<string, string> = {
   info: 'bg-[var(--color-blue)]', ok: 'bg-line',
 };
 
-/** Thin alarm-event strip under a timeseries — dd-style overlay marking when
+/** Thin alarm-event strip under a timeseries — an overlay marking when
  *  alarms on the graphed tags fired inside the visible window. */
 function OverlayStrip({ from, to, tags }: { from: number; to: number; tags: string[] }) {
   const { t } = useTranslation();
@@ -385,27 +389,6 @@ function TimeseriesBody({ w, minutes }: { w: Widget; minutes: number }) {
   );
 }
 
-function ToplistBody({ w }: { w: Widget }) {
-  const { t } = useTranslation();
-  const { open } = useVarAlarms();
-  const rows = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of open) m.set(alarmGroupKey(w, a), (m.get(alarmGroupKey(w, a)) ?? 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-  }, [open, w]);
-  if (!rows.length) return <EmptyState title={t('alarms.emptyActive')} />;
-  const max = rows[0][1];
-  return (
-    <ol className="space-y-1.5 overflow-auto">
-      {rows.map(([k, n]) => (
-        <li key={k} className="text-[12px]">
-          <div className="flex justify-between gap-2"><span className="truncate">{alarmGroupLabel(w, k, t)}</span><span className="font-mono">{n}</span></div>
-          <div className="mt-0.5 h-1.5 rounded-full bg-line"><div className="h-full rounded-full bg-[var(--color-blue)]" style={{ width: `${(n / max) * 100}%` }} /></div>
-        </li>
-      ))}
-    </ol>
-  );
-}
 
 function AlarmsBody() {
   const { t } = useTranslation();
@@ -427,7 +410,7 @@ function AlarmsBody() {
   );
 }
 
-/* ---------- change — first→last delta over the range -------------------- */
+// ── change: first→last delta over the range ──
 function ChangeBody({ w, minutes }: { w: Widget; minutes: number }) {
   const { t, i18n } = useTranslation();
   const tag = w.tags[0];
@@ -450,7 +433,7 @@ function ChangeBody({ w, minutes }: { w: Widget; minutes: number }) {
   );
 }
 
-/* ---------- slo — status counts over the 30-day availability window ------ */
+// ── slo: status counts over the 30-day availability window ──
 function SloBody() {
   const { t } = useTranslation();
   const { orgId } = useAdminOrg();
@@ -466,7 +449,7 @@ function SloBody() {
   }))} />;
 }
 
-/* ---------- monitors — signal feed health: alarming / stale / ok --------- */
+// ── monitors: signal feed health — alarming / stale / ok ──
 function MonitorsBody() {
   const { t } = useTranslation();
   const { open } = useVarAlarms();
@@ -487,6 +470,7 @@ function MonitorsBody() {
   ]} link="/alarms" />;
 }
 
+// Shared "N per state" tile row that links through to the owning page.
 function Counts({ items, link }: { items: { label: string; glyph: string; count: number; cls?: string }[]; link: string }) {
   return (
     <Link to={link} className="flex h-full items-center justify-around gap-2 focus-visible:outline-2 focus-visible:outline-blue">
@@ -500,85 +484,9 @@ function Counts({ items, link }: { items: { label: string; glyph: string; count:
   );
 }
 
-/* ---------- gauge — semicircle dial w/ threshold bands (Grafana gauge) ---- */
-function GaugeBody({ w }: { w: Widget }) {
-  const { t, i18n } = useTranslation();
-  const now = useBoardNow();
-  const tag = w.tags[0];
-  const { tv, hist, v } = useLatest(w, tag);
-  if (!tag) return <EmptyState title={t('dash.pickMetric')} icon="search" />;
-  if (v == null && hist.isLoading) return <Skeleton h={40} />;
-  if (v == null && hist.isError) return <ErrorState onRetry={hist.refetch} />;
-  const [lo, hi] = rangeOf(w, tag);
-  const frac = v == null ? 0 : clamp01((v - lo) / (hi - lo));
-  const lvl = levelOf(v, w);
-  const pt = (f: number, r: number) => {
-    const a = Math.PI * (1 - f);
-    return `${80 - r * Math.cos(a)} ${74 - r * Math.sin(a)}`;
-  };
-  const arc = (f0: number, f1: number, r: number) => `M ${pt(f0, r)} A ${r} ${r} 0 0 1 ${pt(f1, r)}`;
-  const wf = w.warn == null ? null : clamp01((w.warn - lo) / (hi - lo));
-  const cf = w.crit == null ? null : clamp01((w.crit - lo) / (hi - lo));
-  const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
-  return (
-    <div className="flex h-full flex-col items-center justify-center">
-      <svg viewBox="0 0 160 88" className="w-full max-w-[230px]">
-        <path d={arc(0, 1, 62)} fill="none" stroke="var(--color-line)" strokeWidth="9" strokeLinecap="round" />
-        {wf != null && <path d={arc(wf, cf ?? 1, 62)} fill="none" stroke="var(--color-caution)" strokeWidth="9" opacity=".4" />}
-        {cf != null && <path d={arc(cf, 1, 62)} fill="none" stroke="var(--color-danger)" strokeWidth="9" opacity=".55" />}
-        {frac > 0.004 && <path d={arc(0, frac, 62)} fill="none" stroke={LVL_COLOR[lvl]} strokeWidth="9" strokeLinecap="round" />}
-        <text x="80" y="64" textAnchor="middle" fontSize="25" fontWeight="600" fill="currentColor"
-          fontFamily="IBM Plex Mono, monospace">{fmtNum(v, w.decimals, i18n.language)}</text>
-        <text x="80" y="81" textAnchor="middle" fontSize="9.5" fill="currentColor" opacity=".6">{unitOfWidget(w)}</text>
-        <text x="14" y="86" fontSize="8" fill="currentColor" opacity=".5" fontFamily="IBM Plex Mono, monospace">{fmtNum(lo, 0, 'en')}</text>
-        <text x="146" y="86" textAnchor="end" fontSize="8" fill="currentColor" opacity=".5" fontFamily="IBM Plex Mono, monospace">{fmtNum(hi, 0, 'en')}</text>
-      </svg>
-      <div className="flex items-center gap-2 text-[11px] opacity-80">
-        <QualityMark q={tv?.q} stale={stale} />
-        {stale && tv && <span className="text-ink-46">{t('viz.staleFor', { age: fmtAge(tv.ts, now) })}</span>}
-      </div>
-    </div>
-  );
-}
 
-/* ---------- bar gauge — retro LCD bars, one per tag (Grafana bar gauge) --- */
-function BarGaugeBody({ w }: { w: Widget }) {
-  const { t, i18n } = useTranslation();
-  useStore(() => live.version);
-  const now = useBoardNow();
-  const { endMs } = useContext(BoardCtx);
-  const tags = w.tags.slice(0, SERIES_COLORS.length);
-  if (!tags.length) return <EmptyState title={t('dash.pickMetric')} icon="search" />;
-  return (
-    <div className="flex h-full flex-col justify-center gap-2.5 overflow-auto">
-      {tags.map((tag) => {
-        const tv = latestAt(tag, endMs);
-        const v = tv ? scaleFor(w, tag)(num(tv.v)) : null;
-        const [lo, hi] = rangeOf(w, tag);
-        const frac = v == null ? 0 : clamp01((v - lo) / (hi - lo));
-        const lvl = levelOf(v, w);
-        const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
-        const tick = (x: number | null) => x == null ? null : `${clamp01((x - lo) / (hi - lo)) * 100}%`;
-        return (
-          <div key={tag} className="text-[11px]">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className={`truncate ${stale ? 'text-ink-46' : ''}`}>{SIGNALS[tag] ? t(SIGNALS[tag].labelKey) : short(tag)}</span>
-              <span className={`shrink-0 font-mono ${stale ? 'text-ink-46' : ''}`}>{fmtNum(v, w.decimals, i18n.language)} {unitOfWidget(w) || SIGNALS[tag]?.unit || ''}</span>
-            </div>
-            <div className="relative mt-1 h-2.5 overflow-visible rounded-sm bg-subtle">
-              <div className="h-full rounded-sm" style={{ width: `${frac * 100}%`, background: LVL_COLOR[lvl] }} />
-              {[w.warn, w.crit].map((x, i) => tick(x) && (
-                <span key={i} className="absolute -top-0.5 bottom-0 w-px bg-ink-46" style={{ left: tick(x)! }} />
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
-/* ---------- stat — big number + sparkline context (Grafana stat) ---------- */
+// ── stat: big number + sparkline context ──
 function StatBody({ w, minutes }: { w: Widget; minutes: number }) {
   const { t, i18n } = useTranslation();
   const now = useBoardNow();
@@ -622,6 +530,7 @@ function StatBody({ w, minutes }: { w: Widget; minutes: number }) {
   );
 }
 
+// ── stateline: threshold-state cells across the window ──
 function StateLineBody({ w, minutes }: { w: Widget; minutes: number }) {
   const { t } = useTranslation();
   const tag = w.tags[0];
@@ -656,7 +565,7 @@ function StateLineBody({ w, minutes }: { w: Widget; minutes: number }) {
   );
 }
 
-/* ---------- histogram — value distribution over the window (Grafana hist) - */
+// ── histogram: value distribution over the window ──
 function quantile(sorted: number[], q: number) {
   if (!sorted.length) return 0;
   const i = (sorted.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
@@ -665,7 +574,7 @@ function quantile(sorted: number[], q: number) {
 const PCTS: [string, number][] = [['p50', 0.5], ['p75', 0.75], ['p90', 0.9], ['p95', 0.95], ['p99', 0.99]];
 
 /** Distribution of the signal over the window with dashed percentile markers
- *  and a stats column (dd "time saved distribution"). The column hides on
+ *  and a stats column. The column hides on
  *  narrow tiles so a 4-wide widget stays a plain histogram. */
 function HistogramBody({ w, minutes }: { w: Widget; minutes: number }) {
   const { t, i18n } = useTranslation();
@@ -727,71 +636,10 @@ function HistogramBody({ w, minutes }: { w: Widget; minutes: number }) {
   );
 }
 
-/* ---------- treemap — alarm volume by group, area = count (dd treemap) ------ */
-interface Cell { k: string; n: number; x: number; y: number; w: number; h: number }
-/** Squarified treemap (Bruls et al.) over a 100×100 box. */
-function squarify(items: [string, number][]): Cell[] {
-  const total = items.reduce((s, [, n]) => s + n, 0);
-  const out: Cell[] = [];
-  let box = { x: 0, y: 0, w: 100, h: 100 };
-  let rest = items.map(([k, n]) => ({ k, n, a: (n / total) * 100 * 100 }));
-  const worst = (row: typeof rest, side: number) => {
-    const s = row.reduce((t, r) => t + r.a, 0);
-    const mx = Math.max(...row.map((r) => r.a)), mn = Math.min(...row.map((r) => r.a));
-    return Math.max((side * side * mx) / (s * s), (s * s) / (side * side * mn));
-  };
-  while (rest.length) {
-    const side = Math.min(box.w, box.h);
-    let row = [rest[0]];
-    let i = 1;
-    while (i < rest.length && worst([...row, rest[i]], side) <= worst(row, side)) row = [...row, rest[i++]];
-    const s = row.reduce((t, r) => t + r.a, 0);
-    const horiz = box.w >= box.h; // lay the row along the short side
-    const thick = s / side;
-    let off = 0;
-    for (const r of row) {
-      const len = r.a / thick;
-      out.push(horiz ? { k: r.k, n: r.n, x: box.x, y: box.y + off, w: thick, h: len } : { k: r.k, n: r.n, x: box.x + off, y: box.y, w: len, h: thick });
-      off += len;
-    }
-    box = horiz ? { x: box.x + thick, y: box.y, w: box.w - thick, h: box.h } : { x: box.x, y: box.y + thick, w: box.w, h: box.h - thick };
-    rest = rest.slice(row.length);
-  }
-  return out;
-}
-const TREEMAP_FILLS = ['#00bdfd', '#d68cd9', '#fcd23a', '#2fc9a3', '#f2707e', '#17d0e8', '#a490ee'];
 
-function TreemapBody({ w }: { w: Widget }) {
-  const { t } = useTranslation();
-  const { all } = useVarAlarms();
-  const items = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of all) m.set(alarmGroupKey(w, a), (m.get(alarmGroupKey(w, a)) ?? 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
-  }, [all, w]);
-  if (!items.length) return <EmptyState title={t('alarms.empty')} />;
-  const total = items.reduce((s, [, n]) => s + n, 0);
-  const cells = squarify(items);
-  return (
-    <div className="flex h-full flex-col">
-      <div className="mb-1 flex justify-between text-[12px]"><span className="font-semibold">{t('dash.total')}</span><span className="font-mono">{total}</span></div>
-      <div className="relative min-h-0 flex-1">
-        {cells.map((c, i) => (
-          <div
-            key={c.k} title={`${c.k}: ${c.n}`}
-            className="absolute overflow-hidden p-1 text-center text-[11px] leading-tight text-[#0b1b2b]"
-            style={{ left: `${c.x}%`, top: `${c.y}%`, width: `${c.w}%`, height: `${c.h}%`, background: TREEMAP_FILLS[i % TREEMAP_FILLS.length], outline: '1px solid #fff', outlineOffset: -1 }}
-          >
-            <span className="block truncate">{alarmGroupLabel(w, c.k, t)}</span>
-            <span className="block font-mono font-semibold">{c.n}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
-/* ---------- table — latest values of many tags (Grafana table) ------------ */
+
+// ── table: latest values of many tags ──
 function TableBody({ w }: { w: Widget }) {
   const { t, i18n } = useTranslation();
   useStore(() => live.version);
@@ -829,50 +677,8 @@ function TableBody({ w }: { w: Widget }) {
   );
 }
 
-/* ---------- donut — alarm share by group (Grafana pie chart) --------------- */
-function PieBody({ w }: { w: Widget }) {
-  const { t } = useTranslation();
-  const { open } = useVarAlarms();
-  const rows = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of open) m.set(alarmGroupKey(w, a), (m.get(alarmGroupKey(w, a)) ?? 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  }, [open, w]);
-  if (!rows.length) return <EmptyState title={t('alarms.emptyActive')} />;
-  const total = rows.reduce((s, [, n]) => s + n, 0);
-  const R = 30, C = 2 * Math.PI * R;
-  let acc = 0;
-  return (
-    <div className="flex h-full items-center gap-4 overflow-auto">
-      <div className="relative h-24 w-24 shrink-0">
-        <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
-          {rows.map(([k, n], i) => {
-            const frac = n / total;
-            const el = (
-              <circle key={k} cx="50" cy="50" r={R} fill="none" strokeWidth="16"
-                stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-                strokeDasharray={`${frac * C} ${C - frac * C}`} strokeDashoffset={-acc * C} />
-            );
-            acc += frac;
-            return el;
-          })}
-        </svg>
-        <span className="absolute inset-0 grid place-items-center font-mono text-[16px] font-bold">{total}</span>
-      </div>
-      <ul className="min-w-0 flex-1 space-y-1 text-[12px]">
-        {rows.slice(0, 6).map(([k, n], i) => (
-          <li key={k} className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }} />
-            <span className="min-w-0 flex-1 truncate">{alarmGroupLabel(w, k, t)}</span>
-            <span className="font-mono text-ink-46">{Math.round((n / total) * 100)}%</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
-/* ---------- incidents — KPI tiles + weekly rate strip (dd incidents) ------ */
+// ── incidents: KPI tiles + weekly rate strip ──
 function IncidentsBody() {
   const { t } = useTranslation();
   const { orgId } = useAdminOrg();
@@ -888,12 +694,8 @@ function IncidentsBody() {
   const inc: IncidentRow[] = q.data?.incidents ?? [];
   if (!inc.length) return <EmptyState title={t('ddb.noIncidents')} icon="check" />;
   const open = inc.filter((i) => i.status !== 'resolved');
-  const meanMs = (rows: IncidentRow[], f: (i: IncidentRow) => string | null, g: (i: IncidentRow) => string) => {
-    const ms = rows.map((i) => { const a = f(i); return a ? Date.parse(a) - Date.parse(g(i)) : NaN; }).filter(Number.isFinite);
-    return ms.length ? ms.reduce((x, y) => x + y, 0) / ms.length : null;
-  };
-  const mtta = meanMs(inc, (i) => i.acked_at, (i) => i.created_at);
-  const mttr = meanMs(inc, (i) => i.resolved_at, (i) => i.created_at);
+  const mtta = meanInterval(inc, (i) => i.acked_at);
+  const mttr = meanInterval(inc, (i) => i.resolved_at);
   const week = inc.filter((i) => now - Date.parse(i.created_at) < 7 * 86400e3).length;
   const tiles: { label: string; v: string; hot?: boolean }[] = [
     { label: t('ddb.incOpen'), v: String(open.length), hot: open.length > 0 },
@@ -923,7 +725,7 @@ function IncidentsBody() {
       <div className="mt-2 shrink-0">
         <div className="flex h-9 items-end gap-1" role="img" aria-label={t('ddb.incWeekly')}>
           {buckets.map((n, i) => (
-            <span key={i} className={`flex-1 rounded-t-[2px] ${open.length ? 'bg-[var(--color-danger)]' : 'bg-[var(--color-ok)]'}`}
+            <span key={i} className="flex-1 rounded-t-[2px] bg-series-1"
               style={{ height: `${(n / bMax) * 100}%`, minHeight: n ? 2 : 0, opacity: n ? 0.85 : 0.15 }} title={`${n}`} />
           ))}
         </div>
@@ -933,7 +735,7 @@ function IncidentsBody() {
   );
 }
 
-/* ---------- alarm KPIs — ISA-18.2 load, floods, standing (dd alarm bars) - */
+// ── alarm KPIs: ISA-18.2 load, floods, standing alarms ──
 const SEV_RANK: Record<string, number> = { info: 0, warning: 1, critical: 2 };
 const KPI_WINDOW_MS = 4 * 60 * 60e3;
 const KPI_BUCKETS = 24; // 10-minute buckets — the ISA-18.2 reporting interval
@@ -1012,4 +814,63 @@ function AlarmKpiBody() {
       </div>
     </div>
   );
+}
+
+// ── gauge → Meter: one ratio against its range, with the threshold state in words ──
+function MeterBody({ w }: { w: Widget }) {
+  const { t, i18n } = useTranslation();
+  const tag = w.tags[0];
+  const { tv, hist, v } = useLatest(w, tag);
+  const now = useBoardNow();
+  if (!tag) return <EmptyState title={t('dash.pickMetric')} icon="search" />;
+  if (v == null && hist.isLoading) return <Skeleton h={40} />;
+  if (v == null && hist.isError) return <ErrorState onRetry={hist.refetch} />;
+  const [lo, hi] = rangeOf(w, tag);
+  const lvl = levelOf(v, w);
+  const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
+  return (
+    <div className="flex h-full flex-col justify-center gap-2">
+      <Meter label={SIGNALS[tag] ? t(SIGNALS[tag].labelKey) : short(tag)} value={(v ?? lo) - lo} max={hi - lo} unit={unitOfWidget(w) || SIGNALS[tag]?.unit} />
+      <div className="flex items-center gap-2 text-[11px] text-ink-2">
+        {lvl !== 'ok' && <span className="font-semibold text-ink"><span aria-hidden className={lvl === 'crit' ? 'text-crit' : 'text-warn-ink'}>{lvl === 'crit' ? '▲ ' : '◆ '}</span>{t(lvl === 'crit' ? 'alarms.critical' : 'alarms.warning')}</span>}
+        <span className="font-mono">{fmtNum(lo, 0, i18n.language)}–{fmtNum(hi, 0, i18n.language)}</span>
+        <QualityMark q={tv?.q} stale={stale} />
+      </div>
+    </div>
+  );
+}
+
+// ── bargauge → BulletBar per signal; warn/crit thresholds are the bands ──
+function BulletBody({ w }: { w: Widget }) {
+  const { t } = useTranslation();
+  useStore(() => live.version);
+  const { endMs } = useContext(BoardCtx);
+  const tags = w.tags.slice(0, SERIES_COLORS.length);
+  if (!tags.length) return <EmptyState title={t('dash.pickMetric')} icon="search" />;
+  return (
+    <div className="flex h-full flex-col justify-center gap-3 overflow-auto">
+      {tags.map((tag) => {
+        const tv = latestAt(tag, endMs);
+        const v = tv ? scaleFor(w, tag)(num(tv.v)) : 0;
+        const [, hi] = rangeOf(w, tag);
+        return (
+          <BulletBar key={tag} label={SIGNALS[tag] ? t(SIGNALS[tag].labelKey) : short(tag)} value={v} max={hi}
+            unit={unitOfWidget(w) || SIGNALS[tag]?.unit} bands={[w.warn, w.crit].filter((x): x is number => x != null)} />
+        );
+      })}
+    </div>
+  );
+}
+
+// ── toplist / pie / treemap → BarList of open alarms per group (Pareto) ──
+function AlarmShareBody({ w }: { w: Widget }) {
+  const { t } = useTranslation();
+  const { open } = useVarAlarms();
+  const items = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of open) m.set(alarmGroupKey(w, a), (m.get(alarmGroupKey(w, a)) ?? 0) + 1);
+    return pareto([...m.entries()].map(([k, n]) => ({ label: alarmGroupLabel(w, k, t), value: n })), 7, t('viz2.other'));
+  }, [open, w, t]);
+  if (!items.length) return <EmptyState title={t('alarms.emptyActive')} />;
+  return <div className="h-full overflow-auto"><BarList items={items} cumulative={w.kind !== 'toplist'} /></div>;
 }

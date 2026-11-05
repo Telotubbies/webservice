@@ -14,15 +14,18 @@ import './i18n';
 
 type RangeKey = '24h' | '7d' | '30d';
 const RANGES: RangeKey[] = ['24h', '7d', '30d'];
+// Look-back window in seconds, applied client-side to produce from/to.
 const RANGE_S: Record<RangeKey, number> = { '24h': 86400, '7d': 7 * 86400, '30d': 30 * 86400 };
 
+/** Fraction (0–1) → percent string; nulls render as a dash. */
 function pct(v: number | null | undefined): string {
   return v == null ? '—' : `${(v * 100).toFixed(1)}%`;
 }
 
+/** One A/P/Q/OEE headline figure. */
 function FactorCard({ label, value }: { label: string; value: number | null }) {
   return (
-    <div className="min-w-[130px] flex-1 rounded-[5px] border border-line bg-white p-3 shadow-card">
+    <div className="min-w-[130px] flex-1 rounded-[5px] border border-line bg-paper p-3 shadow-card">
       <div className="text-[11px] font-semibold uppercase tracking-[1.2px] text-ink-68">{label}</div>
       <div className="mt-1 font-mono text-[26px] font-semibold tabular-nums text-ink">{pct(value)}</div>
     </div>
@@ -86,7 +89,7 @@ export function OeePage() {
   const err = oeeQ.error ?? machinesQ.error;
 
   return (
-    <div className="flex min-h-[calc(100svh-36px)] flex-col">
+    <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <PageBar
         icon="metric" title={t('prod.oeeTitle')} lede={t('prod.oeeLede')}
         actions={

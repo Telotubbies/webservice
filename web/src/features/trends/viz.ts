@@ -2,37 +2,67 @@
 // dashboard widgets, faceplates). One place decides colour, axes, limit
 // lines and the tooltip so a technician reads every chart the same way.
 //
-// ISA-101 colour discipline: series hues are cool/neutral (blue, magenta,
-// violet, teal, navy, purple) and never red / orange / amber / green, which
-// stay reserved for abnormal state and alarm limits. The order below was run
-// through the dataviz validator against the white chart surface:
-//   lightness band PASS · chroma PASS · contrast >= 3:1 PASS ·
-//   normal-vision adjacent ΔE >= 18.9 PASS · CVD adjacent ΔE 6.6 (slots 5↔6,
-//   WARN band) — legal only with secondary encoding, which every chart has:
-//   an HTML legend with names + the stats table on Trends.
+// ISA-101 colour discipline: series hues are cool/neutral and never red /
+// orange / amber / green, which stay reserved for abnormal state and alarm
+// limits. The five validated slots live in viz/palette.ts.
 
 import { useQuery } from '@tanstack/react-query';
 import type uPlot from 'uplot';
 import { api } from '../../lib/api';
 import { normSeverity, type Severity } from '../../shared/ui/Status';
 import type { AlarmRule } from '../../types';
+import { cssVar } from '../../theme/useTheme';
+import { SERIES, chartTheme, type ChartTheme } from '../../viz/palette';
+import { annotationsPlugin, onsetsPlugin, type Annotation } from '../../viz/annotations';
 import './vizI18n';
 
-/** Fixed categorical order — assign in order, never cycle past it. */
-export const SERIES_PALETTE = ['#2a78d6', '#c0479d', '#6250d6', '#0b9a9a', '#1d5a9e', '#9b4fc4'] as const;
-export const MAX_SERIES = SERIES_PALETTE.length;
+/** Fixed categorical order — assign in order, never cycle past it. The
+ *  palette lives in viz/palette.ts (5 validated slots, light and dark);
+ *  these names stay for existing callers. */
+export const SERIES_PALETTE = SERIES.light;
+export const SERIES_PALETTE_DARK = SERIES.dark;
+export const MAX_SERIES = SERIES.light.length;
+
+/** A light-palette series colour → the same slot in the active theme's
+ *  palette; any other colour passes through untouched. */
+export function seriesStroke(color: string, theme: 'light' | 'dark'): string {
+  if (theme === 'light') return color;
+  const i = (SERIES.light as readonly string[]).indexOf(color);
+  return i < 0 ? color : SERIES.dark[i];
+}
 
 /** Limit-line strokes — the reserved abnormal hues, darker steps so a
  *  dashed 1.5px line still reads on a bright control-room screen. */
 export const LIMIT_STROKE: Record<Severity, string> = {
-  critical: '#b83d44',
-  warning: '#b5740a',
-  info: '#5d6670',
+  critical: 'var(--color-crit)',
+  warning: 'var(--color-warn-ink)',
+  info: 'var(--color-info)',
 };
 
-const INK_68 = '#4f5b65';
-const GRID = '#e9ecf1';
-const TICK = '#d5dae2';
+/* Light-theme values, used only when a token cannot be read (tests, SSR). */
+const FALLBACK: Record<string, string> = {
+  '--color-line': '#dfe3e8', '--color-ink-3': '#6b7685', '--color-ink-2': '#4a5563', '--color-panel': '#ffffff',
+  '--color-crit': '#c62828', '--color-warn-ink': '#b26a00', '--color-info': '#5b6573',
+};
+
+/** The chart theme of the page right now (canvas cannot resolve var(--…), so
+ *  a chart reads the tokens when it is built and rebuilds on a theme switch). */
+export function currentChartTheme(): ChartTheme {
+  const name = typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  return chartTheme(name, (n) => cssVar(n, FALLBACK[n] ?? '#888'));
+}
+
+function canvasColors(t: ChartTheme) {
+  return {
+    theme: t.name,
+    ink: t.text,
+    grid: t.grid,
+    tick: t.grid,
+    paper: t.surface,
+    limit: { critical: t.crit, warning: t.warn, info: t.info } as Record<Severity, string>,
+  };
+}
+type CanvasColors = ReturnType<typeof canvasColors>;
 
 // ── Limits from alarm rules ──────────────────────────────────────────────────
 
@@ -127,6 +157,10 @@ export interface ChartSpec {
   onZoom?: (fromMs: number, toMs: number) => void;
   /** the x window (epoch ms) — fixed so a short history reads as a gap */
   xRange: [number, number];
+  /** colours; defaults to the page's current theme */
+  theme?: ChartTheme;
+  /** events drawn as hairlines with an x-axis tick */
+  annotations?: Annotation[];
 }
 
 const AXIS_FONT = '11px "IBM Plex Mono", "Roboto Mono", monospace';
@@ -137,11 +171,13 @@ const AXIS_FONT = '11px "IBM Plex Mono", "Roboto Mono", monospace';
 export function chartOptions(spec: ChartSpec): uPlot.Options {
   const { series, limits = [], unit, locale } = spec;
   const decimals = series[0]?.decimals;
+  const ct = spec.theme ?? currentChartTheme();
+  const c = canvasColors(ct);
   return {
     width: spec.width,
     height: spec.height,
     legend: { show: false }, // HTML legend + tooltip own identity and values
-    padding: [8, 8, 0, 0],
+    padding: [8, 20, 0, 0], // room for the last x tick label
     cursor: {
       drag: { x: true, y: false, setScale: false },
       points: { size: 7, width: 2 },
@@ -171,16 +207,16 @@ export function chartOptions(spec: ChartSpec): uPlot.Options {
     },
     axes: [
       {
-        stroke: INK_68, font: AXIS_FONT,
-        grid: { stroke: GRID, width: 1 }, ticks: { stroke: TICK, width: 1, size: 4 },
+        stroke: c.ink, font: AXIS_FONT,
+        grid: { stroke: c.grid, width: 1 }, ticks: { stroke: c.tick, width: 1, size: 4 },
         values: (u, splits) => {
           const span = (u.scales.x.max ?? 0) - (u.scales.x.min ?? 0);
           return splits.map((s) => fmtTime(s * 1000, span < 600));
         },
       },
       {
-        stroke: INK_68, font: AXIS_FONT,
-        grid: { stroke: GRID, width: 1 }, ticks: { stroke: TICK, width: 1, size: 4 },
+        stroke: c.ink, font: AXIS_FONT,
+        grid: { stroke: c.grid, width: 1 }, ticks: { stroke: c.tick, width: 1, size: 4 },
         label: unit || undefined,
         labelFont: '11px "IBM Plex Sans", "NotoSans", sans-serif',
         labelSize: unit ? 16 : 0,
@@ -196,13 +232,18 @@ export function chartOptions(spec: ChartSpec): uPlot.Options {
       {},
       ...series.map((s) => ({
         label: s.label,
-        stroke: s.color,
+        stroke: seriesStroke(s.color, c.theme),
         width: s.width ?? 2,
         spanGaps: false, // an outage is a gap, never a flat line
         points: { show: false },
       })),
     ],
-    plugins: [limitPlugin(limits, unit, locale, decimals), tooltipPlugin(series, locale)],
+    plugins: [
+      limitPlugin(limits, c, unit, locale, decimals),
+      onsetsPlugin(limits, { axis: ct.axis, crit: ct.crit, warn: ct.warn }),
+      annotationsPlugin(spec.annotations ?? [], { axis: ct.axis, crit: ct.crit, warn: ct.warn }),
+      tooltipPlugin(series, c.theme, locale),
+    ],
     hooks: spec.onZoom ? {
       setSelect: [(u) => {
         if (u.select.width < 4) return;
@@ -230,7 +271,7 @@ function axisDecimals(splits: number[], fallback?: number): number {
 
 /** Dashed limit lines with a right-aligned "HI 80 °C" tag. The tag text is
  *  ink, not the limit hue (text wears text tokens); the dash carries hue. */
-function limitPlugin(limits: Limit[], unit?: string, locale?: string, decimals?: number): uPlot.Plugin {
+function limitPlugin(limits: Limit[], c: CanvasColors, unit?: string, locale?: string, decimals?: number): uPlot.Plugin {
   return {
     hooks: {
       draw: [(u) => {
@@ -242,7 +283,7 @@ function limitPlugin(limits: Limit[], unit?: string, locale?: string, decimals?:
           const y = Math.round(u.valToPos(l.v, 'y', true));
           if (y < top - 1 || y > top + height + 1) continue;
           ctx.save();
-          ctx.strokeStyle = LIMIT_STROKE[l.severity];
+          ctx.strokeStyle = c.limit[l.severity];
           ctx.lineWidth = 1.5 * dpr;
           ctx.setLineDash([6 * dpr, 4 * dpr]);
           ctx.beginPath();
@@ -255,9 +296,11 @@ function limitPlugin(limits: Limit[], unit?: string, locale?: string, decimals?:
           const tw = ctx.measureText(text).width;
           const bx = left + width - tw - 8 * dpr;
           const by = y - 14 * dpr < top ? y + 2 * dpr : y - 14 * dpr;
-          ctx.fillStyle = 'rgba(255,255,255,0.92)';
+          ctx.globalAlpha = 0.92;
+          ctx.fillStyle = c.paper;
           ctx.fillRect(bx - 3 * dpr, by, tw + 6 * dpr, 12 * dpr);
-          ctx.fillStyle = l.severity === 'info' ? INK_68 : LIMIT_STROKE[l.severity];
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = l.severity === 'info' ? c.ink : c.limit[l.severity];
           ctx.textBaseline = 'top';
           ctx.fillText(text, bx, by + 1 * dpr);
           ctx.restore();
@@ -269,7 +312,7 @@ function limitPlugin(limits: Limit[], unit?: string, locale?: string, decimals?:
 
 /** Crosshair tooltip: time on top, one row per series (swatch + name +
  *  value + unit). Built from DOM nodes — labels are never parsed as HTML. */
-function tooltipPlugin(series: SeriesSpec[], locale?: string): uPlot.Plugin {
+function tooltipPlugin(series: SeriesSpec[], theme: 'light' | 'dark', locale?: string): uPlot.Plugin {
   let tip: HTMLDivElement | null = null;
   return {
     hooks: {
@@ -277,9 +320,9 @@ function tooltipPlugin(series: SeriesSpec[], locale?: string): uPlot.Plugin {
         tip = document.createElement('div');
         Object.assign(tip.style, {
           position: 'absolute', pointerEvents: 'none', display: 'none', zIndex: '5',
-          background: '#fff', border: '1px solid #c8cdd5', borderRadius: '4px',
+          background: 'var(--color-paper)', border: '1px solid var(--color-line-strong)', borderRadius: '4px',
           boxShadow: '0 3px 11px rgb(36 41 49 / .2)', padding: '6px 8px',
-          font: '12px "IBM Plex Sans", "NotoSans", sans-serif', color: 'rgb(28 43 52)',
+          font: '12px "IBM Plex Sans", "NotoSans", sans-serif', color: 'var(--color-ink)',
           minWidth: '140px', whiteSpace: 'nowrap',
         });
         u.over.appendChild(tip);
@@ -292,17 +335,17 @@ function tooltipPlugin(series: SeriesSpec[], locale?: string): uPlot.Plugin {
         tip.replaceChildren();
         const head = document.createElement('div');
         head.textContent = fmtTime(x * 1000, true);
-        Object.assign(head.style, { font: '600 11px "IBM Plex Mono", monospace', color: '#4f5b65', marginBottom: '4px' });
+        Object.assign(head.style, { font: '600 11px "IBM Plex Mono", monospace', color: 'var(--color-ink-68)', marginBottom: '4px' });
         tip.appendChild(head);
         series.forEach((s, i) => {
           const v = u.data[i + 1]?.[idx];
           const row = document.createElement('div');
           Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '6px', lineHeight: '18px' });
           const sw = document.createElement('span');
-          Object.assign(sw.style, { width: '10px', height: '3px', borderRadius: '2px', background: s.color, flex: 'none' });
+          Object.assign(sw.style, { width: '10px', height: '3px', borderRadius: '2px', background: seriesStroke(s.color, theme), flex: 'none' });
           const name = document.createElement('span');
           name.textContent = s.label;
-          Object.assign(name.style, { flex: '1', color: '#4f5b65', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '180px' });
+          Object.assign(name.style, { flex: '1', color: 'var(--color-ink-68)', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '180px' });
           const val = document.createElement('span');
           val.textContent = v == null || !Number.isFinite(v) ? '—' : `${fmtNum(v, s.decimals, locale)}${s.unit ? ` ${s.unit}` : ''}`;
           Object.assign(val.style, { font: '600 12px "IBM Plex Mono", monospace', marginLeft: '8px' });
@@ -355,7 +398,7 @@ export function decimate(pts: Pt[], maxPts = 1400): Pt[] {
 
 // Typical gap between samples, estimated on a strided subset so a long
 // series doesn't sort 5 000 deltas. Feeds joinSeries's match tolerance.
-function medianStep(pts: Pt[]): number {
+function medianStep(pts: { t: number }[]): number {
   if (pts.length < 2) return 1000;
   const steps: number[] = [];
   const stride = Math.max(1, Math.floor(pts.length / 200));
@@ -367,7 +410,7 @@ function medianStep(pts: Pt[]): number {
 /** Join series onto a shared time grid. A series contributes a value at a
  *  grid time only when it has a sample close enough — so an outage or a
  *  removed bad-quality sample renders as a gap, never a bridged line. */
-export function joinSeries(series: Pt[][]): uPlot.AlignedData {
+export function joinSeries(series: { t: number; v: number | null }[][]): uPlot.AlignedData {
   const times = [...new Set(series.flatMap((s) => s.map((p) => p.t)))].sort((a, b) => a - b);
   const cols = series.map((pts) => {
     const tol = Math.max(2500, medianStep(pts) * 3);

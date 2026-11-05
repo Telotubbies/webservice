@@ -16,9 +16,10 @@ import { Icon } from '../../shared/ui/Icon';
 import type { LineSceneView, PlanImage, PlanKind, XrayMode } from './scene';
 import { PartPanel } from './PartPanel';
 import { PlanView } from './PlantPlan';
+import { HmiView } from './HmiView';
 import { useSceneSource } from './useSceneSource';
 
-type Mode = '3d' | 'top' | 'front';
+type Mode = '3d' | 'hmi' | 'top' | 'front';
 
 export function Line3DPage() {
   const { t } = useTranslation();
@@ -91,8 +92,9 @@ export function Line3DPage() {
   // 2D views are rendered once per kind from the loaded scene
   useEffect(() => {
     const v = viewRef.current;
-    if (mode === '3d' || !ready || !v || plans[mode]) return;
-    setPlans((p) => ({ ...p, [mode]: v.plan(mode, 1800) }));
+    if (mode === '3d' || mode === 'hmi' || !ready || !v || plans[mode]) return;
+    const kind = mode;
+    setPlans((p) => ({ ...p, [kind]: v.plan(kind, 1800) }));
   }, [mode, ready, plans]);
 
   const pick = (e: React.MouseEvent) => {
@@ -101,6 +103,9 @@ export function Line3DPage() {
     // pick() expects CLIENT coordinates — it resolves the canvas rect itself
     setSel(v.pick(e.clientX, e.clientY));
   };
+
+  // part boxes only change with the scene / mapping
+  const boxes = useMemo(() => (ready && sceneView ? sceneView.partBoxes() : []), [ready, sceneView]);
 
   const part = sel !== null ? src.parts[Number(sel)] : undefined;
   const failed = src.status === 'error' || fail;
@@ -113,7 +118,7 @@ export function Line3DPage() {
         actions={
           <div className="flex items-center gap-2">
             <div className="flex overflow-hidden rounded border border-line" role="group" aria-label={t('plant.view')}>
-              {(['3d', 'top', 'front'] as Mode[]).map((m) => (
+              {(['3d', 'hmi', 'top', 'front'] as Mode[]).map((m) => (
                 <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
                   className={`h-7 px-2.5 text-[11px] font-semibold ${mode === m ? 'bg-info-soft text-blue' : 'text-ink-68 hover:bg-subtle'}`}>
                   {t(`plant.mode.${m}`)}
@@ -151,7 +156,7 @@ export function Line3DPage() {
         </p>
       )}
       <div className="flex h-[calc(100svh-88px)] gap-3 p-4">
-        <div className="relative h-full min-w-0 flex-1 overflow-hidden rounded-[5px] border border-line bg-white shadow-card">
+        <div className="relative h-full min-w-0 flex-1 overflow-hidden rounded-[5px] border border-line bg-paper shadow-card">
           {failed ? (
             <ErrorState onRetry={() => { setFail(false); setReady(false); src.reload(); }} />
           ) : (
@@ -167,7 +172,10 @@ export function Line3DPage() {
                 aria-label={t('line3d.canvasLabel')}
                 onClick={pick}
               />
-              {mode !== '3d' && plans[mode] && (
+              {mode === 'hmi' && ready && sceneView && (
+                <HmiView parts={src.parts} boxes={boxes} kinds={src.kinds} sel={sel} onSelect={setSel} />
+              )}
+              {(mode === 'top' || mode === 'front') && plans[mode] && (
                 <PlanView kind={mode} img={plans[mode]!} view={sceneView} parts={src.parts} sel={sel} onSelect={setSel} />
               )}
               {mode === '3d' && (
@@ -183,7 +191,9 @@ export function Line3DPage() {
           <input type="search" className="input mb-2 w-full text-[12px]" value={q} onChange={(e) => setQ(e.target.value)}
             placeholder={t('plant.search')} aria-label={t('plant.search')} />
           <ul className="mb-3 flex max-h-56 flex-wrap gap-1 overflow-auto" aria-label={t('palette.equipment')}>
-            {src.parts.map((p, i) => ({ p, i })).filter(({ p }) => !q || `${p.label} ${src.kinds[p.kind]?.label ?? p.kind}`.toLowerCase().includes(q.toLowerCase())).map(({ p, i }) => (
+            {/* natural order (Belt conveyor 2 before 10) so numbered equipment reads as one run */}
+            {src.parts.map((p, i) => ({ p, i })).filter(({ p }) => !q || `${p.label} ${src.kinds[p.kind]?.label ?? p.kind}`.toLowerCase().includes(q.toLowerCase()))
+              .sort((x, y) => x.p.label.localeCompare(y.p.label, undefined, { numeric: true })).map(({ p, i }) => (
               <li key={`${p.label}-${i}`}>
                 <button
                   type="button"

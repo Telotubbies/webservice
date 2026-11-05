@@ -1,4 +1,4 @@
-// Events-over-time histogram (dd event explorer "timeseries" strip).
+// Events-over-time histogram strip for the explorer.
 // Each bar stacks abnormal (critical, warning) on top of normal events; every
 // bar is a button whose label carries the counts, so colour is never the only
 // signal. Clicking a bar narrows the list to that bucket.
@@ -11,6 +11,8 @@ export interface HistBucket { from: number; to: number; critical: number; warnin
 
 export const HIST_BUCKETS = 60;
 
+/** Splits [from, to) into HIST_BUCKETS bins and counts events per severity.
+ *  Events outside the window are dropped. */
 export function bucketEvents(events: PlantEvent[], from: number, to: number): HistBucket[] {
   const step = (to - from) / HIST_BUCKETS;
   const out: HistBucket[] = Array.from({ length: HIST_BUCKETS }, (_, i) => ({
@@ -39,7 +41,7 @@ export const EventHistogram = memo(function EventHistogram({ events, from, to, p
     : { hour: '2-digit', minute: '2-digit', hour12: false });
 
   return (
-    <section className="rounded-[5px] border border-line bg-white px-3 pb-2 pt-2 shadow-card" aria-label={t('evx.histTitle')}>
+    <section className="rounded-[5px] border border-line bg-paper px-3 pb-2 pt-2 shadow-card" aria-label={t('evx.histTitle')}>
       <div className="mb-1 flex items-center gap-2 text-[12px]">
         <h2 className="font-semibold text-ink">{t('evx.histTitle')}</h2>
         <span className="flex items-center gap-2 text-[11px] text-ink-68">

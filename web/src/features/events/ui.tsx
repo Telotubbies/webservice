@@ -4,7 +4,6 @@
 
 import type { TFunction } from 'i18next';
 import { Icon, type IconName } from '../../shared/ui/Icon';
-import type { Severity } from '../../shared/ui/Status';
 import { SIGNALS } from '../../lib/plant';
 import { eventTitleKey, type EventSource, type PlantEvent } from './model';
 import './i18n';
@@ -19,19 +18,13 @@ const SOURCE_ICON: Record<EventSource, IconName> = {
   config: 'wrench', incident: 'warn',
 };
 
-/** Rail tint: red/orange only for abnormal (ISA-101); everything else grey. */
-export const RAIL: Record<Severity | 'none', string> = {
-  critical: 'bg-[var(--color-danger-bright)]',
-  warning: 'bg-[var(--color-warn)]',
-  info: 'bg-[var(--color-muted-pill)]',
-  none: 'bg-line',
-};
-
 const INSIGHT_KIND: Record<string, string> = {
   anomaly: 'insights.kindAnomaly', drift: 'insights.kindDrift',
   flatline: 'insights.kindFlatline', flapping: 'insights.kindFlapping',
 };
 
+/** Display name for a signal: its catalogue label, or the last two dotted
+ *  path segments when the tag isn't in the catalogue. */
 export function signalLabel(t: TFunction, tag?: string): string {
   if (!tag) return '';
   const meta = SIGNALS[tag];
@@ -49,6 +42,7 @@ export function eventTitle(t: TFunction, e: PlantEvent): string {
   return t(eventTitleKey(e), { subject });
 }
 
+/** Small source icon for list rows — pairs with SOURCE_KEY's translated label. */
 export function SourceGlyph({ source, className = '' }: { source: EventSource; className?: string }) {
   return <Icon name={SOURCE_ICON[source]} size={14} className={className} />;
 }
@@ -65,6 +59,7 @@ export function SessionBadge({ t }: { t: TFunction }) {
   );
 }
 
+/** Locale time for row cells; `withDate` adds day+month for multi-day views. */
 export function fmtTime(at: number, lang: string, withDate = false): string {
   return new Date(at).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', withDate
     ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }

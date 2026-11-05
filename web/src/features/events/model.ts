@@ -56,11 +56,14 @@ const CMD_DONE = new Set(['done', 'acknowledged', 'succeeded']);
 
 const ms = (iso?: string | null) => (iso ? Date.parse(iso) || 0 : 0);
 
+// Insight rows deep-link into Trends with a ±10 min pad so the anomaly has
+// visible context on both sides.
 function trendsHref(tag: string, from: number, to: number): string {
   const pad = 10 * 60_000;
   return `/trends?tags=${encodeURIComponent(tag)}&from=${Math.round(from - pad)}&to=${Math.round(to + pad)}`;
 }
 
+/** One row per lifecycle transition of a v1 alarm (raise/ack/clear). */
 export function alarmEvents(a: Alarm): PlantEvent[] {
   const base = {
     source: 'alarm' as const, subject: a.rule, tag: a.tag, equipment: equipmentOf(a.tag),
@@ -76,6 +79,7 @@ export function alarmEvents(a: Alarm): PlantEvent[] {
   return out;
 }
 
+/** Open/close rows for an insight; a still-open insight yields only 'opened'. */
 export function insightEvents(i: Insight): PlantEvent[] {
   const start = ms(i.ts_start);
   const end = ms(i.ts_end);
@@ -89,6 +93,7 @@ export function insightEvents(i: Insight): PlantEvent[] {
   return out;
 }
 
+/** 'issued' plus a terminal 'done'/'failed' row once the command settles. */
 export function commandEvents(c: Command): PlantEvent[] {
   const base = {
     source: 'command' as const,
@@ -111,6 +116,8 @@ export function commandEvents(c: Command): PlantEvent[] {
   return out;
 }
 
+// Health and auth entries from this tab's session journal become 'system'
+// rows. They are never persisted server-side — hence `session: true`.
 function journalEvents(): PlantEvent[] {
   const out: PlantEvent[] = [];
   for (const j of live.journal) {
@@ -139,12 +146,12 @@ export interface EventStream {
   retry: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Server feed (Phase 4): /api/v1/orgs/{org}/events — alarms, command_events,
-// audit_log and incident_events persisted org-wide. Until the route is
-// mounted the query 404s and the stream falls back to the client-side
-// sources (v1 alarms + REST + session journal).
-// ---------------------------------------------------------------------------
+// ── Server feed ──────────────────────────────────────────────────────────────
+
+// /api/v1/orgs/{org}/events (Phase 4) — alarms, command_events, audit_log and
+// incident_events persisted org-wide. Until the route is mounted the query
+// 404s and the stream falls back to the client-side sources (v1 alarms +
+// REST + session journal).
 
 const CMD_ACTION: Record<string, EventAction> = {
   accepted: 'issued', dispatched: 'issued', acknowledged: 'done',
@@ -158,6 +165,8 @@ const FEED_HREF: Record<FeedEvent['type'], (ref: string) => string> = {
   incident: () => '/incidents',
 };
 
+/** Maps an org-feed record to a PlantEvent; the feed's `type:id` id splits
+ *  into source + ref so rows can deep-link back to the source page. */
 export function feedToEvent(f: FeedEvent): PlantEvent {
   const ref = f.id.split(':')[1] ?? '';
   const action: EventAction =

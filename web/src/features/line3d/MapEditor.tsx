@@ -21,6 +21,9 @@ import { PLANT_FOOTPRINT, type LineSceneView, type XrayMode } from './scene';
 
 const why = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : '?');
 
+// ── Editor widgets ───────────────────────────────────────────────────────────
+
+// One motion-parameter input per ParamSpec type (bool / enum / vec3 / number).
 function ParamField({ spec, value, onChange }: {
   spec: ParamSpec; value: unknown; onChange: (v: unknown) => void;
 }) {
@@ -54,6 +57,8 @@ function ParamField({ spec, value, onChange }: {
   );
 }
 
+// Collapsible glTF node tree — the keyboard/list path to the same nodes the
+// canvas picks.
 function NodeTree({ view, selected, onPick }: { view: LineSceneView; selected: number[]; onPick: (i: number) => void }) {
   // lazy tree: only expanded nodes render children (models have 10k+ nodes)
   const [open, setOpen] = useState<Set<number>>(new Set());
@@ -83,6 +88,9 @@ function NodeTree({ view, selected, onPick }: { view: LineSceneView; selected: n
   return <ul className="max-h-64 overflow-auto">{view.roots.slice(0, 300).map((r) => row(r, 0))}</ul>;
 }
 
+// One mapped part: label + kind + per-role tag pickers + motion params.
+// Pickers only offer tags matching the role's type/writability; a bound tag
+// that no longer qualifies stays listed with a warning marker.
 function PartCard({ part, kinds, tags, onChange, onRemove, onFocus, onZoom, onIsolate, missing }: {
   part: PlantPart; kinds: Kinds; tags: PlantTag[];
   onChange: (p: PlantPart) => void; onRemove: () => void; onFocus: () => void;
@@ -158,6 +166,8 @@ function PartCard({ part, kinds, tags, onChange, onRemove, onFocus, onZoom, onIs
   );
 }
 
+// ── Editor ───────────────────────────────────────────────────────────────────
+
 export function MapEditor() {
   const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -182,6 +192,8 @@ export function MapEditor() {
   const [plan, setPlan] = useState<SetupPlan | null>(null);
   const [skip, setSkip] = useState<Set<string>>(new Set());   // candidate labels the user unticked
   const [focusKey, setFocusKey] = useState<string | null>(null);
+  // Latest preview/selection the rAF loop should see — a ref, so toggling
+  // them doesn't tear down and rebuild the whole scene effect.
   const live3 = useRef({ preview: false, focusKey: null as string | null });
   useEffect(() => { live3.current = { preview, focusKey }; }, [preview, focusKey]);
 
@@ -321,6 +333,9 @@ export function MapEditor() {
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
+  // First-run path: upload the bundled demo under the site's own name so it
+  // becomes an editable model, keeping only demo parts whose bindings still
+  // resolve against this site's tags.
   const saveDemoAsMine = async () => {
     setBusy(true); setMsg(null);
     try {
@@ -362,10 +377,10 @@ export function MapEditor() {
           </div>
         } />
       <div className="grid h-[calc(100svh-88px)] gap-3 p-4 lg:grid-cols-[1fr_380px]">
-        <div className="relative min-h-[320px] overflow-hidden rounded-[5px] border border-line bg-white shadow-card">
+        <div className="relative min-h-[320px] overflow-hidden rounded-[5px] border border-line bg-paper shadow-card">
           {!view && <div className="absolute inset-0 grid place-items-center"><Skeleton w={220} h={20} /></div>}
           <canvas ref={canvasRef} className="h-full w-full cursor-crosshair" aria-label={t('line3d.canvasLabel')} onClick={onCanvasClick} />
-          <div className="absolute left-3 top-3 flex flex-wrap items-center gap-1 rounded border border-line bg-white/90 p-1">
+          <div className="absolute left-3 top-3 flex flex-wrap items-center gap-1 rounded border border-line bg-paper/90 p-1">
             <button type="button" className="btn btn-sm" disabled={!view || busy} onClick={() => void runDetect()}>
               <Icon name="check" size={13} /> {t('plant.editor.autoSetup')}
             </button>

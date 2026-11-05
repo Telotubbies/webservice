@@ -143,9 +143,7 @@ export interface SceneInput {
   parts: PlantPart[];
 }
 
-/* ------------------------------------------------------------------ */
-/* palette — read tokens at runtime so the 3D surface follows the theme  */
-/* ------------------------------------------------------------------ */
+// ── Palette — read tokens at runtime so the 3D surface follows the theme ─────
 
 interface Palette {
   col(name: string, fallback: string): THREE.Color;
@@ -215,10 +213,11 @@ const YARD_FOOTPRINT = PLANT_FOOTPRINT;
 const VIEW_H = 11;         // ortho half-height
 const MAX_DOTS = 2500;
 
-/* ------------------------------------------------------------------ */
-/* build                                                                */
-/* ------------------------------------------------------------------ */
+// ── Build ────────────────────────────────────────────────────────────────────
 
+/** Mounts the model on `canvas` and returns the imperative view handle the
+ *  page and applyState drive. Throws only when the .glb fails to load —
+ *  renderer and palette are released first so nothing GPU-side leaks. */
 export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): Promise<LineSceneView> {
   const palette = makePalette(document);
   const C = {
@@ -244,7 +243,7 @@ export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): 
   scene.background = C.panel.clone();
   scene.fog = new THREE.Fog(C.panel.clone(), 40, 70); // plant crisp, yard reads as soft silhouettes
 
-  // --- ortho ~30° iso camera (elevation 30°, azimuth 45°) ---
+  // ── Ortho ~30° iso camera (elevation 30°, azimuth 45°) ──
   const target0 = new THREE.Vector3(2, 3, -5);
   const camera = new THREE.OrthographicCamera(-VIEW_H, VIEW_H, VIEW_H, -VIEW_H, 0.1, 140);
   camera.position.set(
@@ -265,7 +264,7 @@ export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): 
   controls.update();
   controls.saveState();
 
-  // --- lights (no shadowmaps) ---
+  // ── Lights (no shadowmaps) ──
   const lights = new THREE.Group();
   lights.add(new THREE.HemisphereLight(0xffffff, 0xd3d8dd, 1.35));
   const key = new THREE.DirectionalLight(0xffffff, 1.35);
@@ -276,7 +275,7 @@ export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): 
   lights.add(rim);
   scene.add(lights);
 
-  // --- floor + faint grid ---
+  // ── Floor + faint grid ──
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshLambertMaterial({ color: C.canvas }));
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.02;
@@ -287,7 +286,7 @@ export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): 
   (grid.material as THREE.Material).depthWrite = false;
   scene.add(grid);
 
-  /* ---------- load the plant ---------- */
+  // ── Load the plant ──
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   let yard: THREE.Group;
   let parser: {
@@ -367,7 +366,7 @@ export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): 
   }
   const footprint = YARD_FOOTPRINT;
 
-  /* ---------- see-through / isolate / hide state ---------- */
+  // ── See-through / isolate / hide state ──
   const matBase = new Map<THREE.Material, { t: boolean; o: number; dw: boolean }>();
   let xray: { mode: XrayMode; key: string | null } = { mode: 'off', key: null };
   let isolateKey: string | null = null;
@@ -396,7 +395,7 @@ export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): 
     });
   };
 
-  /* ---------- equipment: mapped parts ---------- */
+  // ── Equipment: mapped parts ──
   let pickRoots: THREE.Object3D[] = [];
   let equipment: PartRefs[] = [];
   let currentParts: PlantPart[] = [];
@@ -676,10 +675,10 @@ export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): 
 
   buildEquipment(input.parts);
 
-  /* ---------- editor highlight ---------- */
+  // ── Editor highlight ──
   let hiCage: THREE.LineSegments | null = null;
 
-  /* ---------- runtime state ---------- */
+  // ── Runtime state ──
   const state = { reduceMotion: false, phase: 0, preview: false };
   let needsRender = true;
   let flyTo: { t: number; from: THREE.Vector3; to: THREE.Vector3; z0: number; z1: number } | null = null;
@@ -933,9 +932,7 @@ export async function buildScene(canvas: HTMLCanvasElement, input: SceneInput): 
   return view;
 }
 
-/* ------------------------------------------------------------------ */
-/* applyState — each part's signals come from its tag bindings          */
-/* ------------------------------------------------------------------ */
+// ── applyState — each part's signals come from its tag bindings ──────────────
 
 interface Internals {
   equipment: PartRefs[];
@@ -948,6 +945,8 @@ export function partSignals(part: PlantPart): string[] {
   return Object.values(part.bindings).map(liveName);
 }
 
+/** Recomputes every part's visual state from the live store — call once per
+ *  store flush. Mutates emissive/glow/level fields only; tick() owns motion. */
 export function applyState(view: LineSceneView, store: typeof live, opts: ApplyOpts = {}): void {
   const { equipment, state, C } = (view as unknown as { _i: Internals })._i;
   state.reduceMotion = !!opts.reduceMotion;
@@ -1009,7 +1008,8 @@ export function applyState(view: LineSceneView, store: typeof live, opts: ApplyO
       e.mix.shell.scale.set(1, 1, 1);
       (e.mix.shell.material as THREE.MeshStandardMaterial).opacity = 0.35 + 0.55 * Math.max(load, e.active ? 0.5 : 0);
     }
-    if (e.lamp) e.lamp.color.copy(e.active ? C.ok : C.mid);
+    // lit = darker neutral, not green: on a process view green never means "running" (ISA-101)
+    if (e.lamp) e.lamp.color.copy(e.active ? C.edge : C.mid);
     e.glow.visible = e.alarmSev !== null;
     if (e.alarmSev) {
       e.glow.material.color.copy(e.alarmSev === 'critical' ? C.crit : C.warn);

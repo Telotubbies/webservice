@@ -23,16 +23,18 @@ export function ShiftBadge({ orgId, siteId }: { orgId: string | null; siteId: st
   const cur = q.data?.shift ?? null;
   if (!orgId || !siteId || q.isError) return null;
   return (
+    /* Topbar chrome text, not a light pill on the dark bar: the shift is
+       context, so it reads quieter than the alarm chip beside it. */
     <span
-      className="hidden items-center gap-1.5 rounded-[4px] border border-line bg-subtle px-2 py-0.5 text-[11px] font-semibold text-ink-68 sm:inline-flex"
+      className="hidden items-center gap-1.5 px-1 text-[11px] font-semibold text-white/70 sm:inline-flex"
       title={cur ? `${cur.start_time}–${cur.end_time} (${q.data?.timezone ?? ''})` : t('prod.noShift')}
       aria-label={cur ? t('prod.shiftNow', { name: cur.name }) : t('prod.noShift')}
     >
-      <span className={`size-1.5 rounded-full ${cur ? 'bg-[var(--color-ok)]' : 'bg-line-hard'}`} aria-hidden="true" />
+      <span className={`size-1.5 rounded-full ${cur ? 'bg-white/80' : 'ring-1 ring-inset ring-white/45'}`} aria-hidden="true" />
       {cur ? (
         <>
           <span>{cur.name}</span>
-          <span className="font-mono tabular-nums text-ink-46">{cur.start_time}–{cur.end_time}</span>
+          <span className="tabular-nums text-white/55">{cur.start_time}–{cur.end_time}</span>
         </>
       ) : t('prod.noShift')}
     </span>

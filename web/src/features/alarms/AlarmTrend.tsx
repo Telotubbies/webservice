@@ -4,7 +4,7 @@
 // Single series → no legend box; the card title names it. Gaps > 30 s break
 // the line so missing data never looks like a flat, healthy value.
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
@@ -104,6 +104,18 @@ export function AlarmTrend({ tag, raisedAt, limit, unit, decimals = 1, severity,
     for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i].t - ms) < Math.abs(pts[best].t - ms)) best = i;
     setHover(best);
   };
+  /* Keyboard read-out, same contract as TimeChart: ← → one sample,
+     PgUp/PgDn ten, Home/End the ends; focus starts on the newest sample. */
+  const onKey = (e: KeyboardEvent<SVGSVGElement>) => {
+    const n = pts.length;
+    const at = hover ?? n - 1;
+    const next = e.key === 'ArrowLeft' ? at - 1 : e.key === 'ArrowRight' ? at + 1
+      : e.key === 'PageUp' ? at - 10 : e.key === 'PageDown' ? at + 10
+      : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : null;
+    if (next == null) return;
+    e.preventDefault();
+    setHover(Math.max(0, Math.min(n - 1, next)));
+  };
 
   const last = pts[pts.length - 1];
   return (
@@ -116,9 +128,13 @@ export function AlarmTrend({ tag, raisedAt, limit, unit, decimals = 1, severity,
           height={H}
           className="block max-w-full touch-none"
           role="img"
-          aria-label={`${t('alx.trend')}: ${fmtV(pts[0].v)} → ${fmtV(last.v)}${limit != null ? `, ${t('alx.trendLimit', { v: fmtV(limit) })}` : ''}`}
+          tabIndex={0}
+          aria-label={`${t('alx.trend')}: ${fmtV(pts[0].v)} → ${fmtV(last.v)}, ${t('alx.trendRange', { min: fmtV(Math.min(...pts.map((p) => p.v))), max: fmtV(Math.max(...pts.map((p) => p.v))) })}${limit != null ? `, ${t('alx.trendLimit', { v: fmtV(limit) })}` : ''}. ${t('alx.trendKbd')}`}
           onPointerMove={onMove}
           onPointerLeave={() => setHover(null)}
+          onFocus={() => setHover((h) => h ?? pts.length - 1)}
+          onBlur={() => setHover(null)}
+          onKeyDown={onKey}
         >
           {/* recessive frame: two value ticks + baseline */}
           {[...new Set([hi - pad, lo + pad])].map((v) => (
@@ -163,7 +179,7 @@ export function AlarmTrend({ tag, raisedAt, limit, unit, decimals = 1, severity,
         </svg>
         {hp && (
           <div
-            className="pointer-events-none absolute top-1 rounded border border-line bg-white px-2 py-1 text-[11px] shadow-card"
+            className="pointer-events-none absolute top-1 rounded border border-line bg-paper px-2 py-1 text-[11px] shadow-card"
             style={{ left: `${Math.min(80, Math.max(0, (x(hp.t) / W) * 100 - 10))}%` }}
           >
             <span className="font-mono font-semibold tabular-nums">{fmtV(hp.v)}</span>
@@ -171,6 +187,9 @@ export function AlarmTrend({ tag, raisedAt, limit, unit, decimals = 1, severity,
           </div>
         )}
       </div>
+      <p className="sr-only" role="status" aria-live="polite">
+        {hp ? `${new Date(hp.t).toLocaleTimeString(i18n.language, { hour12: false })} · ${fmtV(hp.v)}` : ''}
+      </p>
       <figcaption className="mt-1 text-[11px] text-ink-46">
         {!raisedIn && raised < t0 && <span className="mr-1">{t('alx.trendBefore', { time: new Date(raised).toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short', hour12: false }) })}</span>}
         {t('alx.trendNote')}

@@ -2,6 +2,7 @@
 // localStorage is the offline cache; custom boards sync to the org's backend
 // store (see useDashboards) so they are shared across machines.
 
+import { SERIES } from '../../viz/palette';
 import { EQUIPMENT, SIGNALS, equipmentOf } from '../../lib/plant';
 
 export type VizKind =
@@ -11,23 +12,30 @@ export type VizKind =
   | 'change' | 'slo' | 'monitors' | 'group' | 'treemap'
   | 'incidents' | 'alarmkpi'
   | 'matlive' | 'matdecision' | 'matkpi' | 'matmix' | 'matmargin' | 'matlog' | 'ailatency' | 'aithroughput';
+
+/** Every VizKind, for exhaustiveness checks (renderers.test). */
+export const ALL_VIZ_KINDS: VizKind[] = [
+  'timeseries', 'stat', 'value', 'gauge', 'bargauge', 'stateline', 'histogram', 'table',
+  'toplist', 'pie', 'alarms', 'note', 'change', 'slo', 'monitors', 'group', 'treemap', 'incidents', 'alarmkpi',
+  'matlive', 'matdecision', 'matkpi', 'matmix', 'matmargin', 'matlog', 'ailatency', 'aithroughput',
+];
 export type Agg = 'last' | 'avg' | 'min' | 'max';
 export type RangeKey = '15m' | '1h' | '4h' | '24h';
 export const RANGE_MIN: Record<RangeKey, number> = { '15m': 15, '1h': 60, '4h': 240, '24h': 1440 };
 
-/* ---- template variables (dd `$var` chips) ------------------------------
- * A board declares named variables; each is a pick-list over a real signal
- * segment. Selected values live in the URL (?var_<name>=<value>), '*' = All.
- * Alarm-family widgets (alarms/toplist/pie/treemap/monitors) filter by them
- * automatically; tag widgets opt in via `varTag`, a tag template whose
- * `$name` placeholders are substituted with the selected values. */
+// ── Template variables ───────────────────────────────────────────────────────
+// A board declares named variables; each is a pick-list over a real signal
+// segment. Selected values live in the URL (?var_<name>=<value>), '*' = All.
+// Alarm-family widgets (alarms/toplist/pie/treemap/monitors) filter by them
+// automatically; tag widgets opt in via `varTag`, a tag template whose
+// `$name` placeholders are substituted with the selected values.
 export type VarKind = 'equipment' | 'line';
 export interface DashVar { name: string; kind: VarKind }
 export const ALL_VAR = '*';
 
 export type GroupTone = 'blue' | 'purple' | 'orange' | 'green';
 export const GROUP_TONES: GroupTone[] = ['blue', 'purple', 'orange', 'green'];
-/** Pastel header + ink per tone (dd themed group bars). Single source —
+/** Pastel header + ink per tone for the group bars. Single source —
  *  the editor swatch and the board's group bar both read this. */
 export const GROUP_TONE_STYLE: Record<GroupTone, { header: string; ink: string }> = {
   blue: { header: '#dbeafe', ink: '#1d4e9e' },
@@ -39,7 +47,9 @@ export const GROUP_TONE_STYLE: Record<GroupTone, { header: string; ink: string }
 /** Fixed categorical order (dataviz rule: assign in order, never cycle past it).
  *  ISA-101: no red / orange / amber / green — those mean abnormal or running.
  *  Mirrors SERIES_PALETTE in features/trends/viz.ts (validated order). */
-export const SERIES_COLORS = ['#2a78d6', '#c0479d', '#6250d6', '#0b9a9a', '#1d5a9e', '#9b4fc4'];
+// The validated 5-slot palette (viz/palette.ts), shared with Trends and the
+// Home board so one series keeps one colour on every chart surface.
+export const SERIES_COLORS: string[] = [...SERIES.light];
 /** Pre-ISA-101 defaults. Widgets saved with these render with the new
  *  palette (see seriesColor in widgets.tsx); stored JSON is untouched. */
 export const LEGACY_SERIES_COLORS = ['#006bc2', '#c159ff', '#1c9a67', '#f99d02', '#5e6dd6', '#00a0a8'];
@@ -67,7 +77,7 @@ export interface Widget {
   legend: boolean;
   warn: number | null; crit: number | null; // thresholds (value tint / timeseries markers)
   note: string;                   // note widget body; group widget description
-  /** value tiles: solid fill in the threshold colour (dd conditional formatting) */
+  /** value tiles: solid fill in the threshold colour (conditional formatting) */
   fill?: boolean;
   /** group headers: pastel theme tint */
   tone?: GroupTone;
@@ -86,6 +96,8 @@ export interface Dashboard {
 
 export const newId = () => crypto.randomUUID(); // dashboards use it as the server row id
 
+/** A new widget with the per-kind default footprint; the caller sets y
+ *  (board bottom) — never Infinity, which JSON would turn into null. */
 export function makeWidget(kind: VizKind, over: Partial<Widget> = {}): Widget {
   const size: Record<VizKind, [number, number]> = {
     timeseries: [6, 3], stat: [3, 2], value: [3, 2], gauge: [4, 3], bargauge: [6, 2],
@@ -155,8 +167,8 @@ const T = {
 
 const SEEDS: Dashboard[] = [
   {
-    // dd "intelligent test runner" board shape: two blue group bars, solid-fill
-    // KPI tiles, distribution with percentiles, treemaps and ranked tables.
+    // Grouped performance board: two blue group bars, solid-fill KPI tiles,
+    // distribution with percentiles, treemaps and ranked tables.
     id: 'line-performance', title: 'Line performance', description: 'KPI tiles, distribution and alarm breakdown for the sorting line.',
     preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-16T00:00:00Z', range: '1h',
     widgets: [
@@ -180,7 +192,7 @@ const SEEDS: Dashboard[] = [
   },
   {
     // Aggregate AI: the gravel/sand truck decision, the camera behind it and the
-    // health of the models doing the work (dd "pipeline visibility" shape).
+    // health of the models doing the work — a pipeline-visibility layout.
     id: 'aggregate-ai', title: 'Aggregate AI — gravel / sand',
     description: 'Live CCTV with the per-truck gravel or sand decision, and the inference health behind it.',
     preset: 'builtin', author: 'vissointan', updatedAt: '2026-10-17T00:00:00Z', range: '1h',
@@ -223,7 +235,7 @@ const SEEDS: Dashboard[] = [
     ],
   },
   {
-    // dd "incident management overview" shape: pastel themed group headers
+    // Incident-management overview: pastel themed group headers
     // with a one-line description, KPI tiles, top-N lists and the alarm feed.
     id: 'incident-overview', title: 'Incident management overview',
     description: 'Open incidents, response times and the alarm load behind them.',
@@ -268,6 +280,8 @@ const SEEDS: Dashboard[] = [
 const KEY = 'wds.dashboards.v1';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Saved boards + any built-in seeds the user hasn't seen yet; seeds alone
+ *  when storage is empty, corrupt or blocked. */
 export function loadDashboards(): Dashboard[] {
   try {
     const raw = localStorage.getItem(KEY);
@@ -283,10 +297,12 @@ export function loadDashboards(): Dashboard[] {
   return structuredClone(SEEDS);
 }
 
+/** Writes the offline cache; false when storage is denied (board stays in memory). */
 export function saveDashboards(list: Dashboard[]): boolean {
   try { localStorage.setItem(KEY, JSON.stringify(list)); return true; } catch { return false; }
 }
 
+/** Fresh copy of a built-in seed, for "revert to default"; undefined for customs. */
 export function resetDashboard(id: string): Dashboard | undefined {
   const seed = SEEDS.find((s) => s.id === id);
   return seed && structuredClone(seed);
