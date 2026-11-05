@@ -39,6 +39,8 @@ VID = str(uuid.uuid4())
 CAM1, CAM2 = str(uuid.uuid4()), str(uuid.uuid4())
 
 
+# ── Mock data ──
+
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -76,6 +78,8 @@ def _cam(cid, name) -> dict:
             "fps_sample": 10.0, "enabled": True, "status": "ok",
             "status_detail": None, "status_at": _now()}
 
+
+# ── API interception ──
 
 async def _install(page, *, edges=None, gate_test=False, gate_snapshot=False):
     """Intercept every API call. Gated routes signal when the request has
@@ -144,6 +148,8 @@ async def _install(page, *, edges=None, gate_test=False, gate_snapshot=False):
             "snap_entered": snap_entered, "snap_release": snap_release}
 
 
+# ── Page helpers ──
+
 async def _signin(page):
     await page.goto(f"{WEB}/infrastructure/models")
     await page.wait_for_load_state("networkidle")
@@ -191,6 +197,8 @@ async def _inside_viewport(page, card) -> list[str]:
         bad.append("card scrollWidth > clientWidth")
     return bad
 
+
+# ── Scenario driver ──
 
 async def main() -> int:
     os.makedirs(SHOTS, exist_ok=True)

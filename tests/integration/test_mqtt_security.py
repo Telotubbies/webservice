@@ -36,6 +36,8 @@ EDGE_USER = _secret("edge_bootstrap_user")
 EDGE_PW = _secret("edge_bootstrap_pw")
 
 
+# ── Probe helpers ──
+
 def _iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -123,7 +125,7 @@ def _needs_broker():
         pytest.skip(f"CA file missing ({MQTT_CA_FILE}) — run `make certs`")
 
 
-# ===================================================== broker ACL isolation
+# ── Broker ACL isolation ──
 
 def test_edge_cannot_publish_cross_org_telemetry():
     """Doc 17 §3: an edge client's ACL is prefix-pinned — a valid v2 topic
@@ -261,7 +263,7 @@ def test_v1_topic_rejected_for_everyone():
         t.stop()
 
 
-# ===================================================== provisioning lifecycle
+# ── Provisioning lifecycle ──
 
 def _edges(api, headers):
     r = api.get(f"/api/v1/orgs/{ORG_ID}/sites/{SITE_ID}/edges", headers=headers)
@@ -356,7 +358,7 @@ def test_wrong_org_is_404(api, admin_headers):
     assert r.status_code == 404
 
 
-# ===================================================== backend trust rules
+# ── Backend trust rules ──
 
 def test_trust_layer_topic_identity_mismatch(mqtt_client, api):
     """Doc 17 §4: a message on a structurally-valid v2 topic whose edge
@@ -377,7 +379,7 @@ def test_trust_layer_topic_identity_mismatch(mqtt_client, api):
                desc="mqtt_topic_identity_mismatch +2")
 
 
-# ===================================================== reconciler behaviour
+# ── Reconciler behaviour ──
 
 def _dynsec_call(*commands, timeout=10):
     """Issue a dynsec admin request as svc-dynsec-admin (host-side)."""
@@ -446,7 +448,7 @@ def test_reconciler_repairs_deleted_and_orphaned_clients():
     wait_until(edge_back, 45, desc="edge client recreated by reconciler")
 
 
-# ===================================================== hygiene
+# ── Hygiene ──
 
 def test_healthcheck_credentials_not_in_docker_inspect():
     """Secrets must not be visible via `docker inspect` — env vars and the

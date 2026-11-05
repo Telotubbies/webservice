@@ -115,6 +115,8 @@ def _frame():
     return np.zeros((240, 320, 3), np.uint8)
 
 
+# --------------------------------------------------------- client: ensure / filter / overlay
+
 def test_ensure_puts_once_per_version(server):
     c = ModelClient(server.url)
     m = _model()

@@ -141,6 +141,7 @@ def _alarm(aid, ts=None):
             "ts": ts or datetime.now(timezone.utc)}
 
 
+# ---------------------------------------------------------- webhook sweep
 def test_sweep_enqueues_delivery_for_new_alarm():
     conn = FakeConn()
     n = asyncio.run(workers.webhook_sweep(_st(conn)))
@@ -223,6 +224,7 @@ def test_sweep_skips_events_no_endpoint_subscribes():
         workers._sweep_org(_st(conn2), ORG, {"alarm_raised": ""})) == 0
 
 
+# -------------------------------------------------------- signed delivery
 def test_deliver_posts_signed_json(monkeypatch):
     conn = FakeConn()
     captured = {}
@@ -299,6 +301,7 @@ def test_post_guards_egress_and_skips_redirects(monkeypatch):
     assert sent["t"] > 0
 
 
+# ------------------------------------------------- job runner + reaper
 def test_reaper_requeues_stale_running_job():
     """A 'running' job whose locked_at is >10min old goes back to 'pending'
     (worker crashed mid-job); claims stamp locked_at."""

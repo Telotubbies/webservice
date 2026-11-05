@@ -16,6 +16,8 @@ def mb(area, index, dt):
     return {"area": area, "index": index, "datatype": dt, "word_order": "big"}
 
 
+# -- per-protocol address parsing + connection validation --------------------
+
 @pytest.mark.parametrize("raw,tag_type,expected", [
     ("%QX0.0", "bool", mb("coil", 0, "bool")),
     ("%IX1.2", "bool", mb("discrete_input", 10, "bool")),

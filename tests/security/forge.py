@@ -30,6 +30,8 @@ KC_URL = os.environ.get("KC_URL", "http://localhost:8080")
 KC_REALM = os.environ.get("KC_REALM", "wds")
 
 
+# ── HTTP & token helpers ──
+
 def _http(method: str, url: str, *, token: str = "", data=None,
           form: dict | None = None, timeout: float = 8.0):
     body = None
@@ -64,7 +66,7 @@ def decode_header(token: str) -> dict:
     return json.loads(base64.urlsafe_b64decode(part))
 
 
-# ------------------------------------------------------------------ realm JWKS
+# ── Realm JWKS ──
 
 def realm_jwks() -> dict:
     """The wds realm's published JWKS (public material only)."""
@@ -86,7 +88,7 @@ def realm_signing_key() -> tuple[str, str]:
     raise RuntimeError("no RSA signing key in realm JWKS")
 
 
-# ------------------------------------------------------------------- forgeries
+# ── Forgeries ──
 
 def alg_none_token(iss: str, aud: str) -> str:
     """Well-formed unsigned JWT — the verifier's fixed RS256 allowlist must
@@ -134,7 +136,7 @@ def tampered_token(real: str) -> str:
     return f"{head}.{_b64(json.dumps(claims).encode())}.{sig}"
 
 
-# ------------------------------------------------------------------ KC admin
+# ── KC admin ──
 
 def kc_admin_token() -> str:
     """Master-realm admin token (also doubles as a wrong-iss token for the
@@ -185,6 +187,8 @@ def kc_delete_client(admin: str, cid: str) -> None:
     _http("DELETE", f"{KC_URL}/admin/realms/{KC_REALM}/clients/{cid}",
           token=admin)
 
+
+# ── Probe helpers ──
 
 def password_token(client_id: str, username: str,
                    password: str | None = None) -> str:

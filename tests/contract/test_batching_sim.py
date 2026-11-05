@@ -46,7 +46,7 @@ def test_yaml_writable_flags_match_what_the_sim_treats_as_controls():
         if not dotted.startswith("batch."):
             continue
         leaf = dotted.rsplit(".", 1)[1]
-        is_control = leaf in ("running", "gate_open", "open", "door_open", "enabled")
+        is_control = leaf in ("running", "gate_open", "open", "door_open", "enabled")             or ".recipe." in dotted
         assert bool(m["writable"]) == is_control, dotted
 
 
@@ -105,3 +105,73 @@ def test_silo_level_switches_follow_level():
     _run(v, 1)
     assert v[_tag("cem/silo3/low_level")] is True           # seeded at 9 %
     assert v[_tag("cem/silo1/low_level")] is False
+
+
+def _cycle_log(v, watch_tags, seconds=None):
+    seen = {t: [] for t in watch_tags}
+    _run(v, seconds or b.CYCLE_S + 1, seen=lambda vals: [seen[t].append(vals[_tag(t)]) for t in watch_tags])
+    return seen
+
+
+def test_feeder_belts_run_while_their_bins_discharge():
+    v = _fresh()
+    log = _cycle_log(v, ["agg/belt3/running", "agg/belt5/running", "agg/belt4/running", "agg/bin1/gate_open"])
+    assert any(log["agg/belt3/running"]) and any(log["agg/belt5/running"])
+    # the collector belt runs whenever a feeder runs
+    for b3, b4 in zip(log["agg/belt3/running"], log["agg/belt4/running"]):
+        assert b4 or not b3
+
+
+def test_skip_hoist_lifts_the_aggregate_into_the_mixer_and_returns():
+    v = _fresh()
+    log = _cycle_log(v, ["agg/skip1/position_pct", "agg/skip1/moving"])
+    assert max(log["agg/skip1/position_pct"]) > 95
+    assert log["agg/skip1/position_pct"][-1] < 5
+    assert any(log["agg/skip1/moving"])
+
+
+def test_a_truck_waits_under_the_mixer_for_the_discharge():
+    v = _fresh()
+    log = _cycle_log(v, ["mix/truck/present", "mix/mixer1/door_open"])
+    for present, door in zip(log["mix/truck/present"], log["mix/mixer1/door_open"]):
+        assert present or not door
+    assert v[_tag("mix/truck/count")] == 1
+
+
+def test_each_batch_adds_to_the_production_total():
+    v = _fresh()
+    _run(v, 2 * b.CYCLE_S + 1)
+    assert v[_tag("plant/production/m3_total")] == pytest.approx(2 * b.BATCH_M3)
+    assert v[_tag("plant/production/rate_m3h")] > 0
+
+
+def test_a_low_silo_is_refilled_through_the_fill_pipe_with_the_blower():
+    v = _fresh()
+    v[_tag("cem/silo3/level_pct")] = 5.0
+    log = _cycle_log(v, ["cem/silo3/filling", "air/fill1/flowing", "air/blower1/running"], seconds=30)
+    assert any(log["cem/silo3/filling"])
+    for f, flow, blower in zip(log["cem/silo3/filling"], log["air/fill1/flowing"], log["air/blower1/running"]):
+        assert not f or (flow and blower)
+    assert v[_tag("cem/silo3/level_pct")] > 20
+
+
+def test_cement_is_drawn_from_the_silos_in_turn():
+    v = _fresh()
+    used = set()
+    _run(v, 4 * b.CYCLE_S, seen=lambda vals: used.update(i for i in b.SILOS if vals[_tag(f"cem/screw{i}/running")]))
+    assert used == set(b.SILOS)
+
+
+def test_recipe_targets_drive_the_weighers():
+    v = _fresh()
+    v[_tag("plant/recipe/cem_target_kg")] = 200.0
+    peak = {"cem": 0.0}
+    _run(v, b.CYCLE_S, seen=lambda vals: peak.__setitem__("cem", max(peak["cem"], vals[_tag("cem/weigh1/weight_kg")])))
+    assert 180 < peak["cem"] < 225
+
+
+def test_weigher_levels_follow_their_weights():
+    v = _fresh()
+    peak = {"lvl": 0.0}
+    _run(v, b.CYCLE_S, seen=lambda vals: peak.__setitem__("lvl", max(peak["lvl"], vals[_tag("cem/weigh1/level_pct")])))
+    assert peak["lvl"] > 80

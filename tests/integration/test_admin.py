@@ -44,6 +44,8 @@ O, S = str(V1_ORG), str(V1_SITE)
 AUDIT_EXPORT_MAX = 5000  # mirrors backend/app/main.py
 
 
+# ── Helpers & fixtures ──
+
 def _dsn_skip():
     if not APP_DSN:
         pytest.skip("WDS_TEST_APP_DSN not set — run under `make test-integration`")
@@ -77,7 +79,7 @@ def _temp_tag_id(client):
     return tag["id"]
 
 
-# --------------------------------------------------------------- role gates
+# ── Role gates ──
 
 
 def test_admin_routes_deny_viewer_and_operator(admin_api, viewer_api, api):
@@ -98,7 +100,7 @@ def test_admin_routes_deny_viewer_and_operator(admin_api, viewer_api, api):
     assert admin_api.get(f"/api/v1/orgs/{O}/audit").status_code == 200
 
 
-# ----------------------------------------------------- alarm-rule CRUD + reload
+# ── Alarm-rule CRUD & reload ──
 
 
 def test_alarm_rule_crud_roundtrip(admin_api):
@@ -171,7 +173,7 @@ def test_alarm_rule_live_reload_without_restart(admin_api):
         admin_api.delete(f"/api/v1/orgs/{O}/sites/{S}/alarm-rules/{rule['id']}")
 
 
-# -------------------------------------------------------------- memberships
+# ── Memberships ──
 
 
 def test_membership_patch_disable_delete(admin_api):
@@ -232,7 +234,7 @@ def test_member_self_and_last_owner_guards(admin_api):
     assert r.status_code == 400
 
 
-# ----------------------------------------------------------------- invites
+# ── Invites ──
 
 
 def test_invite_create_accept_single_use(admin_api, viewer_api):
@@ -296,7 +298,7 @@ def test_invite_accept_preserves_existing_role(admin_api, viewer_api):
     assert v["role"] == "viewer"
 
 
-# -------------------------------------------------------------- audit export
+# ── Audit export ──
 
 
 def test_audit_export_json_and_csv(admin_api):

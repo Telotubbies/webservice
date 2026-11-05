@@ -13,6 +13,8 @@ pytestmark = pytest.mark.integration
 from conftest import TAGS, wait_until  # noqa: E402
 
 
+# ── Helpers ──
+
 def _wait_command_status(api, command_id, headers, timeout_s=20):
     """Poll GET /api/commands/{id} until terminal status."""
     def poll():
@@ -26,7 +28,7 @@ def _wait_command_status(api, command_id, headers, timeout_s=20):
     return wait_until(poll, timeout_s, desc=f"command {command_id} terminal")
 
 
-# ------------------------------------------------------------------- health
+# ── Health ──
 
 def test_health(api):
     r = api.get("/api/health")
@@ -53,7 +55,7 @@ def test_system_health_viewer_403(api, viewer_headers):
     assert api.get("/api/system/health", headers=viewer_headers).status_code == 403
 
 
-# ----------------------------------------------------- observability (v4 T8)
+# ── Observability (v4 T8) ──
 
 def test_readyz_is_ready(anon_api):
     """Unauthenticated liveness+migration smoke — backend port only (nginx
@@ -105,7 +107,7 @@ def test_health_allows_anonymous(anon_api):
     assert anon_api.get("/api/health").status_code == 200
 
 
-# --------------------------------------------------- anonymous reads -> 401
+# ── Anonymous reads → 401 ──
 # v4 T5: every /api/* read requires a member principal (ADR-12).
 
 @pytest.mark.parametrize("path", [
@@ -149,7 +151,7 @@ def test_me_returns_member_role(api):
     assert body["user"]["sub"].startswith("dev:")
 
 
-# --------------------------------------------------------------------- tags
+# ── Tags ──
 
 def test_tags_list_contains_seed_tags(api):
     r = api.get("/api/tags")
@@ -187,7 +189,7 @@ def test_history_shape(api):
         assert {"v", "q", "ts"} <= rows[0].keys()
 
 
-# ----------------------------------------------------------------- commands
+# ── Commands ──
 
 def test_command_happy_path_bool_tag(api, operator_headers):
     r = api.post(
@@ -298,7 +300,7 @@ def test_commands_list_authz(api, anon_api, operator_headers, viewer_headers):
     assert isinstance(r.json(), list)
 
 
-# ------------------------------------------- REST Origin gate (v4 T14)
+# ── REST Origin gate (v4 T14) ──
 # CONTRACT.v2 §2 + ADR-12 §8: a mutating /api request that CARRIES an Origin
 # header must satisfy the same allowlist/same-origin policy as the WS
 # upgrade — missing Origin is allowed (non-browser clients send none;

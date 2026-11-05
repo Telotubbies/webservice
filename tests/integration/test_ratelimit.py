@@ -31,6 +31,8 @@ MUT_LIMIT = int(os.environ.get("RATE_MUTATIONS_PER_USER", "60"))
 WS_CAP = int(os.environ.get("RATE_WS_PER_IP", "20"))
 
 
+# ── Bucket helpers ──
+
 def _full_command_bucket():
     """Sleep one window so the per-user+tag bucket refills to capacity from
     any prior state — makes the burn tests order- and rerun-independent."""
@@ -68,7 +70,7 @@ def _wait_no_inflight(api, headers, tag, timeout_s=20):
     wait_until(poll, timeout_s, desc=f"no in-flight command on {tag}")
 
 
-# --------------------------------------------------------------- commands
+# ── Commands ──
 
 def test_command_rate_limit_429_with_retry_after(api, operator_headers):
     """Exceeding RATE_COMMANDS_PER_TAG in the window -> 429 + Retry-After
@@ -167,7 +169,7 @@ def test_in_flight_409s_do_not_burn_command_budget(api, operator_headers):
     _wait_terminal(api, r.json()["command_id"], operator_headers)
 
 
-# --------------------------------------------------------------- mutations
+# ── Mutations ──
 
 def test_mutation_rate_limit_429_with_retry_after(api, operator_headers):
     """Non-command mutations count against the per-user bucket — even when
@@ -193,7 +195,7 @@ def test_mutation_rate_limit_429_with_retry_after(api, operator_headers):
     assert r.status_code == 404, (r.status_code, r.text)
 
 
-# -------------------------------------------------------------------- WS
+# ── WS admission ──
 
 def _close_code(e):
     """Close code off a websockets ConnectionClosed (version-tolerant)."""

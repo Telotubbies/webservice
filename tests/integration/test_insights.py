@@ -27,6 +27,8 @@ FLAP_TAG = TAGS["speed_mps"]       # steady follower of speed_sp + noise
 FILTER_TAG = TAGS["level_pct"]     # exercised only by the filter test
 
 
+# ── Injection helpers ──
+
 def _iso_z(dt: datetime) -> str:
     return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -87,7 +89,7 @@ INSIGHT_KEYS = ("id", "tag", "kind", "severity", "score",
                 "state", "ts_start", "ts_end", "detail")
 
 
-# ------------------------------------------------------------------ anomaly
+# ── Anomaly ──
 
 def test_bad_quality_outliers_never_open(api, mqtt_client):
     """Invariant: q!=good samples are invisible to the engine — a burst of
@@ -162,7 +164,7 @@ def test_anomaly_open_dedupe_close(api, mqtt_client):
     wait_until(closed_same_row, 60, desc="anomaly closes after in-band streak")
 
 
-# ------------------------------------------------------------------ flapping
+# ── Flapping ──
 
 async def _collect_ws(ws_url, duration_s, predicate=None):
     websockets = pytest.importorskip("websockets")
@@ -224,7 +226,7 @@ def test_flapping_opens_and_broadcasts(api, mqtt_client, ws_base):
         assert k in ev, f"WS insight missing {k}: {ev}"
 
 
-# ------------------------------------------------------- flatline / no-op
+# ── Flatline / no-op ──
 
 @pytest.mark.timeout(420)
 def test_flatline_opens_and_closes(api, mqtt_client):
@@ -269,7 +271,7 @@ def test_unknown_and_bool_tags_produce_no_insights(api, mqtt_client):
     assert api.get("/api/health").json()["db"] == "up"
 
 
-# -------------------------------------------------------------- API filters
+# ── API filters ──
 
 def test_insights_api_filters(api, mqtt_client):
     mu, sigma = _baseline(api, FILTER_TAG)

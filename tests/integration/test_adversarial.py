@@ -18,6 +18,8 @@ from conftest import (  # noqa: E402
 )
 
 
+# ── Payload helpers ──
+
 def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -75,7 +77,7 @@ class RespCollector:
         raise AssertionError(f"no cmd-resp for {req_id} within {timeout}s")
 
 
-# =========================================================== REST attacks
+# ── REST attacks ──
 
 def test_concurrent_same_tag_post_one_409(api, operator_headers):
     """09 §6.6: two clients POST to the same tag concurrently → one 201, one
@@ -176,7 +178,7 @@ def test_malformed_json_body(api, operator_headers):
     assert r.status_code in (400, 415, 422), r.status_code
 
 
-# =========================================================== MQTT attacks
+# ── MQTT attacks ──
 
 def test_edge_ttl_expired_command_denied(mqtt_client):
     """09 §6.6 test_command_ttl_expired_edge: cmd with stale issued_at must be
@@ -329,7 +331,7 @@ def test_clock_skew_commands_denied(mqtt_client):
     assert "clock_untrusted" in str(body.get("reason", ""))
 
 
-# -------------------------------------------------- disruptive (opt-in)
+# ── Disruptive (opt-in) ──
 
 @pytest.mark.disruptive
 def test_command_timeout_edge_offline(api, operator_headers, disruptive, compose_file):

@@ -53,6 +53,8 @@ def _opcua_src(endpoint, node="ns=2;s=x", **conn):
                       "address": {"node_id": node}}]}
 
 
+# -- test_source / browse ops against a live OPC-UA fake --------------------
+
 def test_test_source_unreachable_detail():
     src = _opcua_src(f"opc.tcp://127.0.0.1:{_free_port()}", timeout_ms=500)
     res = ops.run("test_source", {"source": src})

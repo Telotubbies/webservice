@@ -34,6 +34,8 @@ def _payload(token: str) -> dict:
     return json.loads(base64.urlsafe_b64decode(part))
 
 
+# ── Token fixtures ──
+
 @pytest.fixture()
 def op_token() -> str:
     # function-scoped: KC access tokens live 300 s — a module token could
@@ -80,7 +82,7 @@ async def _revoke(dsn: str, *, sid: str | None = None, sub: str | None = None,
         await conn.close()
 
 
-# ------------------------------------------------------------- token shape
+# ── Token shape ──
 
 def test_realm_issues_wds_api_tokens(op_token):
     claims = _payload(op_token)
@@ -119,7 +121,7 @@ def test_oidc_token_commands_lifecycle(api, op_token):
     assert r.status_code == 201, r.text
 
 
-# ------------------------------------------------------- revocation (≤5 s)
+# ── Revocation (≤5 s) ──
 
 def _fresh_op_token() -> str:
     """Fresh password-grant session — each grant carries a NEW sid, so
@@ -219,6 +221,8 @@ def test_revoked_sid_ws_closes_by_sweep_without_notify(ws_base, db):
     assert elapsed is None or elapsed < 15, \
         f"sweep close took {elapsed:.1f}s — expected within the sweep interval"
 
+
+# ── Deprovisioning & logout ──
 
 def test_disabled_user_rest_401(api, db):
     """users.disabled_at set -> wds_authz 'user_disabled' drops the authz

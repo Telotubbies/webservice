@@ -57,6 +57,8 @@ def acks(bridge):
     return [p for t, p in bridge.pub if t.endswith("/cfg-ack")]
 
 
+# ── apply / ack / version guards ──
+
 def test_apply_then_ack(tmp_path):
     cfg, holder, bridge, cl = make(tmp_path)
     cl.handle(msg(3, [sim_source()]))
@@ -134,6 +136,8 @@ def test_disabled_source_dropped_and_poll_min(tmp_path):
     assert holder.poll_ms == 1000  # default when no enabled sources
 
 
+# ── cache persistence ──
+
 def test_cached_cfg_loaded_on_start(tmp_path):
     cfg, holder, bridge, cl = make(tmp_path)
     cl.handle(msg(4, [sim_source()]))
@@ -155,6 +159,8 @@ def test_no_or_corrupt_cache_falls_back(tmp_path):
     assert cl.load_cached() is False
     assert cl.version is None
 
+
+# ── applied cfg in use ──
 
 def test_command_write_routes_through_holder(tmp_path):
     cfg, holder, bridge, cl = make(tmp_path)
@@ -188,6 +194,8 @@ def test_equal_version_resends_ack(tmp_path):
     cl.handle(msg(3, [sim_source()]))
     assert len(acks(bridge)) == 2 and acks(bridge)[0] == acks(bridge)[1]
 
+
+# ── cameras in cfg ──
 
 class FakeVision:
     def __init__(self, boom=False):
