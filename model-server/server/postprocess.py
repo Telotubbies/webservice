@@ -31,6 +31,7 @@ def letterbox(img_bgr, imgsz: int):
 
 
 def _norm_box(x1, y1, x2, y2, scale, px, py, ow, oh):
+    # Undo the letterbox, clamp to the original frame, and emit xywh normalized to 0..1.
     x1, x2 = (x1 - px) / scale, (x2 - px) / scale
     y1, y2 = (y1 - py) / scale, (y2 - py) / scale
     x1, x2 = min(max(x1 / ow, 0.0), 1.0), min(max(x2 / ow, 0.0), 1.0)
@@ -39,6 +40,7 @@ def _norm_box(x1, y1, x2, y2, scale, px, py, ow, oh):
 
 
 def _keep(row, classes, class_filter, conf):
+    # Shared row filter: finite score and class, above conf, in range, allowed by the filter.
     score, cid = float(row[4]), row[5]
     if not (math.isfinite(score) and math.isfinite(float(cid))):
         return None
@@ -93,6 +95,7 @@ def decode_segment(out, proto, scale, px, py, ow, oh, imgsz, classes, class_filt
         coeffs = np.asarray(row[6:6 + nm], np.float32)
         mask = (1.0 / (1.0 + np.exp(-(coeffs @ protos)))).reshape(mh, mw)
         mask_u8 = (mask > 0.5).astype(np.uint8)
+        # The detection box mapped into prototype-mask pixels crops the contour search.
         f = mw / imgsz
         bx = [int(max(0, min(mw, round(v * f)))) for v in (row[0], row[1], row[2], row[3])]
         d = {"class_id": k[0], "class": classes[k[0]], "score": k[1],

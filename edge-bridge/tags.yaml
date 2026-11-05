@@ -44,9 +44,10 @@ sim:
       behavior: random_walk      # slow random walk 0..1 (vision stub)
 
   # --- Centrale a Beton (concrete batching plant) -- area `batch` ---------------
-  # Dynamics live in adapters/batching_sim.py. Writable flags are operator
-  # controls; everything else derives from them. `plant.auto.enabled` runs a
-  # repeating batch cycle. Real PLC addresses go in the modbus map when wired.
+  # One entry per signal of the plant's 3D model (see docs/plant-twin.md).
+  # Dynamics live in adapters/batching_sim.py. Writable flags and recipe targets
+  # are operator controls; everything else derives from them.
+  # `plant.auto.enabled` runs a repeating 60 s batch cycle.
     batch.plant.auto.enabled:
       writable: true
       initial: true
@@ -61,81 +62,41 @@ sim:
       initial: 0.0
       behavior: derived
       unit: s
-    batch.agg.belt1.running:
+    batch.plant.auto.step:
+      writable: false
+      initial: 0.0
+      behavior: derived
+    batch.plant.production.m3_total:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m3
+    batch.plant.production.rate_m3h:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m3/h
+    batch.plant.recipe.agg_target_kg:
       writable: true
-      initial: false
+      initial: 1800.0
+      min: 500.0
+      max: 2400.0
       behavior: state
-      unit: bool
-    batch.agg.belt1.speed_mps:
-      writable: false
-      initial: 0.0
-      behavior: derived
-      unit: m/s
-    batch.agg.weigh1.weight_kg:
-      writable: false
-      initial: 0.0
-      behavior: derived
       unit: kg
-    batch.cem.weigh1.weight_kg:
-      writable: false
-      initial: 0.0
-      behavior: derived
+    batch.plant.recipe.cem_target_kg:
+      writable: true
+      initial: 300.0
+      min: 100.0
+      max: 500.0
+      behavior: state
       unit: kg
-    batch.liq.weigh1.weight_kg:
-      writable: false
-      initial: 0.0
-      behavior: derived
+    batch.plant.recipe.water_target_kg:
+      writable: true
+      initial: 160.0
+      min: 50.0
+      max: 300.0
+      behavior: state
       unit: kg
-    batch.liq.water1.open:
-      writable: true
-      initial: false
-      behavior: state
-      unit: bool
-    batch.liq.pump1.running:
-      writable: true
-      initial: false
-      behavior: state
-      unit: bool
-    batch.liq.pump1.flow_lpm:
-      writable: false
-      initial: 0.0
-      behavior: derived
-      unit: L/min
-    batch.liq.admix1.running:
-      writable: true
-      initial: false
-      behavior: state
-      unit: bool
-    batch.liq.admix1.flow_lpm:
-      writable: false
-      initial: 0.0
-      behavior: derived
-      unit: L/min
-    batch.air.blower1.running:
-      writable: true
-      initial: false
-      behavior: state
-      unit: bool
-    batch.air.blower1.pressure_bar:
-      writable: false
-      initial: 0.0
-      behavior: derived
-      unit: bar
-    batch.mix.mixer1.running:
-      writable: true
-      initial: false
-      behavior: state
-      unit: bool
-    batch.mix.mixer1.current_a:
-      writable: false
-      initial: 0.0
-      behavior: derived
-      unit: A
-    batch.mix.mixer1.door_open:
-      writable: true
-      initial: false
-      behavior: state
-      unit: bool
     batch.agg.bin1.level_pct:
       writable: false
       initial: 72.0
@@ -147,6 +108,11 @@ sim:
       writable: true
       initial: false
       behavior: state
+      unit: bool
+    batch.agg.bin1.low_level:
+      writable: false
+      initial: false
+      behavior: derived
       unit: bool
     batch.agg.bin2.level_pct:
       writable: false
@@ -160,6 +126,11 @@ sim:
       initial: false
       behavior: state
       unit: bool
+    batch.agg.bin2.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
     batch.agg.bin3.level_pct:
       writable: false
       initial: 81.0
@@ -171,6 +142,11 @@ sim:
       writable: true
       initial: false
       behavior: state
+      unit: bool
+    batch.agg.bin3.low_level:
+      writable: false
+      initial: false
+      behavior: derived
       unit: bool
     batch.agg.bin4.level_pct:
       writable: false
@@ -184,6 +160,93 @@ sim:
       initial: false
       behavior: state
       unit: bool
+    batch.agg.bin4.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.agg.belt1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.belt1.speed_mps:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m/s
+    batch.agg.belt2.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.belt2.speed_mps:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m/s
+    batch.agg.belt3.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.belt3.speed_mps:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m/s
+    batch.agg.belt4.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.belt4.speed_mps:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m/s
+    batch.agg.belt5.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.belt5.speed_mps:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m/s
+    batch.agg.belt6.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.agg.belt6.speed_mps:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: m/s
+    batch.agg.weigh1.weight_kg:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: kg
+    batch.agg.skip1.position_pct:
+      writable: false
+      initial: 0.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.agg.skip1.moving:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.agg.skip1.motor_temp_c:
+      writable: false
+      initial: 34.0
+      behavior: derived
+      unit: degC
     batch.cem.silo1.level_pct:
       writable: false
       initial: 78.0
@@ -197,6 +260,11 @@ sim:
       behavior: derived
       unit: bool
     batch.cem.silo1.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.silo1.filling:
       writable: false
       initial: false
       behavior: derived
@@ -223,6 +291,11 @@ sim:
       initial: false
       behavior: derived
       unit: bool
+    batch.cem.silo2.filling:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
     batch.cem.screw2.running:
       writable: true
       initial: false
@@ -241,6 +314,11 @@ sim:
       behavior: derived
       unit: bool
     batch.cem.silo3.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.cem.silo3.filling:
       writable: false
       initial: false
       behavior: derived
@@ -267,11 +345,145 @@ sim:
       initial: false
       behavior: derived
       unit: bool
+    batch.cem.silo4.filling:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
     batch.cem.screw4.running:
       writable: true
       initial: false
       behavior: state
       unit: bool
+    batch.cem.weigh1.weight_kg:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: kg
+    batch.cem.weigh1.level_pct:
+      writable: false
+      initial: 0.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.liq.tank1.level_pct:
+      writable: false
+      initial: 78.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.liq.tank1.low_level:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.liq.water1.open:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.liq.pump1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.liq.pump1.flow_lpm:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: L/min
+    batch.liq.weigh1.weight_kg:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: kg
+    batch.liq.weigh1.level_pct:
+      writable: false
+      initial: 0.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.liq.weigh1.discharging:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.liq.admix1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.liq.admix1.flow_lpm:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: L/min
+    batch.liq.drum1.level_pct:
+      writable: false
+      initial: 82.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.liq.drum2.level_pct:
+      writable: false
+      initial: 45.0
+      min: 0.0
+      max: 100.0
+      behavior: derived
+      unit: "%"
+    batch.air.blower1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.air.blower1.pressure_bar:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: bar
+    batch.air.fill1.flowing:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.air.filter1.active:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.air.filter1.dp_mbar:
+      writable: false
+      initial: 3.0
+      behavior: derived
+      unit: mbar
+    batch.mix.mixer1.running:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.mix.mixer1.current_a:
+      writable: false
+      initial: 0.0
+      behavior: derived
+      unit: A
+    batch.mix.mixer1.door_open:
+      writable: true
+      initial: false
+      behavior: state
+      unit: bool
+    batch.mix.truck.present:
+      writable: false
+      initial: false
+      behavior: derived
+      unit: bool
+    batch.mix.truck.count:
+      writable: false
+      initial: 0.0
+      behavior: derived
 
 # ---------------------------------------------------------------------------
 modbus:                          # used only when ADAPTER=modbus (Factory I/O / PLC); host = MODBUS_HOST env

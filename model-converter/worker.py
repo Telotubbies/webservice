@@ -1,3 +1,5 @@
+"""Sandboxed export child spawned by converter.py; see that module for the spool protocol."""
+
 import sys
 
 

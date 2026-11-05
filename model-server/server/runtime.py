@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import statistics
 import threading
 import time
 
 import cv2
 import numpy as np
+
+cv2.setNumThreads(int(os.environ.get("CV_THREADS", "2")))   # default is one per core
 
 from .postprocess import clean, decode_detect, decode_segment, letterbox
 
@@ -38,6 +41,13 @@ class Runtime:
         import onnxruntime as ort
         so = ort.SessionOptions()
         so.log_severity_level = 3
+        # ORT defaults to one intra-op thread per core and spin-waits between
+        # runs, which pins every core at 100% even when idle. Cap the pool and
+        # sleep instead of spinning.
+        so.intra_op_num_threads = int(os.environ.get("ORT_THREADS", "4"))
+        so.inter_op_num_threads = 1
+        so.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        so.add_session_config_entry("session.inter_op.allow_spinning", "0")
         return ort.InferenceSession(path, sess_options=so, providers=providers)
 
     def load(self, vid: str, path, meta: dict) -> None:
@@ -89,7 +99,7 @@ class Runtime:
         m = self._models.get(vid)
         if m is None:
             raise KeyError(vid)
-        img = np.full((480, 640, 3), 114, np.uint8)
+        img = np.full((480, 640, 3), 114, np.uint8)          # a fixed grey frame keeps runs comparable
         self._run(m, img, None, 0.25)                         # warm-up
         ms = []
         for _ in range(frames):

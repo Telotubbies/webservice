@@ -72,6 +72,7 @@ def download_to_cache(url: str, sha256: str, size_bytes: int, dest_dir) -> Path:
     return final
 
 
+# ── Per-camera worker ─────────────────────────────────────────────────────
 class _Worker(threading.Thread):
     def __init__(self, cam: dict, runner: "VisionRunner"):
         super().__init__(name=f"cam-{cam['id'][:8]}", daemon=True)
@@ -153,6 +154,7 @@ class _Worker(threading.Thread):
                         pass
 
 
+# ── VisionRunner: owns the worker pool, stat/caps loops ───────────────────
 def _ram_mb() -> int | None:
     """Total RAM in MiB via stdlib sysconf (Linux); None where unavailable."""
     try:

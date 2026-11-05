@@ -27,8 +27,8 @@ from . import batching_sim
 from .base import Quality, TagAdapter, TagValue, WriteResult
 
 # Contract tag table — used when tags.yaml has no sim section. Keys are the
-# tag tail after "{site}.sort."/"{site}.sort."; values describe writability
-# and how the value evolves each poll.
+# tag tail after "{site}."; values describe writability and how the value
+# evolves each poll.
 _DEFAULT_TAGS: dict[str, dict] = {
     "sort.line1.motor1.running": {
         "writable": True, "initial": False, "behavior": "state",

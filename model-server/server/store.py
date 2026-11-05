@@ -20,6 +20,7 @@ def http_fetch(url: str, dest: Path) -> None:
     with urllib.request.urlopen(url, timeout=60) as r, open(dest, "wb") as f:   # noqa: S310
         while chunk := r.read(1 << 20):
             got += len(chunk)
+            # The cap is enforced mid-stream so an oversized file never lands on disk whole.
             if got > MAX_MODEL_BYTES:
                 raise ValueError("model larger than the allowed maximum")
             f.write(chunk)

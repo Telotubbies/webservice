@@ -59,6 +59,7 @@ class ModelNotReady(Exception):
         self.throttled = throttled
 
 
+# ── shared helpers ────────────────────────────────────────────────────────
 def class_filter(class_config: dict) -> tuple[list[int], dict[int, float]]:
     """(enabled class ids, min score per enabled id) from a camera's class_config."""
     scores = {int(k): float(v["min_score"]) for k, v in class_config.items() if v.get("enabled")}
@@ -89,6 +90,7 @@ def _filtered(dets: list, scores: dict[int, float]) -> list[dict]:
             and d.get("score", 0) >= scores[d["class_id"]]]
 
 
+# ── detector implementations (placement is chosen by make_detector) ───────
 class ModelDetector:
     def __init__(self, client: ModelClient, model: dict):
         self.client, self.model = client, model
