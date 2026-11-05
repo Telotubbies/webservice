@@ -1,7 +1,7 @@
-/* Sign-in wall — Hex app.hex.tech/login anatomy on the landing noir surface:
-   logo top-left, centered "Log in" (Space Grotesk 38px/700 white), corner-tick
-   panel (bg #1f1f29-ish, radius ~5px) with full-width SSO/Google rows, "or"
-   hairline divider, token field, sign-up link and 12px terms line below.
+/* Sign-in wall — the landing's noir surface carried into auth: logo top-left,
+   centered "Log in" (Space Grotesk 38px/700 white), corner-tick panel (dark
+   fill, ~5px radius) with full-width provider rows, "or" hairline divider,
+   token field, sign-up link and 12px terms line below.
    Requires ../landing/landing.css for --hx-* vars, .hx-noise/.hx-rail/.hx-corners. */
 
 .signin-wall {
@@ -23,9 +23,9 @@
 }
 .signin-noir .hx-noise { position: fixed; }
 
-/* Hex login canvas: one 1px pink hairline per 290px tile (to-left gradient at
-   x145 of a 290×290 tile) + 1px pink frame at the viewport edges (their
-   OnboardingElements VerticalBorders/HorizontalBorders at ~.15 opacity) */
+/* Noir canvas: one 1px pink hairline per 290px tile (to-left gradient at
+   x145 of a 290×290 tile) + a 1px pink frame at the viewport edges
+   (~.15 opacity, matches the landing's border grid). */
 .signin-stripes {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background-image: linear-gradient(to left,
@@ -37,7 +37,7 @@
   border: 1px solid rgba(245, 192, 192, .15);
 }
 
-/* logo top-left (cf. Hex's corner wordmark) + lang switch top-right */
+/* logo top-left + lang switch top-right */
 .signin-brand { position: absolute; top: 20px; left: 28px; text-decoration: none; z-index: 2; }
 .signin-lang { position: absolute; top: 26px; right: 28px; display: flex; gap: 2px; z-index: 2; }
 .signin-lang button {
@@ -49,6 +49,22 @@
 .signin-lang button[aria-pressed='true'] { opacity: 1; box-shadow: inset 0 0 0 1px var(--hx-line); }
 .signin-lang button:focus-visible { outline: 1px solid var(--hx-pink); outline-offset: 1px; }
 
+/* brand lockup — the landing's .hx-logo classes no longer exist, so the wall
+   styles its own mark (it used to render the 192px icon at full size) */
+.signin-brand .hx-logo { display: inline-flex; align-items: center; gap: 10px; }
+.signin-brand .hx-logo-mark img { display: block; width: 30px; height: 30px; border-radius: 7px; }
+.signin-brand .hx-logo b {
+  font-family: "Space Grotesk", sans-serif; font-size: 17px; font-weight: 700;
+  letter-spacing: -.01em; color: var(--hx-pink);
+}
+/* corner ticks on the card (same marks as the landing's .cs-corners) */
+.signin-card .hx-corners { position: absolute; inset: 0; }
+.signin-card .hx-corners i { position: absolute; width: 8px; height: 8px; }
+.signin-card .hx-corners i:nth-child(1) { top: -4px; left: -4px; border-top: 1px solid; border-left: 1px solid; }
+.signin-card .hx-corners i:nth-child(2) { top: -4px; right: -4px; border-top: 1px solid; border-right: 1px solid; }
+.signin-card .hx-corners i:nth-child(3) { bottom: -4px; left: -4px; border-bottom: 1px solid; border-left: 1px solid; }
+.signin-card .hx-corners i:nth-child(4) { bottom: -4px; right: -4px; border-bottom: 1px solid; border-right: 1px solid; }
+
 /* headline */
 .signin-title {
   margin: 60px 0 0; position: relative; z-index: 1;
@@ -57,7 +73,7 @@
   color: #fff; line-height: 1.16; text-align: center;
 }
 
-/* corner-tick panel — Hex card: ~330px, dark fill, hairline */
+/* corner-tick panel — ~330px card, dark fill, hairline border */
 .signin-card {
   position: relative; z-index: 1; margin-top: 34px;
   width: min(340px, 100%);
@@ -70,7 +86,7 @@
 .signin-card .hx-corners { opacity: 1; pointer-events: none; }
 .signin-card .hx-corners i { border-color: var(--hx-line); }
 
-/* provider rows — bg #1f1f29, 3px radius, pink text (cf. Hex buttons) */
+/* provider rows — dark fill, 3px radius, pink accents on hover/focus */
 .signin-actions { display: flex; flex-direction: column; gap: 10px; }
 .signin-choice {
   display: flex; align-items: center; justify-content: center; gap: 9px;
@@ -85,7 +101,20 @@
 .signin-choice[disabled], .signin-choice[aria-disabled='true'] { opacity: .6; cursor: progress; }
 .signin-primary { border-color: rgba(245,192,192,.4); color: var(--hx-pink); }
 
-/* divider — hairline + text (cf. "or log in with email") */
+/* Google row follows Google's light button spec on the dark card */
+.signin-google { background: rgb(255 255 255); color: rgb(31 31 31); border-color: rgb(116 119 117); font-weight: 500; }
+.signin-google:hover { background: rgb(242 242 242); border-color: rgb(116 119 117); }
+.signin-google[aria-disabled='true'] { opacity: .55; cursor: not-allowed; }
+.signin-note { margin: -4px 0 0; font-size: 12px; line-height: 1.5; color: rgba(227,178,179,.6); text-align: left; }
+.signin-link {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; align-self: center;
+  min-height: 32px; padding: 4px 8px; background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--hx-pink-dim); text-decoration: underline; text-underline-offset: 3px;
+}
+.signin-link:hover { color: var(--hx-pink); }
+.signin-link:focus-visible { outline: 1px solid var(--hx-pink); outline-offset: 2px; }
+
+/* divider — hairline + centred label ("or log in with a token") */
 .signin-or {
   display: flex; align-items: center; gap: 12px; margin: 8px 0 2px;
   font-size: 12px; color: rgba(227,178,179,.55);

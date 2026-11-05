@@ -1,7 +1,7 @@
-// Sign-in wall — Hex app.hex.tech/login anatomy on the landing's noir surface:
-// logo top-left, centered "Log in", corner-tick panel with SSO/Google rows,
-// "or log in with a token" divider, dev-token field (APP_ENV=dev), sign-up
-// link and terms line below. All auth logic unchanged — skin only.
+// Sign-in wall — the landing's noir surface carried into auth: logo top-left,
+// centered "Log in", corner-tick panel with SSO/Google rows, "or log in with
+// a token" divider, dev-token field (APP_ENV=dev), sign-up link and terms
+// line below. Handles the FR-28 no-access state as well as plain sign-in.
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,7 +14,10 @@ import { Icon } from '../../shared/ui/Icon';
 import '../landing/landing.css';
 import './auth.css';
 
-/** Official multicolor Google "G" (Google sign-in branding guidelines). */
+// ── Provider marks ───────────────────────────────────────────────────────────
+
+/** Official multicolor Google "G" — the sign-in button must use the real
+ *  brand mark, not a recoloured icon. */
 function GoogleG() {
   return (
     <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
@@ -26,7 +29,7 @@ function GoogleG() {
   );
 }
 
-/** Microsoft four-square mark (Fluent branding). */
+/** Microsoft four-square mark — same rule: the real brand mark. */
 function MsMark() {
   return (
     <svg width="16" height="16" viewBox="0 0 23 23" aria-hidden="true">
@@ -47,6 +50,7 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
   const google = !!cfg?.oidc && idps.includes('google');
   const microsoft = !!cfg?.oidc && idps.includes('microsoft');
   const [token, setToken] = useState('');
+  const [user, setUser] = useState('');
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   // FR-28 no-access state: who is signed in, and a way out / a re-check
@@ -66,7 +70,7 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
     setChecking(true);
     setStillDenied(false);
     const role = await refreshSession();
-    // a granted role re-renders App into the shell; only "still none" stays here
+    // A granted role re-renders App into the shell; only "still none" stays here.
     if (role === 'none') { setChecking(false); setStillDenied(true); }
   };
 
@@ -93,7 +97,7 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
   return (
     <div className="signin-wall signin-noir">
       <div className="hx-noise" aria-hidden />
-      {/* Hex login bg: tiled pink hairline every 290px + viewport edge frame */}
+      {/* Noir backdrop: a tiled pink hairline every 290px + a viewport edge frame. */}
       <div className="signin-stripes" aria-hidden />
       <div className="signin-frame" aria-hidden />
 
@@ -139,32 +143,57 @@ export function SignInWall({ denied = false }: { denied?: boolean }) {
           </>
         ) : (
           <>
-            {(cfg?.oidc || google) && (
-              <div className="signin-actions">
-                {cfg?.oidc && (
-                  <button type="button" className="signin-choice" onClick={() => void signInWithSSO()}>
-                    <Icon name="shield" size={15} />
-                    {t('auth.company')}
-                  </button>
-                )}
-                {google && (
-                  <button type="button" className="signin-choice" onClick={() => void signInWithGoogle()}>
+            {cfg?.oidc && (
+              <>
+                {/* social first: Google is always shown so people know it is
+                    supported; until an admin provisions the IdP it is disabled
+                    with the reason, never a dead click */}
+                <div className="signin-actions">
+                  <button
+                    type="button" className="signin-choice signin-google"
+                    onClick={google ? () => void signInWithGoogle() : undefined}
+                    aria-disabled={!google || undefined}
+                    aria-describedby={google ? undefined : 'signin-google-off'}
+                  >
                     <GoogleG />
                     {t('auth.google')}
                   </button>
-                )}
-                {microsoft && (
-                  <button type="button" className="signin-choice" onClick={() => void signInWithMicrosoft()}>
-                    <MsMark />
-                    {t('auth.microsoft')}
+                  {!google && <p className="signin-note" id="signin-google-off">{t('auth.googleOff')}</p>}
+                  {microsoft && (
+                    <button type="button" className="signin-choice" onClick={() => void signInWithMicrosoft()}>
+                      <MsMark />
+                      {t('auth.microsoft')}
+                    </button>
+                  )}
+                </div>
+
+                <div className="signin-or" role="separator"><span>{t('auth.orAccount')}</span></div>
+
+                {/* regular account: username/email here, password on the
+                    Keycloak form (login_hint) — the SPA never handles passwords */}
+                <form className="dev-signin" onSubmit={(e) => { e.preventDefault(); void signInWithSSO(user.trim() || undefined); }}>
+                  <label className="dev-signin-label" htmlFor="signin-user">{t('auth.userLabel')}</label>
+                  <input
+                    id="signin-user" className="dev-input" value={user}
+                    onChange={(e) => setUser(e.target.value)}
+                    placeholder={t('auth.userPh')}
+                    autoComplete="username" spellCheck={false} autoCapitalize="none"
+                  />
+                  <button type="submit" className="signin-choice signin-primary">
+                    <Icon name="lock" size={15} />
+                    {t('auth.password')}
                   </button>
-                )}
-              </div>
+                  <button type="button" className="signin-link" onClick={() => void signInWithSSO()}>
+                    <Icon name="shield" size={13} />
+                    {t('auth.company')}
+                  </button>
+                </form>
+              </>
             )}
 
             {cfg?.dev_tokens && (
               <>
-                {(cfg.oidc || google || microsoft) && <div className="signin-or" role="separator"><span>{t('auth.or')}</span></div>}
+                {cfg.oidc && <div className="signin-or" role="separator"><span>{t('auth.or')}</span></div>}
                 <form className="dev-signin" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
                   <label className="dev-signin-label" htmlFor="signin-token">{t('auth.tokenLabel')}</label>
                   <input

@@ -1,32 +1,48 @@
-// Landing — vissointan marketing page on the hex.tech homepage layout
-// (fall-2026 design). Maroon ticker, bordered nav with mega-menus, centered
-// hero with serif-italic line + pill chips, open-stack wall with hover cards,
-// alternating feature rows with real console screenshots, ethos pair,
-// testimonials, use cases, built-for grid, integrations, CTA, FAQ, footer.
-// Dual theme preserved: paper by day / ink by night (Thai clock).
+// Landing — the vissointan public page. Same chrome as before (ticker,
+// bordered nav, cartesian hero, corner-tick buttons, dual theme by the Thai
+// clock) carrying our own product: a three.js twin of the sorting line in the
+// hero, the protocols we actually speak, real console screenshots, a
+// four-step "connect your plant" guide, and an honest FAQ. EN/TH copy lives
+// here (public page, no i18n namespace); the language toggle shares the
+// app-wide setting so the console opens in the same language.
 
-import { useEffect, useRef, useState } from 'react';
+import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { signIn } from '../../app/session';
 import { api, setSessionToken } from '../../lib/api';
+import { setLang } from '../../lib/i18n';
 import { authConfig } from '../auth/oidc';
+import { HeroVector } from './HeroVector';
 import './landing.css';
+import './vz.css';
 
-/* ---------- extracted Hex icons (data-icon set, 15×15) ------------------ */
+const HeroLine3D = lazy(() => import('./HeroLine3D'));
+
+/** A failed chunk load or WebGL crash must not take the page down — render
+ *  nothing and let the vector drawing underneath stay visible. */
+class TwinBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() { return this.state.failed ? null : this.props.children; }
+}
+
+/* ---------- bundled path icons (15×15) ------------------------------------ */
 const I = {
-  semanticModels: 'M13 1.00001C13.5523 1.00001 14 1.44773 14 2.00001L14 13C14 13.5523 13.5523 14 13 14L2 14C1.44771 14 0.999999 13.5523 0.999999 13L1 2C1 1.44772 1.44772 1 2 1L13 1.00001ZM2 13L5 13L5 2L2 2L2 13ZM6 13L13 13L13 8.00001L6 8L6 13ZM10.5 10C10.7761 10 11 10.2239 11 10.5C11 10.7761 10.7761 11 10.5 11L7.5 11C7.22386 11 7 10.7761 7 10.5C7 10.2239 7.22386 10 7.5 10L10.5 10ZM6 7L13 7.00001L13 2.00001L6 2L6 7ZM10.5 4.00001C10.7761 4.00001 11 4.22387 11 4.50001C11 4.77615 10.7761 5.00001 10.5 5.00001L7.5 5.00001C7.22386 5 7 4.77614 7 4.5C7 4.22386 7.22386 4.00001 7.5 4.00001L10.5 4.00001Z',
-  notebook:
-    'M13 7H2V12.5C2 12.7761 2.22386 13 2.5 13H12.5C12.7761 13 13 12.7761 13 12.5V7ZM13 2.5C13 2.22386 12.7761 2 12.5 2H2.5C2.22386 2 2 2.22386 2 2.5V6H13V2.5ZM14 12.5C14 13.3284 13.3284 14 12.5 14H2.5C1.67157 14 1 13.3284 1 12.5V2.5C1 1.67157 1.67157 1 2.5 1H12.5C13.3284 1 14 1.67157 14 2.5V12.5Z',
-  threads:
-    'M12 1C13.6569 1 15 2.34315 15 4V7C15 8.60511 13.7394 9.91579 12.1543 9.99609L12 10H11V11C11 12.6051 9.73945 13.9158 8.1543 13.9961L8 14H3L2.8457 13.9961C1.26055 13.9158 0 12.6051 0 11V8C0 6.34315 1.34315 5 3 5H4V4C4 2.34315 5.34315 1 7 1H12ZM3 6C1.89543 6 1 6.89543 1 8V11C1 12.1046 1.89543 13 3 13H8C9.10457 13 10 12.1046 10 11V10H7L6.8457 9.99609C5.26055 9.91579 4 8.60511 4 7V6H3ZM5 7C5 8.10457 5.89543 9 7 9H10V8C10 6.89543 9.10457 6 8 6H5V7ZM7 2C5.89543 2 5 2.89543 5 4V5H8C9.65685 5 11 6.34315 11 8V9H12C13.1046 9 14 8.10457 14 7V4C14 2.89543 13.1046 2 12 2H7Z',
-  apps:
-    'M8 8H2V12.3846C2 12.682 2.318 13 2.61538 13H8V8ZM13 2.5C13 2.20262 12.682 2 12.3846 2H2.61538C2.318 2 2 2.318 2 2.61538V7H13V8ZM9 13H12.3846C12.682 13 13 12.682 13 12.3846V8H9V13ZM14 12.3846C14 13.2768 13.2768 14 12.3846 14H2.61538C1.72323 14 1 13.2768 1 12.3846V2.61538C1 1.72323 1.72323 1 2.61538 1H12.3846C13.2768 1 14 1.72323 14 2.61538V12.3846Z',
-  cli: 'M14 13H5V12H14V13ZM6.53027 6.64648L2.17676 11L1.46973 10.293L5.11621 6.64648L1.46973 3L2.17676 2.29297L6.53027 6.64648Z',
   chevron: 'M4.50001 5.79289L7.50001 8.79289L10.5 5.79289L11.2071 6.5L7.50001 10.2071L3.79291 6.5L4.50001 5.79289Z',
   arrowR:
     'M6.14645 5.14645L5.79289 5.5L6.5 6.20711L6.85355 5.85355L6.14645 5.14645ZM8.5 3.5L8.85355 3.85355L9.20711 3.5L8.85355 3.14645L8.5 3.5ZM6.85355 1.14645L6.5 0.792893L5.79289 1.5L6.14645 1.85355L6.85355 1.14645ZM6.85355 5.85355L8.85355 3.85355L8.14645 3.14645L6.14645 5.14645L6.85355 5.85355ZM8.85355 3.14645L6.85355 1.14645L6.14645 1.85355L8.14645 3.85355L8.85355 3.14645ZM8.5 3H0V4H8.5V3Z',
   arrowTR:
     'M11.4986 3.49866L11.9992 3.49866L11.9985 2.99873L11.4986 2.99803L11.4986 3.49866ZM10.9979 3.49866L10.9972 9L11.9985 9L11.9992 3.49866L10.9979 3.49866ZM11.4986 2.99803L5.99941 2.99888V4.00014L11.4986 3.99929L11.4986 2.99803ZM11.145 3.14511L2.30618 11.9839L3.01328 12.691L11.8521 3.85221L11.145 3.14511Z',
+  // line-art glyphs for rows, chips and steps
+  gauge: 'M7.5 2a6 6 0 0 0-6 6v1h1V8a5 5 0 0 1 10 0v1h1V8a6 6 0 0 0-6-6Zm2.65 3.15-2.5 2.5a1 1 0 1 0 .7.7l2.5-2.5-.7-.7Z',
+  bell: 'M7.5 1a4 4 0 0 0-4 4v3L2 10.5V11h11v-.5L11.5 8V5a4 4 0 0 0-4-4Zm-3 4a3 3 0 0 1 6 0v3.3l1 1.7h-8l1-1.7V5Zm1.5 7.5a1.5 1.5 0 0 0 3 0H6Z',
+  eye: 'M7.5 3C4 3 1.6 5.6 1 7.5 1.6 9.4 4 12 7.5 12s5.9-2.6 6.5-4.5C13.4 5.6 11 3 7.5 3Zm0 8C4.9 11 3 9.2 2.1 7.5 3 5.8 4.9 4 7.5 4s4.5 1.8 5.4 3.5C12 9.2 10.1 11 7.5 11Zm0-6a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Zm0 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z',
+  chart: 'M2 2h1v10h10v1H2V2Zm3 7 2.5-3 2 2L12 4.5l.8.6-3.2 4.3-2-2L5.8 9.6 5 9Z',
+  bolt: 'M8.5 1 3 8.5h4L6 14l6-8H8l.5-5Zm-1 3.4L7.2 7H10L7.8 9.9l.4-2.4H5L7.5 4.4Z',
+  plug: 'M5 1h1v3h3V1h1v3h1v3a3.5 3.5 0 0 1-3 3.46V14H7v-3.54A3.5 3.5 0 0 1 4 7V4h1V1Zm0 4v2a2.5 2.5 0 0 0 5 0V5H5Z',
+  cube: 'M7.5 1 13 4v7l-5.5 3L2 11V4l5.5-3Zm0 1.15L3.4 4.4l4.1 2.25 4.1-2.25L7.5 2.15ZM3 5.25v5.15l4 2.2V7.45l-4-2.2Zm5 7.35 4-2.2V5.25l-4 2.2v5.15Z',
+  shield: 'M7.5 1 13 3v4c0 3.4-2.3 5.9-5.5 7C4.3 12.9 2 10.4 2 7V3l5.5-2ZM3 3.7V7c0 2.8 1.8 4.9 4.5 5.9C10.2 11.9 12 9.8 12 7V3.7L7.5 2.06 3 3.7Z',
 };
 
 function HxIcon({ d, size = 15, className = '' }: { d: string; size?: number; className?: string }) {
@@ -37,7 +53,7 @@ function HxIcon({ d, size = 15, className = '' }: { d: string; size?: number; cl
   );
 }
 
-/* red pixel-star sparkle that sits beside the hero h1 */
+/* pixel-star sparkle beside the hero h1 */
 function Sparkle() {
   return (
     <svg className="hx-sparkle" width="51" height="52" viewBox="0 0 51 52" fill="none" aria-hidden>
@@ -46,256 +62,288 @@ function Sparkle() {
   );
 }
 
-/* ---------- copy --------------------------------------------------------- */
-const TICKER = [
-  { e: '🏭', b: 'v6 console:', t: 'a Datadog-grade ops surface for the sorting line — overview, twin, alarms, SLOs' },
-  { e: '�', b: 'Assistant AI:', t: 'insights propose, operators approve — plug in a model with INFERENCE_URL' },
-  { e: '�', b: 'Modbus adapter:', t: 'point edge1 at a real PLC or Factory I/O — the simulator ships in the box' },
-  { e: '�', b: 'Zero-trust edge:', t: 'MQTT over TLS with per-identity dynsec ACLs' },
-];
-
-const NAV_DROPS: { id: string; label: string; items: { t: string; d: string }[] }[] = [
-  {
-    id: 'platform', label: 'Platform',
-    items: [
-      { t: 'Agentic notebooks', d: 'Powerful, deep-dive analysis without the silos' },
-      { t: 'Conversational analytics', d: 'Ask and explore data in plain language' },
-      { t: 'Context Studio', d: 'Build trust in data with semantic models and AI governance' },
-      { t: 'Data apps', d: 'Build and share interactive dashboards and reporting' },
-      { t: 'Hex CLI', d: 'Control your analytics from the terminal' },
-    ],
-  },
-  {
-    id: 'solutions', label: 'Solutions',
-    items: [
-      { t: 'Exploratory analysis', d: 'Go from quick question to deep analysis to data app in one place' },
-      { t: 'Business intelligence', d: 'Governed self-serve and dashboards for the entire org' },
-      { t: 'Embedded analytics', d: 'Ship secure, customer-facing data experiences' },
-      { t: 'Integrations', d: 'Out-of-the-box connections and flexible APIs' },
-      { t: 'AI & agents', d: 'Agentic workflows to empower your entire team' },
-      { t: 'Explore all solutions', d: 'One connected system — infinite data answers' },
-    ],
-  },
-  {
-    id: 'resources', label: 'Resources',
-    items: [
-      { t: 'Switching to Hex', d: 'A guide to getting started on agentic analytics' },
-      { t: 'Templates', d: 'Jumpstart with pre-built projects' },
-      { t: 'Docs', d: 'Resources and product guides' },
-      { t: 'Changelog', d: 'Product updates' },
-      { t: 'Blog', d: 'From data teams to data teams' },
-      { t: 'Guides', d: 'Learn how to do more with data, together' },
-      { t: 'Events', d: 'Learn and connect with peers' },
-      { t: 'Customer stories', d: 'Empowering the best data teams' },
-      { t: 'Partners', d: 'Learn more about our partnerships' },
-    ],
-  },
-];
-
-/* trusted-by wall — real logo SVGs + per-logo hover stories */
-type Logo = { src: string; alt: string; story?: { q: string; by: string } };
-const LOGOS: Logo[] = [
-  { src: '/home/logo-reddit.svg', alt: 'Reddit' },
-  {
-    src: '/home/logo-notion.svg', alt: 'Notion',
-    story: { q: '“Our vision for Notion’s data team is that anyone, regardless of technical proficiency, is comfortable using data to answer their own questions — and Hex enables that.”', by: 'Aks Nemana, Data Scientist & Abhishek Modi, AI Software Engineer' },
-  },
-  { src: '/home/logo-sierra.svg', alt: 'Sierra' },
-  { src: '/home/logo-anthropic.svg', alt: 'Anthropic' },
-  { src: '/home/logo-lovable.svg', alt: 'Lovable' },
-  {
-    src: '/home/logo-ramp.svg', alt: 'Ramp',
-    story: { q: '“We like to embed Hex dashboards where teams work.”', by: 'Ian Macomber, Head of Data and Analytics Engineering' },
-  },
-  { src: '/home/logo-rivian.svg', alt: 'Rivian' },
-  {
-    src: '/home/logo-figma.svg', alt: 'Figma',
-    story: { q: '“With Hex’s Notebook Agent, I never have to build another chart again? What a dream come true.”', by: 'Rie McGiwer, AI Insights Researcher and Molly Jane Nicholas, Senior Researcher' },
-  },
-  { src: '/home/logo-brex.svg', alt: 'Brex' },
-  { src: '/home/logo-cursor.svg', alt: 'Cursor' },
-  { src: '/home/logo-aws.svg', alt: 'AWS' },
-  { src: '/home/logo-sedgwick.svg', alt: 'Sedgwick' },
-  {
-    src: '/home/logo-stubhub.svg', alt: 'StubHub',
-    story: { q: '“Hex has helped us empower business analysts to explore and dig into data on their own”', by: 'Meghana Reddy, Head of Data' },
-  },
-  {
-    src: '/home/logo-mercor.svg', alt: 'Mercor',
-    story: { q: '“Hex’s Notebook Agent’s ability to build reports increases our operational speed — days into hours, which for our business, is millions of dollars.”', by: 'Dhaval Patel, Account Lead' },
-  },
-  { src: '/home/logo-thinking-machines.svg', alt: 'Thinking Machines' },
-  { src: '/home/logo-surge.svg', alt: 'Surge AI' },
-  {
-    src: '/home/logo-neo.svg', alt: 'Neo',
-    story: { q: '“Hex’s Slack integration unlocked silos of data, in governed ways, increasing trusted answers and insights.”', by: 'Brandon Rochon, VP of Data & Analytics and David Adair, Group Product Manager for Cards and Lending' },
-  },
-  {
-    src: '/home/logo-chime.svg', alt: 'Chime',
-    story: { q: '“Hex’s Context Studio and Evals give us the visibility needed to manage our context at scale.”', by: 'Jordan Farrer, Director of Data Science & Analytics' },
-  },
-];
-
-/* the agent-logo stack beside "Ask a question" */
-const AGENT_LOGOS = [
-  '/home/icon-chatgpt.svg', '/home/icon-claude.svg', '/home/icon-slack.svg',
-  '/home/icon-cli.svg', '/home/icon-mcp.svg',
-];
-
-/* alternating feature rows */
-type FeatureRow = {
-  id: string; icon: string; title: string; cta: string;
-  quote: string; who: string; logo?: string;
-  img: string; imgAlt: string; flip?: boolean;
+/* ---------- copy (EN / TH) ------------------------------------------------- */
+type Row = { id: string; icon: keyof typeof I; title: string; body: string; points: string[]; img: string; alt: string; flip?: boolean };
+type Copy = {
+  ticker: { b: string; t: string }[];
+  nav: { id: string; label: string; items: { t: string; d: string; href: string }[] }[];
+  login: string; start: string;
+  h1a: string; h1b: string;
+  subPre: string; chips: [string, string, string]; subPost: string;
+  ctaPrimary: string; ctaSecondary: string;
+  twin: { title: string; motor: string; vision: string; gravel: string; sand: string; counted: string; hint: string };
+  protoLabel: string;
+  approachH: string; approachP: string;
+  rows: Row[];
+  ethos: { tag: string; cls: string; h: string; p: string; list: string[] }[];
+  connectH: string; connectEm: string; connectP: string;
+  steps: { n: string; t: string; d: string; where: string }[];
+  ucH: string; ucEm: string;
+  uc: { t: string; d: string; ic: keyof typeof I }[];
+  stackH: string; stackEm: string; stackP: string;
+  startH: string; startP: string; startBtn: string; startGhost: string;
+  tokenPh: string; tokenPhDev: string; tokenEnter: string; tokenBusy: string; tokenErr: string;
+  startR: string; startRBtn: string;
+  faqH: string; faq: { q: string; a: string }[]; faqMore: string; faqMoreLink: string;
+  foot: { h: string; links: { t: string; href: string }[] }[];
+  made: string; rights: string; tz: string;
 };
-const ROWS: FeatureRow[] = [
-  {
-    id: 'ask', icon: 'threads',
-    title: 'Ask a question, get a trusted answer',
-    cta: 'Explore self-serve insights',
-    quote: '“The ability to use Hex in any way we choose is valuable because now we can connect into Hex via my favorite dev tools.”',
-    who: 'Nithin Bose', logo: '/home/logo-langchain.svg',
-    img: '/home/mock-cluster.png', imgAlt: 'Chat with the Hex Agent notebook, plus Claude, Slack and CLI cards',
-  },
-  {
-    id: 'context', icon: 'semanticModels', flip: true,
-    title: 'Ground every answer in your organization’s context',
-    cta: 'Explore the Context Engine',
-    quote: '“It’s something I check every day — seeing context gaps and suggested improvements surfaced automatically provides a practical way for us to bring trusted AI self-service to the business.”',
-    who: 'Craig W.', logo: '/cs/zoe-logo.svg',
-    img: '/home/orbit.png', imgAlt: 'Compounding context cycle — build apps and ask questions, auto-detect gaps, sharpen the context',
-  },
-  {
-    id: 'apps', icon: 'apps',
-    title: 'Share insights with generative dashboards and data apps',
-    cta: 'Explore AI app building',
-    quote: '“With Hex’s Notebook Agent, I never have to build another chart again? What a dream come true.”',
-    who: 'Molly Jane Nicholas', logo: '/home/logo-figma.svg',
-    img: '', imgAlt: '',
-  },
-  {
-    id: 'evals', icon: 'cli', flip: true,
-    title: 'See what people are asking, and whether the answers are right',
-    cta: 'Explore the Context Studio',
-    quote: '“We have so many people and products that our context is never stagnant. Even when we launch a new data domain for the first time, it’s already stale the next day. Hex’s Context Studio gives us the visibility needed to manage our context at scale.”',
-    who: 'Jordan Farrer', logo: '/home/logo-chime.svg',
-    img: '/home/evals.png', imgAlt: 'Context Studio observability dashboard with an Evals run window',
-  },
-];
 
-/* ethos pair */
-const ETHOS = [
-  {
-    tag: 'Flexible by design', tagCls: 'gold',
-    img: '/home/ethos-token-spend.png',
-    h: 'Work with any data, any AI model, and any context, so you aren’t locked in',
-    body: 'Your AI bill is getting big — but you don’t know who is spending how much on what things, and whether they’re actually valuable.',
-    lead: 'Hex helps you get control of this:',
-    list: [
-      'Model choice, including open source models',
-      'Thread-level observability into token spend, so you can see who is spending what on which projects',
-      'Eval sweeps that let you dial in the price / quality frontier across models',
-    ],
-    cta: 'Explore how Hex keeps you flexible',
-  },
-  {
-    tag: 'Control without compromise', tagCls: 'blue',
-    img: '/home/ethos-trust.png',
-    h: 'Secure your data, with enterprise-grade permissions and trust',
-    body: 'Hex is built so organizations can open up access without giving up control.',
-    body2: 'Bring AI and data work onto a platform backed by enterprise-grade security, governance, organization controls, and visibility into how your data is being used.',
-    body3: 'The infrastructure stays rigorous so the people using it don’t have to think about it.',
-    cta: 'Explore Trust Center',
-  },
-];
+const ROW_IMG = { overview: '/ours/overview.png', alarms: '/ours/alarms.png', insights: '/ours/insights.png', trends: '/ours/trends.png', commands: '/ours/commands.png' };
 
-const TESTIS = [
-  {
-    logo: '/home/logo-mercor.svg', alt: 'Mercor',
-    q: '“If we didn’t have Hex, we might’ve left more than $100M on the table. That might even be an underestimate.”',
-    who: 'Dhaval P.', role: 'Account Lead',
+const EN: Copy = {
+  ticker: [
+    { b: 'Aggregate AI:', t: 'per-truck gravel / sand calls from CCTV, written to the PLC through the gated rule path' },
+    { b: 'Factory I/O ready:', t: 'one-click Modbus template for the sorting scene — tags, dashboard and alarm rules' },
+    { b: 'Derived tags:', t: 'safe formula language for computed signals, evaluated on the server' },
+    { b: 'Zero-trust edge:', t: 'MQTT over TLS with per-device identities and broker ACLs' },
+  ],
+  nav: [
+    {
+      id: 'platform', label: 'Platform',
+      items: [
+        { t: 'Live overview', d: 'KPI tiles, run state and active alarms for the line', href: '#features' },
+        { t: 'Alarms & incidents', d: 'ISA-18.2 style states: triggered, acked, resolved', href: '#features' },
+        { t: 'Vision AI', d: 'Camera models that classify material on the belt', href: '#features' },
+        { t: 'Supervised commands', d: 'Writes to the PLC with confirm, range check and audit', href: '#features' },
+      ],
+    },
+    {
+      id: 'connect', label: 'Connect',
+      items: [
+        { t: 'Built-in simulator', d: 'A live demo line with no hardware at all', href: '#connect' },
+        { t: 'Factory I/O', d: 'Modbus TCP template for the sorting scene', href: '#connect' },
+        { t: 'Real PLCs', d: 'Modbus TCP, Siemens S7 and OPC UA via an edge gateway', href: '#connect' },
+      ],
+    },
+    {
+      id: 'resources', label: 'Resources',
+      items: [
+        { t: 'Getting started', d: 'Four steps from sign-in to live data', href: '#connect' },
+        { t: 'Use cases', d: 'Where the console fits today', href: '#use-cases' },
+        { t: 'FAQ', d: 'Security, protocols and deployment', href: '#faq' },
+      ],
+    },
+  ],
+  login: 'Log in', start: 'Get started',
+  h1a: 'The operations console',
+  h1b: 'for real production lines',
+  subPre: 'Watch the line as a', chips: ['live twin', 'vision AI', 'alarms'], subPost: 'and act on it from one browser tab.',
+  ctaPrimary: 'Sign in to the console', ctaSecondary: 'How to connect a plant',
+  twin: {
+    title: 'Sorting line twin: drive motor, belt, vision gantry and two bins',
+    motor: 'MOTOR · 58 Hz', vision: 'VISION AI', gravel: 'BIN A · GRAVEL', sand: 'BIN B · SAND',
+    counted: 'sorted this visit', hint: 'Move the pointer to orbit',
   },
-  {
-    logo: '/home/logo-algolia.svg', alt: 'Algolia',
-    q: '“AI can do almost everything for you in Hex. I use it to scaffold entire apps and help me debug SQL queries. It makes me 10x faster.”',
-    who: 'Tom C.', role: 'Principal Engineer',
-  },
-];
+  protoLabel: 'Speaks the protocols already on your plant floor',
+  approachH: 'From PLC tag to decision, in one console',
+  approachP: 'Most plants run an HMI for the operator, a historian for the engineer and a spreadsheet for the manager. vissointan puts live values, history, alarms, AI suggestions and supervised commands on the same tags, so everyone looks at the same truth.',
+  rows: [
+    {
+      id: 'overview', icon: 'gauge', title: 'See the whole line at a glance',
+      body: 'The overview reads the live store: every tile shows value, unit, sparkline and data quality. Stale or bad values are marked, never hidden.',
+      points: ['Run state with last-update age', 'Limits drawn behind the trend', 'Skeletons until real data arrives — no fake "all quiet"'],
+      img: ROW_IMG.overview, alt: 'Overview page with belt speed, temperature, bin level and active alarms',
+    },
+    {
+      id: 'alarms', icon: 'bell', flip: true, title: 'Alarms people can trust',
+      body: 'Threshold, rate and derived-tag rules raise alarms with explicit states. Criticals stay pinned on top until someone acknowledges them.',
+      points: ['Severity coded by colour, icon and label', 'Shelving, downtimes and quality reports', 'Notifications by Web Push to phones'],
+      img: ROW_IMG.alarms, alt: 'Alarm list grouped by severity with acknowledge actions',
+    },
+    {
+      id: 'insights', icon: 'eye', title: 'AI proposes, the operator approves',
+      body: 'Anomaly and drift detectors raise insights with their evidence. Vision models classify material on the belt; nothing reaches the PLC without the gated write path.',
+      points: ['Evidence and score on every insight', 'Per-truck gravel / sand decision', 'Plug in your own model server'],
+      img: ROW_IMG.insights, alt: 'Insights page listing anomalies with scores',
+    },
+    {
+      id: 'trends', icon: 'chart', flip: true, title: 'History you can actually query',
+      body: 'A PostgreSQL historian with monthly partitions and 1-minute / 1-hour rollups. Trends, notebooks and the query page all read the same tables.',
+      points: ['Zoomable trends with alarm bands', 'Export to CSV', 'SLOs and OEE from the same data'],
+      img: ROW_IMG.trends, alt: 'Trend chart of belt temperature over time',
+    },
+    {
+      id: 'commands', icon: 'bolt', title: 'Commands with a safety catch',
+      body: 'Setpoints and start/stop go through role checks, range limits, rate limits and an explicit confirm, then land in a signed audit trail.',
+      points: ['Per-area command rights', 'One write in flight per tag', 'Every write audited with who, what and why'],
+      img: ROW_IMG.commands, alt: 'Command page with a confirm dialog for a setpoint change',
+    },
+  ],
+  ethos: [
+    {
+      tag: 'Open by design', cls: 'gold',
+      h: 'Standard protocols, your data, no lock-in',
+      p: 'Tags come from the protocols PLCs already speak, history lives in plain PostgreSQL, and every page has an API behind it.',
+      list: ['Modbus TCP, Siemens S7 and OPC UA through one edge gateway', 'Self-hosted with Docker Compose', 'REST API with scoped API keys'],
+    },
+    {
+      tag: 'Secure from edge to browser', cls: 'blue',
+      h: 'Zero-trust from the gateway up',
+      p: 'Each gateway gets its own identity and can only publish into its own topic prefix. People sign in through Keycloak with optional MFA.',
+      list: ['MQTT over TLS with per-device broker ACLs', 'Row-level security per organisation in Postgres', 'Roles: owner, admin, operator, viewer'],
+    },
+  ],
+  connectH: 'Connect your plant', connectEm: 'in four steps',
+  connectP: 'Start with the simulator, rehearse on Factory I/O, then point the same gateway at a real PLC. The console walks you through it after sign-in.',
+  steps: [
+    { n: '01', t: 'Sign in and pick a site', d: 'Use your company SSO, Google, or an account an admin created for you. The demo site already has a simulated line running.', where: '/signin' },
+    { n: '02', t: 'Add an edge gateway', d: 'Infrastructure → Add device gives a one-time enrolment code. Start the edge-bridge container next to the PLC with that code.', where: 'Infrastructure → Add device' },
+    { n: '03', t: 'Add a data source and tags', d: 'Choose Modbus TCP, Siemens S7 or OPC UA. For Factory I/O, apply the "Factory I/O - Sorting" template: tags, dashboard and alarm rules in one click.', where: 'Infrastructure → Data sources' },
+    { n: '04', t: 'Watch, alarm, act', d: 'Values appear on the overview within a second. Add alarm rules, invite your team, and enable commands when you are ready.', where: 'Overview' },
+  ],
+  ucH: 'Use cases', ucEm: 'Where it fits today',
+  uc: [
+    { t: 'Aggregate sorting: gravel vs sand', d: 'CCTV over the dump point classifies each truck load; the decision is written to the PLC through the same gated path as any rule.', ic: 'eye' },
+    { t: 'Training and commissioning with Factory I/O', d: 'Students and integrators build against a virtual plant over Modbus TCP, then swap in the real PLC without touching dashboards or alarms.', ic: 'cube' },
+    { t: 'Remote monitoring for small plants', d: 'One gateway per site, one console for the team, phone notifications for the people on call.', ic: 'plug' },
+  ],
+  stackH: 'Built on', stackEm: 'open, boring technology',
+  stackP: 'Nothing proprietary between your PLC and your browser.',
+  startH: 'Ready to see it live?',
+  startP: 'Sign in and the demo line is already running. Connect your own equipment when you are ready.',
+  startBtn: 'Sign in', startGhost: 'Connection guide',
+  tokenPh: 'Access token', tokenPhDev: 'demo-operator · demo-viewer · demo-admin',
+  tokenEnter: 'Enter', tokenBusy: 'Signing in…', tokenErr: 'That token didn’t work — check it and try again.',
+  startR: 'Developer stack? Paste a dev token to skip the login page.', startRBtn: 'Go to the sign-in page',
+  faqH: 'FAQ',
+  faq: [
+    { q: 'What is vissointan?', a: 'A web operations console for production lines: live values, a 3D and 2D line view, alarms, history, AI insights, vision models and supervised commands, all on one tag model. It started as a thesis project around a gravel sorting line.' },
+    { q: 'Which PLCs and protocols are supported?', a: 'The edge gateway reads Modbus TCP, Siemens S7 (S7comm) and OPC UA. Factory I/O works through its Modbus TCP server driver. A built-in simulator covers demos without hardware.' },
+    { q: 'How do I use it with Factory I/O?', a: 'In Factory I/O choose the Modbus TCP/IP Server driver and note its port (502). In the console, add a gateway, add a Modbus data source pointing at the Factory I/O machine, and apply the "Factory I/O - Sorting" template.' },
+    { q: 'Can the console write to my PLC?', a: 'Only through supervised commands: the tag must be writable, your role must allow it, the value must be inside its range, and you confirm the write. AI-initiated writes are a separate switch that is off by default.' },
+    { q: 'Where is my data stored?', a: 'In your own PostgreSQL. The whole stack is self-hosted with Docker Compose; nothing is sent to a third party unless you configure it (for example a model server).' },
+    { q: 'How do people sign in?', a: 'Through Keycloak: email and password, company SSO, or Google when an admin enables it. Organisations can require MFA.' },
+  ],
+  faqMore: 'Still have a question?', faqMoreLink: 'Read the connection guide.',
+  foot: [
+    { h: 'Platform', links: [{ t: 'Overview', href: '#features' }, { t: 'Alarms', href: '#features' }, { t: 'Vision AI', href: '#features' }, { t: 'Commands', href: '#features' }] },
+    { h: 'Connect', links: [{ t: 'Simulator', href: '#connect' }, { t: 'Factory I/O', href: '#connect' }, { t: 'Modbus / S7 / OPC UA', href: '#connect' }] },
+    { h: 'Resources', links: [{ t: 'Use cases', href: '#use-cases' }, { t: 'FAQ', href: '#faq' }, { t: 'Status', href: '/status' }] },
+    { h: 'Account', links: [{ t: 'Log in', href: '/signin' }, { t: 'Create an account', href: '/signin' }] },
+  ],
+  made: 'Built for plant floors in Thailand', rights: 'vissointan · thesis project', tz: 'Bangkok time',
+};
 
-const USE_CASES = [
-  {
-    t: 'Migrate from traditional BI to modern AI-powered self-serve',
-    d: 'Move beyond static dashboards and give teams trusted, AI-powered access to the data they need while keeping your data team in control of the foundation.',
-    ic: 'sparkle',
+const TH: Copy = {
+  ...EN,
+  ticker: [
+    { b: 'Aggregate AI:', t: 'แยกกรวด/ทรายรายคันรถจากกล้อง CCTV แล้วสั่ง PLC ผ่านเส้นทางที่มีการตรวจสอบ' },
+    { b: 'รองรับ Factory I/O:', t: 'เทมเพลต Modbus คลิกเดียว ได้ทั้งแท็ก แดชบอร์ด และกฎแจ้งเตือน' },
+    { b: 'Derived tags:', t: 'สร้างสัญญาณคำนวณด้วยสูตรที่ปลอดภัย ประมวลผลฝั่งเซิร์ฟเวอร์' },
+    { b: 'Zero-trust edge:', t: 'MQTT ผ่าน TLS ตัวตนแยกรายอุปกรณ์ พร้อม ACL บนโบรกเกอร์' },
+  ],
+  nav: [
+    {
+      id: 'platform', label: 'แพลตฟอร์ม',
+      items: [
+        { t: 'ภาพรวมแบบสด', d: 'KPI สถานะการเดินเครื่อง และการแจ้งเตือนของไลน์', href: '#features' },
+        { t: 'แจ้งเตือนและเหตุการณ์', d: 'สถานะตามแนว ISA-18.2: เกิด รับทราบ แก้ไขแล้ว', href: '#features' },
+        { t: 'Vision AI', d: 'โมเดลกล้องจำแนกวัสดุบนสายพาน', href: '#features' },
+        { t: 'สั่งงานแบบมีผู้ควบคุม', d: 'เขียนค่าไป PLC พร้อมยืนยัน ตรวจช่วงค่า และบันทึก audit', href: '#features' },
+      ],
+    },
+    {
+      id: 'connect', label: 'การเชื่อมต่อ',
+      items: [
+        { t: 'ตัวจำลองในระบบ', d: 'ไลน์เดโมที่ทำงานจริงโดยไม่ต้องมีฮาร์ดแวร์', href: '#connect' },
+        { t: 'Factory I/O', d: 'เทมเพลต Modbus TCP สำหรับฉากคัดแยก', href: '#connect' },
+        { t: 'PLC จริง', d: 'Modbus TCP, Siemens S7 และ OPC UA ผ่าน edge gateway', href: '#connect' },
+      ],
+    },
+    {
+      id: 'resources', label: 'แหล่งข้อมูล',
+      items: [
+        { t: 'เริ่มต้นใช้งาน', d: 'สี่ขั้นตอนตั้งแต่เข้าสู่ระบบจนเห็นข้อมูลสด', href: '#connect' },
+        { t: 'กรณีใช้งาน', d: 'งานที่ระบบตอบโจทย์ได้วันนี้', href: '#use-cases' },
+        { t: 'คำถามที่พบบ่อย', d: 'ความปลอดภัย โปรโตคอล และการติดตั้ง', href: '#faq' },
+      ],
+    },
+  ],
+  login: 'เข้าสู่ระบบ', start: 'เริ่มใช้งาน',
+  h1a: 'คอนโซลควบคุมการผลิต',
+  h1b: 'สำหรับไลน์ผลิตจริง',
+  subPre: 'ดูไลน์ผลิตเป็น', chips: ['ดิจิทัลทวินสด', 'vision AI', 'การแจ้งเตือน'], subPost: 'และสั่งงานได้จากเบราว์เซอร์แท็บเดียว',
+  ctaPrimary: 'เข้าสู่คอนโซล', ctaSecondary: 'วิธีเชื่อมต่อโรงงาน',
+  twin: {
+    title: 'ดิจิทัลทวินไลน์คัดแยก: มอเตอร์ สายพาน กล้อง vision และถังสองใบ',
+    motor: 'มอเตอร์ · 58 Hz', vision: 'VISION AI', gravel: 'ถัง A · กรวด', sand: 'ถัง B · ทราย',
+    counted: 'คัดแยกแล้วในรอบนี้', hint: 'ขยับเมาส์เพื่อหมุนมุมมอง',
   },
-  {
-    t: 'Build a Context Layer for AI on data',
-    d: 'Bring business logic, definitions, models, and institutional knowledge together so agents can reason from shared, trusted context and improve as that context grows.',
-    ic: 'layers',
-  },
-  {
-    t: 'Make chat apps work with data',
-    d: 'Let teams work from Claude, Codex, Cursor, or wherever they’re most productive while Hex provides a consistent layer of trusted data and organizational context underneath.',
-    ic: 'chat',
-  },
-];
+  protoLabel: 'คุยภาษาเดียวกับอุปกรณ์ที่มีอยู่แล้วในโรงงาน',
+  approachH: 'จากแท็ก PLC ถึงการตัดสินใจ ในคอนโซลเดียว',
+  approachP: 'โรงงานส่วนใหญ่ใช้ HMI สำหรับผู้ควบคุม historian สำหรับวิศวกร และสเปรดชีตสำหรับผู้จัดการ vissointan รวมค่าสด ประวัติ การแจ้งเตือน คำแนะนำจาก AI และการสั่งงานไว้บนแท็กชุดเดียวกัน ทุกคนจึงเห็นข้อมูลเดียวกัน',
+  rows: [
+    { ...EN.rows[0], title: 'เห็นทั้งไลน์ในหน้าเดียว', body: 'หน้าภาพรวมอ่านค่าจาก live store ทุกการ์ดแสดงค่า หน่วย กราฟย่อ และคุณภาพข้อมูล ค่าที่ค้างหรือเสียจะถูกทำเครื่องหมาย ไม่ถูกซ่อน', points: ['สถานะการเดินเครื่องพร้อมเวลาอัปเดตล่าสุด', 'เส้นลิมิตวาดอยู่หลังกราฟ', 'แสดงโครงร่างจนกว่าข้อมูลจริงจะมา ไม่หลอกว่าทุกอย่างปกติ'] },
+    { ...EN.rows[1], title: 'การแจ้งเตือนที่เชื่อถือได้', body: 'กฎแบบ threshold, rate และ derived tag สร้างการแจ้งเตือนที่มีสถานะชัดเจน รายการวิกฤตจะค้างอยู่ด้านบนจนกว่าจะมีคนรับทราบ', points: ['ระดับความรุนแรงบอกทั้งสี ไอคอน และข้อความ', 'Shelving, downtime และรายงานคุณภาพการแจ้งเตือน', 'แจ้งเตือนเข้ามือถือด้วย Web Push'] },
+    { ...EN.rows[2], title: 'AI เสนอ ผู้ควบคุมอนุมัติ', body: 'ตัวตรวจจับความผิดปกติและการ drift สร้าง insight พร้อมหลักฐาน โมเดล vision จำแนกวัสดุบนสายพาน ไม่มีคำสั่งใดถึง PLC โดยไม่ผ่านเส้นทางเขียนค่าที่มีการตรวจสอบ', points: ['ทุก insight มีหลักฐานและคะแนน', 'ตัดสินกรวด/ทรายรายคันรถ', 'ต่อ model server ของคุณเองได้'] },
+    { ...EN.rows[3], title: 'ประวัติข้อมูลที่ query ได้จริง', body: 'Historian บน PostgreSQL แบ่งพาร์ทิชันรายเดือน และสรุปราย 1 นาที / 1 ชั่วโมง หน้า trend, notebook และ query อ่านจากตารางเดียวกัน', points: ['กราฟซูมได้พร้อมแถบแจ้งเตือน', 'ส่งออกเป็น CSV', 'คำนวณ SLO และ OEE จากข้อมูลชุดเดียวกัน'] },
+    { ...EN.rows[4], title: 'สั่งงานพร้อมระบบกันพลาด', body: 'การตั้งค่า setpoint และสั่งเดิน/หยุด ต้องผ่านการตรวจสิทธิ์ ช่วงค่า อัตราการสั่ง และการยืนยัน แล้วถูกบันทึกใน audit trail ที่ลงลายมือชื่อ', points: ['สิทธิ์สั่งงานแยกตามพื้นที่', 'เขียนค่าได้ทีละคำสั่งต่อแท็ก', 'ทุกคำสั่งบันทึกว่าใคร ทำอะไร เพราะอะไร'] },
+  ],
+  ethos: [
+    { ...EN.ethos[0], tag: 'เปิดตั้งแต่การออกแบบ', h: 'โปรโตคอลมาตรฐาน ข้อมูลเป็นของคุณ ไม่ผูกขาด', p: 'แท็กมาจากโปรโตคอลที่ PLC ใช้อยู่แล้ว ประวัติเก็บใน PostgreSQL ธรรมดา และทุกหน้ามี API รองรับ', list: ['Modbus TCP, Siemens S7 และ OPC UA ผ่าน edge gateway ตัวเดียว', 'ติดตั้งเองด้วย Docker Compose', 'REST API พร้อม API key แบบจำกัดสิทธิ์'] },
+    { ...EN.ethos[1], tag: 'ปลอดภัยตั้งแต่ edge ถึงเบราว์เซอร์', h: 'Zero-trust ตั้งแต่ gateway ขึ้นมา', p: 'แต่ละ gateway มีตัวตนของตัวเองและส่งข้อมูลได้เฉพาะ topic ของตัวเอง ผู้ใช้เข้าสู่ระบบผ่าน Keycloak เปิด MFA ได้', list: ['MQTT ผ่าน TLS พร้อม ACL รายอุปกรณ์', 'Row-level security แยกองค์กรใน Postgres', 'บทบาท: owner, admin, operator, viewer'] },
+  ],
+  connectH: 'เชื่อมต่อโรงงานของคุณ', connectEm: 'ใน 4 ขั้นตอน',
+  connectP: 'เริ่มจากตัวจำลอง ซ้อมกับ Factory I/O แล้วชี้ gateway ตัวเดิมไปที่ PLC จริง หลังเข้าสู่ระบบ คอนโซลจะพาทำทีละขั้น',
+  steps: [
+    { n: '01', t: 'เข้าสู่ระบบและเลือกไซต์', d: 'ใช้ SSO ของบริษัท, Google หรือบัญชีที่แอดมินสร้างให้ ไซต์เดโมมีไลน์จำลองทำงานอยู่แล้ว', where: '/signin' },
+    { n: '02', t: 'เพิ่ม edge gateway', d: 'เมนู Infrastructure → Add device จะให้รหัส enrol แบบใช้ครั้งเดียว นำไปเปิดคอนเทนเนอร์ edge-bridge ข้าง PLC', where: 'Infrastructure → Add device' },
+    { n: '03', t: 'เพิ่มแหล่งข้อมูลและแท็ก', d: 'เลือก Modbus TCP, Siemens S7 หรือ OPC UA ถ้าใช้ Factory I/O ให้กดเทมเพลต "Factory I/O - Sorting" ได้แท็ก แดชบอร์ด และกฎแจ้งเตือนในคลิกเดียว', where: 'Infrastructure → Data sources' },
+    { n: '04', t: 'ดู แจ้งเตือน สั่งงาน', d: 'ค่าจะขึ้นในหน้าภาพรวมภายในหนึ่งวินาที เพิ่มกฎแจ้งเตือน เชิญทีม และเปิดการสั่งงานเมื่อพร้อม', where: 'Overview' },
+  ],
+  ucH: 'กรณีใช้งาน', ucEm: 'งานที่ใช้ได้วันนี้',
+  uc: [
+    { ...EN.uc[0], t: 'คัดแยกมวลรวม: กรวด กับ ทราย', d: 'กล้อง CCTV เหนือจุดเทจำแนกวัสดุรายคันรถ ผลการตัดสินถูกเขียนไป PLC ผ่านเส้นทางเดียวกับกฎอื่นๆ ที่มีการตรวจสอบ' },
+    { ...EN.uc[1], t: 'ฝึกอบรมและทดสอบระบบด้วย Factory I/O', d: 'นักศึกษาและ integrator พัฒนากับโรงงานเสมือนผ่าน Modbus TCP แล้วสลับไปใช้ PLC จริงโดยไม่ต้องแก้แดชบอร์ดหรือการแจ้งเตือน' },
+    { ...EN.uc[2], t: 'มอนิเตอร์ระยะไกลสำหรับโรงงานขนาดเล็ก', d: 'หนึ่ง gateway ต่อหนึ่งไซต์ หนึ่งคอนโซลสำหรับทั้งทีม แจ้งเตือนเข้ามือถือของคนที่เข้าเวร' },
+  ],
+  stackH: 'สร้างบน', stackEm: 'เทคโนโลยีเปิดที่พิสูจน์แล้ว',
+  stackP: 'ไม่มีอะไรปิดซ่อนระหว่าง PLC กับเบราว์เซอร์ของคุณ',
+  startH: 'พร้อมดูของจริงหรือยัง?',
+  startP: 'เข้าสู่ระบบแล้วจะเห็นไลน์เดโมทำงานอยู่ เชื่อมต่ออุปกรณ์ของคุณเองเมื่อพร้อม',
+  startBtn: 'เข้าสู่ระบบ', startGhost: 'คู่มือการเชื่อมต่อ',
+  tokenPh: 'Access token', tokenEnter: 'เข้า', tokenBusy: 'กำลังเข้าสู่ระบบ…', tokenErr: 'token นี้ใช้ไม่ได้ ตรวจสอบแล้วลองอีกครั้ง',
+  startR: 'ใช้ stack สำหรับนักพัฒนา? วาง dev token เพื่อข้ามหน้า login ได้', startRBtn: 'ไปหน้าเข้าสู่ระบบ',
+  faqH: 'คำถามที่พบบ่อย',
+  faq: [
+    { q: 'vissointan คืออะไร?', a: 'คอนโซลควบคุมการผลิตบนเว็บ: ค่าสด มุมมองไลน์ 3D และ 2D การแจ้งเตือน ประวัติข้อมูล AI insight โมเดล vision และการสั่งงานแบบมีผู้ควบคุม ทั้งหมดอยู่บนโมเดลแท็กเดียวกัน เริ่มจากโปรเจกต์วิทยานิพนธ์ไลน์คัดแยกกรวด' },
+    { q: 'รองรับ PLC และโปรโตคอลอะไรบ้าง?', a: 'Edge gateway อ่าน Modbus TCP, Siemens S7 (S7comm) และ OPC UA ได้ Factory I/O ใช้งานผ่านไดรเวอร์ Modbus TCP Server และมีตัวจำลองในระบบสำหรับเดโมที่ไม่มีฮาร์ดแวร์' },
+    { q: 'ใช้กับ Factory I/O อย่างไร?', a: 'ใน Factory I/O เลือกไดรเวอร์ Modbus TCP/IP Server และจดพอร์ต (502) ในคอนโซลให้เพิ่ม gateway เพิ่มแหล่งข้อมูล Modbus ที่ชี้ไปเครื่อง Factory I/O แล้วกดเทมเพลต "Factory I/O - Sorting"' },
+    { q: 'คอนโซลเขียนค่าไป PLC ได้ไหม?', a: 'ได้เฉพาะผ่านการสั่งงานแบบมีผู้ควบคุม: แท็กต้องเขียนได้ บทบาทต้องมีสิทธิ์ ค่าต้องอยู่ในช่วง และต้องกดยืนยัน การเขียนค่าโดย AI เป็นสวิตช์แยกที่ปิดไว้เป็นค่าเริ่มต้น' },
+    { q: 'ข้อมูลเก็บไว้ที่ไหน?', a: 'ใน PostgreSQL ของคุณเอง ทั้งระบบติดตั้งเองด้วย Docker Compose ไม่มีข้อมูลส่งออกไปบุคคลที่สามเว้นแต่คุณตั้งค่าเอง (เช่น model server)' },
+    { q: 'ผู้ใช้เข้าสู่ระบบอย่างไร?', a: 'ผ่าน Keycloak: อีเมลและรหัสผ่าน, SSO ของบริษัท หรือ Google เมื่อแอดมินเปิดใช้ องค์กรบังคับใช้ MFA ได้' },
+  ],
+  faqMore: 'ยังมีคำถาม?', faqMoreLink: 'อ่านคู่มือการเชื่อมต่อ',
+  foot: [
+    { h: 'แพลตฟอร์ม', links: [{ t: 'ภาพรวม', href: '#features' }, { t: 'การแจ้งเตือน', href: '#features' }, { t: 'Vision AI', href: '#features' }, { t: 'การสั่งงาน', href: '#features' }] },
+    { h: 'การเชื่อมต่อ', links: [{ t: 'ตัวจำลอง', href: '#connect' }, { t: 'Factory I/O', href: '#connect' }, { t: 'Modbus / S7 / OPC UA', href: '#connect' }] },
+    { h: 'แหล่งข้อมูล', links: [{ t: 'กรณีใช้งาน', href: '#use-cases' }, { t: 'คำถามที่พบบ่อย', href: '#faq' }, { t: 'สถานะระบบ', href: '/status' }] },
+    { h: 'บัญชี', links: [{ t: 'เข้าสู่ระบบ', href: '/signin' }, { t: 'สร้างบัญชี', href: '/signin' }] },
+  ],
+  made: 'สร้างเพื่อโรงงานในประเทศไทย', rights: 'vissointan · โปรเจกต์วิทยานิพนธ์', tz: 'เวลากรุงเทพฯ',
+};
 
-const STORIES = [
-  { logo: '/home/logo-notion.svg', alt: 'Notion', h: 'One place for insights', p: 'Notion made Hex the one place for everyone, from data science to CX and sales, to make decisions with data.' },
-  { logo: '/home/logo-mercor.svg', alt: 'Mercor', h: 'Scaling self-serve AI analytics', p: 'Mercor democratizes analysis across their org with Notebook Agent.' },
-  { logo: '/home/logo-figma.svg', alt: 'Figma', h: 'Lowering barriers to insight', p: 'Figma’s team focuses on strategy over syntax using Hex’s AI agents.' },
-  { logo: '/home/logo-neo.svg', alt: 'Neo', h: 'Breaking data silos', p: 'Neo drives insights right where they work using Threads and Slack integration.' },
+const PROTOCOLS = [
+  { name: 'Modbus TCP', logo: '/logos/modbus.png' },
+  { name: 'Siemens S7' },
+  { name: 'OPC UA' },
+  { name: 'MQTT · TLS', logo: '/logos/mqtt.svg' },
+  { name: 'Factory I/O' },
+  { name: 'WebSocket', logo: '/logos/websocket.svg' },
 ];
-
-const INTS = [
-  { img: '/home/int-warehouse.png', alt: 'Built for the warehouse — Snowflake, BigQuery, Databricks connections' },
-  { img: '/home/int-dbt.png', alt: 'dbt metadata, docs, & metrics' },
-  { img: '/home/int-oauth.png', alt: 'Connect to your warehouse with oAuth' },
-  { img: '/home/int-git.png', alt: 'Git it together — export to GitHub or GitLab' },
-  { img: '/home/int-orch.png', alt: 'Orchestration — Airflow, Dagster, Prefect' },
-  { img: '/home/int-api.png', alt: 'Hex API' },
-];
-
-const FAQS = [
-  {
-    q: 'What is Hex?',
-    a: 'Hex is the AI Analytics Platform where trust meets insight: a single, connected workspace where data practitioners run deep analysis, business users ask questions in plain language, and everyone collaborates on the same data. A shared context engine ensures every AI-generated insight is accurate and consistent.',
-  },
-  {
-    q: 'Who uses Hex?',
-    a: 'Hex allows anyone to get answers from data with AI. Whether you’re a member of the data team running code-based experiments or a business user looking to self-serve a one-off question, Hex provides tailored AI-workflows for you to find answers from data, faster.',
-  },
-  {
-    q: 'Why do data teams switch to Hex?',
-    a: 'Data teams switch to Hex because it gives them one connected, AI-native workspace for everything they do with data. Deep analysis, one-off questions, and critical business dashboards all happen on the same trusted context. Instead of juggling separate notebooks, BI tools, and ad-hoc Slack requests, Hex brings data work & AI together in one place.',
-  },
-  {
-    q: 'Can business users access data without knowing SQL or Python?',
-    a: 'Yes. Hex lets anyone ask questions in plain language in Hex, Slack, or via MCP and get AI-generated analysis backed by your actual data, metrics, and business rules. No SQL, no Python, no ticket to the data team. And when a question needs deeper investigation, a data practitioner can jump directly into the same workflow without switching context.',
-  },
-  {
-    q: 'How does Hex ensure AI answers are accurate and trustworthy?',
-    a: 'Hex’s context engine combines database descriptions, semantic models, business rules, and analytical logic into one curated layer that powers every AI answer. Data teams can observe what’s being asked, catch inconsistencies, and continuously improve context over time. The result: business users get answers they can act on, and data teams maintain visibility and control over every insight.',
-  },
-  {
-    q: 'How is Hex different from just using ChatGPT, Claude, Codex, or any other AI assistant?',
-    a: 'ChatGPT, Claude, Codex, and other AI assistants can generate answers. Hex helps teams build more trustworthy, repeatable AI-powered analysis by grounding it in the organization’s data, business context, and definitions. Context Studio makes it easier to inspect and improve that context, while built-in evals let teams test changes before production and measure their impact on agent accuracy.',
-  },
-  {
-    q: 'How is Hex different than point solution analytics tools?',
-    a: 'Hex enables you to bring all your business’s critical data context into one workspace. Solution-specific analytics platforms exacerbate tool sprawl and siloed workflows between teams, while creating governance gaps leading to poor decisions and thrash.',
-  },
-];
-
-const FOOT_COLS = [
-  { h: 'Platform', links: ['AI and agents', 'Agentic notebooks', 'Conversational analytics', 'Context Studio', 'Data apps', 'Hex CLI', 'Business intelligence', 'Exploratory analysis', 'Embedded analytics', 'Integrations', 'Changelog'] },
-  { h: 'Resources', links: ['Pricing', 'Switching to Hex', 'Enterprise', 'Docs', 'Blog', 'Events', 'Templates', 'Compare', 'Trust Center', 'Status'] },
-  { h: 'Company', links: ['About', 'Careers', 'Customers', 'Solutions', 'Media kit', 'Newsroom'] },
-  { h: 'Connect', links: ['Request a demo', 'Technical support', 'Contact us', 'LinkedIn', 'X (Twitter)', 'YouTube'] },
+const STACK = [
+  { name: 'React', logo: '/logos/react.svg' },
+  { name: 'three.js', logo: '/logos/threedotjs.svg' },
+  { name: 'FastAPI', logo: '/logos/fastapi.svg' },
+  { name: 'PostgreSQL', logo: '/logos/postgresql.svg' },
+  { name: 'Mosquitto', logo: '/logos/eclipsemosquitto.svg' },
+  { name: 'Keycloak', logo: '/logos/keycloak.svg' },
+  { name: 'Docker', logo: '/logos/docker.svg' },
+  { name: 'Python', logo: '/logos/python.svg' },
 ];
 
 /* ---------- primitives ---------------------------------------------------- */
-/** signature Hex button — gradient hairline border + corner ticks */
 function HxBtn({ children, variant, className = '', ...rest }:
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'lg' | 'ghost' }) {
   return (
@@ -305,19 +353,27 @@ function HxBtn({ children, variant, className = '', ...rest }:
     </button>
   );
 }
-function HxLink({ children, variant, className = '', ...rest }:
-  React.AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: 'lg' | 'ghost' | 'sm' }) {
-  return (
-    <a {...rest} className={`cs-btn ${variant ? `cs-btn-${variant}` : ''} ${className}`}>
+function HxLink({ children, variant, className = '', to, ...rest }:
+  React.AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: 'lg' | 'ghost' | 'sm'; to?: string }) {
+  const inner = (
+    <>
       <span className="cs-corners" aria-hidden><i /><i /><i /><i /></span>
       <span className="cs-btn-label">{children}</span>
-    </a>
+    </>
   );
+  const cls = `cs-btn ${variant ? `cs-btn-${variant}` : ''} ${className}`;
+  return to ? <Link to={to} className={cls}>{inner}</Link> : <a {...rest} className={cls}>{inner}</a>;
 }
 
-/** nav mega-menu dropdown */
+/** anchor or router link, depending on the target */
+function Go({ href, className, children, onClick }: { href: string; className?: string; children: React.ReactNode; onClick?: () => void }) {
+  return href.startsWith('#')
+    ? <a href={href} className={className} onClick={onClick}>{children}</a>
+    : <Link to={href} className={className} onClick={onClick}>{children}</Link>;
+}
+
 function NavDrop({ menu, open, onOpen, onClose }: {
-  menu: (typeof NAV_DROPS)[number]; open: boolean; onOpen: () => void; onClose: () => void;
+  menu: Copy['nav'][number]; open: boolean; onOpen: () => void; onClose: () => void;
 }) {
   return (
     <div className="cs-dd" onMouseEnter={onOpen} onMouseLeave={onClose}
@@ -330,7 +386,7 @@ function NavDrop({ menu, open, onOpen, onClose }: {
       {open && (
         <div className="cs-dd-panel" role="menu">
           {menu.items.map((it) => (
-            <a key={it.t} href="#" className="cs-dd-item" role="menuitem" onClick={(e) => { e.preventDefault(); onClose(); }}>
+            <a key={it.t} href={it.href} className="cs-dd-item" role="menuitem" onClick={onClose}>
               <span><b>{it.t}</b><small>{it.d}</small></span>
             </a>
           ))}
@@ -340,29 +396,14 @@ function NavDrop({ menu, open, onOpen, onClose }: {
   );
 }
 
-/** bordered link-button used inside feature rows */
-function LinkBox({ children }: { children: React.ReactNode }) {
-  return (
-    <a href="#enter" className="cs-linkbox" onClick={(e) => e.preventDefault()}>
-      {children}
-    </a>
-  );
-}
-
-/** inline quote under a feature row — hollow-circle quote mark + text + byline */
-function RowQuote({ q, who, logo }: { q: string; who: string; logo?: string }) {
-  return (
-    <figure className="cs-rquote">
-      <i className="cs-rquote-mark" aria-hidden>
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M6.5 4C4.5 4.6 3 6.4 3 8.7V11h4V7.5H4.9c0-1.2.7-2.1 1.9-2.6L6.5 4Zm6 0c-2 .6-3.5 2.4-3.5 4.7V11h4V7.5h-2.1c0-1.2.7-2.1 1.9-2.6L12.5 4Z" fill="currentColor" /></svg>
-      </i>
-      <blockquote>{q}</blockquote>
-      <figcaption>
-        <b>{who}</b>
-        {logo && <img src={logo} alt="" className="cs-rquote-logo" />}
-      </figcaption>
-    </figure>
-  );
+/** probe once: can this browser make a WebGL context at all? */
+function hasWebGL(): boolean {
+  try {
+    const c = document.createElement('canvas');
+    return !!(c.getContext('webgl2') || c.getContext('webgl'));
+  } catch {
+    return false;
+  }
 }
 
 /** theme by the Thai clock — paper 06:00–18:00 ICT, ink at night */
@@ -375,13 +416,18 @@ function thaiNight(): boolean {
 
 export function Landing() {
   const navigate = useNavigate();
+  const { i18n } = useTranslation();
+  const th = i18n.language === 'th';
+  const c = th ? TH : EN;
   const cfg = authConfig();
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [menu, setMenu] = useState(false);
   const [dd, setDd] = useState<string | null>(null);
-  const [faq, setFaq] = useState<number | null>(null);
+  const [faq, setFaq] = useState<number | null>(0);
+  const [gl] = useState(hasWebGL);
+  const [counts, setCounts] = useState<[number, number]>([0, 0]);
   const ddTimer = useRef<number | undefined>(undefined);
   const openDd = (k: string) => { window.clearTimeout(ddTimer.current); setDd(k); };
   const closeDd = () => {
@@ -396,7 +442,7 @@ export function Landing() {
     return () => window.clearInterval(id);
   }, []);
 
-  /* footer clock (ICT) — the homepage's segment display */
+  /* footer clock (ICT) */
   const [clock, setClock] = useState('');
   useEffect(() => {
     const f = () => setClock(new Intl.DateTimeFormat('en-GB', {
@@ -419,7 +465,7 @@ export function Landing() {
     }, { threshold: 0.12 });
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, []);
+  }, [th]);
 
   /** validate token against /api/me before sign-in (unchanged auth flow) */
   const enter = async () => {
@@ -439,8 +485,15 @@ export function Landing() {
     }
   };
 
+  const langToggle = (
+    <span className="vz-lang" role="group" aria-label="Language">
+      <button type="button" lang="en" aria-pressed={!th} onClick={() => setLang('en')}>EN</button>
+      <button type="button" lang="th" aria-pressed={th} onClick={() => setLang('th')}>TH</button>
+    </span>
+  );
+
   return (
-    <div className={`landing-root${dark ? ' hx-dark' : ''}`}>
+    <div className={`landing-root${dark ? ' hx-dark' : ''}`} lang={th ? 'th' : 'en'}>
       <div className="cs-noise" aria-hidden />
       <div className="cs-rail cs-rail-l" aria-hidden />
       <div className="cs-rail cs-rail-r" aria-hidden />
@@ -451,9 +504,9 @@ export function Landing() {
         <div className="cs-ticker-track">
           {[0, 1].map((n) => (
             <div key={n} className="cs-ticker-set" aria-hidden={n === 1}>
-              {TICKER.map((it) => (
-                <a key={it.b} href="#" className="cs-tick" onClick={(e) => e.preventDefault()}>
-                  <span>{it.e}</span>&nbsp;<b>{it.b}</b>&nbsp;{it.t}
+              {c.ticker.map((it) => (
+                <a key={it.b} href="#features" className="cs-tick">
+                  <b>{it.b}</b>&nbsp;{it.t}
                   <i className="cs-tick-arrow"><HxIcon d={I.arrowR} size={9} /></i>
                 </a>
               ))}
@@ -462,52 +515,51 @@ export function Landing() {
         </div>
       </div>
 
-      {/* ---------- nav — bordered bar, centered logo ---------- */}
+      {/* ---------- nav ---------- */}
       <nav className="cs-nav">
         <div className="cs-nav-l">
-          <NavDrop menu={NAV_DROPS[0]} open={dd === 'platform'} onOpen={() => openDd('platform')} onClose={closeDd} />
-          <NavDrop menu={NAV_DROPS[1]} open={dd === 'solutions'} onOpen={() => openDd('solutions')} onClose={closeDd} />
-          <a href="#" onClick={(e) => e.preventDefault()} className="cs-navlink">Enterprise</a>
+          <NavDrop menu={c.nav[0]} open={dd === 'platform'} onOpen={() => openDd('platform')} onClose={closeDd} />
+          <NavDrop menu={c.nav[1]} open={dd === 'connect'} onOpen={() => openDd('connect')} onClose={closeDd} />
+          <a href="#use-cases" className="cs-navlink">{c.ucH}</a>
         </div>
-        <Link to="/" className="cs-logo">HEX</Link>
+        <Link to="/" className="cs-logo vz-logo"><img src="/logo-192.png" alt="" />vissointan</Link>
         <div className="cs-nav-r">
-          <NavDrop menu={NAV_DROPS[2]} open={dd === 'resources'} onOpen={() => openDd('resources')} onClose={closeDd} />
-          <a href="#" onClick={(e) => e.preventDefault()} className="cs-navlink">Pricing</a>
-          <Link to="/signin" className="cs-login">Log In</Link>
-          <HxLink href="#enter" variant="sm" className="cs-nav-cta">Get started</HxLink>
+          <NavDrop menu={c.nav[2]} open={dd === 'resources'} onOpen={() => openDd('resources')} onClose={closeDd} />
+          {langToggle}
+          <Link to="/signin" className="cs-login">{c.login}</Link>
+          <HxLink to="/signin" variant="sm" className="cs-nav-cta">{c.start}</HxLink>
           <button className="cs-burger" aria-label="Menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>
             <span /><span />
           </button>
         </div>
       </nav>
 
-      {/* mobile overlay nav */}
       {menu && (
         <div className="cs-mnav" role="dialog" aria-modal="true">
           <div className="cs-mnav-head">
-            <span className="cs-logo">HEX</span>
+            <span className="cs-logo vz-logo"><img src="/logo-192.png" alt="" />vissointan</span>
             <button className="cs-burger is-x" aria-label="Close" onClick={() => setMenu(false)}>✕</button>
           </div>
           <div className="cs-mnav-scroll">
-            {NAV_DROPS.map((m) => (
+            {c.nav.map((m) => (
               <div key={m.id} className="cs-mnav-group">
                 <div className="cs-dd-eyebrow">{m.label}</div>
                 {m.items.map((it) => (
-                  <a key={it.t} href="#" className="cs-mnav-item" onClick={(e) => { e.preventDefault(); setMenu(false); }}>
+                  <a key={it.t} href={it.href} className="cs-mnav-item" onClick={() => setMenu(false)}>
                     <span>{it.t}</span>
                   </a>
                 ))}
               </div>
             ))}
             <div className="cs-mnav-group">
-              <Link to="/signin" className="cs-mnav-item" onClick={() => setMenu(false)}><span>Log In</span></Link>
-              <a href="#enter" className="cs-mnav-item" onClick={() => setMenu(false)}><span>Get started</span></a>
+              {langToggle}
+              <Link to="/signin" className="cs-mnav-item" onClick={() => setMenu(false)}><span>{c.login}</span></Link>
             </div>
           </div>
         </div>
       )}
 
-      {/* ---------- hero — centered, cartesian paper grid ---------- */}
+      {/* ---------- hero ---------- */}
       <header className="hx-hero">
         <div className="hx-hero-bg" aria-hidden>
           <div className="hx-hero-grid-bg" />
@@ -516,98 +568,91 @@ export function Landing() {
         <div className="hx-hero-inner">
           <h1 className="hx-h1" data-reveal>
             <Sparkle />
-            The Analytics platform<br />
-            <em>for humans and agents</em>
+            {c.h1a}<br />
+            <em>{c.h1b}</em>
           </h1>
           <p className="hx-hero-sub" data-reveal>
-            Rethinking{' '}
-            <a href="#" className="hx-chip" onClick={(e) => e.preventDefault()}>
-              <i className="hx-chip-spot c-teal"><HxIcon d={I.notebook} size={12} /></i>BI
-            </a>{' '}
-            <a href="#" className="hx-chip" onClick={(e) => e.preventDefault()}>
-              <i className="hx-chip-spot c-rose"><HxIcon d={I.threads} size={12} /></i>Conversational analytics
-            </a>{' '}
-            and{' '}
-            <a href="#" className="hx-chip" onClick={(e) => e.preventDefault()}>
-              <i className="hx-chip-spot c-blue"><HxIcon d={I.semanticModels} size={12} /></i>Context management
-            </a>{' '}
-            for the agentic era.
+            {c.subPre}{' '}
+            <a href="#features" className="hx-chip"><i className="hx-chip-spot c-teal"><HxIcon d={I.cube} size={12} /></i>{c.chips[0]}</a>{' '}
+            <a href="#features" className="hx-chip"><i className="hx-chip-spot c-rose"><HxIcon d={I.eye} size={12} /></i>{c.chips[1]}</a>{' '}
+            <a href="#features" className="hx-chip"><i className="hx-chip-spot c-blue"><HxIcon d={I.bell} size={12} /></i>{c.chips[2]}</a>{' '}
+            {c.subPost}
           </p>
           <div className="hx-hero-cta" data-reveal>
-            <HxLink href="#enter">Get started for free</HxLink>
-            <HxLink href="#enter" variant="ghost">Request a demo</HxLink>
+            <HxLink to="/signin">{c.ctaPrimary}</HxLink>
+            <HxLink href="#connect" variant="ghost">{c.ctaSecondary}</HxLink>
           </div>
+
+          {/* the twin stage — three.js over a vector fallback */}
+          <figure className="vz-stage cs-marks" data-reveal>
+            <i className="m-tl" aria-hidden /><i className="m-tr" aria-hidden />
+            <i className="m-bl" aria-hidden /><i className="m-br" aria-hidden />
+            <div className="vz-stage-art">
+              <HeroVector title={c.twin.title} />
+              {gl && (
+                <TwinBoundary>
+                <Suspense fallback={null}>
+                  <HeroLine3D
+                    key={dark ? 'night' : 'day'} /* re-read the theme colours */
+                    labels={{ motor: c.twin.motor, vision: c.twin.vision, gravel: c.twin.gravel, sand: c.twin.sand }}
+                    onCount={(g, s) => setCounts([g, s])}
+                  />
+                </Suspense>
+                </TwinBoundary>
+              )}
+            </div>
+            <figcaption className="vz-stage-bar mono">
+              <span className="vz-live"><i aria-hidden />LIVE · SORT LINE 1</span>
+              <span>{c.twin.gravel}: <b>{counts[0]}</b></span>
+              <span>{c.twin.sand}: <b>{counts[1]}</b></span>
+              <span className="vz-stage-hint">{gl ? c.twin.hint : c.twin.counted}</span>
+            </figcaption>
+          </figure>
         </div>
       </header>
 
-      {/* ---------- trusted-by wall ---------- */}
+      {/* ---------- protocols strip ---------- */}
       <section className="cs-trust cs-marks" data-reveal>
         <i className="m-tl" aria-hidden /><i className="m-tr" aria-hidden />
         <i className="m-bl" aria-hidden /><i className="m-br" aria-hidden />
         <p className="cs-trust-label mono">
           <i className="cs-cap cs-cap-l" aria-hidden />
-          Trusted by leading data companies
+          {c.protoLabel}
           <i className="cs-cap cs-cap-r" aria-hidden />
         </p>
-        <div className="hx-logo-wall">
-          {LOGOS.map((l) => (
-            <div key={l.alt} className={`hx-logo-cell${l.story ? ' has-story' : ''}`}>
-              {l.story && <i className="hx-story-dot" aria-hidden />}
-              <img src={l.src} alt={l.alt} loading="lazy" />
-              {l.story && (
-                <div className="hx-story" role="tooltip">
-                  <p>{l.story.q}</p>
-                  <span className="mono">{l.story.by}</span>
-                </div>
-              )}
+        <div className="vz-proto">
+          {PROTOCOLS.map((p) => (
+            <div key={p.name} className="vz-proto-cell">
+              {p.logo && <img src={p.logo} alt="" loading="lazy" />}
+              <span className="mono">{p.name}</span>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ---------- a different approach ---------- */}
-      <section className="cs-sec hx-approach" id="approach">
-        <img src="/home/connector.svg" className="hx-connector" alt="" aria-hidden />
-        <div className="hx-float hx-f1" aria-hidden><img src="/home/icon-claude.svg" alt="" /></div>
-        <div className="hx-float hx-f2" aria-hidden><img src="/home/icon-slack.svg" alt="" /></div>
-        <div className="hx-float hx-f3" aria-hidden><img src="/home/icon-chatgpt.svg" alt="" /></div>
-        <div className="hx-float hx-f4 mono" aria-hidden>?</div>
-        <h2 className="cs-h2" data-reveal>A different approach to Analytics and BI</h2>
-        <p className="cs-sub2" data-reveal>
-          BI tools, chat apps, and vibe-coding only give you inconsistent answers
-          and poor user experience. Hex is built with a full suite of tools to
-          unlock your team’s curiosity while maintaining trust and governance.
-        </p>
+      {/* ---------- approach ---------- */}
+      <section className="cs-sec hx-approach" id="features">
+        <h2 className="cs-h2" data-reveal>{c.approachH}</h2>
+        <p className="cs-sub2" data-reveal>{c.approachP}</p>
       </section>
 
-      {/* ---------- feature rows ---------- */}
+      {/* ---------- feature rows with real console screenshots ---------- */}
       <section className="hx-rows">
-        {ROWS.map((r) => (
+        {c.rows.map((r) => (
           <div key={r.id} className={`hx-row${r.flip ? ' is-flip' : ''}`} data-reveal>
             <div className="hx-row-copy">
-              <i className="hx-row-icon" aria-hidden>
-                <HxIcon d={I[r.icon as keyof typeof I]} size={26} />
-              </i>
-              {r.id === 'ask' && (
-                <div className="hx-agent-stack" aria-hidden>
-                  {AGENT_LOGOS.map((s) => <img key={s} src={s} alt="" />)}
-                </div>
-              )}
+              <i className="hx-row-icon" aria-hidden><HxIcon d={I[r.icon]} size={26} /></i>
               <h3>{r.title}</h3>
-              <LinkBox>{r.cta}</LinkBox>
-              <RowQuote q={r.quote} who={r.who} logo={r.logo} />
+              <p className="vz-row-body">{r.body}</p>
+              <ul className="vz-points">
+                {r.points.map((p) => <li key={p}>{p}</li>)}
+              </ul>
             </div>
             <div className="hx-row-art">
-              {r.id === 'apps' ? (
-                <div className="hx-appcards">
-                  <img src="/home/card-market.png" alt="Market explorer app" loading="lazy" />
-                  <img src="/home/card-revenue.png" alt="NexaCorp revenue report app" loading="lazy" />
-                  <img src="/home/card-pricing.png" alt="Pricing forecast app" loading="lazy" />
-                  <img src="/home/card-nexacorp.png" alt="Priority-account board app" loading="lazy" />
-                </div>
-              ) : (
-                <img src={r.img} alt={r.imgAlt} loading="lazy" />
-              )}
+              <div className="vz-shot">
+                <div className="vz-shot-bar" aria-hidden><i /><i /><i /><span className="mono">vissointan · {r.id}</span></div>
+                <img src={r.img} alt={r.alt} loading="lazy" />
+              </div>
             </div>
           </div>
         ))}
@@ -616,111 +661,67 @@ export function Landing() {
       {/* ---------- ethos pair ---------- */}
       <section className="cs-sec hx-ethos" id="ethos">
         <div className="hx-ethos-grid">
-          {ETHOS.map((c) => (
-            <div key={c.tag} className="hx-ethos-card" data-reveal>
-              <span className={`hx-tag mono hx-tag-${c.tagCls}`}>{c.tag}</span>
-              <div className="hx-ethos-art"><img src={c.img} alt="" loading="lazy" /></div>
-              <h3>{c.h}</h3>
-              <p>{c.body}</p>
-              {'lead' in c && c.lead && <p>{c.lead}</p>}
-              {'list' in c && c.list && (
-                <ul>
-                  {c.list.map((li) => <li key={li}>{li}</li>)}
-                </ul>
-              )}
-              {'body2' in c && c.body2 && <p>{c.body2}</p>}
-              {'body3' in c && c.body3 && <p>{c.body3}</p>}
-              <LinkBox>{c.cta}</LinkBox>
+          {c.ethos.map((e, i) => (
+            <div key={e.tag} className="hx-ethos-card" data-reveal>
+              <span className={`hx-tag mono hx-tag-${e.cls}`}>{e.tag}</span>
+              <i className="vz-ethos-ic" aria-hidden><HxIcon d={i === 0 ? I.plug : I.shield} size={28} /></i>
+              <h3>{e.h}</h3>
+              <p>{e.p}</p>
+              <ul>{e.list.map((li) => <li key={li}>{li}</li>)}</ul>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ---------- two-up testimonials ---------- */}
-      <section className="cs-testi" data-reveal>
-        {TESTIS.map((t) => (
-          <div key={t.alt} className="cs-testi-cell">
-            <img src={t.logo} alt={t.alt} className="cs-testi-logo" />
-            <p>{t.q}</p>
-            <div><b>{t.who}</b><span className="mono">{t.role}</span></div>
-          </div>
-        ))}
+      {/* ---------- connect your plant ---------- */}
+      <section className="cs-sec vz-connect" id="connect">
+        <h2 className="cs-h2" data-reveal>{c.connectH}<br /><em>{c.connectEm}</em></h2>
+        <p className="cs-sub2" data-reveal>{c.connectP}</p>
+        <ol className="vz-steps cs-marks" data-reveal>
+          <i className="m-tl" aria-hidden /><i className="m-tr" aria-hidden />
+          <i className="m-bl" aria-hidden /><i className="m-br" aria-hidden />
+          {c.steps.map((s) => (
+            <li key={s.n} className="vz-step">
+              <span className="vz-step-n mono">{s.n}</span>
+              <h3>{s.t}</h3>
+              <p>{s.d}</p>
+              <span className="vz-step-where mono">{s.where}</span>
+            </li>
+          ))}
+        </ol>
       </section>
 
       {/* ---------- use cases ---------- */}
       <section className="cs-sec hx-uc" id="use-cases">
         <div className="hx-uc-inner" data-reveal>
           <div className="hx-uc-head">
-            <h2 className="hx-uc-h2"><span>Use cases</span><em>Get the most out of Hex</em></h2>
+            <h2 className="hx-uc-h2"><span>{c.ucH}</span><em>{c.ucEm}</em></h2>
           </div>
           <div className="hx-uc-rows">
-          {USE_CASES.map((u) => (
-            <a key={u.t} href="#" className="hx-uc-row" onClick={(e) => e.preventDefault()}>
-              <i className={`hx-uc-ic hx-ic-${u.ic}`} aria-hidden>
-                {u.ic === 'sparkle' && <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 1l1.8 5.2L17 4.5l-3.4 4.5L18 11l-5.4 1 2 5.5-4.6-3.6L6 17.5l1.4-5.5L2 10l5.4-.8L10 1z" fill="currentColor" opacity=".9" /></svg>}
-                {u.ic === 'layers' && <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2l8 4-8 4-8-4 8-4zM3 10.5l7 3.5 7-3.5M3 14l7 3.5L17 14" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>}
-                {u.ic === 'chat' && <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 4h14v10H9l-4 3.5V14H3V4z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><circle cx="7" cy="9" r="1" fill="currentColor" /><circle cx="10.5" cy="9" r="1" fill="currentColor" /><circle cx="14" cy="9" r="1" fill="currentColor" /></svg>}
-              </i>
-              <div className="hx-uc-txt">
-                <h3>{u.t}</h3>
-                <p>{u.d}</p>
-              </div>
-              <HxIcon d={I.arrowTR} size={15} className="hx-uc-arrow" />
-            </a>
-          ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ---------- loved by ---------- */}
-      <section className="cs-sec hx-loved" id="customers">
-        <h2 className="cs-h2" data-reveal>
-          <em>Loved</em> by the<br />best data teams
-        </h2>
-        <p className="cs-sub2" data-reveal>Hex helps companies of all sizes do more with their data.</p>
-        <div className="hx-loved-frame cs-marks" data-reveal>
-          <i className="m-tl" aria-hidden /><i className="m-tr" aria-hidden />
-          <i className="m-bl" aria-hidden /><i className="m-br" aria-hidden />
-          <div className="hx-stories">
-            {STORIES.map((s) => (
-              <a key={s.alt} href="#" className="hx-story-col" onClick={(e) => e.preventDefault()}>
-                <img src={s.logo} alt={s.alt} className="hx-story-logo" />
-                <h4>{s.h}</h4>
-                <p>{s.p}</p>
-                <span className="hx-readmore">Read more<HxIcon d={I.arrowR} size={10} /></span>
+            {c.uc.map((u) => (
+              <a key={u.t} href="#connect" className="hx-uc-row">
+                <i className="hx-uc-ic" aria-hidden><HxIcon d={I[u.ic]} size={20} /></i>
+                <div className="hx-uc-txt">
+                  <h3>{u.t}</h3>
+                  <p>{u.d}</p>
+                </div>
+                <HxIcon d={I.arrowTR} size={15} className="hx-uc-arrow" />
               </a>
             ))}
           </div>
-          <div className="hx-loved-foot">
-            <div className="hx-g2">
-              <h3>Users love Hex</h3>
-              <img src="/home/g2-awards.svg" alt="Three G2 badges received by Hex for High Performer, Best Support, and Momentum Leader" loading="lazy" />
-              <p>Rated on G2 as an industry leader based on customer reviews. <a href="#" onClick={(e) => e.preventDefault()}>Check them out<HxIcon d={I.arrowR} size={10} /></a></p>
-            </div>
-            <blockquote className="hx-nquote">
-              <img src="/home/logo-notion.svg" alt="Notion" className="hx-nquote-logo" />
-              <svg className="hx-nquote-mark" width="60" height="40" viewBox="0 0 60 40" fill="none" aria-hidden><text x="0" y="38" fontSize="52" fill="currentColor" fontFamily="Georgia,serif">”</text></svg>
-              <p>“Our vision for Notion’s data team is that anyone, regardless of technical proficiency, is comfortable using data to answer their own questions — and Hex enables that.”</p>
-              <footer>
-                <img src="/home/headshot-abhishek.jpg" alt="" className="hx-nquote-face" />
-                <div><b>Abhishek Modi</b><span className="mono">Software Engineer at Notion</span></div>
-              </footer>
-            </blockquote>
-          </div>
         </div>
       </section>
 
-      {/* ---------- integrations ---------- */}
-      <section className="cs-sec hx-int" id="integrations">
-        <h2 className="cs-h2" data-reveal>
-          <em>Instant integration</em><br />with the whole stack
-        </h2>
-        <p className="cs-sub2" data-reveal>Out-of-the-box connections and flexible APIs make setup a breeze.</p>
-        <div className="hx-int-grid">
-          {INTS.map((c) => (
-            <a key={c.img} href="#" className="hx-int-card" onClick={(e) => e.preventDefault()} data-reveal>
-              <img src={c.img} alt={c.alt} loading="lazy" />
-            </a>
+      {/* ---------- built on ---------- */}
+      <section className="cs-sec hx-int" id="stack">
+        <h2 className="cs-h2" data-reveal>{c.stackH}<br /><em>{c.stackEm}</em></h2>
+        <p className="cs-sub2" data-reveal>{c.stackP}</p>
+        <div className="vz-stack" data-reveal>
+          {STACK.map((s) => (
+            <div key={s.name} className="vz-stack-cell">
+              <img src={s.logo} alt="" loading="lazy" />
+              <span className="mono">{s.name}</span>
+            </div>
           ))}
         </div>
       </section>
@@ -729,81 +730,75 @@ export function Landing() {
       <section className="hx-start" id="enter">
         <div className="hx-start-row" data-reveal>
           <div className="hx-start-l">
-            <h3>Getting started is easy.</h3>
-            <p>Connect Hex to your data warehouse and do more with it immediately.</p>
+            <h3>{c.startH}</h3>
+            <p>{c.startP}</p>
             <div className="hx-start-btns">
-              <HxLink href="#enter">Get started for free</HxLink>
-              <HxLink href="#enter" variant="ghost">Talk to us</HxLink>
+              <HxLink to="/signin">{c.startBtn}</HxLink>
+              <HxLink href="#connect" variant="ghost">{c.startGhost}</HxLink>
             </div>
-            {/* working sign-in — the landing doubles as the token wall */}
-            <form className="cs-token"
-              onSubmit={(e) => { e.preventDefault(); void enter(); }}>
-              <input
-                value={token}
-                onChange={(e) => { setToken(e.target.value); setFailed(false); }}
-                placeholder={cfg?.dev_tokens ? 'demo-operator · demo-viewer' : 'Access token'}
-                aria-label="Access token" autoComplete="off" spellCheck={false}
-              />
-              <HxBtn type="submit" disabled={!token.trim() || busy}>
-                {busy ? 'Signing in…' : 'Enter'}
-              </HxBtn>
-            </form>
-            {failed && <p className="cs-token-err" role="alert">That token didn’t work — check it and try again.</p>}
           </div>
           <div className="hx-start-r">
-            <p>Check out all of our plans to fit your team or organization.</p>
-            <HxLink href="#" variant="ghost" onClick={(e) => e.preventDefault()}>See our plans</HxLink>
+            {cfg?.dev_tokens ? (
+              <>
+                <p>{c.startR}</p>
+                <form className="cs-token" onSubmit={(e) => { e.preventDefault(); void enter(); }}>
+                  <input
+                    value={token}
+                    onChange={(e) => { setToken(e.target.value); setFailed(false); }}
+                    placeholder={c.tokenPhDev}
+                    aria-label={c.tokenPh} autoComplete="off" spellCheck={false}
+                  />
+                  <HxBtn type="submit" disabled={!token.trim() || busy}>{busy ? c.tokenBusy : c.tokenEnter}</HxBtn>
+                </form>
+                {failed && <p className="cs-token-err" role="alert">{c.tokenErr}</p>}
+              </>
+            ) : (
+              <>
+                <p>{c.startP}</p>
+                <HxLink to="/signin" variant="ghost">{c.startRBtn}</HxLink>
+              </>
+            )}
           </div>
         </div>
       </section>
 
       {/* ---------- FAQ ---------- */}
       <section className="cs-sec cs-faq" id="faq">
-        <h2 className="cs-h2" data-reveal>FAQ</h2>
+        <h2 className="cs-h2" data-reveal>{c.faqH}</h2>
         <div className="cs-faq-list" data-reveal>
-          {FAQS.map((f, i) => (
+          {c.faq.map((f, i) => (
             <div key={f.q} className={`cs-faq-item${faq === i ? ' is-open' : ''}`}>
               <h3>
-                <button type="button" aria-expanded={faq === i}
-                  onClick={() => setFaq(faq === i ? null : i)}>
+                <button type="button" aria-expanded={faq === i} onClick={() => setFaq(faq === i ? null : i)}>
                   <span>{f.q}</span>
                   <HxIcon d={I.chevron} size={15} className="cs-faq-chev" />
                 </button>
               </h3>
-              {faq === i && (
-                <div className="cs-faq-a">
-                  <p>{f.a}</p>
-                </div>
-              )}
+              {faq === i && <div className="cs-faq-a"><p>{f.a}</p></div>}
             </div>
           ))}
         </div>
-        <p className="cs-faq-more">Can’t find your answer here? <a href="#enter">Get in touch.</a></p>
+        <p className="cs-faq-more">{c.faqMore} <a href="#connect">{c.faqMoreLink}</a></p>
       </section>
 
       {/* ---------- footer ---------- */}
       <footer className="cs-foot">
         <div className="cs-foot-inner">
           <div className="cs-foot-brand">
-            <span className="cs-logo">HEX<sup>®</sup></span>
-            <span className="cs-foot-made mono">Made with 💜 on 🌎</span>
-            <span className="hx-clock mono" aria-label="Bangkok time">{clock} ICT</span>
+            <span className="cs-logo vz-logo"><img src="/logo-192.png" alt="" />vissointan</span>
+            <span className="cs-foot-made mono">{c.made}</span>
+            <span className="hx-clock mono" aria-label={c.tz}>{clock} ICT</span>
           </div>
-          {FOOT_COLS.map((c) => (
-            <div key={c.h} className="cs-foot-col">
-              <h4 className="mono">{c.h}</h4>
-              {c.links.map((l) => <a key={l} href="#" onClick={(e) => e.preventDefault()}>{l}</a>)}
+          {c.foot.map((col) => (
+            <div key={col.h} className="cs-foot-col">
+              <h4 className="mono">{col.h}</h4>
+              {col.links.map((l) => <Go key={l.t} href={l.href}>{l.t}</Go>)}
             </div>
           ))}
         </div>
         <div className="cs-foot-bottom">
-          <span>© 2026 Hex Technologies Inc.</span>
-          <div>
-            <a href="#" onClick={(e) => e.preventDefault()}>Privacy policy</a>
-            <a href="#" onClick={(e) => e.preventDefault()}>Terms &amp; conditions</a>
-            <a href="#" onClick={(e) => e.preventDefault()}>Modern slavery statement</a>
-            <a href="#" onClick={(e) => e.preventDefault()}>Opt out of tracking</a>
-          </div>
+          <span>© 2026 {c.rights}</span>
+          <div>{langToggle}</div>
         </div>
       </footer>
     </div>

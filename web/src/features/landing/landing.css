@@ -1,42 +1,15 @@
-/* Landing — hex.tech homepage clone (fall-2026 design).
+/* Landing — the public marketing page.
    Paper sheet on ink frame, cartesian grid hero, serif-italic headline slot,
    trusted-by logo wall, alternating feature rows with DOM-captured mock art,
    use-case rows, loved-by frame, integration cards, CTA, FAQ, footer.
    Dual theme: .landing-root = day paper, .hx-dark = night ink. */
 
-/* ---------- fonts (extracted faces; system fallbacks) -------------------- */
-@font-face {
-  font-family: "GT Cinetype"; font-style: normal; font-weight: 400;
-  src: url("/cs/fonts/GT-Cinetype-Regular.woff2") format("woff2"); font-display: swap;
-}
-@font-face {
-  font-family: "GT Cinetype"; font-style: normal; font-weight: 300;
-  src: url("/cs/fonts/GT-Cinetype-Light.woff2") format("woff2"); font-display: swap;
-}
-@font-face {
-  font-family: "GT Cinetype"; font-style: normal; font-weight: 700;
-  src: url("/cs/fonts/GT-Cinetype-Bold.woff2") format("woff2"); font-display: swap;
-}
-@font-face {
-  font-family: "GT Cinetype Mono"; font-style: normal; font-weight: 400;
-  src: url("/cs/fonts/GT-Cinetype-Mono.woff2") format("woff2"); font-display: swap;
-}
-@font-face {
-  font-family: "PP Formula SemiExtended"; font-style: normal; font-weight: 700;
-  src: url("/cs/fonts/PP-Formula-SemiExtendedBold.woff2") format("woff2"); font-display: swap;
-}
-@font-face {
-  font-family: "PP Formula"; font-style: normal; font-weight: 800;
-  src: url("/cs/fonts/PP-Formula-ExtraBold.woff2") format("woff2"); font-display: swap;
-}
-@font-face {
-  font-family: "PP Editorial New"; font-style: italic; font-weight: 200;
-  src: url("/home/fonts/PPEditorialNew-UltralightItalic.woff2") format("woff2"); font-display: swap;
-}
+/* ---------- fonts: open faces only (IBM Plex, Space Grotesk, Instrument
+   Serif — all bundled via @fontsource in main.tsx) ------------------------ */
 
 /* ---------- theme tokens -------------------------------------------------- */
 .landing-root {
-  /* DAY = warm paper sheet (hex.tech homepage palette) */
+  /* DAY = warm paper sheet — the light palette */
   --hx-ink: #fffcfc;
   --hx-ink-deep: #f4f1ee;
   --hx-panel: #ffffff;
@@ -63,10 +36,10 @@
   min-height: 100svh;
   background: var(--hx-ink);
   color: var(--hx-txt);
-  font-family: "GT Cinetype", "IBM Plex Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
+  font-family: "IBM Plex Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
   overflow-x: clip;
 }
-/* NIGHT = ink canvas — the Context Studio palette */
+/* NIGHT = ink canvas — the dark palette */
 .landing-root.hx-dark {
   --hx-ink: #14141c;
   --hx-ink-deep: #0f0f15;
@@ -91,7 +64,7 @@
   --hx-noise-op: .18; --hx-noise-blend: overlay;
 }
 .landing-root .mono {
-  font-family: "GT Cinetype Mono", "IBM Plex Mono", ui-monospace, monospace;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 /* film grain — the page's PaperTexture layer */
@@ -196,7 +169,7 @@
 }
 .cs-navlink:hover { opacity: 1; }
 .cs-logo {
-  font-family: "PP Formula SemiExtended", "Space Grotesk", sans-serif;
+  font-family: "Space Grotesk", sans-serif;
   font-size: 19px; font-weight: 700; letter-spacing: .02em;
   color: var(--hx-pink); text-decoration: none; justify-self: center;
 }
@@ -232,7 +205,7 @@
 .cs-dd-item b { display: block; font-size: 13.5px; font-weight: 600; }
 .cs-dd-item small { display: block; font-size: 12px; color: var(--hx-pink-dim); opacity: .75; }
 .cs-dd-eyebrow {
-  font-family: "GT Cinetype Mono", "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
   color: var(--hx-eyebrow); padding: 4px 10px 8px;
 }
@@ -305,13 +278,13 @@
 }
 .hx-h1 {
   position: relative; margin: 0 auto; max-width: 1030px;
-  font-family: "PP Formula SemiExtended", "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
   font-size: clamp(40px, 5.2vw, 74px); font-weight: 700; line-height: 1.2;
   letter-spacing: -0.025em; color: var(--hx-h-a);
 }
 .hx-h1 em {
-  font-family: "PP Editorial New", Georgia, serif;
-  font-style: italic; font-weight: 200;
+  font-family: "Instrument Serif", Georgia, serif;
+  font-style: italic; font-weight: 400;
   font-size: 1.3em; line-height: 1.05; letter-spacing: -0.02em;
   color: var(--hx-h-a);
 }
@@ -403,13 +376,13 @@
 .cs-sec { position: relative; z-index: 1; max-width: 1409px; margin: 0 auto; padding: 110px 66px 0; }
 .cs-h2 {
   margin: 0 auto; max-width: 1000px; text-align: center;
-  font-family: "PP Formula SemiExtended", "Space Grotesk", sans-serif;
+  font-family: "Space Grotesk", sans-serif;
   font-size: clamp(30px, 4.3vw, 60px); font-weight: 700; line-height: 1.25;
   letter-spacing: -0.031em; color: var(--hx-h-a);
 }
 .cs-h2 em {
-  font-family: "PP Editorial New", Georgia, serif;
-  font-style: italic; font-weight: 200; letter-spacing: -0.02em;
+  font-family: "Instrument Serif", Georgia, serif;
+  font-style: italic; font-weight: 400; letter-spacing: -0.02em;
 }
 .cs-sub2 {
   margin: 26px auto 0; max-width: 720px; text-align: center;
@@ -465,7 +438,7 @@
   margin-right: -10px; box-shadow: 0 4px 14px var(--hx-shadow);
 }
 .hx-row-copy h3 {
-  margin: 0; font-family: "PP Formula", "PP Formula SemiExtended", "Space Grotesk", sans-serif;
+  margin: 0; font-family: "Space Grotesk", sans-serif;
   font-size: 28px; font-weight: 800; line-height: 1.3; letter-spacing: -.025em;
   color: var(--hx-h-a);
 }
@@ -513,7 +486,7 @@
 }
 .hx-ethos-art img { display: block; width: 100%; height: auto; }
 .hx-ethos-card h3 {
-  margin: 28px 0 0; font-family: "PP Formula", "PP Formula SemiExtended", sans-serif;
+  margin: 28px 0 0; font-family: sans-serif;
   font-size: 24px; font-weight: 800; line-height: 1.3; letter-spacing: -.02em;
   color: var(--hx-h-a);
 }
@@ -554,14 +527,14 @@
 }
 .hx-uc-head { text-align: left; }
 .hx-uc-h2 {
-  margin: 0; font-family: "PP Formula", "PP Formula SemiExtended", sans-serif;
+  margin: 0; font-family: sans-serif;
   font-size: 40px; font-weight: 800; letter-spacing: -.02em; line-height: 1.2;
   color: var(--hx-h-a); position: sticky; top: 120px;
 }
 .hx-uc-h2 span { display: block; }
 .hx-uc-h2 em {
-  display: block; font-family: "PP Editorial New", Georgia, serif;
-  font-style: italic; font-weight: 200; font-size: 1.25em; line-height: 1.1;
+  display: block; font-family: "Instrument Serif", Georgia, serif;
+  font-style: italic; font-weight: 400; font-size: 1.25em; line-height: 1.1;
 }
 .hx-uc-rows { border-top: 1px solid var(--hx-line); }
 .hx-uc-row {
@@ -576,7 +549,7 @@
   border: 1px solid var(--hx-line); color: var(--hx-pink);
 }
 .hx-uc-txt h3 {
-  margin: 0; font-family: "PP Formula", sans-serif; font-size: 20px;
+  margin: 0; font-family: sans-serif; font-size: 20px;
   font-weight: 600; letter-spacing: -.02em; color: var(--hx-h-a);
 }
 .hx-uc-txt p { margin: 8px 0 0; font-size: 15px; line-height: 1.55; color: var(--hx-pink-dim); max-width: 720px; }
@@ -603,7 +576,7 @@
 .hx-story-col:hover { background: var(--hx-wash); }
 .hx-story-logo { height: 26px; width: auto; align-self: flex-start; }
 .hx-story-col h4 {
-  margin: 6px 0 0; font-family: "PP Formula", sans-serif; font-size: 18px;
+  margin: 6px 0 0; font-family: sans-serif; font-size: 18px;
   font-weight: 600; letter-spacing: -.02em; color: var(--hx-h-a);
 }
 .hx-story-col p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--hx-pink-dim); flex: 1; }
@@ -618,7 +591,7 @@
 }
 .hx-g2 { padding: 36px 34px; border-right: 1px solid var(--hx-line); }
 .hx-g2 h3 {
-  margin: 0; font-family: "PP Formula", sans-serif; font-size: 24px;
+  margin: 0; font-family: sans-serif; font-size: 24px;
   font-weight: 800; letter-spacing: -.02em; color: var(--hx-h-a);
 }
 .hx-g2 img { display: block; width: 240px; height: auto; margin: 22px 0; }
@@ -661,7 +634,7 @@
   border-bottom: 1px solid var(--hx-line);
 }
 .hx-start-l h3 {
-  margin: 0; font-family: "PP Formula", "PP Formula SemiExtended", sans-serif;
+  margin: 0; font-family: sans-serif;
   font-size: 28px; font-weight: 800; letter-spacing: -.025em; color: var(--hx-h-a);
 }
 .hx-start-l > p { margin: 14px 0 0; font-size: 20px; font-weight: 300; line-height: 1.5; color: var(--hx-pink-dim); }
@@ -683,7 +656,7 @@
 }
 .cs-token input::placeholder {
   color: var(--hx-eyebrow);
-  font-family: "GT Cinetype Mono", "IBM Plex Mono", monospace; font-size: 12px;
+  font-family: "IBM Plex Mono", monospace; font-size: 12px;
 }
 .cs-token-err { margin: 14px 0 0; font-size: 13px; color: #e07a7a; }
 

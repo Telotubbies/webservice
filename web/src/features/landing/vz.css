@@ -1,0 +1,157 @@
+/* vissointan landing sections — twin stage, protocol strip, screenshot
+   frames, connect steps, stack strip, language toggle. Builds on the --hx-*
+   tokens from landing.css. Tokens only (no raw hex). */
+
+.vz-logo { display: inline-flex; align-items: center; gap: 9px; }
+.vz-logo img { width: 26px; height: 26px; border-radius: 6px; }
+
+.vz-lang { display: inline-flex; border: 1px solid var(--hx-line); }
+.vz-lang button {
+  min-width: 34px; height: 28px; padding: 0 8px; border: 0; background: none; cursor: pointer;
+  font: 600 .75rem/1 "IBM Plex Mono", ui-monospace, monospace; color: var(--hx-pink-dim);
+}
+.vz-lang button + button { border-left: 1px solid var(--hx-line); }
+.vz-lang button[aria-pressed="true"] { background: var(--hx-wash-strong); color: var(--hx-h-a); }
+.vz-lang button:focus-visible { outline: 2px solid var(--hx-pink); outline-offset: 2px; }
+
+/* --- hero twin stage --- */
+.vz-stage {
+  position: relative; margin: 64px auto 0; max-width: 1160px;
+  border: 1px solid var(--hx-line);
+  background: color-mix(in srgb, var(--hx-panel) 72%, transparent);
+  box-shadow: 0 30px 80px -30px var(--hx-shadow);
+}
+.vz-stage-art { position: relative; aspect-ratio: 16 / 8.2; overflow: hidden; }
+.vz-vector { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--hx-h-a); transition: opacity .4s var(--hx-ease); }
+.vz-twin-gl { position: absolute; inset: 0; cursor: grab; }
+.vz-twin-gl canvas { display: block; width: 100% !important; height: 100% !important; }
+/* once WebGL draws, hide the vector underneath */
+.vz-stage-art:has(.vz-twin-gl[data-ready]) .vz-vector { opacity: 0; }
+.vz-tag {
+  position: absolute; left: 0; top: 0; padding: 4px 8px; white-space: nowrap; pointer-events: none;
+  font-size: .75rem; letter-spacing: .08em; color: var(--hx-h-a);
+  background: var(--hx-panel); border: 1px solid var(--hx-line);
+  box-shadow: 0 6px 18px -8px var(--hx-shadow);
+  opacity: 0; transition: opacity .3s var(--hx-ease);
+}
+.vz-twin-gl[data-ready] .vz-tag { opacity: 1; }
+.vz-tag.is-ai { border-color: var(--hx-sparkle); color: var(--hx-sparkle); }
+.vz-stage-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 26px;
+  padding: 12px 18px; border-top: 1px solid var(--hx-line);
+  font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--hx-pink-dim);
+  text-align: left;
+}
+.vz-stage-bar b { color: var(--hx-h-a); font-weight: 600; font-variant-numeric: tabular-nums; }
+.vz-stage-hint { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.vz-live { display: inline-flex; align-items: center; gap: 8px; color: var(--hx-h-a); }
+.vz-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--hx-sparkle); }
+@media (prefers-reduced-motion: no-preference) {
+  .vz-live i { animation: vz-pulse 1.6s ease-in-out infinite; }
+  .vz-stones circle { animation: vz-ride 6.3s linear infinite; }
+}
+@keyframes vz-pulse { 50% { opacity: .3; } }
+@keyframes vz-ride { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+
+/* vector fallback faces */
+.vz-grid line { stroke: var(--hx-line); stroke-width: 1; }
+.vz-vector polygon { stroke: currentColor; stroke-width: 1; stroke-linejoin: round; }
+.vz-f-t { fill: var(--hx-panel); }
+.vz-f-l { fill: color-mix(in srgb, var(--hx-h-a) 10%, var(--hx-panel)); }
+.vz-f-r { fill: color-mix(in srgb, var(--hx-h-a) 20%, var(--hx-panel)); }
+.vz-belt .vz-f-t { fill: color-mix(in srgb, var(--hx-h-a) 70%, var(--hx-panel)); }
+.vz-cam .vz-f-t { fill: var(--hx-sparkle); }
+.vz-vector .vz-cone { fill: color-mix(in srgb, var(--hx-sparkle) 14%, transparent); stroke: none; }
+.vz-stones circle { stroke: currentColor; stroke-width: 1; }
+.vz-stones .is-gravel { fill: color-mix(in srgb, var(--hx-h-a) 45%, var(--hx-panel)); }
+.vz-stones .is-sand { fill: color-mix(in srgb, peru 60%, var(--hx-panel)); }
+
+/* --- protocol strip --- */
+.vz-proto { margin-top: 26px; display: grid; grid-template-columns: repeat(6, 1fr); }
+.vz-proto-cell, .vz-stack-cell {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  height: 72px; border-top: 1px solid var(--hx-line);
+}
+.vz-proto-cell + .vz-proto-cell { border-left: 1px solid var(--hx-line); }
+.vz-proto-cell img, .vz-stack-cell img { height: 22px; width: auto; max-width: 40px; object-fit: contain; }
+.vz-proto-cell span, .vz-stack-cell span { font-size: .8125rem; letter-spacing: .04em; color: var(--hx-h-a); }
+
+/* --- feature rows: body, points, screenshot frame --- */
+.vz-row-body { margin: 14px 0 0; font-size: 16px; line-height: 1.6; color: var(--hx-pink-dim); }
+.vz-points { margin: 20px 0 0; padding: 0; list-style: none; }
+.vz-points li {
+  position: relative; padding: 10px 0 10px 26px; border-top: 1px dashed var(--hx-line);
+  font-size: 14.5px; line-height: 1.45; color: var(--hx-txt);
+}
+.vz-points li::before {
+  content: ""; position: absolute; left: 4px; top: 16px; width: 9px; height: 5px;
+  border-left: 1.5px solid var(--hx-pink); border-bottom: 1.5px solid var(--hx-pink);
+  transform: rotate(-45deg);
+}
+.vz-shot {
+  border: 1px solid var(--hx-line); background: var(--hx-panel); overflow: hidden;
+  box-shadow: 0 24px 60px -24px var(--hx-shadow);
+}
+.vz-shot-bar {
+  display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
+  border-bottom: 1px solid var(--hx-line); background: var(--hx-wash);
+}
+.vz-shot-bar i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--hx-mark); }
+.vz-shot-bar span { margin-left: 10px; font-size: .75rem; color: var(--hx-eyebrow); letter-spacing: .06em; }
+.vz-shot img { display: block; width: 100%; height: auto; }
+
+.vz-ethos-ic {
+  display: grid; place-items: center; width: 64px; height: 64px; margin-top: 26px;
+  border: 1px dashed var(--hx-line); border-radius: 50%; color: var(--hx-pink);
+}
+
+/* --- connect steps --- */
+.vz-steps {
+  position: relative; display: grid; grid-template-columns: repeat(4, 1fr);
+  max-width: 1166px; margin: 56px auto 0; padding: 0; list-style: none;
+  border: 1px solid var(--hx-line);
+  background: color-mix(in srgb, var(--hx-panel) 80%, transparent);
+}
+.vz-step { display: flex; flex-direction: column; gap: 10px; padding: 30px 26px 26px; text-align: left; }
+.vz-step + .vz-step { border-left: 1px solid var(--hx-line); }
+.vz-step-n { font-size: .8125rem; color: var(--hx-sparkle); letter-spacing: .1em; }
+.vz-step h3 { margin: 0; font-family: "Space Grotesk", "IBM Plex Sans Thai", sans-serif; font-size: 19px; font-weight: 700; letter-spacing: -.01em; color: var(--hx-h-a); }
+.vz-step p { margin: 0; flex: 1; font-size: 14px; line-height: 1.6; color: var(--hx-pink-dim); }
+.vz-step-where {
+  align-self: flex-start; padding: 4px 8px; border: 1px solid var(--hx-line);
+  font-size: .75rem; color: var(--hx-txt); background: var(--hx-wash);
+}
+
+/* --- stack strip --- */
+.vz-stack {
+  display: grid; grid-template-columns: repeat(4, 1fr); max-width: 1000px; margin: 56px auto 0;
+  border-left: 1px solid var(--hx-line); border-bottom: 1px solid var(--hx-line);
+}
+.vz-stack-cell { border-right: 1px solid var(--hx-line); height: 84px; }
+.landing-root.hx-dark .vz-stack-cell img, .landing-root.hx-dark .vz-proto-cell img { filter: grayscale(1) brightness(1.8); }
+.landing-root:not(.hx-dark) .vz-stack-cell img, .landing-root:not(.hx-dark) .vz-proto-cell img { filter: grayscale(1); }
+
+/* Thai copy: display headings fall back to the Thai sans */
+.landing-root[lang="th"] .hx-h1, .landing-root[lang="th"] .cs-h2 { font-family: "IBM Plex Sans Thai", "Space Grotesk", sans-serif; letter-spacing: -.01em; line-height: 1.3; }
+.landing-root[lang="th"] .hx-h1 em, .landing-root[lang="th"] .cs-h2 em { font-family: "IBM Plex Sans Thai", serif; font-style: normal; font-weight: 400; font-size: 1em; }
+
+@media (max-width: 1100px) {
+  .vz-proto { grid-template-columns: repeat(3, 1fr); }
+  .vz-proto-cell:nth-child(4) { border-left: none; }
+  .vz-steps { grid-template-columns: 1fr 1fr; }
+  .vz-step:nth-child(odd) { border-left: none; }
+  .vz-step { border-bottom: 1px solid var(--hx-line); }
+  .vz-stage-art { aspect-ratio: 4 / 3; }
+}
+@media (max-width: 640px) {
+  .vz-proto { grid-template-columns: 1fr 1fr; }
+  .vz-proto-cell { border-left: none; }
+  .vz-proto-cell:nth-child(even) { border-left: 1px solid var(--hx-line); }
+  .vz-steps { grid-template-columns: 1fr; }
+  .vz-step + .vz-step { border-left: none; }
+  .vz-stack { grid-template-columns: 1fr 1fr; }
+  .vz-stage { margin-top: 40px; }
+  .vz-stage-art { aspect-ratio: 1 / 1; }
+  .vz-stage-hint { margin-left: 0; }
+  .cs-nav-r .vz-lang { display: none; }
+}

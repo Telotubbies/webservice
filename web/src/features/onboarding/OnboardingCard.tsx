@@ -19,11 +19,13 @@ import { HelpLink } from './HelpLink';
 import { dismissKey, progress, visible } from './steps';
 import './i18n';
 
+// Step id → docs slug for the per-step "Learn more" link (see ./help).
 const HELP_DOC: Record<string, string> = {
   gateway: 'gateway', data: 'dataSource', dashboard: 'dashboards',
   alarm_rule: 'alarmRules', notify: 'notify', teammate: 'invite',
 };
 
+/** Reads the per-browser dismissal flag; a storage failure means "show it". */
 function readDismissed(orgId: string): boolean {
   try {
     return localStorage.getItem(dismissKey(orgId)) === '1';

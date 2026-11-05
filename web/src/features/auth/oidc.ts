@@ -205,9 +205,11 @@ function stepUp(reason: 'mfa_required' | 'step_up_required'): void {
     ? { acr_values: 'mfa', max_age: 0 } : { acr_values: 'mfa' });
 }
 
-export function signInWithSSO(): Promise<void> | undefined {
+/** Keycloak's own login form; `loginHint` pre-fills the username/email so the
+ *  user only types the password there (OIDC login_hint). */
+export function signInWithSSO(loginHint?: string): Promise<void> | undefined {
   stashReturnTo();
-  return mgr?.signinRedirect();
+  return mgr?.signinRedirect(loginHint ? { login_hint: loginHint } : undefined);
 }
 
 /** Keycloak self-registration (OIDC prompt=create). */

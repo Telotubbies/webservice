@@ -1,3 +1,6 @@
+// bun tests for the onboarding card's progress/dismiss helpers — pure logic,
+// no DOM, so the helpers stay in ./steps.
+
 import { describe, expect, it } from 'bun:test';
 import { dismissKey, progress, visible } from './steps';
 
