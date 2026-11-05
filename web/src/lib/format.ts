@@ -40,7 +40,10 @@ export function fmtAge(ts: string | undefined, now = Date.now()): string {
   if (s < 60) return agoFmt().format(-s, 'second');
   const m = Math.floor(s / 60);
   if (m < 60) return agoFmt().format(-m, 'minute');
-  return agoFmt().format(-Math.floor(m / 60), 'hour');
+  const h = Math.floor(m / 60);
+  // past two days, hours stop meaning anything ("3601h ago") — switch to days
+  if (h < 48) return agoFmt().format(-h, 'hour');
+  return agoFmt().format(-Math.floor(h / 24), 'day');
 }
 
 export function fmtClock(ts: string | undefined): string {
@@ -48,6 +51,15 @@ export function fmtClock(ts: string | undefined): string {
   const t = new Date(ts);
   if (Number.isNaN(t.getTime())) return ts;
   return t.toLocaleTimeString(i18n.language, { hour12: false });
+}
+
+/** Date + time in the UI language, not the browser's (an English UI on a
+ *  Thai browser otherwise shows "25 ต.ค. 2569"); 24-hour like the topbar clock. */
+export function fmtDateTime(ts: string | number | undefined): string {
+  if (ts == null) return '—';
+  const t = new Date(ts);
+  if (Number.isNaN(t.getTime())) return String(ts);
+  return t.toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short', hourCycle: 'h23' });
 }
 
 /** Compact duration units — s/m/h in English, Thai abbreviations in Thai. */

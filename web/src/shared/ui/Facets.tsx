@@ -1,4 +1,4 @@
-// Facet sidebar — Datadog explorer pattern: collapsible groups of checkbox
+// Facet sidebar — collapsible groups of checkbox
 // values with counts. Selection is OR within a facet, AND across facets; the
 // caller owns the state (a Record<facet, Set<value>>) so it can also drive
 // the URL or the table. Counts are supplied per value by the caller.
@@ -59,7 +59,7 @@ function FacetGroup({ def, sel, onToggle, viewMore }: { def: FacetDef; sel: Set<
                   <input id={id} type="checkbox" className="h-3.5 w-3.5 shrink-0 accent-[var(--color-blue)]" checked={sel.has(v.value)} onChange={() => onToggle(v.value)} />
                   {v.mark}
                   <span className="min-w-0 flex-1 truncate" title={typeof v.label === 'string' ? v.label : undefined}>{v.label}</span>
-                  <span className="font-mono text-[12px] tabular-nums text-ink-46">{v.count}</span>
+                  <span className="font-mono text-[12px] tabular-nums text-ink-68">{v.count}</span>
                 </label>
               </li>
             );

@@ -1,4 +1,4 @@
-// Explorer query grammar v2 (F11, Datadog explorer syntax). Space-separated
+// Explorer query grammar v2 (F11). Space-separated
 // tokens AND implicitly; `-tok` / `!tok` / `not:tok` negate; `key:value`
 // scopes a token to one field; `a|b` inside a value is OR; `*` and `?` are
 // wildcards; "quoted phrase" keeps embedded spaces. Anything unrecognized

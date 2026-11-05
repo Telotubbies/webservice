@@ -3,6 +3,8 @@
 
 import { lazy, Suspense, useEffect, useState, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
+import { MotionRoot } from './theme/MotionRoot';
+import { LEGACY, resolveLegacy } from './app/redirects';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { api } from './lib/api';
 import { live } from './lib/live';
@@ -32,6 +34,8 @@ const StatusPage = lazy(() => import('./features/status/StatusPage').then((m) =>
 
 // ── Line views ──
 const LinePage = lazy(() => import('./features/line/LinePage').then((m) => ({ default: m.LinePage })));
+// dev-only gallery: DEV is a compile-time false in production, so the chunk is never built
+const DevUiPage = import.meta.env.DEV ? lazy(() => import('./features/devui/DevUiPage').then((m) => ({ default: m.DevUiPage }))) : null;
 const Line3DPage = lazy(() => import('./features/line3d/Line3DPage').then((m) => ({ default: m.Line3DPage })));
 const MapEditor = lazy(() => import('./features/line3d/MapEditor').then((m) => ({ default: m.MapEditor })));
 
@@ -96,6 +100,7 @@ const IncidentSettingsPage = lazy(() => import('./features/incidents/IncidentSet
 
 // ── Notebooks ──
 const NotebooksPage = lazy(() => import('./features/notebooks/NotebooksPage').then((m) => ({ default: m.NotebooksPage })));
+const GuidePage = lazy(() => import('./features/guide/GuidePage').then((m) => ({ default: m.GuidePage })));
 const NotebookViewPage = lazy(() => import('./features/notebooks/NotebooksPage').then((m) => ({ default: m.NotebookViewPage })));
 
 // ── Feature pages ──
@@ -130,6 +135,7 @@ const ReportsPage = lazy(() => import('./features/production/ReportsPage').then(
 
 // ── Notifications ──
 const ChannelsPage = lazy(() => import('./features/notify/ChannelsPage').then((m) => ({ default: m.ChannelsPage })));
+const WallPage = lazy(() => import('./features/wall/WallPage').then((m) => ({ default: m.WallPage })));
 const AckLinkPage = lazy(() => import('./features/notify/AckLinkPage').then((m) => ({ default: m.AckLinkPage })));
 
 // ── Platform back-office ──
@@ -244,9 +250,18 @@ function Boot() {
   return <AuthedApp />;
 }
 
+
+/** Old URLs (e-mails, push, bookmarks) → their new home, keeping params and
+ *  query; replace, so Back does not bounce through the old address. */
+function LegacyRedirect() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={resolveLegacy(pathname, search) ?? '/'} replace />;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <MotionRoot>
       <BrowserRouter>
         <Routes>
           {/* public status page — reachable signed-out (roadmap 8.4) */}
@@ -254,22 +269,26 @@ export default function App() {
           {/* Boot gates everything: walls render instead of the shell when
               unauthenticated, so no API traffic fires before a token exists */}
           <Route element={<Boot />} errorElement={<RouteError />}>
-            <Route index element={<RouteBoundary><OverviewPage /></RouteBoundary>} />
-            <Route path="line" element={page(LinePage)} />
-            <Route path="line3d" element={page(Line3DPage)} />
-            <Route path="line3d/map" element={page(MapEditor)} />
+            {/* the plant twin is the console's home; the KPI summary moved to /overview */}
+            <Route index element={page(Line3DPage)} />
+            <Route path="overview" element={<RouteBoundary><OverviewPage /></RouteBoundary>} />
+            <Route path="wall" element={page(WallPage)} />
+            <Route path="live" element={page(LinePage)} />
+            <Route path="setup/model" element={page(MapEditor)} />
             <Route path="monitors" element={page(MonitorsPage)} />
             <Route path="monitors/templates" element={page(TemplatesPage)} />
             <Route path="alarms" element={page(AlarmsPage)} />
             <Route path="alarms/:id" element={page(AlarmDetailPage)} />
             <Route path="trends" element={page(TrendsPage)} />
+            {LEGACY.map(([from]) => <Route key={from} path={from.slice(1)} element={<LegacyRedirect />} />)}
+            {DevUiPage && <Route path="dev/ui" element={page(DevUiPage)} />}
             <Route path="insights" element={page(InsightsPage)} />
-            <Route path="tags" element={page(TagsPage)} />
+            <Route path="setup/tags" element={page(TagsPage)} />
             <Route path="commands" element={page(CommandsPage)} />
-            <Route path="health" element={page(HealthPage)} />
+            <Route path="connect/health" element={page(HealthPage)} />
             <Route path="admin" element={page(AdminPage)} />
-            <Route path="admin/rules" element={page(AlarmRulesPage)} />
-            <Route path="admin/rules/new" element={page(RuleCreatePage)} />
+            <Route path="setup/rules" element={page(AlarmRulesPage)} />
+            <Route path="setup/rules/new" element={page(RuleCreatePage)} />
             <Route path="admin/users" element={page(UsersPage)} />
             <Route path="admin/audit" element={page(AuditPage)} />
             <Route path="admin/storage" element={page(StoragePage)} />
@@ -281,16 +300,16 @@ export default function App() {
             <Route path="downtimes" element={page(DowntimesPage)} />
             <Route path="dashboards" element={page(DashboardsPage)} />
             <Route path="dashboards/:id" element={page(DashboardViewPage)} />
-            <Route path="infrastructure" element={page(DevicesPage)} />
-            <Route path="infrastructure/sources" element={page(DataSourcesPage)} />
-            <Route path="infrastructure/sources/:edgeId" element={page(GatewayPage)} />
-            <Route path="infrastructure/cameras" element={page(CamerasPage)} />
-            <Route path="infrastructure/models" element={page(ModelsPage)} />
-            <Route path="infrastructure/rules" element={page(VisionRulesPage)} />
-            <Route path="infrastructure/events" element={page(VisionEventsPage)} />
-            <Route path="infrastructure/add" element={page(AddDeviceWizard)} />
-            <Route path="infrastructure/map" element={page(NetworkMapPage)} />
-            <Route path="infrastructure/profiles" element={page(ProfilesPage)} />
+            <Route path="connect/gateways" element={page(DevicesPage)} />
+            <Route path="connect/sources" element={page(DataSourcesPage)} />
+            <Route path="connect/gateways/:edgeId" element={page(GatewayPage)} />
+            <Route path="vision/cameras" element={page(CamerasPage)} />
+            <Route path="vision/models" element={page(ModelsPage)} />
+            <Route path="vision/rules" element={page(VisionRulesPage)} />
+            <Route path="vision/events" element={page(VisionEventsPage)} />
+            <Route path="connect/add" element={page(AddDeviceWizard)} />
+            <Route path="connect" element={page(NetworkMapPage)} />
+            <Route path="connect/profiles" element={page(ProfilesPage)} />
             <Route path="settings" element={page(SettingsPage)} />
             <Route path="settings/plan" element={page(PlanPage)} />
             <Route path="settings/org" element={page(DangerZone)} />
@@ -302,9 +321,10 @@ export default function App() {
             {enabled('incidents') && <Route path="incidents" element={page(IncidentsPage)} />}
             {enabled('incidents') && <Route path="incidents/settings" element={page(IncidentSettingsPage)} />}
             <Route path="notebooks" element={page(NotebooksPage)} />
+            <Route path="guide" element={page(GuidePage)} />
             <Route path="notebooks/:id" element={page(NotebookViewPage)} />
             {enabled('catalog') && <Route path="catalog" element={page(CatalogPage)} />}
-            <Route path="structure" element={page(AssetTreePage)} />
+            <Route path="setup/structure" element={page(AssetTreePage)} />
             <Route path="logs" element={page(LogsPage)} />
             {enabled('teams') && <Route path="teams" element={page(TeamsPage)} />}
             {enabled('traces') && <Route path="traces" element={page(TracesPage)} />}
@@ -322,10 +342,10 @@ export default function App() {
             <Route path="metrics" element={page(MetricsSummaryPage)} />
             {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
             {/* production KPIs (Phase 5) */}
-            <Route path="oee" element={page(OeePage)} />
-            <Route path="stops" element={page(ProductionDowntimesPage)} />
-            <Route path="shifts" element={page(ShiftsPage)} />
-            <Route path="reports" element={page(ReportsPage)} />
+            <Route path="production/oee" element={page(OeePage)} />
+            <Route path="production/stops" element={page(ProductionDowntimesPage)} />
+            <Route path="production/shifts" element={page(ShiftsPage)} />
+            <Route path="production/reports" element={page(ReportsPage)} />
             {/* notifications + signed ack link (Phase 3) */}
             <Route path="notifications/channels" element={page(ChannelsPage)} />
             <Route path="ack/:token" element={page(AckLinkPage)} />
@@ -338,6 +358,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      </MotionRoot>
     </QueryClientProvider>
   );
 }

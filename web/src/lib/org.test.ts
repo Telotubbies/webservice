@@ -1,3 +1,6 @@
+// bun tests for org/scope selection — pickInitialOrg precedence and the
+// X-WDS-* headers emitted for the active scope.
+
 import { expect, test } from 'bun:test';
 import { pickInitialOrg } from './org';
 import { scopeHeaders, setScope } from './scope';

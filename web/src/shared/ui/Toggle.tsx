@@ -1,4 +1,6 @@
-// Toggle — measured dd switch: track 37×21 pill, on-bg #006bc2, 15×15 white thumb.
+// Toggle — switch: track 37×21 pill, accent when on, 15×15 white thumb.
+// The thumb is pinned to left-0: without it an absolute child starts at the
+// button's centred static position and slid out over the label ("nabled").
 
 export function Toggle({ on, onChange, label, disabled }: {
   on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean;
@@ -16,7 +18,7 @@ export function Toggle({ on, onChange, label, disabled }: {
       }`}
     >
       <span
-        className={`absolute top-[3px] h-[15px] w-[15px] rounded-full bg-white shadow-card transition-transform ${
+        className={`absolute left-0 top-[3px] h-[15px] w-[15px] rounded-full bg-paper shadow-[0_1px_2px_rgb(24_32_42/0.3)] transition-transform ${
           on ? 'translate-x-[19px]' : 'translate-x-[3px]'
         }`}
       />

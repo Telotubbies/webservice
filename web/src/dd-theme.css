@@ -1,24 +1,26 @@
-/* Datadog UI — extracted design tokens (live capture, 2025-10)
- * Source: computed styles from ap2.datadoghq.com (monitors, dashboards,
- * apm, infra, logs, metrics, monitor-create). Tailwind v4 @theme format —
- * drop into your global CSS after `import "tailwindcss"`.
- * Raw evidence: ./*-vocab.json, ./*-components.json
- */
+/* Console theme tokens — palette, type scale, radii, shadows and control
+   heights shared by every surface. Tailwind v4 @theme format; index.css
+   imports this right after `tailwindcss`.
+   Values follow the "Console 5" palette (docs/superpowers/specs/
+   2026-10-20-console-redesign-design.md §6.2), mapped onto the original
+   token names so existing pages pick it up without renames. */
 
 @theme {
   /* ---- ink / neutrals (light theme) ---- */
-  --color-ink:        rgb(28 43 52 / 0.98);   /* primary text */
-  --color-ink-68:     rgb(28 43 52 / 0.68);   /* secondary text */
-  --color-ink-46:     rgb(28 43 52 / 0.46);   /* tertiary / disabled */
-  --color-ink-35:     rgb(28 43 52 / 0.35);   /* placeholder */
-  --color-paper:      #ffffff;
-  --color-subtle:     #f9fafb;                /* tinted row / section bg */
-  --color-line:       #e2e5ed;                /* hairline border */
-  --color-line-hard:  #c2c8dd;                /* input border */
+  --color-ink:        #18202a;                /* primary text */
+  --color-ink-68:     #4a5563;                /* secondary text (7.5:1 on paper) */
+  --color-ink-46:     #657080;                /* tertiary text — 5.0:1 on paper, 4.5:1 on ground, so it may carry information */
+  --color-ink-35:     #9aa4b1;                /* disabled / decorative only — never for text that must be read */
+  --color-paper:      #ffffff;                /* panels, inputs, page bar */
+  --color-ground:     #f1f3f6;                /* app background under the panels */
+  --color-subtle:     #f7f8fa;                /* table header / sunken section */
+  --color-line:       #dfe3e8;                /* hairline border */
+  --color-line-hard:  #c5ccd5;                /* strong divider */
+  --color-input-line: #8a94a2;                /* text-field border — 3:1 on paper (WCAG 1.4.11) */
 
   /* ---- dark chrome (rail + topbar) ---- */
-  --color-rail:       #292e39;                /* sidebar bg */
-  --color-topbar:     #292e39;                /* global top bar — same chrome tone (measured) */
+  --color-rail:       #1f2430;                /* sidebar bg */
+  --color-topbar:     #1f2430;                /* global top bar — same chrome tone */
   /* ---- severity ramp (chips, status pills). White text on crit/high/info, dark on amber/gold — all >=4.5:1 */
   --color-sev-critical: #a31d1d;
   --color-sev-high:     #d4213f;
@@ -32,32 +34,32 @@
   --color-sev-low-soft:      #f3e2ad;
   --color-sev-info-soft:     #dfe2ea;
   --color-flyout:     #15171e;                /* mega-menu panel + its open rail row (one connected tab) */
-  --color-rail-hover: #3b393d;                /* dark surface raised */
-  --color-rail-line:  #65626a;                /* dark button border */
+  --color-rail-hover: #2a3040;                /* dark surface raised */
+  --color-rail-line:  #4a5263;                /* dark button border */
   --color-nav-text:   rgb(255 255 255 / 0.76);/* nav label */
   --color-nav-dim:    #babdbb;                /* nav label dim */
   --color-nav-hi:     #eeefee;                /* nav label hover/active */
 
   /* ---- accents ---- */
-  --color-blue:       #006bc2;                /* links, primary button */
-  --color-blue-nav:   #3d8bd0;                /* active rail item */
+  --color-blue:       #2a64c8;                /* the one accent: primary action, selection, links (5.6:1 on paper, 5.0:1 on ground) */
+  --color-blue-nav:   #5b8ff0;                /* active rail item */
   --color-purple:     #c159ff;                /* brand accent on dark */
   --color-purple-dd:  #632ca6;                /* brand purple (marketing) */
   --color-bits:       #5e6dd6;                /* Bits/AI button */
-  --color-warn:       #f99d02;
-  --color-muted-pill: #828ba4;                /* neutral pill bg */
-  --color-info-soft:  #eaf6fc;                /* info tint bg */
+  --color-warn:       #f2a900;                /* warning fill (dark text on it) */
+  --color-muted-pill: #6b7685;                /* neutral pill bg */
+  --color-info-soft:  #edf3fe;                /* hover / selected row tint */
   --color-warn-soft:  #fcd579;                /* warn tint */
   --color-rose-soft:  #ffe6f5;
   /* status (ISA-101: colour only for abnormal) */
-  --color-danger:       #b83d44;
-  --color-danger-hover: #a5363c;
-  --color-danger-bright:#d24f57;
+  --color-danger:       #b42318;                /* critical text (5.6:1 on danger-soft) */
+  --color-danger-hover: #9a1d14;
+  --color-danger-bright:#c62828;                /* critical fill / marker */
   --color-danger-soft:  #fdecec;
-  --color-ok:           #1c9a67;
-  --color-ok-soft:      #e6f5ee;
-  --color-caution:      #b5740a;
-  --color-caution-soft: #fff4dc;
+  --color-ok:           #1f8a5b;                /* analytics "within target" only — never "running" */
+  --color-ok-soft:      #e7f4ed;
+  --color-caution:      #9f5f00;                /* warning text on paper (5.1:1) */
+  --color-caution-soft: #fff3d6;
   /* text-on-tint variants — the base hues above fail 4.5:1 as 11px text on
      their -soft fills; use these for pill/notice text (WCAG AA, readable
      from a control-room chair) */
@@ -66,16 +68,22 @@
   --color-ink-muted:    #5d6670;                /* muted text on tints (≥5:1 on neutral-soft) */
 
   /* ---- app-system additions (tokens for values that were hard-coded) ---- */
-  --color-blue-hover:   #005aa5;                /* primary button hover, info text */
-  --color-blue-soft:    #e8f1fb;                /* info / demo notice fill */
+  --color-blue-hover:   #2353a8;                /* primary button hover, info text */
+  --color-blue-soft:    #e6efff;                /* info / demo notice fill */
   --color-neutral-soft: #eef1f4;                /* neutral pill fill, skeleton base */
   --color-skeleton-hi:  #e2e6eb;                /* skeleton shimmer highlight */
-  --color-control-line: #c8cdd5;                /* button-ghost / input / seg border */
-  --color-nav-hover:    #0953bf;                /* rail + flyout item hover */
-  --color-nav-action:   #0d62c9;                /* flyout "+ action" row */
+  --color-control-line: #c5ccd5;                /* button-ghost / seg border (inputs use --color-input-line) */
+  --color-nav-hover:    #2a3040;                /* rail + flyout item hover — a lift, not a blue flood */
+  --color-nav-action:   #323a4c;                /* flyout title / "+ action" hover */
   --color-nav-badge:    #b372f0;                /* NEW badge on dark chrome */
   --color-nav-flyout-hi: #a9c7ff;               /* flyout item under pointer (AA on --color-topbar) */
   --color-focus-dark:   #8cc8ff;                /* focus ring on dark chrome (≥3:1 on rail) */
+  --color-crit-on-dark: #ff9d94;                /* acked-critical count on dark chrome */
+  --color-warn-on-dark: #ffd27a;                /* acked-warning count on dark chrome */
+  /* ---- process register (HMI drawings, spec §6.2) — neutral by default ---- */
+  --color-hmi-equip:     #9aa4b1;              /* equipment outline at rest */
+  --color-hmi-equip-run: #4a5563;              /* running: darker neutral, never green */
+  --color-hmi-level:     #6f8aa6;              /* vessel level fill — muted, not a status colour */
 
   /* ---- typography ---- */
   /* IBM Plex (bundled via @fontsource — CSP allows self-hosted fonts only).
@@ -95,7 +103,7 @@
   --text-3xl: 22px;
   --text-display: 40px;
 
-  /* Datadog runs tight leading — often equal to font size */
+  /* The theme runs tight leading — often equal to font size. */
   --leading-flush: 1;
   --leading-tight-dd: 1.2;
   --leading-body: 1.4;
@@ -107,7 +115,8 @@
   --radius-lg-dd: 12px;
 
   /* ---- shadows (real values) ---- */
-  --shadow-card:   0 0 1px rgb(36 41 49 / 0.10), 0 1px 2px rgb(36 41 49 / 0.25);
+  /* panels sit on --color-ground with a hairline; the shadow only lifts them a hair */
+  --shadow-card:   0 1px 1px rgb(24 32 42 / 0.04);
   --shadow-pop:    0 0 1px rgb(36 41 49 / 0.10), 0 3px 11px rgb(36 41 49 / 0.25);
   --shadow-flyout: 0 0 1px rgb(36 41 49 / 0.10), 0 8px 36px rgb(36 41 49 / 0.25);
   --shadow-hairline: 0 1px 0 #e2e5ed;                        /* topbar divider */

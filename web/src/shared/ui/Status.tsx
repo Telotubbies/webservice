@@ -24,17 +24,9 @@ export function StatePill({ state }: { state: RunState }) {
   );
 }
 
-export type Severity = 'critical' | 'warning' | 'info';
-
-/** Free-form backend severity → canonical three-tone palette
- *  (dd ALERT/WARN/NO DATA order). Unknown strings degrade to info. */
-export function normSeverity(s: string): Severity {
-  const v = s.toLowerCase();
-  if (v.startsWith('crit') || v.startsWith('err') || v.startsWith('alert')
-    || v === 'fatal' || v === 'high') return 'critical';
-  if (v.startsWith('warn') || v.startsWith('med')) return 'warning';
-  return 'info';
-}
+// normSeverity lives in ./severity (pure, importable without React/i18n).
+export { normSeverity, type Severity } from './severity';
+import { normSeverity } from './severity';
 
 export function SeverityBadge({ severity }: { severity: string }) {
   const { t } = useTranslation();
@@ -48,7 +40,7 @@ export function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
-/** Alarm lifecycle state — Triggered → Acked → Cleared (Datadog §2.4).
+/** Alarm lifecycle state — Triggered → Acked → Cleared (ISA-18.2).
  *  Free-form backend strings normalise to the three canonical states;
  *  redundant-coded via .alarm-state (colour + label — styles in index.css). */
 export type AlarmState = 'active' | 'acked' | 'cleared';

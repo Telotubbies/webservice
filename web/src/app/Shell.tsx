@@ -1,18 +1,30 @@
-// Shell — the app chrome: an expanded dark sidebar (icon + label rows), a
-// flyout per group, a 36px topbar (search / live / bell / user), and an alarm
-// banner under the bar. The nav model is shared with the palette via ./nav.
+// Shell — the app chrome: a dark sidebar (200 px, collapsible to 56 px icons),
+// a flyout per group, a 40 px topbar (scope / search / alarm summary / live /
+// theme / bell / user), and an alarm banner under the bar. The nav model is shared with the palette via ./nav.
 
-import { OrgSwitcher } from '../features/orgs/OrgSwitcher';
+import { ScopePicker } from './ScopePicker';
 import { ConsentBanner } from '../features/onboarding/ConsentBanner';
+import { StartHere } from '../features/onboarding/StartHere';
+import { OPEN_EVENT as START_OPEN } from '../features/onboarding/start';
 import { ShiftBadge } from '../features/production/ShiftBadge';
 import { getScope } from '../lib/scope';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, NavLink, Outlet, useLocation } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import '../features/guide/i18n';
 import { InstallHint, MobileNav, OfflineBanner } from '../features/mobile/MobileChrome';
 import { loadOrgPolicy } from '../lib/policy';
-import { NAV, type NavGroup, type NavItem, type NavSection } from './nav';
+import { CLUSTER_LABEL, NAV, activeGroup, type NavGroup, type NavItem, type NavSection } from './nav';
+import { enabled } from '../lib/features';
+import { normSeverity } from '../shared/ui/Status';
 import { Palette } from './Palette';
+import { Toaster } from '../ui/Toaster';
+import { Drawer } from '../ui/Drawer';
+import { Menu } from '../ui/Popover';
+import { AlarmCard } from '../features/alarms/AlarmRow';
+import { summarizeAlarms } from './alarmSummary';
+import { applyTheme, readThemePref, writeThemePref, type ThemePref } from '../theme/theme';
+import { readMotionPref, setMotionPref } from '../theme/motion';
 import { signOut, useRole } from './session';
 import { live } from '../lib/live';
 import { reconnectWS } from '../lib/ws';
@@ -50,7 +62,7 @@ function ShortcutOverlay({ onClose }: { onClose: () => void }) {
   ];
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45" onClick={onClose} role="dialog" aria-modal="true" aria-label={t('shortcuts.title')}>
-      <div className="w-[380px] rounded-panel bg-white p-4 shadow-flyout" onClick={(e) => e.stopPropagation()}>
+      <div className="w-[380px] rounded-panel bg-paper p-4 shadow-flyout" onClick={(e) => e.stopPropagation()}>
         <h2 className="mb-3 text-[15px] font-semibold">{t('shortcuts.title')}</h2>
         <dl className="space-y-2">
           {rows.map(([k, d]) => (
@@ -60,6 +72,9 @@ function ShortcutOverlay({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </dl>
+        <NavLink to="/guide" onClick={onClose} className="mt-4 inline-flex items-center gap-1 text-[13px] text-blue hover:underline focus-visible:outline-2 focus-visible:outline-blue">
+          {t('manual.open')} <span aria-hidden>→</span>
+        </NavLink>
       </div>
     </div>
   );
@@ -77,10 +92,11 @@ function LivePill() {
     /* .live-pill + data-ws are the UAT hook and drive the tinted not-live styles (index.css). */
     <span
       className="live-pill flex h-6 shrink-0 items-center gap-1.5 rounded border border-rail-line bg-rail-hover px-2 text-[11px] font-semibold text-white/80"
-      data-ws={ws} role="status" aria-live="polite"
+      data-ws={ws} role="status" aria-live="polite" aria-label={label} title={label}
     >
       <span className="livedot" data-ws={ws} aria-hidden />
-      <span className="max-w-[9rem] truncate">{label}</span>
+      {/* phones keep the tinted dot; the word needs ≥sm room */}
+      <span className="hidden max-w-[9rem] truncate sm:inline">{label}</span>
     </span>
   );
 }
@@ -100,22 +116,87 @@ function TopClock() {
   );
 }
 
-/** Persistent critical count in the always-visible topbar — the banner
- *  below scrolls away; this doesn't (ISA-18.2: critical stays in view).
- *  Red only when abnormal, with a ▲ shape and text. */
-function CriticalChip() {
+/** Always-visible alarm summary (ISA-18.2): ▲ critical and ◆ warning counts
+ *  over alarms that still need someone (summarizeAlarms: cleared and shelved
+ *  are out). A priority keeps its solid fill while any of its alarms is
+ *  unacknowledged — critical also blinks at 1 Hz until acked (ISA-101 M2;
+ *  reduced motion makes it steady). Opens a drawer of the open alarms. */
+function AlarmSummaryChip() {
   const { t } = useTranslation();
-  const { critical } = useAlarms();
-  if (!critical.length) return null;
+  const navigate = useNavigate();
+  const now = useNow(5000);
+  const { open } = useAlarms();
+  const [drawer, setDrawer] = useState(false);
+  const live_ = open.filter((a) => !a.shelved_until || Date.parse(a.shelved_until) <= now);
+  const sum = summarizeAlarms(open, now);
+  const critUnacked = live_.some((a) => a.state === 'active' && normSeverity(a.severity) === 'critical');
+  const warnUnacked = live_.some((a) => a.state === 'active' && normSeverity(a.severity) === 'warning');
+  if (!sum.critical && !sum.warning && !drawer) return null;
+  const seg = 'flex h-full items-center gap-1 px-2 tabular-nums';
   return (
-    <NavLink
-      to="/alarms"
-      className="flex h-6 shrink-0 items-center gap-1 rounded bg-[var(--color-danger-bright)] px-2 text-[11px] font-bold text-white hover:bg-[var(--color-danger)]"
-      aria-label={t('shell.criticalActive', { count: critical.length, what: critical[0].rule || critical[0].tag })}
-    >
-      <span aria-hidden className="text-[9px]">▲</span>
-      {t('ui.criticalChip', { count: critical.length })}
-    </NavLink>
+    <>
+      <button
+        type="button" aria-haspopup="dialog" aria-expanded={drawer} onClick={() => setDrawer(true)}
+        className="alarm-chip flex h-9 shrink-0 md:h-6 items-stretch overflow-hidden rounded text-[11px] font-bold ring-1 ring-white/15 hover:ring-white/40"
+        aria-label={t('shell.alarmSummary', { crit: sum.critical, warn: sum.warning })}
+      >
+        {sum.critical > 0 && (
+          <span data-motion-data={critUnacked || undefined}
+            className={`${seg} ${critUnacked ? 'chip-blink bg-[var(--color-danger-bright)] text-white' : 'text-crit-on-dark'}`}>
+            <span aria-hidden className="text-[9px]">▲</span>{sum.critical}
+          </span>
+        )}
+        {sum.warning > 0 && (
+          <span className={`${seg} ${warnUnacked ? 'bg-[var(--color-warn)] text-[var(--color-sev-ink)]' : 'text-warn-on-dark'}`}>
+            <span aria-hidden className="text-[9px]">◆</span>{sum.warning}
+          </span>
+        )}
+      </button>
+      <Drawer
+        open={drawer} onClose={() => setDrawer(false)} title={t('shell.alarmDrawer')}
+        footer={<button type="button" className="btn btn-sm" onClick={() => { setDrawer(false); navigate('/alarms'); }}>{t('shell.alarmConsole')}</button>}
+      >
+        {live_.length === 0 ? (
+          <p className="p-4 text-[13px] text-ink-3">{t('shell.alarmsNone')}</p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {live_.map((a) => (
+              <li key={a.id}><AlarmCard alarm={a} now={now} onOpen={() => { setDrawer(false); navigate(`/alarms/${a.id}`); }} /></li>
+            ))}
+          </ul>
+        )}
+      </Drawer>
+    </>
+  );
+}
+
+/** Theme: light / dark / match system — one switch for the whole console. */
+function ThemeMenu() {
+  const { t } = useTranslation();
+  const [pref, setPref] = useState<ThemePref>(() => readThemePref());
+  const [calm, setCalm] = useState(() => readMotionPref() === 'calm');
+  // "Match system" keeps following the OS while it is the choice.
+  useEffect(() => {
+    if (pref !== 'system' || typeof matchMedia !== 'function') return;
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const h = () => applyTheme('system');
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, [pref]);
+  const choose = (p: ThemePref) => { writeThemePref(p); applyTheme(p); setPref(p); };
+  const icon = pref === 'light' ? 'sun' : pref === 'dark' ? 'moon' : 'theme-system';
+  return (
+    <Menu.Root>
+      <Menu.Trigger className={TOP_BTN} aria-label={`${t('shell.theme')}: ${t(`shell.theme${pref === 'system' ? 'System' : pref === 'dark' ? 'Dark' : 'Light'}`)}`}>
+        <DdIcon name={icon} size={15} />
+      </Menu.Trigger>
+      <Menu.List label={t('shell.theme')}>
+        <Menu.Item checked={pref === 'light'} onSelect={() => choose('light')}>{t('shell.themeLight')}</Menu.Item>
+        <Menu.Item checked={pref === 'dark'} onSelect={() => choose('dark')}>{t('shell.themeDark')}</Menu.Item>
+        <Menu.Item checked={pref === 'system'} onSelect={() => choose('system')}>{t('shell.themeSystem')}</Menu.Item>
+        <Menu.Item checked={calm} onSelect={() => { const next = !calm; setCalm(next); setMotionPref(next ? 'calm' : 'full'); }}>{t('shell.motionCalm')}</Menu.Item>
+      </Menu.List>
+    </Menu.Root>
   );
 }
 
@@ -139,7 +220,7 @@ function LinkStrip() {
     : ws === 'closed' ? t('ui.linkOffline') : t('ui.linkReconnecting');
   return (
     <div className="link-strip" data-ws={ws} role="status">
-      <span aria-hidden className="text-[10px]">{ws === 'closed' || ws === 'auth_expired' || ws === 'forbidden' ? '▲' : '◆'}</span>
+      <span aria-hidden className="text-[10px]">{ws === 'closed' || ws === 'auth_expired' || ws === 'forbidden' ? '▲' : '◌'}</span>
       {msg}
       {ws === 'forbidden' && (
         <button type="button" className="ml-2 underline" onClick={() => reconnectWS()}>{t('common.retry')}</button>
@@ -162,15 +243,17 @@ function NotifyBell() {
   useEscape(open, closeBell);
   return (
     <div className="relative">
+      {/* Hover lifts like every other topbar control — the blue accent is
+          kept for the unread badge, not a hover flood. */}
       <button
-        className="relative grid h-6 w-6 place-items-center rounded text-white/70 hover:bg-blue hover:text-white"
-        aria-label={t('shell.alarmsButton', { count: unread })}
-        aria-expanded={open} aria-haspopup="true"
+        className={`relative ${TOP_BTN}`}
+        aria-label={`${t('nav.activity')} (${unread})`}
+        aria-expanded={open} aria-haspopup="dialog"
         onClick={() => { setOpen((o) => !o); if (!open) setReadAt(markJournalRead(live.journal)); }}
       >
         <DdIcon name="bell" size={17} />
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-[var(--color-danger-bright)] px-1 text-[9px] font-bold text-white">
+          <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-blue px-1 text-[9px] font-bold text-white">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
@@ -178,7 +261,7 @@ function NotifyBell() {
       {open && (
         <>
           <button className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute right-0 top-9 z-50 w-[340px] overflow-hidden rounded-md border border-line bg-white text-ink shadow-pop">
+          <div className="absolute right-0 top-10 z-50 w-[340px] overflow-hidden rounded-md border border-line bg-paper text-ink shadow-pop">
             <div className="border-b border-line px-3 py-2 text-[12px] font-semibold">
               {t('nav.activity')}
             </div>
@@ -229,18 +312,21 @@ function UserMenu() {
   useEscape(open, closeMenu);
   return (
     <div className="relative">
+      {/* The hit area is the full TOP_BTN box; the 24px avatar disc sits inside it. */}
       <button
-        className="user-btn grid h-6 w-6 place-items-center rounded-full bg-white/10 text-white/80 hover:bg-white/15"
+        className="user-btn group/user grid h-10 w-10 shrink-0 place-items-center rounded md:h-7 md:w-7"
         onClick={() => setOpen((o) => !o)}
         aria-label={`${t('ui.userMenu')}: ${t('roles.' + role, { defaultValue: role })}`}
-        aria-expanded={open} aria-haspopup="true"
+        aria-expanded={open} aria-haspopup="dialog"
       >
-        <DdIcon name="user" size={16} />
+        <span className="grid h-6 w-6 place-items-center rounded-full bg-white/10 text-white/80 group-hover/user:bg-white/15">
+          <DdIcon name="user" size={16} />
+        </span>
       </button>
       {open && (
         <>
           <button className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} aria-hidden tabIndex={-1} />
-          <div className="absolute right-0 top-9 z-50 w-52 overflow-hidden rounded-md border border-line bg-white py-1 text-ink shadow-pop">
+          <div className="absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-md border border-line bg-paper py-1 text-ink shadow-pop">
             <div className="border-b border-line px-3 py-2">
               <div className="overline">{t('roles.' + role, { defaultValue: role })}</div>
             </div>
@@ -251,6 +337,12 @@ function UserMenu() {
             >
               <DdIcon name="cog" size={14} /> {t('nav.settings')}
             </NavLink>
+            <button
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] hover:bg-subtle"
+              onClick={() => { setOpen(false); window.dispatchEvent(new Event(START_OPEN)); }}
+            >
+              <DdIcon name="signpost" size={14} /> {t('start.menuItem')}
+            </button>
             <button
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] hover:bg-subtle"
               /* setLang persists the choice and updates <html lang> — Thai
@@ -275,22 +367,34 @@ function UserMenu() {
 
 // ── Alarm banner ─────────────────────────────────────────────────────────────
 
+/** Critical alarm line under the topbar. Solid red only while a critical
+ *  alarm is still unacknowledged (ISA-18.2: unacked is the state that needs
+ *  a person); once every critical is acked it steps down to a tinted strip,
+ *  so a known, handled alarm stops shouting over the whole console. */
 function AlarmBanner() {
   const { t } = useTranslation();
   const { critical, active } = useAlarms();
   if (!critical.length) return null;
-  const latest = critical[0];
+  const unacked = critical.filter((a) => a.state === 'active');
+  const latest = unacked[0] ?? critical[0];
   return (
     <div role="alert">
       <NavLink
         to="/alarms"
+        data-unacked={unacked.length > 0}
         /* min-h + py let a long Thai rule name wrap on mobile instead of
            spilling out of a fixed 32px bar. */
-        className="flex min-h-8 items-center gap-2 bg-[var(--color-danger)] px-4 py-1 text-[12px] font-semibold leading-snug text-white hover:bg-[var(--color-danger-hover)]"
+        className={`alarm-banner flex min-h-8 items-center gap-2 px-4 py-1 text-[12px] font-semibold leading-snug ${
+          unacked.length
+            ? 'bg-[var(--color-danger-bright)] text-white hover:bg-[var(--color-danger)]'
+            : 'border-b border-[color-mix(in_srgb,var(--color-danger)_25%,transparent)] bg-danger-soft text-[var(--color-danger)] hover:bg-[color-mix(in_srgb,var(--color-danger)_12%,white)]'
+        }`}
       >
-        <DdIcon name="attention-circled" size={14} className="shrink-0" />
+        <span aria-hidden className="shrink-0 text-[10px]">▲</span>
         <span className="min-w-0">{t('shell.criticalActive', { count: critical.length, what: latest.rule || latest.tag })}</span>
-        <span className="ml-auto shrink-0 whitespace-nowrap font-normal text-white/80">{active.length} {t('alarms.active').toLowerCase()}</span>
+        <span className={`ml-auto shrink-0 whitespace-nowrap font-normal ${unacked.length ? 'text-white/85' : 'text-[var(--color-danger)]'}`}>
+          {active.length} {t('alarms.active').toLowerCase()}
+        </span>
       </NavLink>
     </div>
   );
@@ -306,7 +410,7 @@ function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate: () => vo
       to={item.to} onClick={onNavigate}
       className={({ isActive }) =>
         `mx-1 flex items-center gap-2.5 rounded px-2.5 py-2 text-[13px] ${
-          isActive ? 'bg-blue font-semibold text-white' : 'text-nav-dim hover:bg-nav-hover hover:text-white'
+          isActive ? 'bg-white/10 font-semibold text-white shadow-[inset_3px_0_0_var(--color-blue-nav)]' : 'text-nav-dim hover:bg-nav-hover hover:text-white'
         }`
       }
     >
@@ -317,15 +421,13 @@ function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate: () => vo
 
 /** Drawer group — same header as the rail row; items render inline-expanded
  *  (no flyout) so the overlay nav works on touch. */
-function DrawerGroup({ group, onNavigate }: { group: NavGroup; onNavigate: () => void }) {
+function DrawerGroup({ group, active, onNavigate }: { group: NavGroup; active: boolean; onNavigate: () => void }) {
   const { t } = useTranslation();
-  const { pathname } = useLocation();
-  const active = group.items.some((i) => i.to === '/' ? pathname === '/' : pathname.startsWith(i.to));
   return (
     <div>
       <div className={`flex h-[31px] items-center gap-2.5 px-2.5 text-[13px] leading-tight ${active ? 'text-white' : 'text-nav-dim'}`}>
         <DdIcon name={group.icon} size={15} />
-        <span className="truncate font-semibold">{t(group.group)}</span>
+        <span className="rail-label truncate font-semibold">{t(group.group)}</span>
       </div>
       {group.items.map((i) => (
         <NavItemLink key={i.to} item={i} onNavigate={onNavigate} />
@@ -415,24 +517,45 @@ function FlyoutSection({ sec, onNavigate }: { sec: NavSection; onNavigate: () =>
 
 // ── Rail row ─────────────────────────────────────────────────────────────────
 
+const RAIL_ROW = 'flex min-h-[31px] w-full items-center gap-2 px-2.5 py-1 text-left text-[13px] leading-[15px] transition-colors';
+const RAIL_ACTIVE = 'bg-white/10 font-semibold text-white shadow-[inset_3px_0_0_var(--color-blue-nav)]';
+const RAIL_IDLE = 'text-nav-dim hover:bg-nav-hover hover:text-white';
+const HOVER_MS = 120;
+const FOOT_LINK = 'flex flex-1 flex-col items-center gap-0.5 rounded py-1 text-white/55 hover:bg-white/5 hover:text-white';
+/* Topbar icon buttons: 40×40 below md (the bar's full height, so a thumb
+   has a real target), 28×28 on desktop where a pointer is precise. */
+const TOP_BTN = 'grid h-10 w-10 shrink-0 place-items-center rounded text-white/70 hover:bg-white/10 hover:text-white md:h-7 md:w-7';
+
+/** ↑ / ↓ move focus between rail rows (Home / End jump to the ends); Tab
+ *  still walks them in order. */
+function railArrows(e: React.KeyboardEvent<HTMLElement>) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  const rows = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-rail-row]')];
+  const i = rows.indexOf(e.target as HTMLElement);
+  if (i < 0) return;
+  e.preventDefault();
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? rows.length - 1
+    : (i + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;
+  rows[next].focus();
+}
+
 /* Sidebar row — icon + label; opens the group's flyout on hover/focus.
- * Active when any child route matches. */
-function SideRow({ group, openId, setOpenId }: {
-  group: NavGroup; openId: string | null;
+ * A one-page group is a plain link: a flyout holding a single item is a
+ * detour. `active` = this group owns the current route (see activeGroup). */
+function SideRow({ group, active, openId, setOpenId }: {
+  group: NavGroup; active: boolean; openId: string | null;
   setOpenId: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
-  const { t } = useTranslation();
-  const { pathname } = useLocation();
+  const { t, i18n } = useTranslation();
   const open = openId === group.group;
-  const active = group.items.some((i) => i.to === '/' ? pathname === '/' : pathname.startsWith(i.to));
   const sections = group.sections ?? [{ items: group.items, action: group.action }];
   const flat = !group.sections && group.items.length >= 4;
   /* The rail's overflow-y-auto clips absolutely positioned children, so the
      flyout must be position:fixed, anchored to this row's rect. */
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
-  const open_ = (e: React.SyntheticEvent) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const rail = e.currentTarget.closest('nav')?.getBoundingClientRect();
+  const place = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    const rail = el.closest('nav')?.getBoundingClientRect();
     setAnchor({ x: rail ? rail.right : r.right, y: r.top });
     /* anchor.y is the row's top, so the panel's top edge lines up with the
        highlighted row; the layout effect below clamps it by the panel's
@@ -441,6 +564,53 @@ function SideRow({ group, openId, setOpenId }: {
   };
   const close = () => setOpenId((id) => id === group.group ? null : id);
   const panelRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  /* Hover intent: open and close both wait HOVER_MS, so a diagonal move from
+     a row toward a low item in its panel can cross the next rows without
+     swapping the flyout (re-entering this row or its panel cancels the close). */
+  const timer = useRef<number | undefined>(undefined);
+  const clearTimer = () => { window.clearTimeout(timer.current); timer.current = undefined; };
+  useEffect(() => clearTimer, []);
+  const onEnter = (e: React.MouseEvent) => {
+    clearTimer();
+    if (open) return;
+    const el = e.currentTarget;
+    timer.current = window.setTimeout(() => place(el), HOVER_MS);
+  };
+  const onLeave = () => {
+    clearTimer();
+    if (open) timer.current = window.setTimeout(close, HOVER_MS);
+  };
+  /* Keyboard: the flyout never opens on focus (that put every flyout link in
+     the Tab order). Enter / Space / → open it and move focus to its first
+     link; Esc or ← closes it and hands focus back to the row; tabbing out of
+     the panel closes it. */
+  const focusFirst = useRef(false);
+  const focusPanel = () => panelRef.current?.querySelector<HTMLElement>('a[href]')?.focus();
+  useEffect(() => {
+    if (open && focusFirst.current) { focusFirst.current = false; focusPanel(); }
+  }, [open]);
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' || (e.key === 'ArrowLeft' && open)) {
+      if (!open) return;
+      e.preventDefault(); e.stopPropagation();
+      close(); btnRef.current?.focus();
+    } else if (e.target === btnRef.current && e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (open) focusPanel(); else { focusFirst.current = true; place(e.currentTarget); }
+    }
+  };
+  /* Enter / Space arrive as a click with detail 0 — keyboard-opened panels
+     take focus, pointer-opened ones leave it where it is. */
+  const onClick = (e: React.MouseEvent) => {
+    clearTimer();
+    if (open) { setOpenId(null); return; }
+    focusFirst.current = e.detail === 0;
+    place(e.currentTarget);
+  };
+  const onBlur = (e: React.FocusEvent) => {
+    if (open && !e.currentTarget.contains(e.relatedTarget as Node | null)) close();
+  };
   /* Near the bottom edge, the panel shifts up just enough to fit — it never
      detaches from the row (a fixed-height guess once left short panels
      floating far above their row). */
@@ -450,26 +620,34 @@ function SideRow({ group, openId, setOpenId }: {
     const top = Math.max(8, Math.min(anchor.y, window.innerHeight - el.offsetHeight - 8));
     el.style.top = `${top}px`;
   }, [open, anchor]);
+  if (group.items.length === 1) {
+    const only = group.items[0];
+    return (
+      <NavLink to={only.to} end={only.to === '/'} data-rail-row title={t(group.group)} className={`${RAIL_ROW} ${active ? RAIL_ACTIVE : RAIL_IDLE}`} aria-current={active ? 'page' : undefined}>
+        <DdIcon name={group.icon} size={15} />
+        <span className="rail-label rail-text line-clamp-2 min-w-0 tracking-[-0.02em]">{t(group.group)}</span>
+      </NavLink>
+    );
+  }
   return (
-    <div className="relative" onMouseEnter={open_} onMouseLeave={close}>
+    <div className="relative" onMouseEnter={onEnter} onMouseLeave={onLeave} onKeyDown={onKeyDown} onBlur={onBlur}>
       <button
-        className={`flex min-h-[31px] w-full items-center gap-2 px-2.5 py-1 text-left text-[13px] leading-[15px] transition-colors ${
-          open ? 'relative z-[51] bg-flyout text-white' : active ? 'bg-white/10 text-white' :'text-nav-dim hover:bg-nav-hover hover:text-white'
-        } ${active ? 'font-semibold shadow-[inset_3px_0_0_var(--color-blue-nav)]' : ''}`}
+        ref={btnRef}
+        data-rail-row
+        className={`${RAIL_ROW} ${open ? `relative z-[51] bg-flyout text-white${active ? ' font-semibold shadow-[inset_3px_0_0_var(--color-blue-nav)]' : ''}` : active ? RAIL_ACTIVE : RAIL_IDLE}`}
         /* The inset bar marks the group of the current page — "where am I" at a glance. */
         aria-current={active ? 'true' : undefined}
         aria-expanded={open}
         aria-haspopup="true"
-        onFocus={open_}
-        onClick={(e) => (open ? setOpenId(null) : open_(e))}
+        onClick={onClick}
       >
         <DdIcon name={group.icon} size={15} />
         {/* Wrap at word boundaries (max 2 lines) instead of ellipsis; the
             tight tracking lets the longest single word ("Infrastructure")
             fit the 160px rail. */}
-        <span className="line-clamp-2 min-w-0 tracking-[-0.02em]">{t(group.group)}</span>
+        <span className="rail-label rail-text line-clamp-2 min-w-0 tracking-[-0.02em]">{t(group.group)}</span>
         {group.items.length > 1 && (
-          <DdIcon name="caret-right" size={10} className={`ml-auto opacity-50 transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
+          <DdIcon name="caret-right" size={10} className={`rail-hide ml-auto opacity-50 transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
         )}
       </button>
       {open && anchor && (
@@ -489,6 +667,11 @@ function SideRow({ group, openId, setOpenId }: {
                 {t(group.group)}
                 <DdIcon name="arrow-right" size={15} className="opacity-0 motion-safe:transition-opacity group-hover/title:opacity-100 group-focus-visible/title:opacity-100" />
               </NavLink>
+              {/* What the group is for, in one line — new users meet
+                  "Connectivity" or "Platform tools" without a manual. */}
+              {i18n.exists(`navDesc.${group.group.replace(/^nav\./, '')}`) && (
+                <p className="mt-1 px-2 pb-1 text-[12px] leading-4 text-white/65">{t(`navDesc.${group.group.replace(/^nav\./, '')}`)}</p>
+              )}
             </div>
             {flat ? (
               /* Groups with ≥4 flat items split into two guide-lined columns. */
@@ -517,8 +700,15 @@ export function Shell() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
+  // Rail: 200 px with labels, or 56 px icons — remembered per browser.
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('wds.rail') === 'collapsed'; } catch { return false; } });
+  const toggleRail = () => setCollapsed((c) => {
+    try { localStorage.setItem('wds.rail', c ? 'expanded' : 'collapsed'); } catch { /* session-only */ }
+    return !c;
+  });
   const { pathname } = useLocation();
   const groups = NAV.filter((g) => !g.gated || showAdmin);
+  const current = activeGroup(pathname, groups);
   const { orgId } = useAdminOrg();
   useEffect(() => { if (orgId) void loadOrgPolicy(orgId); }, [orgId]);
 
@@ -533,48 +723,74 @@ export function Shell() {
   }, []);
 
   // Focus the drawer on open; close it on route change (back/forward).
-  useEffect(() => { if (navOpen) drawerRef.current?.focus(); }, [navOpen]);
+  // On close, focus goes back to the More tab instead of falling to <body>.
+  // Layout effect: it must run before the browser's focus fixup blurs the
+  // now-inert drawer.
+  useLayoutEffect(() => {
+    if (navOpen) drawerRef.current?.focus();
+    else if (drawerRef.current?.contains(document.activeElement)) {
+      document.querySelector<HTMLElement>('button[aria-controls="nav-drawer"]')?.focus();
+    }
+  }, [navOpen]);
   useEffect(() => { setNavOpen(false); }, [pathname]);
   return (
     /* .app-shell scopes the reduced-motion override; .chrome marks dark
        surfaces so focus rings switch to the light variant (index.css). */
-    <div className="app-shell min-h-svh bg-paper text-ink">
+    <div className="app-shell min-h-svh bg-ground text-ink" style={{ '--rail-w': collapsed ? '56px' : '200px' } as React.CSSProperties}>
       <a href="#main" className="skip-link">{t('ui.skipToContent')}</a>
-      {/* Sidebar — a full-height, expanded ~168px dark rail (measured layout:
-          logo header inside the rail, icon+label rows, footer icons).
-          Below md the rail hides and nav opens as a slide-over drawer. */}
-      <nav className="side-nav chrome fixed bottom-0 left-0 top-0 z-30 hidden w-40 flex-col bg-rail pl-1.5 md:flex" aria-label={t('ui.mainNav')}>
-        <NavLink to="/" className="flex h-16 items-center gap-2 px-1.5 text-white">
-          <span className="brand-mark" style={{ width: 30, height: 30 }}>
+      {/* Sidebar — a full-height dark rail (200 px, or 56 px icons when
+          collapsed): wordmark, Plant / Engineering clusters with labels,
+          Platform and Admin below a rule, footer shortcuts. Below md it
+          becomes a slide-over drawer. */}
+      <nav data-collapsed={collapsed} className="side-nav chrome fixed bottom-0 left-0 top-0 z-30 hidden w-[var(--rail-w)] flex-col bg-rail pl-1.5 transition-[width] duration-200 md:flex" aria-label={t('ui.mainNav')}>
+        <NavLink to="/" className="flex h-14 items-center gap-2 px-1.5 text-white">
+          <span className="brand-mark" style={{ width: 28, height: 28 }}>
             <img src="/logo-192.png" alt="" />
           </span>
-          <span className="flex flex-col leading-none">
+          <span className="rail-hide flex flex-col gap-0.5 leading-none">
             <span className="text-[13px] font-bold tracking-tight">vissointan</span>
-            <span className="text-[8px] uppercase tracking-wider text-white/40">{t('shell.product')}</span>
+            <span className="overline !text-[10px] !text-white/55">{t('shell.product')}</span>
           </span>
         </NavLink>
-        <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-2">
-          {groups.map((g, i) => (
-            <Fragment key={g.group}>
-              {i > 0 && groups[i - 1].cluster !== g.cluster && <hr className="mx-2.5 my-1.5 border-0 border-t border-white/15" aria-hidden />}
-              <SideRow group={g} openId={openId} setOpenId={setOpenId} />
-            </Fragment>
-          ))}
+        <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto pb-2" onKeyDown={railArrows}>
+          {groups.map((g, i) => {
+            const starts = i === 0 || groups[i - 1].cluster !== g.cluster;
+            const label = CLUSTER_LABEL[g.cluster];
+            return (
+              <Fragment key={g.group}>
+                {starts && (label
+                  ? <p className="rail-cluster overline px-2.5 pb-1 pt-3 !text-white/55" aria-hidden>{t(label)}</p>
+                  : <hr className="mx-2.5 my-2 border-0 border-t border-white/12" aria-hidden />)}
+                <SideRow group={g} active={current === g.group} openId={openId} setOpenId={setOpenId} />
+              </Fragment>
+            );
+          })}
         </div>
-        {/* Footer — invite / support / help entries with labels. */}
-        <div className="flex items-stretch border-t border-white/10 px-1 py-1.5">
-          <NavLink to="/admin/users" className="flex flex-1 flex-col items-center gap-0.5 rounded py-1 text-white/40 hover:bg-white/5 hover:text-white" aria-label={t('nav.adminUsers')}>
-            <DdIcon name="users" size={15} />
-            <span className="text-[9px] font-medium">{t('nav.invite')}</span>
+        <button type="button" data-rail-btn onClick={toggleRail} aria-pressed={collapsed}
+          className="mx-1 mb-1 flex h-8 items-center gap-2 rounded px-2 text-[12px] text-white/65 hover:bg-white/5 hover:text-white"
+          aria-label={collapsed ? t('shell.railExpand') : t('shell.railCollapse')} title={collapsed ? t('shell.railExpand') : t('shell.railCollapse')}>
+          <DdIcon name={collapsed ? 'rail-expand' : 'rail-collapse'} size={15} aria-hidden />
+          <span className="rail-text">{t('shell.railCollapse')}</span>
+        </button>
+        <StartHere />
+        {/* Footer — invite / health / help. The visible word is the
+            accessible name (WCAG 2.5.3); the title carries the longer form.
+            Invite follows the same gate as the Admin group. */}
+        <div className="rail-foot flex items-stretch border-t border-white/10 px-1 py-1.5">
+          {showAdmin && (
+            <NavLink to="/admin/users" className={FOOT_LINK} title={t('nav.adminUsers')}>
+              <DdIcon name="users" size={15} aria-hidden />
+              <span className="rail-text text-[10px] font-medium">{t('nav.invite')}</span>
+            </NavLink>
+          )}
+          <NavLink to="/connect/health" className={FOOT_LINK} title={t('nav.health')}>
+            <DdIcon name="heartbeat" size={15} aria-hidden />
+            <span className="rail-text text-[10px] font-medium">{t('nav.healthShort')}</span>
           </NavLink>
-          <NavLink to="/health" className="flex flex-1 flex-col items-center gap-0.5 rounded py-1 text-white/40 hover:bg-white/5 hover:text-white" aria-label={t('nav.health')}>
-            <DdIcon name="books" size={15} />
-            <span className="text-[9px] font-medium">{t('nav.support')}</span>
+          <NavLink to="/guide" className={FOOT_LINK} title={t('manual.open')}>
+            <DdIcon name="help" size={15} aria-hidden />
+            <span className="rail-text text-[10px] font-medium">{t('nav.help')}</span>
           </NavLink>
-          <button className="flex flex-1 flex-col items-center gap-0.5 rounded py-1 text-white/40 hover:bg-white/5 hover:text-white" aria-label={t('shortcuts.title')} onClick={() => setHelpOpen(true)}>
-            <DdIcon name="help" size={15} />
-            <span className="text-[9px] font-medium">{t('nav.help')}</span>
-          </button>
         </div>
       </nav>
 
@@ -590,16 +806,17 @@ export function Shell() {
         ref={drawerRef}
         tabIndex={-1}
         inert={!navOpen}
-        aria-label={t('shell.openMenu')}
+        aria-label={t('ui.mainNav')}
         className={`chrome fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-rail px-1.5 outline-none transition-transform duration-200 ease-out md:hidden ${navOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="flex h-16 items-center gap-2 px-1.5 text-white">
           <span className="brand-mark" style={{ width: 30, height: 30 }}>
             <img src="/logo-192.png" alt="" />
           </span>
-          <span className="flex flex-col leading-none">
+          {/* Same tagline treatment as the desktop rail (5.6:1, 10px). */}
+          <span className="flex flex-col gap-0.5 leading-none">
             <span className="text-[13px] font-bold tracking-tight">vissointan</span>
-            <span className="text-[8px] uppercase tracking-wider text-white/40">{t('shell.product')}</span>
+            <span className="overline !text-[10px] !text-white/55">{t('shell.product')}</span>
           </span>
           <button
             className="ml-auto grid h-7 w-7 place-items-center rounded text-white/60 hover:bg-white/10 hover:text-white"
@@ -613,7 +830,7 @@ export function Shell() {
           {groups.map((g, i) => (
             <Fragment key={g.group}>
               {i > 0 && groups[i - 1].cluster !== g.cluster && <hr className="mx-2.5 my-1.5 border-0 border-t border-white/15" aria-hidden />}
-              <DrawerGroup group={g} onNavigate={() => setNavOpen(false)} />
+              <DrawerGroup group={g} active={current === g.group} onNavigate={() => setNavOpen(false)} />
             </Fragment>
           ))}
         </div>
@@ -621,16 +838,10 @@ export function Shell() {
 
       {/* Top bar — 36px dark, starting after the sidebar (measured); a
           hamburger replaces the rail below md. */}
-      <header className="topbar chrome fixed left-0 right-0 top-0 z-20 flex h-9 items-center gap-2 bg-topbar pl-3 pr-3 md:left-40">
-        <button
-          className="grid h-6 w-6 shrink-0 place-items-center rounded text-white/70 hover:bg-white/10 hover:text-white md:hidden"
-          aria-expanded={navOpen}
-          aria-controls="nav-drawer"
-          aria-label={t('shell.openMenu')}
-          onClick={() => setNavOpen((o) => !o)}
-        >
-          <DdIcon name="indented-list" size={16} />
-        </button>
+      {/* Phones open the drawer from the bottom bar's More tab (thumb reach),
+          so the topbar carries no second hamburger. While the drawer is open
+          everything behind it is inert, keeping Tab inside the drawer. */}
+      <header inert={navOpen} className="topbar chrome fixed left-0 right-0 top-0 z-20 flex h-10 items-center gap-1 bg-topbar pl-3 pr-1 transition-[left] duration-200 md:left-[var(--rail-w)] md:gap-2 md:pr-3">
         <button
           className="mx-auto hidden h-6 w-[600px] max-w-[45%] items-center gap-2 rounded bg-white/[0.08] px-2 text-[12px] text-white/80 shadow-dark-btn transition-colors hover:bg-white/[0.12] md:flex"
           onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}
@@ -639,44 +850,50 @@ export function Shell() {
           <kbd className="ml-auto hidden rounded border border-white/20 px-1 text-[10px] lg:inline">Ctrl K</kbd>
         </button>
         <div className="ml-auto flex min-w-0 items-center gap-2 md:ml-0">
-          <OrgSwitcher />
+          <ScopePicker />
           <ShiftBadge orgId={getScope()?.orgId ?? null} siteId={getScope()?.siteId ?? null} />
-          <CriticalChip />
+          <AlarmSummaryChip />
           <TopClock />
           <LivePill />
+          {enabled('assistant') && (
+            <NavLink
+              to="/assistant"
+              className={({ isActive }) => `hidden h-10 w-10 shrink-0 place-items-center rounded hover:bg-white/10 hover:text-white sm:grid md:h-7 md:w-7 ${isActive ? 'bg-white/10 text-white' : 'text-white/70'}`}
+              aria-label={t('shell.assistant')} title={t('shell.assistant')}
+            >
+              <DdIcon name="ai-search" size={15} />
+            </NavLink>
+          )}
           {/* The search pill is hidden below md — this icon keeps the palette
               reachable on touch. */}
           <button
-            className="grid h-6 w-6 shrink-0 place-items-center rounded text-white/70 hover:bg-white/10 hover:text-white md:hidden"
+            className={`${TOP_BTN} md:hidden`}
             aria-label={t('ui.search')}
             onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}
           >
             <DdIcon name="search" size={15} />
           </button>
+          <ThemeMenu />
           <NotifyBell />
           <UserMenu />
         </div>
       </header>
 
       {/* Content */}
-      <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] pt-9 md:pb-0 md:pl-40">
+      <div inert={navOpen} className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] pt-10 transition-[padding] duration-200 md:pb-0 md:pl-[var(--rail-w)]">
         <LinkStrip />
         <AlarmBanner />
-        <main id="main" tabIndex={-1} className="min-h-[calc(100svh-36px-26px)] outline-none">
+        {/* No footer strip: health and audit live in the rail and the palette. */}
+        <main id="main" tabIndex={-1} className="min-h-[calc(100svh-var(--h-topbar))] outline-none">
           <ConsentBanner />
           <Outlet />
         </main>
-        {/* Footer bar. */}
-        <footer className="flex h-[26px] items-center justify-center gap-3 border-t border-line text-[11px] text-ink-46">
-          <span className="hidden sm:inline">vissointan</span>
-          <NavLink to="/health" className="hover:text-ink">{t('nav.health')}</NavLink>
-          <NavLink to="/admin/audit" className="hover:text-ink">{t('nav.adminAudit')}</NavLink>
-        </footer>
       </div>
       <OfflineBanner />
       <InstallHint />
-      <MobileNav moreOpen={navOpen} onMore={() => setNavOpen((o) => !o)} />
+      <div inert={navOpen}><MobileNav moreOpen={navOpen} onMore={() => setNavOpen((o) => !o)} /></div>
       <Palette />
+      <Toaster />
       {helpOpen && <ShortcutOverlay onClose={() => setHelpOpen(false)} />}
     </div>
   );

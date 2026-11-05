@@ -16,7 +16,7 @@ const en = {
     infraMap: 'Network map', infraProfiles: 'Device profiles',
     monitoring: 'Monitoring', infrastructure: 'Infrastructure', metrics: 'Metrics', automation: 'Automation',
     devices: 'Devices', addDevice: 'Add device', secPosture: 'Posture', secIssues: 'Issues', secFindings: 'Findings', secApi: 'Business logic', secAccess: 'Access', secCloud: 'Plant security', secApiProtection: 'App & API protection', monitors: 'Monitors', monTemplates: 'Templates', secMonitors: 'Monitors', secAlarms: 'Alarms', secReliability: 'Reliability',
-    overview: 'Overview', line: 'Line view', line3d: '3D twin', trends: 'Trends', alarms: 'Alarms', errors: 'Error tracking', dashboards: 'Dashboards', slos: 'SLOs', downtimes: 'Downtimes',
+    overview: 'Overview', line: 'Line view', line3d: '3D twin', trends: 'Trends', alarms: 'Alarms', errors: 'Error tracking', dashboards: 'Dashboards', slos: 'SLOs', downtimes: 'Alarm mute windows',
     tags: 'Tags', commands: 'Commands', health: 'System health', activity: 'Activity',
     intelligence: 'Intelligence', insights: 'Insights',
     bitsAi: 'Assistant AI', devPortal: 'Developer Portal', incidentResponse: 'Incident Response', apm: 'APM', digitalExperience: 'Digital Experience',
@@ -30,6 +30,7 @@ const en = {
     invite: 'Invite', support: 'Support', help: 'Help',
     notifyChannels: 'Notification channels', production: 'Production', oee: 'OEE', stops: 'Stops',
     shifts: 'Shifts', reports: 'Reports', plan: 'Plan', platform: 'Platform', status: 'Status',
+    plantTwin: 'Plant twin', grpPlant: 'Plant', grpEngineering: 'Engineering', live: 'Live', wall: 'Wall display', plantSetup: 'Plant setup', plantMapping: 'Model mapping', connectivity: 'Connectivity', dataSources: 'Data sources', vision: 'Vision AI', cameras: 'Cameras', visionModels: 'Models', visionRules: 'Vision rules', visionEvents: 'Vision events', platformTools: 'Platform tools', secData: 'Data', healthShort: 'Health',
   },
   org: {
     title: 'Create your organization', intro: 'An organization holds your sites, gateways, tags and team. You become its owner.',
@@ -59,6 +60,11 @@ const en = {
     offline: 'Offline', sessionExpired: 'Session expired', signIn: 'Sign in', signOut: 'Sign out',
     guest: 'Not signed in', alarmsButton: 'Active alarms: {{count}}',
     language: 'Language', viewAlarm: 'View alarm', viewAlarms: 'View alarms',
+    alarmSummary: 'Open alarms: {{crit}} critical, {{warn}} warning', assistant: 'Assistant AI',
+    alarmDrawer: 'Open alarms', alarmConsole: 'Open the alarm console', alarmsNone: 'No open alarms',
+    theme: 'Theme', themeLight: 'Light', themeDark: 'Dark', themeSystem: 'Match system',
+    railCollapse: 'Collapse sidebar', railExpand: 'Expand sidebar', motionCalm: 'Calm motion',
+    scopeLabel: 'Area and line', scopeAll: 'All areas', scopeSearch: 'Filter areas and lines',
     criticalActive_one: '{{count}} critical alarm active: {{what}}',
     criticalActive_other: '{{count}} critical alarms active, latest: {{what}}',
     flood: 'Alarm flood: {{count}} active alarms. Alarms are grouped by rule.',
@@ -72,7 +78,9 @@ const en = {
     title: 'Command palette',
     open: 'Search or jump',
     placeholder: 'Jump to a page, signal or equipment…',
-    pages: 'Pages', equipment: 'Equipment', signals: 'Signals',
+    pages: 'Pages', equipment: 'Equipment', signals: 'Signals', actions: 'Actions',
+    ackVisible: 'Acknowledge all unacknowledged alarms', theme_light: 'Theme: light', theme_dark: 'Theme: dark', theme_system: 'Theme: match system',
+    open_eq: 'Open', trend_eq: 'Trend of', unavailable: 'Not available',
     noMatch: 'Nothing matches “{{q}}”',
     footer: '↑↓ move · Enter open · Esc close',
   },
@@ -103,6 +111,11 @@ const en = {
     signInSub: 'Use your company account to continue to vissointan',
     company: 'Log in with SSO',
     google: 'Log in with Google',
+    googleOff: 'Google sign-in is supported but not switched on yet. An admin can enable it with make idp.',
+    orAccount: 'or use your account',
+    userLabel: 'Username or email',
+    userPh: 'admin or name@company.com',
+    password: 'Continue with password',
     microsoft: 'Log in with Microsoft',
     or: 'or log in with a token',
     tokenLabel: 'Token (required)',
@@ -207,17 +220,27 @@ const en = {
     footTopics: 'Topic map', footAbout: 'About', footSignin: 'Sign in', footLangs: 'Languages',
     footMade: 'Engineered for the plant floor',
   },
+  wall: {
+    exit: 'Exit wallboard', staleSince: 'Last update {{age}}. Do not rely on this board.',
+    noData: 'No data received yet.', clear: 'No active alarms',
+  },
+  linestatus: {
+    running: 'RUNNING', stopped: 'STOPPED', stale: 'DATA NOT CURRENT', nodata: 'NO DATA',
+    feedDown: 'Live feed is down. The line state is unknown.',
+    alarmsUnknown: 'Alarm status unknown',
+    alarmsCount_one: '{{count}} active alarm', alarmsCount_other: '{{count}} active alarms',
+  },
   state: {
     running: 'Running', stopped: 'Stopped', stale: 'No data', unknown: 'Unknown', on: 'ON', off: 'OFF',
     good: 'Good', bad: 'Bad quality', uncertain: 'Uncertain', staleQ: 'Stale',
     updated: 'Updated {{age}}', never: 'No data yet',
   },
   overview: {
-    title: 'Overview', lede: 'Sorting line 1, live',
+    title: 'Overview', lede: 'Sorting line 1',
     lineState: 'Line state', beltSpeed: 'Belt speed', motorTemp: 'Belt temperature',
     binLevel: 'Bin level', gravelRatio: 'Gravel ratio', setpoint: 'Speed setpoint',
     activeAlarms: 'Active alarms', openLine: 'Open line view',
-    noActive: 'No active alarms', noActiveBody: 'The line is running without abnormal conditions.',
+    noActive: 'No active alarms', noActiveBody: 'Nothing needs attention right now.',
     stub: 'Simulated', stubTitle: 'Vision pipeline not connected yet: this value is simulated',
     limit: 'Alarm at {{v}}',
     deltaVs: 'vs {{age}}',
@@ -229,6 +252,10 @@ const en = {
     selectHint: 'Select a piece of equipment on the drawing.',
     schematic: 'Sorting line 1', manual: 'Manual', selected: 'Selected',
     nowHz: 'now {{v}} Hz',
+    fromFeeder: 'From feeder', toStockpile: 'To stockpile',
+    alarmsHere: 'Open alarms', noAlarmsHere: 'No open alarms on this equipment.',
+    controlsOnMotor: 'Start, stop and speed are on {{tag}} — open it',
+    legend: 'Grey = normal. Dark fill = running. ▲ critical, ◆ warning on the value that tripped; a flashing frame is not yet acknowledged. H / HH / L mark the alarm limits.',
   },
   line3d: {
     title: 'Line twin',
@@ -242,7 +269,13 @@ const en = {
     title: 'Plant twin',
     lede: 'The plant model in 3D, plan and front view — every mapped part shows its live signals.',
     view: 'View',
-    mode: { '3d': '3D', top: 'Plan', front: 'Front' },
+    mode: { '3d': '3D', hmi: 'HMI', top: 'Plan', front: 'Front' },
+    hmi: {
+      title: 'Plant overview', online: 'Online', offline: 'Offline', running: '{{n}} / {{total}} running',
+      alarms: '{{n}} alarms', on: 'Running', off: 'Stopped', inAlarm: 'in alarm', unmapped: 'not mapped',
+      groups: 'Equipment status', allAlarms: 'All alarms', noAlarms: 'No active alarms',
+      row: { store: 'Storage', process: 'Process', move: 'Transport' },
+    },
     editMapping: 'Edit mapping',
     demoBanner: 'Showing the bundled demo plant. Upload your own .glb in Edit mapping to map it to your equipment.',
     open: 'Open', close: 'Close',
@@ -305,6 +338,7 @@ const en = {
     done: 'Done', denied: 'Refused', acked: 'Received',
   },
   alarms: {
+    time: 'Time', alarm: 'Alarm', state: 'State', ackedByCol: 'Acked by', emptyBody: 'No alarms in this window.',
     title: 'Alarms', lede: 'Respond to active alarms first. Cleared alarms stay for the record.',
     active: 'Active', acked: 'Acknowledged', cleared: 'Cleared', all: 'All',
     severity: 'Severity', allSeverities: 'All severities',
@@ -312,7 +346,8 @@ const en = {
     colSeverity: 'Severity', colAlarm: 'Alarm', colRaised: 'Raised',
     colDuration: 'Duration', colState: 'State', colAction: 'Action',
     ack: 'Acknowledge', ackedBy: 'Acknowledged by {{who}}', selectAll: 'Select all alarms',
-    empty: 'No alarms in this view', emptyActive: 'No active alarms', emptyActiveBody: 'Nothing needs attention right now.',
+    empty: 'No alarms in this view', emptyUnknown: 'Alarm status unknown', emptyUnknownBody: 'The live feed is down, so this list may be missing alarms. Do not assume the line is clear.',
+    emptyActive: 'No active alarms', emptyActiveBody: 'Nothing needs attention right now.',
     emptyCold: 'No alarms yet', emptyColdBody: 'The alarm engine has not raised any alarms for this site.',
     emptyFilteredBody: 'Nothing in this view — try widening the state or severity filters.',
     ackFailed: 'Could not acknowledge: {{reason}}',
@@ -393,7 +428,7 @@ const en = {
     colUnit: 'Unit', colInspect: 'Inspect',
     showing: '{{shown}} of {{total}} signals',
     clearFilters: 'Clear filters', removeFilter: 'Remove filter {{name}}',
-    searchHint: 'Filter by text, or eq:motor unit:°C quality:stale',
+    searchHint: 'Filter by tag name, equipment or unit',
     emptyTitle: 'No signals reported',
     emptyBody: 'The backend has not reported any signals for this site yet.',
     noMatchFiltered: 'No signals match the current filters',
@@ -548,7 +583,7 @@ const en = {
     deniedRetry: 'Check again', deniedChecking: 'Checking…', deniedSwitch: 'Use a different account',
     deniedStill: 'Still no access. Your administrator may not have added you yet.',
   },
-  common: { retry: 'Try again', loading: 'Loading', error: 'Something went wrong', close: 'Close', export: 'Export', clear: 'Clear', save: 'Save', edit: 'Edit' },
+  common: { retry: 'Try again', loading: 'Loading', error: 'Something went wrong', close: 'Close', export: 'Export', clear: 'Clear', save: 'Save', edit: 'Edit', loadFailed: 'Could not load this data.' },
   // shared/ui primitives + shell chrome (design-system lead)
   ui: {
     demo: 'Simulated', demoTitle: 'Simulated value: it does not come from plant equipment',
@@ -567,10 +602,10 @@ const en = {
     mapLede: 'Site, edge gateways and the equipment their signals belong to.', mapAbnormal: '{{count}} gateway needs attention',
     mapEmpty: 'No gateways or signals to draw yet', mapAria: 'Topology: {{gateways}} gateways, {{equipment}} equipment groups',
     mapSignals: '{{count}} signals', mapColSite: 'Site', mapColGateway: 'Gateways', mapColEquipment: 'Equipment',
-    mapNote: 'Gateways are not bound to specific signals, so each gateway is linked to every equipment group. Dashed lines mean the gateway is not online.',
+    mapNote: 'A line joins a gateway to the equipment its own data sources read. Dashed: the gateway is not online. Disabled and never-connected gateways are parked.', mapParked: 'Parked ({{count}})',
     fresh_fresh: 'live', fresh_stale: 'stale', fresh_none: 'no data',
     profLede: 'Protocol profiles a gateway can run. A gateway picks one at install time.',
-    profColProfile: 'Profile', profColSettings: 'Settings', profColTags: 'Tag types', profColDevices: 'In use', profDevices: '{{count}} gateways',
+    profColProfile: 'Profile', profColSettings: 'Settings', profColTags: 'Tag types', profColDevices: 'In use', profDevices_one: '{{count}} gateway', profDevices_other: '{{count}} gateways',
     product: 'Infrastructure', tabDevices: 'Devices', add: 'Add device', addTitle: 'Add a device',
     needAdmin: 'Admin or owner role required to add or change devices.', searchPh: 'Search devices by name, ID or MQTT user',
     facetStatus: 'Status', facetAdapter: 'Connection',
@@ -728,6 +763,7 @@ const en = {
     empty: 'No API keys', emptyBody: 'Create a key to let a script or another system call the API.',
   },
   dash: {
+    fillTile: 'Fill the tile with the threshold colour',
     title: 'Dashboards', tabList: 'List', searchPh: 'Search dashboards', presets: 'Preset lists',
     presetTemplates: 'Templates', useTemplate: 'Use template', tplWidgets: '{{count}} widgets',
     tpl_alarmOverview: 'Alarm overview', tpl_alarmOverview_d: 'Open alarms, severity mix and the noisiest rules and signals. Starting point for a monitor-alerts view.',
@@ -763,7 +799,7 @@ const en = {
       incidents: 'Incidents', alarmkpi: 'Alarm KPIs',
       matlive: 'Live truck camera', matdecision: 'Last truck decision', matkpi: 'Material KPIs', matmix: 'Gravel / sand mix',
       matmargin: 'Decision margin', matlog: 'Truck decisions', ailatency: 'AI inference latency', aithroughput: 'AI throughput' },
-    samples: '{{count}} samples', total: 'Total',
+    samples: '{{count}} samples', total: 'Total', other: 'Other', shareLabel: '{{title}}: {{parts}}',
     colSignal: 'Signal', colValue: 'Value', colAge: 'Age',
     metricOne: 'Metric', metricMany: 'Metrics (up to {{max}})', aggregation: 'Aggregation', groupBy: 'Count alarms by',
     group: { tag: 'Signal', rule: 'Rule', severity: 'Severity' },
@@ -871,7 +907,7 @@ const th: Dict = {
     infraMap: 'แผนที่เครือข่าย', infraProfiles: 'โปรไฟล์อุปกรณ์',
     monitoring: 'การเฝ้าระวัง', infrastructure: 'โครงสร้างพื้นฐาน', metrics: 'ค่าวัด', automation: 'การสั่งงาน',
     devices: 'อุปกรณ์', addDevice: 'เพิ่มอุปกรณ์', secPosture: 'ภาพรวมความปลอดภัย', secIssues: 'ปัญหา', secFindings: 'ผลตรวจ', secApi: 'ตรรกะธุรกิจ', secAccess: 'การเข้าถึง', secCloud: 'ความปลอดภัยโรงงาน', secApiProtection: 'ป้องกันแอปและ API', monitors: 'มอนิเตอร์', monTemplates: 'เทมเพลต', secMonitors: 'มอนิเตอร์', secAlarms: 'สัญญาณเตือน', secReliability: 'ความน่าเชื่อถือ',
-    overview: 'ภาพรวม', line: 'ผังไลน์', line3d: 'ผังสามมิติ', trends: 'กราฟแนวโน้ม', alarms: 'สัญญาณเตือน', errors: 'ติดตามข้อผิดพลาด', dashboards: 'แดชบอร์ด', slos: 'เป้าหมายระดับบริการ', downtimes: 'ช่วงหยุดซ่อมบำรุง',
+    overview: 'ภาพรวม', line: 'ผังไลน์', line3d: 'ผังสามมิติ', trends: 'กราฟแนวโน้ม', alarms: 'สัญญาณเตือน', errors: 'ติดตามข้อผิดพลาด', dashboards: 'แดชบอร์ด', slos: 'เป้าหมายระดับบริการ', downtimes: 'ช่วงปิดเสียงเตือน',
     tags: 'สัญญาณ', commands: 'ประวัติคำสั่ง', health: 'สถานะระบบ', activity: 'กิจกรรม',
     intelligence: 'ข้อมูลเชิงลึก', insights: 'อินไซต์',
     bitsAi: 'ผู้ช่วย AI', devPortal: 'พอร์ทัลนักพัฒนา', incidentResponse: 'รับมือเหตุการณ์', apm: 'APM', digitalExperience: 'ประสบการณ์ดิจิทัล',
@@ -885,6 +921,7 @@ const th: Dict = {
     invite: 'เชิญ', support: 'สนับสนุน', help: 'ช่วยเหลือ',
     notifyChannels: 'ช่องแจ้งเตือน', production: 'การผลิต', oee: 'OEE', stops: 'การหยุดเครื่อง',
     shifts: 'กะ', reports: 'รายงาน', plan: 'แผน', platform: 'แพลตฟอร์ม', status: 'สถานะ',
+    plantTwin: 'ดิจิทัลทวินโรงงาน', grpPlant: 'โรงงาน', grpEngineering: 'งานวิศวกรรม', live: 'หน้างานสด', wall: 'จอรวม', plantSetup: 'ตั้งค่าโรงงาน', plantMapping: 'จับคู่โมเดล', connectivity: 'การเชื่อมต่อ', dataSources: 'แหล่งข้อมูล', vision: 'Vision AI', cameras: 'กล้อง', visionModels: 'โมเดล', visionRules: 'กฎ Vision', visionEvents: 'เหตุการณ์ Vision', platformTools: 'เครื่องมือแพลตฟอร์ม', secData: 'ข้อมูล', healthShort: 'สถานะ',
   },
   org: {
     title: 'สร้างองค์กรของคุณ', intro: 'องค์กรใช้เก็บไซต์ เกตเวย์ แท็ก และทีมของคุณ คุณจะเป็นเจ้าขององค์กรนี้',
@@ -914,6 +951,11 @@ const th: Dict = {
     offline: 'ออฟไลน์', sessionExpired: 'เซสชันหมดอายุ', signIn: 'เข้าสู่ระบบ', signOut: 'ออกจากระบบ',
     guest: 'ยังไม่ได้เข้าสู่ระบบ', alarmsButton: 'สัญญาณเตือนที่ยังเกิดอยู่: {{count}}',
     language: 'ภาษา', viewAlarm: 'ดูสัญญาณเตือน', viewAlarms: 'ดูสัญญาณเตือน',
+    alarmSummary: 'สัญญาณเตือนที่เปิดอยู่: วิกฤต {{crit}} เตือน {{warn}}', assistant: 'ผู้ช่วย AI',
+    alarmDrawer: 'สัญญาณเตือนที่เปิดอยู่', alarmConsole: 'เปิดหน้าสัญญาณเตือน', alarmsNone: 'ไม่มีสัญญาณเตือนที่เปิดอยู่',
+    theme: 'ธีม', themeLight: 'สว่าง', themeDark: 'มืด', themeSystem: 'ตามระบบ',
+    railCollapse: 'ยุบแถบด้านข้าง', railExpand: 'ขยายแถบด้านข้าง', motionCalm: 'ลดการเคลื่อนไหว',
+    scopeLabel: 'พื้นที่และสายการผลิต', scopeAll: 'ทุกพื้นที่', scopeSearch: 'กรองพื้นที่และสายการผลิต',
     criticalActive_one: 'มีสัญญาณเตือนวิกฤต {{count}} รายการ: {{what}}',
     criticalActive_other: 'มีสัญญาณเตือนวิกฤต {{count}} รายการ ล่าสุด: {{what}}',
     flood: 'สัญญาณเตือนท่วม: {{count}} รายการ ระบบจัดกลุ่มตามกฎให้แล้ว',
@@ -928,6 +970,8 @@ const th: Dict = {
     open: 'ค้นหาหรือข้ามไป',
     placeholder: 'ข้ามไปยังหน้า สัญญาณ หรืออุปกรณ์…',
     pages: 'หน้า', equipment: 'อุปกรณ์', signals: 'สัญญาณ',
+    actions: 'คำสั่ง', ackVisible: 'รับทราบสัญญาณเตือนที่ยังไม่รับทราบทั้งหมด', theme_light: 'ธีม: สว่าง', theme_dark: 'ธีม: มืด', theme_system: 'ธีม: ตามระบบ',
+    open_eq: 'เปิด', trend_eq: 'แนวโน้มของ', unavailable: 'ใช้ไม่ได้',
     noMatch: 'ไม่พบรายการที่ตรงกับ “{{q}}”',
     footer: '↑↓ เลือก · Enter เปิด · Esc ปิด',
   },
@@ -958,6 +1002,11 @@ const th: Dict = {
     signInSub: 'ใช้บัญชีองค์กรของคุณเพื่อเข้าสู่ vissointan',
     company: 'เข้าสู่ระบบด้วย SSO',
     google: 'เข้าสู่ระบบด้วย Google',
+    googleOff: 'ระบบรองรับการเข้าสู่ระบบด้วย Google แต่ยังไม่ได้เปิดใช้ แอดมินเปิดได้ด้วยคำสั่ง make idp',
+    orAccount: 'หรือใช้บัญชีของคุณ',
+    userLabel: 'ชื่อผู้ใช้หรืออีเมล',
+    userPh: 'admin หรือ name@company.com',
+    password: 'ดำเนินการต่อด้วยรหัสผ่าน',
     microsoft: 'เข้าสู่ระบบด้วย Microsoft',
     or: 'หรือเข้าสู่ระบบด้วยโทเคน',
     tokenLabel: 'โทเคน (จำเป็น)',
@@ -1062,17 +1111,28 @@ const th: Dict = {
     footTopics: 'แผนที่โทปิก', footAbout: 'เกี่ยวกับ', footSignin: 'เข้าสู่ระบบ', footLangs: 'ภาษา',
     footMade: 'สร้างเพื่อพื้นโรงงาน',
   },
+  wall: {
+    exit: 'ออกจากจอแสดงผล', staleSince: 'อัปเดตล่าสุด {{age}} อย่าเชื่อถือจอนี้',
+    noData: 'ยังไม่ได้รับข้อมูล', clear: 'ไม่มีสัญญาณเตือนที่เกิดอยู่',
+  },
+  linestatus: {
+    running: 'กำลังเดิน', stopped: 'หยุด', stale: 'ข้อมูลไม่เป็นปัจจุบัน', nodata: 'ไม่มีข้อมูล',
+    feedDown: 'การเชื่อมต่อข้อมูลสดขาด จึงไม่ทราบสถานะไลน์',
+    alarmsUnknown: 'ไม่ทราบสถานะสัญญาณเตือน',
+    alarmsCount_one: 'สัญญาณเตือนที่เกิดอยู่ {{count}} รายการ',
+    alarmsCount_other: 'สัญญาณเตือนที่เกิดอยู่ {{count}} รายการ',
+  },
   state: {
     running: 'ทำงาน', stopped: 'หยุด', stale: 'ไม่มีข้อมูล', unknown: 'ไม่ทราบ', on: 'เปิด', off: 'ปิด',
     good: 'ปกติ', bad: 'คุณภาพไม่ดี', uncertain: 'ไม่แน่นอน', staleQ: 'ข้อมูลค้าง',
     updated: 'อัปเดต {{age}}', never: 'ยังไม่มีข้อมูล',
   },
   overview: {
-    title: 'ภาพรวม', lede: 'ไลน์คัดแยก 1 แบบเรียลไทม์',
+    title: 'ภาพรวม', lede: 'ไลน์คัดแยก 1',
     lineState: 'สถานะไลน์', beltSpeed: 'ความเร็วสายพาน', motorTemp: 'อุณหภูมิสายพาน',
     binLevel: 'ระดับถังรับ', gravelRatio: 'สัดส่วนกรวด', setpoint: 'ค่าตั้งความเร็ว',
     activeAlarms: 'สัญญาณเตือนที่เกิดอยู่', openLine: 'เปิดผังไลน์',
-    noActive: 'ไม่มีสัญญาณเตือน', noActiveBody: 'ไลน์ทำงานโดยไม่มีสภาวะผิดปกติ',
+    noActive: 'ไม่มีสัญญาณเตือน', noActiveBody: 'ขณะนี้ไม่มีสิ่งที่ต้องดำเนินการ',
     stub: 'จำลอง', stubTitle: 'ยังไม่ได้เชื่อมระบบวิชัน ค่านี้เป็นค่าจำลอง',
     limit: 'เตือนที่ {{v}}',
     deltaVs: 'เทียบกับ {{age}}',
@@ -1084,6 +1144,10 @@ const th: Dict = {
     selectHint: 'เลือกอุปกรณ์บนผัง',
     schematic: 'ไลน์คัดแยก 1', manual: 'แมนนวล', selected: 'ที่เลือก',
     nowHz: 'ปัจจุบัน {{v}} Hz',
+    fromFeeder: 'จากเครื่องป้อน', toStockpile: 'ไปกองเก็บ',
+    alarmsHere: 'สัญญาณเตือนที่ยังเปิดอยู่', noAlarmsHere: 'อุปกรณ์นี้ไม่มีสัญญาณเตือนที่เปิดอยู่',
+    controlsOnMotor: 'สั่งเดิน หยุด และตั้งความเร็วได้ที่ {{tag}} — เปิดดู',
+    legend: 'สีเทา = ปกติ พื้นทึบเข้ม = กำลังทำงาน ▲ วิกฤต ◆ เตือน แสดงที่ค่าที่เกินพิกัด กรอบกะพริบ = ยังไม่รับทราบ H / HH / L คือขีดจำกัดสัญญาณเตือน',
   },
   line3d: {
     title: 'ผังไลน์สามมิติ',
@@ -1097,7 +1161,13 @@ const th: Dict = {
     title: 'แบบจำลองโรงงาน',
     lede: 'โมเดลโรงงานแบบ 3D ผังด้านบนและด้านหน้า — ทุกอุปกรณ์ที่ผูกไว้แสดงสัญญาณสด',
     view: 'มุมมอง',
-    mode: { '3d': '3D', top: 'ผังบน', front: 'ด้านหน้า' },
+    mode: { '3d': '3D', hmi: 'HMI', top: 'ผังบน', front: 'ด้านหน้า' },
+    hmi: {
+      title: 'ภาพรวมโรงงาน', online: 'ออนไลน์', offline: 'ออฟไลน์', running: 'ทำงาน {{n}} / {{total}}',
+      alarms: 'สัญญาณเตือน {{n}}', on: 'ทำงาน', off: 'หยุด', inAlarm: 'มีสัญญาณเตือน', unmapped: 'ยังไม่ผูกแท็ก',
+      groups: 'สถานะเครื่องจักร', allAlarms: 'ดูสัญญาณเตือนทั้งหมด', noAlarms: 'ไม่มีสัญญาณเตือน',
+      row: { store: 'จัดเก็บ', process: 'กระบวนการ', move: 'ลำเลียง' },
+    },
     editMapping: 'แก้ไขการผูกอุปกรณ์',
     demoBanner: 'กำลังแสดงโรงงานตัวอย่างที่มากับระบบ อัปโหลดไฟล์ .glb ของคุณเองที่หน้าแก้ไขการผูกอุปกรณ์',
     open: 'เปิด', close: 'ปิด',
@@ -1160,6 +1230,7 @@ const th: Dict = {
     done: 'สำเร็จ', denied: 'ถูกปฏิเสธ', acked: 'ได้รับแล้ว',
   },
   alarms: {
+    time: 'เวลา', alarm: 'สัญญาณเตือน', state: 'สถานะ', ackedByCol: 'รับทราบโดย', emptyBody: 'ไม่มีสัญญาณเตือนในช่วงเวลานี้',
     title: 'สัญญาณเตือน', lede: 'จัดการสัญญาณเตือนที่เกิดอยู่ก่อน รายการที่หายแล้วจะถูกเก็บไว้เป็นประวัติ',
     active: 'เกิดอยู่', acked: 'รับทราบแล้ว', cleared: 'หายแล้ว', all: 'ทั้งหมด',
     severity: 'ระดับ', allSeverities: 'ทุกระดับ',
@@ -1167,7 +1238,8 @@ const th: Dict = {
     colSeverity: 'ระดับ', colAlarm: 'สัญญาณเตือน', colRaised: 'เกิดเมื่อ',
     colDuration: 'ระยะเวลา', colState: 'สถานะ', colAction: 'การดำเนินการ',
     ack: 'รับทราบ', ackedBy: 'รับทราบโดย {{who}}', selectAll: 'เลือกสัญญาณเตือนทั้งหมด',
-    empty: 'ไม่มีสัญญาณเตือนในมุมมองนี้', emptyActive: 'ไม่มีสัญญาณเตือนที่เกิดอยู่', emptyActiveBody: 'ขณะนี้ไม่มีสิ่งที่ต้องดำเนินการ',
+    empty: 'ไม่มีสัญญาณเตือนในมุมมองนี้', emptyUnknown: 'ไม่ทราบสถานะสัญญาณเตือน', emptyUnknownBody: 'การเชื่อมต่อข้อมูลสดขาด รายการนี้อาจไม่ครบ อย่าเพิ่งสรุปว่าไลน์ปกติ',
+    emptyActive: 'ไม่มีสัญญาณเตือนที่เกิดอยู่', emptyActiveBody: 'ขณะนี้ไม่มีสิ่งที่ต้องดำเนินการ',
     emptyCold: 'ยังไม่มีสัญญาณเตือน', emptyColdBody: 'กลไกเตือนยังไม่เคยสร้างสัญญาณเตือนสำหรับไซต์นี้',
     emptyFilteredBody: 'ไม่มีรายการในมุมมองนี้ — ลองขยายตัวกรองสถานะหรือระดับ',
     ackFailed: 'รับทราบไม่สำเร็จ: {{reason}}',
@@ -1248,7 +1320,7 @@ const th: Dict = {
     colUnit: 'หน่วย', colInspect: 'ตรวจสอบ',
     showing: '{{shown}} จาก {{total}} สัญญาณ',
     clearFilters: 'ล้างตัวกรอง', removeFilter: 'นำตัวกรอง {{name}} ออก',
-    searchHint: 'กรองด้วยข้อความ หรือ eq:motor unit:°C quality:stale',
+    searchHint: 'กรองด้วยชื่อแท็ก อุปกรณ์ หรือหน่วย',
     emptyTitle: 'ยังไม่มีสัญญาณ',
     emptyBody: 'แบ็กเอนด์ยังไม่ได้รายงานสัญญาณสำหรับไซต์นี้',
     noMatchFiltered: 'ไม่มีสัญญาณที่ตรงกับตัวกรองปัจจุบัน',
@@ -1340,13 +1412,13 @@ const th: Dict = {
   },
   access: {
     scopeLabel: 'ขอบเขตการดูแล', scopeOrg: 'องค์กร', scopeSite: 'ไซต์', scopeRole: 'บทบาทของคุณที่นี่',
-    roleDesc_viewer: 'ดูอย่างเดียว: เห็นค่าสด แดชบอร์ด และแอลาร์ม',
-    roleDesc_operator: 'ทำได้เหมือนผู้ดู และรับทราบแอลาร์ม ส่งคำสั่งแบบมีผู้กำกับได้',
+    roleDesc_viewer: 'ดูอย่างเดียว: เห็นค่าสด แดชบอร์ด และสัญญาณเตือน',
+    roleDesc_operator: 'ทำได้เหมือนผู้ดู และรับทราบสัญญาณเตือน ส่งคำสั่งแบบมีผู้กำกับได้',
     roleDesc_admin: 'ทำได้เหมือนผู้ควบคุม และจัดการกฎเตือน อุปกรณ์ ผู้ใช้ และบันทึกตรวจสอบ',
     roleDesc_owner: 'ทำได้เหมือนผู้ดูแล และจัดการเจ้าของคนอื่น ทุกองค์กรต้องมีเจ้าของอย่างน้อยหนึ่งคน',
     roleDesc_none: 'ยังไม่มีสิทธิ์เข้าถึงองค์กรนี้',
     roleGuideTitle: 'แต่ละบทบาททำอะไรได้บ้าง', capability: 'ทำได้…',
-    capView: 'ดูค่าสด แดชบอร์ด และแอลาร์ม', capOperate: 'รับทราบแอลาร์มและส่งคำสั่งแบบมีผู้กำกับ',
+    capView: 'ดูค่าสด แดชบอร์ด และสัญญาณเตือน', capOperate: 'รับทราบสัญญาณเตือนและส่งคำสั่งแบบมีผู้กำกับ',
     capConfig: 'แก้กฎเตือน อุปกรณ์ ผู้ใช้ และคำเชิญ', capAudit: 'อ่านและส่งออกบันทึกตรวจสอบ',
     capOwner: 'เพิ่มหรือนำเจ้าของออก', yes: 'ได้', no: 'ไม่ได้', colActions: 'การดำเนินการ',
     needAdminTitle: 'ต้องมีบทบาทผู้ดูแลหรือเจ้าของ',
@@ -1382,14 +1454,14 @@ const th: Dict = {
     thresholdHint_anomaly: 'เตือนเมื่อค่าเบี่ยงจากค่าเฉลี่ยของช่วงย้อนหลังเกินจำนวนเท่านี้ของ SD',
     thresholdHint_forecast: 'เตือนเมื่อค่าที่คาดการณ์อีกหนึ่งช่วงข้างหน้าเกินค่านี้',
     windowHint: 'ย้อนดูประวัติ 30 ถึง 86400 วินาที', windowInvalid: 'ใส่จำนวนเต็มวินาที 30 ถึง 86400',
-    deadbandHint: 'ค่าต้องกลับมาไกลเท่านี้ก่อนแอลาร์มจะหาย ป้องกันการเตือนกะพริบ',
+    deadbandHint: 'ค่าต้องกลับมาไกลเท่านี้ก่อนสัญญาณเตือนจะหาย ป้องกันการเตือนกะพริบ',
     staleHint: 'เตือนเมื่อไม่มีค่าใหม่เข้ามาเกินจำนวนวินาทีนี้',
     fixErrors: 'ตรวจสอบช่องที่ไฮไลต์', creating: 'กำลังสร้าง…',
     auditFilters: 'ตัวกรองบันทึกตรวจสอบ', auditAction: 'การกระทำ', auditAllActions: 'ทุกการกระทำ',
     auditSearch: 'ค้นหาผู้กระทำ การกระทำ หรือเป้าหมาย', auditClear: 'ล้างตัวกรอง', auditExportCsv: 'ส่งออก CSV',
     auditShown: 'แสดง {{shown}} จาก {{total}} รายการในช่วงนี้', auditNoMatch: 'ไม่มีรายการที่ตรงกับตัวกรอง',
     auditWhen: 'เมื่อ', auditWho: 'ใคร', auditWhat: 'ทำอะไร', auditIntegrity: 'ลำดับ · แฮช',
-    act_alarm_ack: 'รับทราบแอลาร์ม', act_alarm_clear: 'แอลาร์มหายแล้ว', act_alarm_raise: 'เกิดแอลาร์ม',
+    act_alarm_ack: 'รับทราบสัญญาณเตือน', act_alarm_clear: 'สัญญาณเตือนหายแล้ว', act_alarm_raise: 'เกิดสัญญาณเตือน',
     act_alarm_rule_created: 'สร้างกฎเตือน', act_alarm_rule_updated: 'แก้ไขกฎเตือน', act_alarm_rule_deleted: 'ลบกฎเตือน',
     act_edge_provisioned: 'เพิ่มอุปกรณ์', act_edge_rotated: 'หมุนเวียนคีย์อุปกรณ์', act_edge_disabled: 'ปิดใช้อุปกรณ์',
     act_insight_open: 'เปิดข้อสังเกต', act_insight_close: 'ปิดข้อสังเกต',
@@ -1402,7 +1474,7 @@ const th: Dict = {
     deniedRetry: 'ตรวจสอบอีกครั้ง', deniedChecking: 'กำลังตรวจสอบ…', deniedSwitch: 'ใช้บัญชีอื่น',
     deniedStill: 'ยังไม่มีสิทธิ์ ผู้ดูแลอาจยังไม่ได้เพิ่มคุณ',
   },
-  common: { retry: 'ลองอีกครั้ง', loading: 'กำลังโหลด', error: 'เกิดข้อผิดพลาด', close: 'ปิด', export: 'ส่งออก', clear: 'ล้าง', save: 'บันทึก', edit: 'แก้ไข' },
+  common: { retry: 'ลองอีกครั้ง', loading: 'กำลังโหลด', error: 'เกิดข้อผิดพลาด', close: 'ปิด', export: 'ส่งออก', clear: 'ล้าง', save: 'บันทึก', edit: 'แก้ไข', loadFailed: 'โหลดข้อมูลนี้ไม่สำเร็จ' },
   // shared/ui primitives + shell chrome (design-system lead)
   ui: {
     demo: 'ข้อมูลจำลอง', demoTitle: 'ค่าจำลอง ไม่ได้มาจากเครื่องจักรจริง',
@@ -1421,10 +1493,10 @@ const th: Dict = {
     mapLede: 'ไซต์ เกตเวย์ edge และอุปกรณ์ที่สัญญาณเหล่านั้นสังกัด', mapAbnormal: '{{count}} เกตเวย์ต้องตรวจสอบ',
     mapEmpty: 'ยังไม่มีเกตเวย์หรือสัญญาณให้วาด', mapAria: 'โทโพโลยี: {{gateways}} เกตเวย์, {{equipment}} กลุ่มอุปกรณ์',
     mapSignals: '{{count}} สัญญาณ', mapColSite: 'ไซต์', mapColGateway: 'เกตเวย์', mapColEquipment: 'อุปกรณ์',
-    mapNote: 'เกตเวย์ไม่ได้ผูกกับสัญญาณเฉพาะ จึงเชื่อมแต่ละเกตเวย์กับทุกกลุ่มอุปกรณ์ เส้นประหมายถึงเกตเวย์ไม่ออนไลน์',
+    mapNote: 'เส้นเชื่อมเกตเวย์กับอุปกรณ์ที่แหล่งข้อมูลของเกตเวย์นั้นอ่านค่าอยู่จริง เส้นประคือเกตเวย์ไม่ออนไลน์ เกตเวย์ที่ปิดใช้งานหรือไม่เคยเชื่อมต่อจะถูกพักไว้', mapParked: 'พักไว้ ({{count}})',
     fresh_fresh: 'สด', fresh_stale: 'ค้าง', fresh_none: 'ไม่มีข้อมูล',
     profLede: 'โปรไฟล์โปรโตคอลที่เกตเวย์เลือกใช้ได้ เลือกตอนติดตั้ง',
-    profColProfile: 'โปรไฟล์', profColSettings: 'การตั้งค่า', profColTags: 'ชนิดแท็ก', profColDevices: 'ใช้งานอยู่', profDevices: '{{count}} เกตเวย์',
+    profColProfile: 'โปรไฟล์', profColSettings: 'การตั้งค่า', profColTags: 'ชนิดแท็ก', profColDevices: 'ใช้งานอยู่', profDevices_one: '{{count}} เกตเวย์', profDevices_other: '{{count}} เกตเวย์',
     product: 'โครงสร้างพื้นฐาน', tabDevices: 'อุปกรณ์', add: 'เพิ่มอุปกรณ์', addTitle: 'เพิ่มอุปกรณ์',
     needAdmin: 'ต้องเป็นผู้ดูแลหรือเจ้าของจึงจะเพิ่มหรือแก้ไขอุปกรณ์ได้', searchPh: 'ค้นหาอุปกรณ์ตามชื่อ รหัส หรือผู้ใช้ MQTT',
     facetStatus: 'สถานะ', facetAdapter: 'การเชื่อมต่อ',
@@ -1554,11 +1626,11 @@ const th: Dict = {
     model: 'โมเดล', noResults: 'โมเดลไม่พบสิ่งผิดปกติ', unreachable: 'เชื่อมต่อเซิร์ฟเวอร์โมเดลไม่ได้ ({{error}})',
   },
   downtime: {
-    product: 'การเฝ้าระวัง', title: 'ช่วงหยุดซ่อมบำรุง', tabRules: 'กฎสัญญาณเตือน', queryPh: 'กรองตามกฎ ขอบเขต หรือคำอธิบาย',
-    allRules: 'ทุกกฎ', failed: 'โหลดหรือบันทึกช่วงหยุดซ่อมบำรุงไม่ได้',
+    product: 'การเฝ้าระวัง', title: 'ช่วงปิดเสียงเตือน', tabRules: 'กฎสัญญาณเตือน', queryPh: 'กรองตามกฎ ขอบเขต หรือคำอธิบาย',
+    allRules: 'ทุกกฎ', failed: 'โหลดหรือบันทึกช่วงปิดเสียงเตือนไม่ได้',
     facetState: 'สถานะ', facetRecurring: 'ทำซ้ำ', yes: 'ใช่', no: 'ไม่',
     state: { active: 'กำลังทำงาน', scheduled: 'ตั้งเวลาไว้', ended: 'สิ้นสุดแล้ว' },
-    schedule: 'ตั้งช่วงหยุดซ่อมบำรุง', needOperator: 'ต้องเป็นผู้ควบคุมจึงตั้งเวลาได้',
+    schedule: 'ตั้งช่วงปิดเสียงเตือน', needOperator: 'ต้องเป็นผู้ควบคุมจึงตั้งเวลาได้',
     colStatus: 'สถานะ', colRecurring: 'ทำซ้ำ', colScope: 'ขอบเขต', colRule: 'กฎสัญญาณเตือน', colDesc: 'คำอธิบาย', colStart: 'เริ่ม', colEnd: 'สิ้นสุด', colAction: 'การดำเนินการ',
     endNow: 'สิ้นสุดตอนนี้', pickRule: 'เลือกกฎสัญญาณเตือน…', recurringWeekly: 'ทำซ้ำทุกสัปดาห์', save: 'บันทึก',
     errRule: 'เลือกกฎสัญญาณเตือน', errScope: 'ขอบเขตต้องอยู่ในรูป key:value เช่น equipment:bin', errEnd: 'เวลาสิ้นสุดต้องหลังเวลาเริ่ม',
@@ -1582,6 +1654,7 @@ const th: Dict = {
     empty: 'ยังไม่มีคีย์ API', emptyBody: 'สร้างคีย์เพื่อให้สคริปต์หรือระบบอื่นเรียก API ได้',
   },
   dash: {
+    fillTile: 'ระบายสีทั้งช่องตามสีของเกณฑ์',
     title: 'แดชบอร์ด', tabList: 'รายการ', searchPh: 'ค้นหาแดชบอร์ด', presets: 'รายการสำเร็จรูป',
     presetTemplates: 'เทมเพลต', useTemplate: 'ใช้เทมเพลต', tplWidgets: '{{count}} วิดเจ็ต',
     tpl_alarmOverview: 'ภาพรวมการเตือน', tpl_alarmOverview_d: 'การเตือนที่เปิดอยู่ สัดส่วนความรุนแรง และกฎกับสัญญาณที่เตือนบ่อยที่สุด',
@@ -1607,7 +1680,7 @@ const th: Dict = {
     editWidgetNamed: 'แก้ไข {{name}}', duplicate: 'ทำสำเนาวิดเจ็ต', removeWidget: 'ลบวิดเจ็ต', fullscreen: 'เต็มหน้าจอ',
     deleteTitle: 'ลบ "{{name}}"?', deleteBody: 'แดชบอร์ดและวิดเจ็ตทั้งหมดจะถูกลบ และย้อนกลับไม่ได้',
     pickMetric: 'เลือกค่าที่ต้องการแสดง', noChange: 'ข้อมูลไม่พอสำหรับเปรียบเทียบ',
-    mon: { alarm: 'แจ้งเตือน', stale: 'ไม่มีข้อมูล', ok: 'ปกติ' },
+    mon: { alarm: 'สัญญาณเตือน', stale: 'ไม่มีข้อมูล', ok: 'ปกติ' },
     agg: { last: 'ค่าล่าสุด', avg: 'ค่าเฉลี่ย', min: 'ค่าต่ำสุด', max: 'ค่าสูงสุด' },
     editWidget: 'ตัวแก้ไขวิดเจ็ต', preview: 'ตัวอย่าง', previewFix: 'แก้ช่องที่ไฮไลต์เพื่อดูตัวอย่าง',
     stepViz: 'เลือกรูปแบบการแสดงผล', stepData: 'เลือกข้อมูล', stepDisplay: 'การแสดงผล', stepLayout: 'ขนาด',
@@ -1617,7 +1690,7 @@ const th: Dict = {
       incidents: 'เหตุการณ์', alarmkpi: 'KPI สัญญาณเตือน',
       matlive: 'กล้องรถบรรทุกสด', matdecision: 'ผลตัดสินรถล่าสุด', matkpi: 'KPI วัสดุ', matmix: 'สัดส่วนหิน / ทราย',
       matmargin: 'ส่วนต่างการตัดสิน', matlog: 'ผลตัดสินรถ', ailatency: 'ความหน่วงการอนุมาน AI', aithroughput: 'ปริมาณงาน AI' },
-    samples: '{{count}} ตัวอย่าง', total: 'รวม',
+    samples: '{{count}} ตัวอย่าง', total: 'รวม', other: 'อื่น ๆ', shareLabel: '{{title}}: {{parts}}',
     colSignal: 'สัญญาณ', colValue: 'ค่า', colAge: 'อายุข้อมูล',
     metricOne: 'ค่าที่วัด', metricMany: 'ค่าที่วัด (สูงสุด {{max}})', aggregation: 'วิธีสรุปค่า', groupBy: 'นับสัญญาณเตือนตาม',
     group: { tag: 'สัญญาณ', rule: 'กฎ', severity: 'ระดับ' },
@@ -1715,10 +1788,13 @@ export const resources = { en: { translation: en }, th: { translation: th } };
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 
+// Storage may be unavailable (private window, blocked site data, tests):
+// an unreadable choice falls back to the browser language.
 function initialLang(): Lang {
-  const saved = localStorage.getItem(LANG_KEY);
+  let saved: string | null = null;
+  try { saved = globalThis.localStorage?.getItem(LANG_KEY) ?? null; } catch { /* no storage */ }
   if (saved === 'en' || saved === 'th') return saved;
-  return navigator.language?.toLowerCase().startsWith('th') ? 'th' : 'en';
+  return globalThis.navigator?.language?.toLowerCase().startsWith('th') ? 'th' : 'en';
 }
 
 void i18n.use(initReactI18next).init({
@@ -1730,11 +1806,11 @@ void i18n.use(initReactI18next).init({
 });
 
 export function setLang(lang: Lang): void {
-  localStorage.setItem(LANG_KEY, lang);
+  try { localStorage.setItem(LANG_KEY, lang); } catch { /* session-only */ }
   document.documentElement.lang = lang;
   void i18n.changeLanguage(lang);
 }
 
-document.documentElement.lang = i18n.language;
+if (typeof document !== 'undefined') document.documentElement.lang = i18n.language;
 
 export default i18n;

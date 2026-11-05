@@ -1,6 +1,7 @@
 // Icon registry — maps the app's semantic icon names (kept from the original
 // druids naming so call sites stay unchanged) to lucide glyphs (ISC licence).
-// Render via <DdIcon>.
+// Render via <DdIcon>. A second, smaller registry lives in ./Icon.tsx —
+// hand-drawn inline paths keyed by IconName; both sets stay in use.
 
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -10,7 +11,7 @@ import {
   FileDown, Gauge, Globe, GripVertical, HardDrive, HeartPulse, House, Info, Key, LayoutDashboard, LineChart,
   List, ListChecks, ListTree, Lock, Maximize2, Minimize2, MoreVertical, MessageSquare, Network, NotebookPen,
   Pause, Play, Plug, Plus, RefreshCw, ScrollText, Search, Server, Settings, Settings2, Shield, ShieldAlert,
-  Siren, Signpost, Sparkles, Square, SquareTerminal, Bug, Layers, MonitorCheck, BellRing, ChartBar, ChartSpline,
+  Siren, Signpost, Sparkles, Sun, Moon, SunMoon, PanelLeftClose, PanelLeftOpen, Square, SquareTerminal, Bug, Layers, MonitorCheck, BellRing, ChartBar, ChartSpline,
   TrendingUp, Radar, PhoneCall, User, Users, Workflow, X, XCircle, Zap, Waves, Share2, Rows3, Timer,
 } from 'lucide-react';
 
@@ -90,6 +91,11 @@ export const DD_ICONS = {
   'resize-expand': Maximize2,
   'resize-shrink': Minimize2,
   'search': Search,
+  'sun': Sun,
+  'moon': Moon,
+  'theme-system': SunMoon,
+  'rail-collapse': PanelLeftClose,
+  'rail-expand': PanelLeftOpen,
   'security-monitoring': ShieldAlert,
   'server': Server,
   'service-map': Share2,

@@ -18,6 +18,11 @@ import './lib/i18n';
 import './index.css';
 import App from './App.tsx';
 import { registerServiceWorker } from './lib/pwa';
+import { applyTheme, readThemePref } from './theme/theme';
+
+// Paint the stored theme before the first render so a dark choice never
+// flashes light. Unreadable storage resolves to the OS setting.
+applyTheme(readThemePref());
 
 registerServiceWorker();
 

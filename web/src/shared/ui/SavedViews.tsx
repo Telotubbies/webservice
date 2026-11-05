@@ -1,4 +1,4 @@
-// Saved views (F12, Datadog Saved Views) — the URL query string IS the
+// Saved views (F12) — the URL query string IS the
 // view. Save stores the current params under a name; apply restores them
 // wholesale; delete removes. Page-scoped, ≤20 per page (oldest evicted),
 // localStorage only — the panel says so, so nobody expects it on another PC.

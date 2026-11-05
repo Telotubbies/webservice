@@ -34,8 +34,10 @@ export interface PageBarProps {
 
 export function PageBar({ title, lede, actions, icon, tabs, back, status }: PageBarProps) {
   const { t } = useTranslation();
+  const hasTabs = !!tabs && tabs.length > 0;
   return (
-    <div className="pagebar sticky top-9 z-10 flex min-h-11 flex-wrap items-center gap-x-3 border-b border-line bg-paper px-4 md:flex-nowrap">
+    <>
+    <div className="pagebar sticky top-[var(--h-topbar)] z-10 flex min-h-11 flex-wrap items-center gap-x-3 border-b border-line bg-paper px-4 md:flex-nowrap">
       <div className="flex h-11 min-w-0 flex-1 items-center gap-2 md:flex-initial">
         {back && (
           <NavLink to={back.to} className="btn btn-ghost btn-sm btn-icon shrink-0" aria-label={back.label ?? t('ui.back')} title={back.label ?? t('ui.back')}>
@@ -66,10 +68,17 @@ export function PageBar({ title, lede, actions, icon, tabs, back, status }: Page
           ))}
         </nav>
       )}
-      {lede && <span className="hidden min-w-0 truncate text-[12px] text-ink-46 md:block">{lede}</span>}
+      {lede && !hasTabs && <span className="hidden min-w-0 truncate text-[12px] text-ink-46 md:block">{lede}</span>}
       <div className="hidden flex-1 md:block" />
-      {actions && <div className="flex min-w-0 shrink-0 items-center gap-2">{actions}</div>}
+      {actions && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 pb-2 md:w-auto md:shrink-0 md:flex-nowrap md:pb-0">{actions}</div>}
     </div>
+    {/* With tabs the lede gets its own line instead of squeezing title and
+        tabs into ellipses; it scrolls away (not sticky) so page-level sticky
+        offsets that assume the 44px bar stay right. */}
+    {lede && hasTabs && (
+      <p className="hidden border-b border-line bg-paper px-4 pb-2 pt-1.5 text-[12px] leading-snug text-ink-46 md:block">{lede}</p>
+    )}
+    </>
   );
 }
 
@@ -83,7 +92,7 @@ export function Card({ title, actions, children, pad = true }: {
   title?: string; actions?: ReactNode; children: ReactNode; pad?: boolean;
 }) {
   return (
-    <section className="rounded-[5px] border border-line bg-white shadow-card">
+    <section className="rounded-[5px] border border-line bg-paper shadow-card">
       {title && (
         <header className="flex h-9 items-center gap-2 border-b border-line px-3">
           <h2 className="text-[13px] font-semibold">{title}</h2>

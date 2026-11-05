@@ -1,6 +1,12 @@
 // Shared nav model — the single source of truth for the sidebar rail,
 // flyouts, and the command palette. Icons are semantic names mapped to
 // lucide glyphs (see shared/ui/ddicons.ts).
+//
+// Information architecture follows the console redesign spec (docs/superpowers/
+// specs/2026-10-20-console-redesign-design.md §5.1): plant work owns the top of
+// the rail, engineering setup sits under it, and every observability page that
+// came from the Datadog reference lives in one Platform group. URLs are
+// unchanged — only the grouping moved.
 
 import type { DdIconName } from '../shared/ui/ddicons';
 
@@ -21,9 +27,11 @@ export interface NavSection {
   action?: { to: string; key: string; flag?: string };
 }
 
+export type Cluster = 'plant' | 'engineering' | 'platform' | 'admin';
+
 export interface NavGroup {
-  /** Rail cluster — the sidebar draws a divider where this value changes. */
-  cluster: 1 | 2 | 3 | 4;
+  /** Rail cluster — the sidebar draws a label or divider where this changes. */
+  cluster: Cluster;
   group: string; icon: DdIconName; items: NavItem[]; gated?: boolean;
   /** Flyout anatomy; falls back to one anonymous section holding `items`. */
   sections?: NavSection[];
@@ -32,150 +40,138 @@ export interface NavGroup {
   href?: string;
 }
 
+/** Rail label above each cluster; clusters of one group need none. */
+export const CLUSTER_LABEL: Partial<Record<Cluster, string>> = {
+  plant: 'nav.grpPlant',
+  engineering: 'nav.grpEngineering',
+};
+
 // ── Nav data ─────────────────────────────────────────────────────────────────
-// Groups are declared in rail order (the same order ORDER sorts to) so this
-// file reads the way the sidebar renders. Navigation is grouped by
-// job-to-be-done rather than by system layer.
+// Declared in rail order. A group's `items` lists every route it owns (the
+// palette and active-group matching read it); `sections` only shapes the flyout.
+
+const MONITORS: NavItem[] = [
+  { to: '/monitors', key: 'nav.monitors', icon: 'monitor' },
+  { to: '/monitors/templates', key: 'nav.monTemplates', icon: 'books' },
+  { to: '/slos', key: 'nav.slos', icon: 'status-page' },
+];
+const INCIDENTS: NavItem[] = [
+  { to: '/incidents', key: 'nav.incidents', icon: 'incidents', flag: 'incidents' },
+  { to: '/teams', key: 'nav.teams', icon: 'on-call', flag: 'teams' },
+];
+const DATA: NavItem[] = [
+  { to: '/logs', key: 'nav.logs', icon: 'log-pipelines' },
+  { to: '/query', key: 'nav.query', icon: 'database' },
+  { to: '/metrics', key: 'nav.metricsSummary', icon: 'metric' },
+  { to: '/traces', key: 'nav.traces', icon: 'service-map', flag: 'traces' },
+  { to: '/processes', key: 'nav.processes', icon: 'container', flag: 'processes' },
+];
+const EXPERIENCE: NavItem[] = [
+  { to: '/sessions', key: 'nav.sessions', icon: 'user', flag: 'sessions' },
+  { to: '/synthetics', key: 'nav.synthetics', icon: 'multi-heartbeat', flag: 'synthetics' },
+  { to: '/catalog', key: 'nav.catalog', icon: 'books', flag: 'catalog' },
+];
+const SECURITY: NavItem[] = [
+  { to: '/security', key: 'nav.secPosture', icon: 'security-monitoring' },
+  { to: '/security/issues', key: 'nav.secIssues', icon: 'attention-circled' },
+  { to: '/security/findings', key: 'nav.secFindings', icon: 'list' },
+  { to: '/security/api', key: 'nav.secApi', icon: 'signpost' },
+  { to: '/security/access', key: 'nav.secAccess', icon: 'key' },
+];
+const INTELLIGENCE: NavItem[] = [
+  { to: '/insights', key: 'nav.insights', icon: 'ai-search' },
+  { to: '/errors', key: 'nav.errors', icon: 'error-tracking', flag: 'errors' },
+  { to: '/assistant', key: 'nav.assistant', icon: 'comment', flag: 'assistant' },
+];
 
 const ALL_NAV: NavGroup[] = [
-  // ── Cluster 1 — primary work areas.
-  { cluster: 1, group: 'nav.bitsAi', icon: 'ai-search', items: [
-    { to: '/assistant', key: 'nav.assistant', icon: 'comment', flag: 'assistant' },
+  // ── Cluster 1 — Plant: what the operator watches and acts on all shift.
+  { cluster: 'plant', group: 'nav.plantTwin', icon: 'building-block', items: [
+    { to: '/', key: 'nav.plantTwin', icon: 'building-block' },
   ] },
-  { cluster: 1, group: 'nav.dashboards', icon: 'dashboard', items: [
-    { to: '/', key: 'nav.overview', icon: 'home' },
-    { to: '/dashboards', key: 'nav.dashboards', icon: 'dashboard', badge: 'new' },
-    { to: '/line', key: 'nav.line', icon: 'service-map' },
-    { to: '/line3d', key: 'nav.line3d', icon: 'building-block' },
-    { to: '/notebooks', key: 'nav.notebooks', icon: 'notebook' },
-  ], sections: [
-    { title: 'nav.secDashboards', items: [
-      { to: '/', key: 'nav.overview', icon: 'home' },
-      { to: '/dashboards', key: 'nav.dashboards', icon: 'dashboard' },
-    ], action: { to: '/dashboards?new=1', key: 'nav.actionNewDashboard' } },
-    { title: 'nav.secNotebooks', items: [
-      { to: '/notebooks', key: 'nav.notebooks', icon: 'notebook' },
-    ], action: { to: '/notebooks?new=1', key: 'nav.actionNewNotebook' } },
-    { title: 'nav.secLive', items: [
-      { to: '/line', key: 'nav.line', icon: 'service-map' },
-      { to: '/line3d', key: 'nav.line3d', icon: 'building-block' },
-    ] },
+  { cluster: 'plant', group: 'nav.overview', icon: 'home', items: [
+    { to: '/overview', key: 'nav.overview', icon: 'home' },
   ] },
-  { cluster: 1, group: 'nav.monitoring', icon: 'monitor', href: '/monitors', items: [
-    { to: '/monitors', key: 'nav.monitors', icon: 'monitor' },
-    { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
-    { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },
-    { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
-    { to: '/slos', key: 'nav.slos', icon: 'status-page' },
-    { to: '/events', key: 'nav.events', icon: 'events' },
-    { to: '/activity', key: 'nav.activity', icon: 'bell' },
-  ], sections: [
-    { title: 'nav.secMonitors', items: [
-      { to: '/monitors', key: 'nav.monitors', icon: 'monitor' },
-      { to: '/monitors/templates', key: 'nav.monTemplates', icon: 'books' },
-    ] },
-    { title: 'nav.secAlarms', items: [
-      { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
-      { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },
-      { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
-    ], secondary: [
-      { to: '/admin/rules', key: 'nav.adminRules', icon: 'assert-list' },
-      { to: '/notifications/channels', key: 'nav.notifyChannels', icon: 'bell' },
-      { to: '/alarms/settings', key: 'nav.alarmSettings', icon: 'cog', flag: 'alarmsettings' },
-    ],
-      action: { to: '/admin/rules/new', key: 'nav.actionNewRule' } },
-    { title: 'nav.secReliability', items: [
-      { to: '/slos', key: 'nav.slos', icon: 'status-page' },
-      { to: '/activity', key: 'nav.activity', icon: 'bell' },
-      { to: '/notifications/channels', key: 'nav.notifyChannels', icon: 'bell' },
-    ] },
-    { title: 'nav.secEvents', items: [
-      { to: '/events', key: 'nav.events', icon: 'events' },
-    ] },
-  ] },
-  { cluster: 1, group: 'nav.devPortal', icon: 'books', items: [
-    { to: '/catalog', key: 'nav.catalog', icon: 'books', flag: 'catalog' },
-    { to: '/structure', key: 'nav.structure', icon: 'service-map' },
-  ] },
-  { cluster: 1, group: 'nav.incidentResponse', icon: 'incidents', items: [
-    { to: '/incidents', key: 'nav.incidents', icon: 'incidents', flag: 'incidents' },
-    { to: '/teams', key: 'nav.teams', icon: 'on-call', flag: 'teams' },
-  ] },
-  { cluster: 1, group: 'nav.automation', icon: 'lightning-filled', items: [
+  { cluster: 'plant', group: 'nav.live', icon: 'datastreams-monitoring', href: '/live', items: [
+    { to: '/live', key: 'nav.line', icon: 'datastreams-monitoring' },
+    { to: '/wall', key: 'nav.wall', icon: 'resize-expand' },
     { to: '/commands', key: 'nav.commands', icon: 'prompt' },
   ] },
-
-  // ── Cluster 2 — platform and observability depth.
-  { cluster: 2, group: 'nav.infrastructure', icon: 'server', items: [
-    { to: '/infrastructure', key: 'nav.devices', icon: 'server', badge: 'new' },
-    { to: '/infrastructure/map', key: 'nav.infraMap', icon: 'service-map' },
-    { to: '/infrastructure/profiles', key: 'nav.infraProfiles', icon: 'assert-list' },
-    { to: '/health', key: 'nav.health', icon: 'heartbeat' },
-  ], action: { to: '/infrastructure/add', key: 'nav.addDevice' } },
-  { cluster: 2, group: 'nav.apm', icon: 'service-map', items: [
-    { to: '/traces', key: 'nav.traces', icon: 'service-map', flag: 'traces' },
-    { to: '/processes', key: 'nav.processes', icon: 'container', flag: 'processes' },
+  { cluster: 'plant', group: 'nav.alarms', icon: 'attention-circled', href: '/alarms', items: [
+    { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
+    { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
+    { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },
+    { to: '/events', key: 'nav.events', icon: 'events' },
+    { to: '/activity', key: 'nav.activity', icon: 'bell' },
   ] },
-  { cluster: 2, group: 'nav.digitalExperience', icon: 'eye', items: [
-    { to: '/sessions', key: 'nav.sessions', icon: 'eye', flag: 'sessions' },
-    { to: '/synthetics', key: 'nav.synthetics', icon: 'multi-heartbeat', flag: 'synthetics' },
-  ] },
-  { cluster: 2, group: 'nav.security', icon: 'security-monitoring', href: '/security', items: [
-    { to: '/security', key: 'nav.secPosture', icon: 'security-monitoring' },
-    { to: '/security/issues', key: 'nav.secIssues', icon: 'attention-circled' },
-    { to: '/security/findings', key: 'nav.secFindings', icon: 'list' },
-    { to: '/security/api', key: 'nav.secApi', icon: 'signpost' },
-    { to: '/security/access', key: 'nav.secAccess', icon: 'key' },
-  ], sections: [
-    { title: 'nav.secCloud', items: [
-      { to: '/security', key: 'nav.secPosture', icon: 'security-monitoring' },
-      { to: '/security/issues', key: 'nav.secIssues', icon: 'attention-circled' },
-      { to: '/security/findings', key: 'nav.secFindings', icon: 'list' },
-    ] },
-    { title: 'nav.secApiProtection', items: [
-      { to: '/security/api', key: 'nav.secApi', icon: 'signpost' },
-    ] },
-    { title: 'nav.secAccess', items: [
-      { to: '/security/access', key: 'nav.secAccess', icon: 'key' },
-    ] },
-  ] },
-  { cluster: 2, group: 'nav.intelligence', icon: 'watchdog', items: [
-    { to: '/insights', key: 'nav.insights', icon: 'ai-search' },
-    { to: '/assistant', key: 'nav.assistant', icon: 'comment', flag: 'assistant' },
-  ] },
-
-  // ── Cluster 3 — plant data.
-  { cluster: 3, group: 'nav.errors', icon: 'error-tracking', items: [
-    { to: '/errors', key: 'nav.errors', icon: 'error-tracking', flag: 'errors' },
-  ] },
-  { cluster: 3, group: 'nav.metrics', icon: 'metric', items: [
+  { cluster: 'plant', group: 'nav.trends', icon: 'graph-line', items: [
     { to: '/trends', key: 'nav.trends', icon: 'graph-line' },
-    { to: '/metrics', key: 'nav.metricsSummary', icon: 'metric' },
-    { to: '/tags', key: 'nav.tags', icon: 'list' },
-    { to: '/query', key: 'nav.query', icon: 'database' },
   ] },
-  { cluster: 3, group: 'nav.production', icon: 'pause', items: [
-    { to: '/oee', key: 'nav.oee', icon: 'metric' },
-    { to: '/stops', key: 'nav.stops', icon: 'pause' },
-    { to: '/shifts', key: 'nav.shifts', icon: 'on-call' },
-    { to: '/reports', key: 'nav.reports', icon: 'download' },
+  { cluster: 'plant', group: 'nav.production', icon: 'metric', href: '/production/oee', items: [
+    { to: '/production/oee', key: 'nav.oee', icon: 'metric' },
+    { to: '/production/stops', key: 'nav.stops', icon: 'pause' },
+    { to: '/production/shifts', key: 'nav.shifts', icon: 'clock' },
+    { to: '/production/reports', key: 'nav.reports', icon: 'download' },
   ] },
-  { cluster: 3, group: 'nav.logs', icon: 'log-pipelines', items: [
-    { to: '/logs', key: 'nav.logs', icon: 'log-pipelines' },
+  { cluster: 'plant', group: 'nav.dashboards', icon: 'dashboard', href: '/dashboards', items: [
+    { to: '/dashboards', key: 'nav.dashboards', icon: 'dashboard' },
+    { to: '/notebooks', key: 'nav.notebooks', icon: 'notebook' },
+  ], sections: [
+    { items: [{ to: '/dashboards', key: 'nav.dashboards', icon: 'dashboard' }], action: { to: '/dashboards?new=1', key: 'nav.actionNewDashboard' } },
+    { items: [{ to: '/notebooks', key: 'nav.notebooks', icon: 'notebook' }], action: { to: '/notebooks?new=1', key: 'nav.actionNewNotebook' } },
   ] },
 
-  // ── Cluster 4 — administration.
+  // ── Cluster 2 — Engineering: bring gateways, PLCs, the model and vision online.
+  { cluster: 'engineering', group: 'nav.plantSetup', icon: 'workflows', href: '/setup/structure', items: [
+    { to: '/setup/structure', key: 'nav.structure', icon: 'organization' },
+    { to: '/setup/model', key: 'nav.plantMapping', icon: 'integration' },
+    { to: '/setup/tags', key: 'nav.tags', icon: 'list' },
+    { to: '/setup/rules', key: 'nav.adminRules', icon: 'assert-list' },
+    { to: '/notifications/channels', key: 'nav.notifyChannels', icon: 'bell' },
+    { to: '/alarms/settings', key: 'nav.alarmSettings', icon: 'cog', flag: 'alarmsettings' },
+  ], action: { to: '/setup/rules/new', key: 'nav.actionNewRule' } },
+  { cluster: 'engineering', group: 'nav.connectivity', icon: 'server', href: '/connect/gateways', items: [
+    { to: '/connect/gateways', key: 'nav.devices', icon: 'server' },
+    { to: '/connect/sources', key: 'nav.dataSources', icon: 'database' },
+    { to: '/connect', key: 'nav.infraMap', icon: 'service-map' },
+    { to: '/connect/profiles', key: 'nav.infraProfiles', icon: 'assert-list' },
+    { to: '/connect/health', key: 'nav.health', icon: 'heartbeat' },
+  ], action: { to: '/connect/add', key: 'nav.addDevice' } },
+  { cluster: 'engineering', group: 'nav.vision', icon: 'eye', href: '/vision/cameras', items: [
+    { to: '/vision/cameras', key: 'nav.cameras', icon: 'eye' },
+    { to: '/vision/models', key: 'nav.visionModels', icon: 'ai-search' },
+    { to: '/vision/rules', key: 'nav.visionRules', icon: 'assert-list' },
+    { to: '/vision/events', key: 'nav.visionEvents', icon: 'events' },
+  ] },
+
+  // ── Cluster 3 — Platform: the observability depth, one group, one level down.
+  { cluster: 'platform', group: 'nav.platformTools', icon: 'cog-multi', href: '/monitors',
+    items: [...MONITORS, ...INCIDENTS, ...DATA, ...EXPERIENCE, ...SECURITY, ...INTELLIGENCE],
+    sections: [
+      { title: 'nav.secMonitors', items: MONITORS, secondary: INCIDENTS },
+      { title: 'nav.secData', items: DATA, secondary: EXPERIENCE },
+      { title: 'nav.security', items: SECURITY, secondary: INTELLIGENCE },
+    ] },
+
+  // ── Cluster 4 — Administration.
   // Admin is visible to operators and above; mutations stay admin|owner server-side.
-  { cluster: 4, group: 'nav.admin', icon: 'organization', gated: true, items: [
+  { cluster: 'admin', group: 'nav.admin', icon: 'lock', gated: true, href: '/admin', items: [
     { to: '/admin', key: 'nav.adminOrg', icon: 'organization' },
-    { to: '/admin/rules', key: 'nav.adminRules', icon: 'assert-list' },
     { to: '/admin/users', key: 'nav.adminUsers', icon: 'users' },
     { to: '/admin/audit', key: 'nav.adminAudit', icon: 'audit-trail' },
+    { to: '/admin/keys', key: 'nav.adminKeys', icon: 'key' },
+    { to: '/admin/storage', key: 'nav.adminStorage', icon: 'datastores' },
+    { to: '/settings', key: 'nav.settings', icon: 'cog' },
+    { to: '/settings/plan', key: 'nav.plan', icon: 'graph-explorer' },
+    { to: '/platform', key: 'nav.platform', icon: 'network' },
   ], sections: [
     { title: 'admin.navOrg', items: [
       { to: '/admin', key: 'nav.adminOrg', icon: 'organization' },
-      { to: '/admin/rules', key: 'nav.adminRules', icon: 'assert-list' },
-      { to: '/admin/storage', key: 'nav.adminStorage', icon: 'metric' },
+      { to: '/admin/storage', key: 'nav.adminStorage', icon: 'datastores' },
+    ], secondary: [
+      { to: '/settings', key: 'nav.settings', icon: 'cog' },
+      { to: '/settings/plan', key: 'nav.plan', icon: 'graph-explorer' },
+      { to: '/platform', key: 'nav.platform', icon: 'network' },
     ] },
     { title: 'admin.navIdentity', items: [
       { to: '/admin/users', key: 'nav.adminUsers', icon: 'users' },
@@ -183,10 +179,6 @@ const ALL_NAV: NavGroup[] = [
     { title: 'admin.navAccess', items: [
       { to: '/admin/audit', key: 'nav.adminAudit', icon: 'audit-trail' },
       { to: '/admin/keys', key: 'nav.adminKeys', icon: 'key' },
-    ], secondary: [
-      { to: '/settings', key: 'nav.settings', icon: 'cog' },
-      { to: '/settings/plan', key: 'nav.plan', icon: 'metric' },
-      { to: '/platform', key: 'nav.platform', icon: 'organization' },
     ] },
   ] },
 ];
@@ -197,15 +189,29 @@ const ALL_NAV: NavGroup[] = [
 // any group left empty.
 const keep = (xs?: NavItem[]) => xs?.filter((i) => enabled(i.flag));
 
-// Fixed rail order — the sidebar renders groups in this order, not
-// declaration order.
-const ORDER = ['nav.bitsAi', 'nav.dashboards', 'nav.monitoring', 'nav.devPortal', 'nav.incidentResponse', 'nav.automation',
-  'nav.infrastructure', 'nav.apm', 'nav.digitalExperience', 'nav.security', 'nav.intelligence',
-  'nav.errors', 'nav.metrics', 'nav.production', 'nav.logs', 'nav.admin'];
-const rank = (g: NavGroup) => ORDER.indexOf(g.group);
-
-export const NAV: NavGroup[] = [...ALL_NAV].sort((a, b) => rank(a) - rank(b)).map((g) => ({
+export const NAV: NavGroup[] = ALL_NAV.map((g) => ({
   ...g,
   items: keep(g.items)!,
   sections: g.sections?.map((s) => ({ ...s, items: keep(s.items)!, secondary: keep(s.secondary), action: enabled(s.action?.flag) ? s.action : undefined })).filter((s) => s.items.length),
 })).filter((g) => g.items.length);
+
+/** How much of `pathname` an item's route covers (0 = no match). Segment
+ *  boundaries only, so /alarms never claims /alarmsx. */
+function matchLen(pathname: string, to: string): number {
+  if (to === '/') return pathname === '/' ? 1 : 0;
+  return pathname === to || pathname.startsWith(`${to}/`) ? to.length : 0;
+}
+
+/** The rail group that owns `pathname`: the one with the longest matching
+ *  route, so /line3d/map lights Plant setup rather than Live. */
+export function activeGroup(pathname: string, groups: NavGroup[] = NAV): string | null {
+  let best: string | null = null;
+  let len = 0;
+  for (const g of groups) {
+    for (const i of g.items) {
+      const n = matchLen(pathname, i.to);
+      if (n > len) { len = n; best = g.group; }
+    }
+  }
+  return best;
+}

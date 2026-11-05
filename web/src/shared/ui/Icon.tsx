@@ -1,5 +1,7 @@
-// Inline icon set (24px grid, 1.75 stroke). Decorative by default; pass
-// `label` when the icon is the only content of a control.
+// Inline icon set (24px grid, 1.75 stroke) — hand-drawn SVG paths keyed by
+// IconName. The larger registry in ./ddicons.ts maps semantic names to lucide
+// glyphs and renders via <DdIcon>; both sets stay in use. Decorative by
+// default; pass `label` when the icon is the only content of a control.
 
 import type { SVGProps } from 'react';
 
@@ -29,8 +31,8 @@ const PATHS = {
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6',
   sparkle: 'M12 3l1.9 5.3L19.2 10l-5.3 1.7L12 17l-1.9-5.3L4.8 10l5.3-1.7L12 3zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z',
   waves: 'M3 9c1.5-2.4 3-2.4 4.5 0s3 2.4 4.5 0 3-2.4 4.5 0 3 2.4 4.5 0M3 15c1.5-2.4 3-2.4 4.5 0s3 2.4 4.5 0 3-2.4 4.5 0 3 2.4 4.5 0',
-  /* ---- v6 additions: cross-page glyphs for the Datadog-pattern surfaces.
-     Same 24px grid / 1.75 stroke / round caps; decorative by default. ---- */
+  /* ── v6 additions: cross-page glyphs for the monitoring surfaces.
+     Same 24px grid / 1.75 stroke / round caps; decorative by default. ── */
   bell: 'M12 4a6 6 0 0 1 6 6c0 4.5 2 6 2 6H4s2-1.5 2-6a6 6 0 0 1 6-6zM10 19a2 2 0 0 0 4 0',
   x: 'M6 6l12 12M18 6L6 18',
   'check-circle': 'M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zM8.5 12.3l2.4 2.4 4.6-4.9',

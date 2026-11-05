@@ -1,6 +1,7 @@
 // Palette — the command/search modal. Ctrl/Cmd+K or the topbar search pill
-// opens it. It lists nav items and live tag jump targets, grouped and
-// keyboard-driven.
+// opens it. Pages, actions (ack, theme) and equipment come from
+// paletteCommands (pure, tested); live tags are jump targets. Grouped and
+// keyboard-driven; a command the user may not run shows but cannot fire.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,8 +11,15 @@ import { live } from '../lib/live';
 import { DdIcon } from '../shared/ui/DdIcon';
 import type { DdIconName } from '../shared/ui/ddicons';
 import { useOperateAnyOrg } from '../features/admin/admin';
+import { useRole } from './session';
+import { useAlarms } from '../features/alarms/alarms';
+import { ackMany } from '../features/alarms/ackAlarm';
+import { useEquipment } from '../lib/equipment';
+import { applyTheme, writeThemePref } from '../theme/theme';
+import { toast } from '../ui/Toaster';
+import { paletteCommands } from './paletteCommands';
 
-interface Entry { label: string; to: string; icon: DdIconName; group: string }
+interface Entry { key: string; label: string; item: string; icon: DdIconName; group: string; hint?: string; run: () => void; enabled: boolean }
 
 const MAX = 40; // Cap on rendered results.
 
@@ -19,6 +27,9 @@ export function Palette() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const showAdmin = useOperateAnyOrg();
+  const role = useRole();
+  const { open: openAlarms, active } = useAlarms();
+  const { items: equipment, select } = useEquipment();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
@@ -41,17 +52,29 @@ export function Palette() {
   useEffect(() => { if (open) { setQ(''); setIdx(0); inputRef.current?.focus(); } }, [open]);
 
   const entries = useMemo<Entry[]>(() => {
-    const nav: Entry[] = NAV
-      .filter((g) => !g.gated || showAdmin)
-      .flatMap((g) => g.items.map((i) => ({ label: t(i.key), to: i.to, icon: i.icon, group: t(g.group) })));
-    const tags: Entry[] = live.tags.map((ti) => ({
-      label: ti.name, to: `/tags?q=${encodeURIComponent(ti.name)}`, icon: 'metric' as DdIconName, group: t('palette.signals'),
+    const GROUP = { navigate: t('palette.pages'), action: t('palette.actions'), equipment: t('palette.equipment') };
+    const cmds: Entry[] = paletteCommands({
+      nav: NAV, role, showAdmin, alarms: openAlarms, equipment,
+      navigate, selectEquipment: select,
+      ackVisible: () => {
+        void ackMany(active).then((r) => toast({ tone: r.failed ? 'warn' : 'ok', text: `${t('palette.ackVisible')}: ${r.ok}${r.failed ? ` / ✕ ${r.failed}` : ''}` }));
+      },
+      setTheme: (p) => { writeThemePref(p); applyTheme(p); },
+      t,
+    }).map((c) => ({
+      key: c.id, label: c.label, icon: c.icon, group: GROUP[c.group], hint: c.hint, run: c.run, enabled: c.enabled,
+      item: c.id.startsWith('nav:') ? c.id.slice(4) : c.id,
     }));
-    return [...nav, ...tags].filter((e) => !q || e.label.toLowerCase().includes(q.toLowerCase()));
+    const tags: Entry[] = live.tags.map((ti) => {
+      const to = `/setup/tags?q=${encodeURIComponent(ti.name)}`;
+      return { key: `tag:${ti.name}`, label: ti.name, item: to, icon: 'metric' as DdIconName, group: t('palette.signals'), run: () => navigate(to), enabled: true };
+    });
+    const needle = q.toLowerCase();
+    return [...cmds, ...tags].filter((e) => !q || e.label.toLowerCase().includes(needle) || (e.hint ?? '').toLowerCase().includes(needle));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, showAdmin]);
+  }, [q, showAdmin, role, openAlarms, active, equipment]);
 
-  const go = (e: Entry) => { setOpen(false); navigate(e.to); };
+  const go = (e: Entry) => { if (!e.enabled) return; setOpen(false); e.run(); };
 
   // Keep the highlighted row visible while arrowing through a long list.
   useEffect(() => {
@@ -63,7 +86,7 @@ export function Palette() {
   return (
     <div className="fixed inset-0 z-[100] bg-ink/30" onClick={() => setOpen(false)}>
       <div
-        className="palette-panel mx-auto mt-[12vh] w-[560px] max-w-[92vw] overflow-hidden rounded-md border border-line bg-white shadow-flyout"
+        className="palette-panel mx-auto mt-[12vh] w-[560px] max-w-[92vw] overflow-hidden rounded-md border border-line bg-paper shadow-flyout"
         onClick={(e) => e.stopPropagation()}
         role="dialog" aria-modal="true" aria-label={t('palette.title')}
       >
@@ -94,18 +117,19 @@ export function Palette() {
           <ul id="palette-list" role="listbox" aria-label={t('palette.title')} className="max-h-[50vh] overflow-y-auto py-1">
             {entries.slice(0, MAX).map((e, i) => (
               <li
-                key={e.to + e.label}
+                key={e.key}
                 id={optId(i)}
                 role="option"
                 aria-selected={i === idx}
-                data-item={e.to}
-                className={`palette-option flex cursor-pointer items-center gap-2.5 px-3 py-2 text-[13px] ${i === idx ? 'bg-info-soft text-blue' : 'text-ink hover:bg-subtle'}`}
+                aria-disabled={!e.enabled || undefined}
+                data-item={e.item}
+                className={`palette-option flex items-center gap-2.5 px-3 py-2 text-[13px] ${!e.enabled ? 'cursor-not-allowed text-ink-35' : i === idx ? 'cursor-pointer bg-info-soft text-blue' : 'cursor-pointer text-ink hover:bg-subtle'}`}
                 onMouseEnter={() => setIdx(i)}
                 onClick={() => go(e)}
               >
                 <DdIcon name={e.icon} size={14} className="shrink-0 opacity-70" />
                 <span className="min-w-0 flex-1 truncate">{e.label}</span>
-                <span className="shrink-0 text-[11px] text-ink-46">{e.group}</span>
+                <span className="shrink-0 text-[11px] text-ink-46">{e.enabled ? (e.hint && e.group === t('palette.pages') ? e.hint : e.group) : t('palette.unavailable')}</span>
               </li>
             ))}
           </ul>

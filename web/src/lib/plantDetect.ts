@@ -178,9 +178,7 @@ export function detectParts(inp: DetectInput): Candidate[] {
   return out;
 }
 
-/* ------------------------------------------------------------------ */
-/* auto-bind to existing tags                                           */
-/* ------------------------------------------------------------------ */
+// ── Auto-bind to existing tags ───────────────────────────────────────────────
 
 // role -> words that mark a tag's signal (last path segment)
 const ROLE_WORDS: Record<string, RegExp> = {
@@ -253,9 +251,7 @@ export function autoBind(
   return { bindings, unbound };
 }
 
-/* ------------------------------------------------------------------ */
-/* simulated tags for what could not be bound                           */
-/* ------------------------------------------------------------------ */
+// ── Simulated tags for what could not be bound ───────────────────────────────
 
 export interface SimTagDef {
   path: string; type: TagType; writable: boolean; unit?: string;

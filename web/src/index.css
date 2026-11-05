@@ -1,5 +1,15 @@
+/* Global stylesheet — Tailwind v4 plus the dd-theme tokens, then the shared
+   primitives below (buttons, inputs, severity/state chips, feedback blocks,
+   dialogs). @import order is load-bearing. */
+
 @import "tailwindcss";
+/* .overline (below) is our label style; without this Tailwind also emits its
+   own `overline` utility (text-decoration-line: overline) in the utilities
+   layer, which wins and draws a line over every column header */
+@source not inline("overline");
 @import "./dd-theme.css";
+/* Console 5 tokens: same names override dd-theme values; dark mapping keyed off <html data-theme> */
+@import "./theme/tokens.css";
 /* weights main.tsx doesn't load: 500 (.btn, font-medium) and Thai 500/700
    (font-bold rail/brand) — without them the browser fakes or drops weight */
 @import "@fontsource/ibm-plex-sans/500.css";
@@ -8,49 +18,58 @@
 
 body {
   margin: 0;
-  background: var(--color-paper);
+  background: var(--color-ground);
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
   /* tabular figures everywhere: live values must not jitter as digits change */
   font-variant-numeric: tabular-nums;
+  caret-color: var(--color-blue);
 }
+::selection { background: color-mix(in srgb, var(--color-blue) 22%, transparent); color: inherit; }
+/* thin neutral scrollbars — the browser default is the loudest thing in a dense table */
+.app-shell, .app-shell * { scrollbar-width: thin; scrollbar-color: var(--color-line-hard) transparent; }
+.chrome, .chrome * { scrollbar-color: var(--color-rail-line) transparent; }
 
 #root {
   min-height: 100svh;
 }
 
-/* ============ shared primitives (dd-measured) ============ */
-/* Buttons */
-.btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 28px; padding: 0 12px; border-radius: 4px;
-  font-size: 13px; font-weight: 500; border: 1px solid transparent;
-  background: var(--color-blue); color: #fff; cursor: pointer;
-  white-space: nowrap; /* a wrapped Thai label would overflow the fixed 28px height */
+/* ============ shared primitives (sized off the dd-theme tokens) ============ */
+/* Buttons — in the components layer (like .input) so a utility on the
+   element wins: `btn-ghost text-[var(--color-danger)]` is red and `btn h-9`
+   is 36px. Unlayered, these rules silently beat every override. */
+@layer components {
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 12px; border-radius: 4px;
+    font-size: 13px; font-weight: 500; border: 1px solid transparent;
+    background: var(--color-blue); color: var(--color-on-accent); cursor: pointer;
+    white-space: nowrap; /* a wrapped Thai label would overflow the fixed 28px height */
+  }
+  .btn:hover { background: var(--color-blue-hover); }
+  .btn:focus-visible { outline-offset: 2px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-sm { height: 24px; padding: 0 8px; font-size: 12px; border-radius: 3px; }
+  .btn-ghost { background: transparent; color: var(--color-ink); border-color: var(--color-control-line); }
+  .btn-ghost:hover { border-color: var(--color-blue); color: var(--color-blue); background: transparent; }
+  .btn-danger { background: var(--color-danger-bright); color: #fff; }
+  .btn-danger:hover { background: var(--color-danger); }
+  .btn:disabled:hover { background: var(--color-blue); }
+  .btn-ghost:disabled:hover { background: transparent; border-color: var(--color-control-line); color: var(--color-ink); }
+  .btn-danger:disabled:hover { background: var(--color-danger-bright); }
+  /* icon-only square button — always pair with aria-label */
+  .btn-icon { width: 28px; padding: 0; justify-content: center; }
+  .btn-sm.btn-icon { width: 24px; }
 }
-.btn:hover { background: var(--color-blue-hover); }
-.btn:focus-visible { outline-offset: 2px; }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn-sm { height: 24px; padding: 0 8px; font-size: 12px; border-radius: 3px; }
-.btn-ghost { background: transparent; color: var(--color-ink); border-color: var(--color-control-line); }
-.btn-ghost:hover { border-color: var(--color-blue); color: var(--color-blue); background: transparent; }
-.btn-danger { background: var(--color-danger-bright); }
-.btn-danger:hover { background: var(--color-danger); }
-.btn:disabled:hover { background: var(--color-blue); }
-.btn-ghost:disabled:hover { background: transparent; border-color: var(--color-control-line); color: var(--color-ink); }
-.btn-danger:disabled:hover { background: var(--color-danger-bright); }
-/* icon-only square button — always pair with aria-label */
-.btn-icon { width: 28px; padding: 0; justify-content: center; }
-.btn-sm.btn-icon { width: 24px; }
 
 /* Inputs */
 /* in the components layer so padding utilities (e.g. pl-7 for a leading icon) win */
 @layer components {
   .input {
     height: 28px; padding: 0 8px; border-radius: 4px;
-    border: 1px solid var(--color-control-line); background: var(--color-paper); color: var(--color-ink);
+    border: 1px solid var(--color-input-line); background: var(--color-paper); color: var(--color-ink);
     font-size: 13px; min-width: 0;
   }
   .input::placeholder { color: var(--color-ink-46); }
@@ -78,6 +97,10 @@ body {
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field-label { font-size: 11px; font-weight: 600; color: var(--color-ink-muted); text-transform: uppercase; letter-spacing: .04em; }
 :lang(th) .field-label { text-transform: none; letter-spacing: 0; font-size: 12px; }
+/* rail / drawer group labels: Latin wraps tight (15px leading, -0.02em) to
+   fit the 160px rail; Thai stacks vowels and tone marks above and below the
+   line, which that leading and line-clamp's overflow:hidden would clip */
+:lang(th) .rail-label { line-height: 1.45; letter-spacing: 0; padding-block: 1px; }
 .field-error { font-size: 12px; color: var(--color-danger); }
 .field-hint { font-size: 12px; color: var(--color-ink-46); }
 
@@ -87,14 +110,26 @@ body {
   height: 20px; padding: 0 8px; border-radius: 4px;
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-.sev-critical, .alarm-state.is-active { background: var(--color-danger-soft); color: var(--color-danger); }
-.sev-warning, .alarm-state.is-acked  { background: var(--color-caution-soft); color: var(--color-caution-ink); }
-.sev-info, .alarm-state.is-cleared   { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
+/* Priority owns colour + the ▲◆● shapes (ISA-101). */
+.sev-critical { background: var(--color-danger-soft); color: var(--color-danger); }
+.sev-warning  { background: var(--color-caution-soft); color: var(--color-caution-ink); }
+.sev-info     { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
 .sev-critical::before { content: '▲'; font-size: 9px; }
 .sev-warning::before  { content: '◆'; font-size: 9px; }
 .sev-info::before     { content: '●'; font-size: 9px; }
-.state-running { background: var(--color-ok-soft); color: var(--color-ok-ink); }
-.state-stopped { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
+/* Lifecycle (unacked → acked → cleared) is coded by emphasis and its own
+   ○ ◐ ✓ glyphs, never by the priority colours — an active warning must not
+   read as critical. Same scheme as the incident status pill. */
+.alarm-state { border: 1px solid transparent; }
+.alarm-state.is-active  { border-color: var(--color-ink); background: var(--color-paper); color: var(--color-ink); font-weight: 700; }
+.alarm-state.is-acked   { border-color: var(--color-control-line); background: var(--color-paper); color: var(--color-ink-68); }
+.alarm-state.is-cleared { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
+.alarm-state.is-active::before  { content: '○'; font-size: 9px; }
+.alarm-state.is-acked::before   { content: '◐'; font-size: 9px; }
+.alarm-state.is-cleared::before { content: '✓'; font-size: 9px; }
+/* Running is normal: dark neutral, never green (green means "within target" on analytics only). */
+.state-running { background: var(--color-neutral-soft); color: var(--color-ink); }
+.state-stopped { background: var(--color-paper); color: var(--color-ink-muted); box-shadow: inset 0 0 0 1px var(--color-control-line); }
 .state-stale   { background: var(--color-caution-soft); color: var(--color-caution-ink); }
 .state-unknown { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
 .qmark { border-radius: 3px; border: 1px dashed currentColor; background: transparent; }
@@ -117,9 +152,10 @@ body {
 /* Feedback blocks */
 .empty, .error-state {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; padding: 40px 20px; text-align: center; color: var(--color-ink-muted); font-size: 13px;
+  gap: 6px; padding: 32px 20px; text-align: center; color: var(--color-ink-68); font-size: 13px;
 }
-.empty > svg { color: var(--color-ink-35); }
+.empty > svg { color: var(--color-ink-46); margin-bottom: 2px; }
+.empty > :is(.btn, a, button):last-child { margin-top: 6px; }
 .empty h3, .error-state h3 { font-size: 14px; font-weight: 600; color: var(--color-ink); margin: 0; }
 .empty p, .error-state p { max-width: 52ch; margin: 0; line-height: 1.5; }
 /* error copy stays readable ink; the icon carries the abnormal colour */
@@ -161,7 +197,7 @@ body {
 }
 .skip-link:focus { top: 6px; }
 
-/* Sidebar group flyout — dd nav mega-menu enter animation */
+/* Sidebar group flyout — the nav mega-menu's enter animation */
 @keyframes flyout-in {
   from { opacity: 0; clip-path: inset(0 100% 0 0); }
   to   { opacity: 1; clip-path: inset(0 -20px -20px 0); }
@@ -169,14 +205,31 @@ body {
 .flyout-in { animation: flyout-in 0.16s ease-out; }
 
 /* Segmented control */
-.seg { display: inline-flex; border: 1px solid var(--color-control-line); border-radius: 4px; overflow: hidden; }
-.seg button {
-  height: 26px; padding: 0 10px; font-size: 12px; background: var(--color-paper); color: var(--color-ink-muted);
-  border: none; border-right: 1px solid var(--color-line); cursor: pointer; white-space: nowrap;
+/* 2D plant plan hotspots (PlantPlan.tsx) — process register: neutral by
+   default, darker neutral while running, accent only for the selection.
+   CSS beats the SVG presentation attributes, and non-scaling strokes keep
+   1/2 px lines at any zoom. */
+.plan-box {
+  fill: var(--color-hmi-equip-run); fill-opacity: 0; stroke: var(--color-hmi-equip); stroke-width: 1px;
+  vector-effect: non-scaling-stroke; transition: fill-opacity 140ms cubic-bezier(.2,0,0,1);
 }
-.seg button:last-child { border-right: 0; }
-.seg button:hover:not([data-active='true']) { background: var(--color-subtle); color: var(--color-ink); }
-.seg button[data-active='true'] { background: var(--color-blue); color: #fff; }
+.plan-box[data-active] { fill-opacity: .16; stroke: var(--color-hmi-equip-run); }
+.plan-part:hover .plan-box, .plan-part:focus-visible .plan-box { fill: var(--color-blue); fill-opacity: .08; stroke: var(--color-blue); }
+.plan-box[data-selected] { fill: var(--color-blue); fill-opacity: .1; stroke: var(--color-blue); stroke-width: 2px; }
+.plan-level { fill: var(--color-hmi-level); fill-opacity: .45; pointer-events: none; }
+.plan-label { fill: var(--color-ink-68); font-weight: 600; paint-order: stroke; stroke: #fff; pointer-events: none; }
+
+/* Segmented control — a sunken track with the chosen option raised on it.
+   Neutral on purpose: a solid-blue segment beside the page's primary
+   button gave every header two "primary" actions (Von Restorff). */
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 5px; background: var(--color-neutral-soft); box-shadow: inset 0 0 0 1px var(--color-line); }
+.seg button {
+  height: 24px; padding: 0 10px; font-size: 12px; background: transparent; color: var(--color-ink-68);
+  border: none; border-radius: 3px; cursor: pointer; white-space: nowrap;
+  transition: background-color 140ms cubic-bezier(.2,0,0,1), color 140ms cubic-bezier(.2,0,0,1);
+}
+.seg button:hover:not([data-active='true']) { color: var(--color-ink); background: rgb(255 255 255 / .6); }
+.seg button[data-active='true'] { background: var(--color-paper); color: var(--color-ink); font-weight: 600; box-shadow: 0 1px 2px rgb(24 32 42 / .12), 0 0 0 1px var(--color-line); }
 
 /* Dialog */
 .dialog { border: 1px solid var(--color-line); border-radius: var(--radius-panel); padding: 0; width: min(440px, 92vw); box-shadow: var(--shadow-flyout); }
@@ -192,11 +245,12 @@ body {
 .spark-limit { stroke: var(--color-danger-bright); stroke-width: 1; stroke-dasharray: 4 3; }
 
 /* Live dot in topbar — shape changes with state, not only colour (ISA-101):
-   ● live · ◆ reconnecting · ▲ offline/expired */
+   ● live (neutral: live is the normal state) · ◌ reconnecting (an open
+   ring — ◆ belongs to warning priority) · ▲ offline/expired */
 .livedot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.livedot[data-ws='open'] { background: var(--color-ok); }
+.livedot[data-ws='open'] { background: rgb(255 255 255 / .8); }
 .livedot[data-ws='connecting'], .livedot[data-ws='reconnecting'] {
-  background: var(--color-warn); border-radius: 1px; transform: rotate(45deg) scale(.85);
+  background: transparent; box-shadow: inset 0 0 0 2px var(--color-warn);
 }
 .livedot[data-ws='closed'], .livedot[data-ws='auth_expired'] {
   background: var(--color-danger-bright); border-radius: 0;
@@ -232,3 +286,31 @@ body {
     transition-duration: .01ms !important; scroll-behavior: auto !important;
   }
 }
+/* per-user "Calm motion" (theme/MotionRoot): the same stop as reduced motion,
+   except loops that carry data — process flow (M4) and the unacknowledged
+   alarm blink (M2) mark themselves [data-motion-data] and keep running */
+:root[data-motion=calm] .app-shell *:not([data-motion-data]),
+:root[data-motion=calm] .app-shell *:not([data-motion-data])::before,
+:root[data-motion=calm] .app-shell *:not([data-motion-data])::after {
+  animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+  transition-duration: .01ms !important;
+}
+
+/* Collapsed rail (Shell: .side-nav[data-collapsed]) — 56 px of icons. Labels
+   stay in the accessibility tree (visually hidden), carets and the wordmark
+   go, cluster labels shrink to a hairline divider. */
+.side-nav[data-collapsed='true'] .rail-text {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.side-nav[data-collapsed='true'] .rail-hide { display: none; }
+.side-nav[data-collapsed='true'] :is([data-rail-row], [data-rail-btn], .rail-foot > a) { justify-content: center; padding-inline: 0; }
+.side-nav[data-collapsed='true'] .rail-foot { flex-direction: column; gap: 2px; }
+.side-nav[data-collapsed='true'] .rail-cluster {
+  font-size: 0; line-height: 0; padding: 0; margin: 8px 10px; border-top: 1px solid rgb(255 255 255 / .12);
+}
+
+/* ISA-101 M2: an unacknowledged critical count blinks at 1 Hz until acked.
+   It carries data, so Calm motion keeps it ([data-motion-data]); the OS
+   reduced-motion rule above still makes it steady. */
+@keyframes chip-blink { 50% { opacity: .35; } }
+.chip-blink { animation: chip-blink 1s steps(1, end) infinite; }

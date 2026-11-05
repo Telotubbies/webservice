@@ -1,22 +1,24 @@
-import type { ReactNode } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Icon, type IconName } from './Icon';
-
 // Feedback primitives — every page needs the same five non-happy states
 // (design 04 §7): loading → Skeleton/PageSkeleton/SkeletonRows · empty →
 // EmptyState · error → ErrorState · stale → StaleNotice (+ Freshness in
 // Status.tsx) · demo → DemoNotice/DemoBadge · no permission → PermissionNotice.
 // See ./README.md for when to use which.
 
-/** Nothing to show. Say what the list holds and what to do next (action). */
-export function EmptyState({ title, body, icon = 'check', action, compact }: {
+import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Icon, type IconName } from './Icon';
+
+/** Nothing to show. Say what the list holds and what to do next (action).
+ *  No icon by default — the old ✓ default read as "success" on screens that
+ *  simply had nothing yet; pass one only when it names the content. */
+export function EmptyState({ title, body, icon, action, compact }: {
   title: string; body?: string; icon?: IconName; action?: ReactNode;
   /** tighter padding for use inside a card/widget */
   compact?: boolean;
 }) {
   return (
     <div className={`empty${compact ? ' is-compact' : ''}`} role="status">
-      <Icon name={icon} size={compact ? 22 : 28} />
+      {icon && <Icon name={icon} size={compact ? 20 : 24} />}
       <h3>{title}</h3>
       {body && <p>{body}</p>}
       {action}

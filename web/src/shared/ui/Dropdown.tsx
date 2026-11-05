@@ -72,7 +72,7 @@ export function Dropdown({ label, title, children, align = 'right', className = 
           id={panelId}
           role="group"
           aria-label={title}
-          className={`xp-pop absolute top-full z-30 mt-1 min-w-[260px] max-w-[calc(100vw-24px)] rounded-dd border border-line bg-white text-left shadow-flyout ${align === 'right' ? 'right-0' : 'left-0'} ${panelClass}`}
+          className={`xp-pop absolute top-full z-30 mt-1 min-w-[260px] max-w-[calc(100vw-24px)] rounded-dd border border-line bg-paper text-left shadow-flyout ${align === 'right' ? 'right-0' : 'left-0'} ${panelClass}`}
         >
           {typeof children === 'function' ? children(close) : children}
         </div>

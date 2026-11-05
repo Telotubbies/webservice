@@ -86,7 +86,7 @@ export const plantApi = {
     request<{ created: string[]; existing: string[] }>(site('/plant-sim-tags'), { method: 'POST', body: JSON.stringify({ tags }) }),
 };
 
-// --- live-store helpers ---------------------------------------------------
+// ── Live-store helpers ───────────────────────────────────────────────────────
 
 /** Site code prefix of the live store's dotted tag names (plant1.…). */
 export function sitePrefix(): string {
@@ -104,7 +104,7 @@ export function liveValue(path: string | undefined): number | boolean | undefine
 
 export const truthy = (v: number | boolean | undefined): boolean => v === true || (typeof v === 'number' && v > 0);
 
-// --- bundled demo plant ---------------------------------------------------
+// ── Bundled demo plant ───────────────────────────────────────────────────────
 // Used when the site has no active model: the Centrale a Beton shipped in
 // /models, mapped with suggested parts. Node indices are specific to that
 // file; "Save as my plant" in the editor uploads it and persists the mapping.

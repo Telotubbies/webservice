@@ -6,18 +6,25 @@ Global classes live in `src/index.css`. Owner: design-system lead. Feature pages
 
 ## Rules that every page follows
 
-1. **Colour is for abnormal states.** Red and amber only for alarms, faults and stale data, and always with a shape glyph and text (▲ critical, ◆ warning/stale, ● info, ○ no data). Demo data is blue and dashed, never amber.
+1. **Colour is for abnormal states.** Red and amber only for alarms, faults and stale data, and always with a shape glyph and text. Each meaning owns its shapes:
+   - **Priority** (`<SeverityBadge>`): ▲ critical, ◆ warning, ● advisory. Only priority takes the red/amber tints.
+   - **Lifecycle** (`<AlarmStateBadge>`, incident status): ○ active/unacked (ink outline, bold), ◐ acknowledged (light outline), ✓ cleared (grey fill). Never the priority colours, so an active warning can't read as critical.
+   - **Not current** (stale feed, reconnecting, no data in window): ◌, amber only when it is actual stale data.
+   - **Normal running / online / live**: neutral. Green never means running; it is reserved for "within target" on analytics (SLOs, OEE) and for success feedback.
+   Demo data is blue and dashed, never amber.
 2. **Stale data must not look live.** Use `<Freshness ts>` next to a live value or panel. The shell adds a strip under the topbar when the WebSocket has been down for more than 5 s.
 3. **One header per page.** Use `<PageBar>`, or `<ProductHeader>`, which is the same component with a required icon. Don't hand-roll `sticky top-9 h-11` bars.
 4. **No hex values in TSX.** Use tokens such as `text-ink-muted`, `bg-neutral-soft` or `var(--color-danger)`. If a token is missing, ask for one.
 5. **Thai first.** Body text is 13 px IBM Plex Sans / Plex Sans Thai. Never put `uppercase` or `tracking-*` on text that can be Thai. Use `.overline`, which turns both off under `:lang(th)`.
-6. **Destructive actions go through `<Confirm>`.** Its body says in one sentence what can't be undone.
+6. **Destructive actions go through `<Confirm>`.** Its body says in one sentence what can't be undone. Destructive buttons use `.btn-danger` (or a ghost button with danger text for the milder one), never the blue primary.
+7. **One primary button per view.** Row actions (Acknowledge, Rotate key, Edit) are `.btn-ghost`; the page's main action or the bulk action carries the fill. Segmented controls (`.seg`) are neutral for the same reason.
+8. **No decoration standing in for status.** No coloured left stripes on rows, cards or callouts, no solid status blocks, no tinted stat-tile rows: summaries are one bordered strip (see the Devices and SLO pages) and a segment tints only when its count is abnormal and non-zero.
 
 ## Page layout: `Page.tsx`
 
 | Primitive | Use |
 |---|---|
-| `<PageBar title icon? tabs? actions? lede? back? status?/>` | Sticky 44 px header. `tabs` takes `{to,label,end?,count?}[]`. `back={{to:'/alarms'}}` is for detail pages. `status` holds an inline pill or `<Freshness>`. Below md it wraps: the title truncates and the tabs get their own row that scrolls. |
+| `<PageBar title icon? tabs? actions? lede? back? status?/>` | Sticky 44 px header. `tabs` takes `{to,label,end?,count?}[]`. `back={{to:'/alarms'}}` is for detail pages. `status` holds an inline pill or `<Freshness>`. With tabs, `lede` moves to its own non-sticky line under the bar; a page with one view passes no tabs. Below md it wraps: the title truncates and the tabs get their own row that scrolls. |
 | `<PageBody>` / `.page-body` | Standard content padding (16 px, or 12 px on mobile) and vertical rhythm. |
 | `<Card title actions pad>` | Bordered panel with an optional 36 px header. |
 | `<Table head>` | Dense table with 36 px rows. Header cells use `.overline`. |

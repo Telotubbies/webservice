@@ -1,4 +1,4 @@
-// Saved views (F12, Datadog Saved Views) — page-scoped filter states in
+// Saved views (F12) — page-scoped filter states in
 // localStorage under `wds.savedViews`. URL params ARE the view: `params` is
 // the serialized query string, apply restores it wholesale. Cap 20 per page,
 // oldest evicted; saving an existing name overwrites it.

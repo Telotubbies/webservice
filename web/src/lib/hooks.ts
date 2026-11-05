@@ -1,3 +1,7 @@
+// Shared hooks: useStore subscribes a component to a live-store slice; the
+// rest are small utilities for time-driven re-render and the viewport classes
+// the control gates in app/session.ts key off.
+
 import { useSyncExternalStore, useEffect, useState } from 'react';
 import { live } from './live';
 
