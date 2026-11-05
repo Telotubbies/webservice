@@ -47,3 +47,9 @@ ref/
 .shots/
 
 .env.garage
+
+# Local dev overlay and tool scratch space, kept out of the repo
+docker-compose.override.yml
+web/.impeccable/
+web/.deadcode-quarantine/
+/nul
