@@ -418,7 +418,11 @@ class RuleEngine:
         if cfg is None:
             return
         o = cfg["outputs"]
-        code = {"gravel": o["gravel_value"], "sand": o["sand_value"]}.get(pkg["decision"], o["none_value"])
+        # fail closed: only a certain gravel/sand answer may reach the PLC; anything
+        # else writes none_value so the code tag never keeps an earlier truck's code
+        certain = pkg["decision"] in ("gravel", "sand") and pkg.get("uncertain") is False
+        code = {"gravel": o["gravel_value"], "sand": o["sand_value"]}[pkg["decision"]] if certain \
+            else o["none_value"]
         acts = []
         if o["code"]:
             acts.append({"kind": "plc_write", "tag_path": o["code"], "value": code, "pulse_ms": None})
@@ -426,7 +430,8 @@ class RuleEngine:
             acts.append({"kind": "plc_write", "tag_path": o["margin_pct"], "value": round(pkg["margin"] * 100), "pulse_ms": None})
         if o["uncertain"]:
             acts.append({"kind": "plc_write", "tag_path": o["uncertain"], "value": bool(pkg["uncertain"]), "pulse_ms": None})
-        if o["trigger"]:       # last, and delayed: the PLC latches the data tags on this edge
+        # last, and delayed: the PLC latches the data tags on this edge — never without a code
+        if o["trigger"] and o["code"] and certain:
             acts.append({"kind": "plc_write", "tag_path": o["trigger"], "value": True,
                          "pulse_ms": o["pulse_ms"], "delay_ms": 150})
         rule = _Rule(id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"material:{cam['id']}")), name="material decision",
