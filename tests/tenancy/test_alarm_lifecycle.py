@@ -32,12 +32,13 @@ class _Registry:
 async def _setup(pools, o, kind="hi"):
     from app.alarming.alarms import AlarmEngine, Rule
     from app.db.context import tenant_tx
+    name = f"r-{uuid.uuid4().hex[:6]}"
     async with tenant_tx(pools.app, o["org"]) as tc:
         rid = await tc.fetchval(
             "INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold, severity)"
             " VALUES ($1,$2,$3,$4,1,'warning') RETURNING id",
-            o["org"], o["tag"], f"r-{uuid.uuid4().hex[:6]}", kind)
-    rule = Rule(id=rid, org_id=o["org"], tag_id=o["tag"], name="r", kind=kind,
+            o["org"], o["tag"], name, kind)
+    rule = Rule(id=rid, org_id=o["org"], tag_id=o["tag"], name=name, kind=kind,
                 threshold=1.0, stale_s=None, deadband=0.0, severity="warning")
     eng = AlarmEngine(pools, _WS(), _Registry())
     eng._rules = {o["tag"]: [rule]}
@@ -235,6 +236,30 @@ def test_deleting_rule_keeps_alarm_history(two_orgs):
                 listed = [x for x in await eng.list_alarms(tc, None, None, 100)
                           if x["id"] == str(al["id"])]
                 assert listed and listed[0]["rule"] == name
+        finally:
+            await pools.close()
+    run(go())
+
+
+def test_replayed_late_samples_are_idempotent(two_orgs):
+    """F03 replays spooled telemetry: the same late trip twice, or after the
+    episode was already recorded and closed, must not duplicate the alarm."""
+    a, _ = two_orgs
+
+    async def go():
+        pools = await make_pools()
+        try:
+            eng, rule = await _setup(pools, a)
+            t_late = (datetime.now(timezone.utc) - timedelta(minutes=10)).replace(microsecond=0)
+            await _feed(pools, eng, a, 5.0, t_late)
+            await _feed(pools, eng, a, 5.0, t_late)
+            assert len(await _rows(pools, a, rule)) == 1
+            await _feed(pools, eng, a, 0.0)                   # fresh normal -> rtn_unack
+            (al,) = await _rows(pools, a, rule)
+            await _ack(pools, eng, a, al["id"], await _user(pools, a))   # -> cleared
+            await _feed(pools, eng, a, 5.0, t_late + timedelta(seconds=30))  # replay inside episode
+            rows = await _rows(pools, a, rule)
+            assert len(rows) == 1 and rows[0]["state"] == "cleared"
         finally:
             await pools.close()
     run(go())
