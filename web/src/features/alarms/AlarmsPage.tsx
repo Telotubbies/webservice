@@ -13,7 +13,7 @@ import { SIGNALS } from '../../lib/plant';
 import { fmtAge, fmtDuration } from '../../lib/format';
 import { canAdmin, canOperate, useRole } from '../../app/session';
 import { useAdminOrg } from '../admin/admin';
-import { matchAlarmQuery, useAlarms, alarmStateKey, bucketAlarms, GROUP_BY, type GroupBy } from './alarms';
+import { matchAlarmQuery, useAlarms, needsAck, alarmStateKey, bucketAlarms, GROUP_BY, type GroupBy } from './alarms';
 import { AlarmDensity, type Bucket } from './AlarmDensity';
 import { ackMany, errText } from './ackAlarm';
 import './i18n';
@@ -28,10 +28,12 @@ import { Icon } from '../../shared/ui/Icon';
 import { DdIcon } from '../../shared/ui/DdIcon';
 import { TriggeredOnboarding } from '../monitors/TriggeredOnboarding';
 import { AckButton, AlarmCard, StateCell } from './AlarmRow';
+import { ShelvedList } from './ShelvedList';
+import { shelfApi } from './shelfApi';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-type StateFilter = 'active' | 'acked' | 'cleared' | 'all';
+type StateFilter = 'active' | 'acked' | 'cleared' | 'shelved' | 'all';
 
 
 /** Absolute time next to the relative one: clock today, date + clock otherwise. */
@@ -99,7 +101,7 @@ export function AlarmsPage() {
 
   const rows = useMemo(() => {
     return all
-      .filter((a) => state === 'all' || a.state === state)
+      .filter((a) => state === 'all' || (state === 'active' ? needsAck(a) : a.state === state))
       .filter((a) => !win || (Date.parse(a.ts) >= win.from && Date.parse(a.ts) < win.to))
       .filter((a) => !eq || eq.tags.includes(a.tag))
       .filter((a) => matchAlarmQuery(a, q, signalLabel));
@@ -110,7 +112,7 @@ export function AlarmsPage() {
   // "New rule" links into the admin surface, which gates on the per-org role
   // (v4 T14) — the shim-org useRole() would wrongly hide it from an admin of
   // a non-shim org.
-  const { orgRole } = useAdminOrg();
+  const { orgId, orgRole } = useAdminOrg();
   // zero-rule / zero-alarm onboarding — the v1 rule list is member-read, so
   // every role can fetch it; only the admin actions inside stay gated.
   const ruleCount = useQuery({ queryKey: ['alarm-rules'], queryFn: api.alarmRules, staleTime: 60_000 });
@@ -135,7 +137,7 @@ export function AlarmsPage() {
   // selection pruned to visible rows — a filter change must not leave the
   // "N selected" count or the ack targets pointing at hidden alarms
   const selRows = rows.filter((a) => sel.has(String(a.id)));
-  const ackable = selRows.filter((a) => a.state === 'active');
+  const ackable = selRows.filter(needsAck);
 
   const [bulkMsg, setBulkMsg] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -156,10 +158,12 @@ export function AlarmsPage() {
     }).finally(() => setBulkBusy(false));
   };
   // live counts for the summary + tabs (all alarms, not the filtered view)
-  const unacked = all.filter((a) => a.state === 'active');
+  const unacked = all.filter(needsAck);
   const unackedCrit = unacked.filter((a) => normSeverity(a.severity) === 'critical').length;
   const ackedCount = all.filter((a) => a.state === 'acked').length;
   const ws = useStore(() => live.ws);
+  const shelf = useQuery({ queryKey: ['alarm-shelf', orgId], queryFn: () => shelfApi.list(orgId!), enabled: !!orgId, refetchInterval: 30_000, staleTime: 0, refetchOnMount: 'always' });
+  const shelfCount = shelf.data ? shelf.data.items.filter((r) => Date.parse(r.shelved_until) > now).length : undefined;
 
   // F03 flood grouping — `?group=state|rule|eq`, deep-linkable, default state
   const groupParam = params.get('group') as GroupBy | null;
@@ -236,6 +240,7 @@ export function AlarmsPage() {
           {tab('active', t('alarms.active'), unacked.length, true)}
           {tab('acked', t('alarms.acked'), ackedCount)}
           {tab('cleared', t('alarms.cleared'))}
+          {tab('shelved', t('shelve.tab'), shelfCount)}
           {tab('all', t('alarms.all'))}
         </div>
         {/* full-width omnibar row under the tabs — the filter is the primary tool */}
@@ -253,7 +258,7 @@ export function AlarmsPage() {
         </div>
         {/* bulk bar lives in the sticky header so the ack button stays in
             view while scrolling a flood; viewers get one view-only note */}
-        {seeded && rows.length > 0 && (operable ? (
+        {seeded && state !== 'shelved' && rows.length > 0 && (operable ? (
           <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line bg-subtle px-4 py-1 text-[12px]">
             <span className="font-semibold tabular-nums text-ink-68" aria-live="polite">{t('alarms.selected', { count: selRows.length })}</span>
             <button type="button" className="btn btn-sm" disabled={ackable.length === 0 || bulkBusy} onClick={bulkAck}>
@@ -280,7 +285,7 @@ export function AlarmsPage() {
         )}
         <div className="mb-3 flex justify-end"><EquipmentPicker /></div>
         {seeded && <AlarmDensity alarms={all} now={now} picked={win} onPick={setWin} />}
-        {seeded && rows.length > 0 && (
+        {seeded && state !== 'shelved' && rows.length > 0 && (
           <div className="mb-3 flex items-center gap-2 text-[12px] text-ink-68">
             <span>{t('alarms.groupBy')}</span>
             <Segmented<GroupBy>
@@ -295,7 +300,9 @@ export function AlarmsPage() {
             />
           </div>
         )}
-        {seedError && !seeded ? (
+        {state === 'shelved' ? (
+          <Card pad={false}><ShelvedList orgId={orgId} operable={operable} now={now} /></Card>
+        ) : seedError && !seeded ? (
           <ErrorState onRetry={() => window.location.reload()} />
         ) : !seeded ? (
           <Card pad={false}>
@@ -326,7 +333,7 @@ export function AlarmsPage() {
                       </li>
                       {!collapsed.has(b.key) && b.alarms.map((a) => {
                         const id = String(a.id);
-                        const unackedRow = a.state === 'active';
+                        const unackedRow = needsAck(a);
                         return (
                           <li key={a.id} data-alarm-id={id}
                             className={`border-b border-line last:border-0 ${id === focusId ? 'bg-info-soft' : ''}`}
@@ -384,7 +391,7 @@ export function AlarmsPage() {
                       </tr>
                       {!collapsed.has(b.key) && b.alarms.map((a) => {
                         const id = String(a.id);
-                        const unackedRow = a.state === 'active';
+                        const unackedRow = needsAck(a);
                         // unacked rows: bold title + the ○ state badge carry it; acked/cleared recede
                         return (
                         <tr

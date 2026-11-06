@@ -352,7 +352,7 @@ const range = (url: URL, defMs: number) => {
   return { from, to };
 };
 const v2alarm = (a: sim.SimAlarm) => ({
-  id: String(a.id), tag_id: a.tag_id, rule_id: a.rule_id, rule: a.rule, severity: a.severity, state: a.state, raised_at: a.ts,
+  id: String(a.id), tag_id: a.tag_id, rule_id: a.rule_id, rule: a.rule, severity: a.severity, state: a.state, late: false, raised_at: a.ts,
   acked_at: a.acked_at, acked_by: a.acked_by, cleared_at: a.cleared_at, version: a.version,
   shelved_until: a.shelved_until, assigned_to: a.assigned_to, assigned_name: a.assigned_name,
 });
@@ -361,6 +361,34 @@ const adminRule = (r: sim.SimRule) => ({
   window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled,
 });
 const alarmEvents: Record<string, { kind: string; author: string; body: string; at: string }[]> = {};
+/** Who shelved an alarm, why and when — the backend keeps this on the alarm row (migration 0057). */
+const shelfMeta = new Map<string, { by: string; reason: string; at: string }>();
+const SHELVE_MAX_MIN = 7 * 24 * 60;
+/** Response guidance the rationalisation (F11) will own; the mock carries a sample for three rules. */
+const GUIDANCE: Record<string, { cause: string; consequence: string; steps: string[]; respond_within_min: number }> = {
+  'r-1': {
+    cause: 'Belt slipping or tension low. Speed above normal load.',
+    consequence: 'Belt damage and a longer stop.',
+    steps: ['Return the speed setpoint to 32 Hz.', 'Check tension at the tail pulley.', 'Call maintenance if above 75 °C after 5 min.'],
+    respond_within_min: 4,
+  },
+  'r-2': {
+    cause: 'Discharge gate stuck or downstream belt stopped.',
+    consequence: 'Material spills over the bin and the sorter has to stop.',
+    steps: ['Check the discharge gate.', 'Confirm the downstream belt is running.'],
+    respond_within_min: 10,
+  },
+  'r-5': {
+    cause: 'Mixer overloaded or a lump in the drum.',
+    consequence: 'Motor trips and the batch is lost.',
+    steps: ['Stop the batch feed.', 'Inspect the drum before restarting.'],
+    respond_within_min: 3,
+  },
+};
+const expireShelves = () => {
+  const n = now();
+  for (const a of sim.ALARMS) if (a.shelved_until && Date.parse(a.shelved_until) <= n) { a.shelved_until = null; shelfMeta.delete(String(a.id)); }
+};
 
 export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://mock');
@@ -393,6 +421,22 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     const b = await body(req);
     fault = b.mode === 'mismatch' || b.mode === 'unknown' || b.mode === 'timeout' ? b.mode : null;
     return send(200, { mode: fault });
+  }
+
+  // dev/e2e hooks: raise an alarm on demand, bring it back to normal, or make a
+  // shelf run out now. Unauthenticated on purpose: the mock is dev-only.
+  const hook = /^\/api\/mock\/alarms\/(raise|(\d+)\/(return|expire-shelf))$/.exec(p);
+  if (hook && req.method === 'POST') {
+    if (hook[1] === 'raise') {
+      const b = await body(req);
+      const a = sim.raiseAlarm(String(b.rule_id ?? 'r-1'));
+      return a ? send(200, a) : send(404, { detail: 'unknown rule' });
+    }
+    const a = sim.ALARMS.find((x) => String(x.id) === hook[2]);
+    if (!a) return send(404, { detail: 'unknown alarm' });
+    if (hook[3] === 'return') return send(200, sim.returnAlarm(a.id));
+    a.shelved_until = iso(now() + 2000);
+    return send(200, a);
   }
 
   const role = roleOf(req);
@@ -443,7 +487,22 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, rows.map((r) => ({ v: r.v, q: qAt(name, Date.parse(r.ts)), ts: r.ts })));
   }
 
-  if (p === '/api/alarms') return send(200, sim.ALARMS.slice(0, 300));
+  if (p === '/api/alarms') { expireShelves(); return send(200, sim.ALARMS.slice(0, 300)); }
+  // ack link: GET shows what the link is about, POST acknowledges (single use)
+  const tok = /^\/api\/v1\/ack\/mock-(\d+)$/.exec(p);
+  if (tok) {
+    const a = sim.ALARMS.find((x) => String(x.id) === tok[1]);
+    if (!a) return send(404, { detail: 'link not found' });
+    if (req.method === 'GET') {
+      if (a.state !== 'active' && a.state !== 'rtn_unack') return send(410, { detail: 'link_used_or_expired' });
+      return send(200, { alarm: { id: String(a.id), rule: a.rule, severity: a.severity, state: a.state, tag: a.tag, raised_at: a.ts } });
+    }
+    if (!operate) return send(403, { detail: 'operator role required' });
+    if (a.state !== 'active' && a.state !== 'rtn_unack') return send(410, { detail: 'link_used_or_expired' });
+    const acked = sim.ackAlarm(a.id, who);
+    (alarmEvents[String(a.id)] ??= []).push({ kind: 'ack', author: who, body: '', at: iso(t) });
+    return send(200, { alarm: acked });
+  }
   const ack = /^\/api\/alarms\/(\d+)\/ack$/.exec(p);
   if (ack && req.method === 'POST') {
     if (!operate) return send(403, { detail: 'operator role required' });
@@ -457,7 +516,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, insights.filter((i) => !state || i.state === state));
   }
   if (p === '/api/alarm-rules') {
-    return send(200, sim.RULES.map((r) => ({ tag: tagName(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s, window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled })));
+    return send(200, sim.RULES.map((r) => ({ ...GUIDANCE[r.id], tag: tagName(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s, window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled })));
   }
   if (p === '/api/commands') {
     if (!operate) return send(403, { detail: 'operator role required' });
@@ -630,6 +689,13 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, { items: plant.deliveries(80).filter((d) => !ch || d.channel_id === ch) });
   }
   if (rest === '/alarm-quality') return send(200, plant.alarmQuality(Math.min(168, Number(url.searchParams.get('hours')) || 24)));
+  if (rest === '/alarm-shelf') {
+    expireShelves();
+    return send(200, { items: sim.ALARMS.filter((a) => a.shelved_until).sort((x, y) => Date.parse(x.shelved_until!) - Date.parse(y.shelved_until!)).map((a) => {
+      const m = shelfMeta.get(String(a.id));
+      return { id: String(a.id), rule: a.rule, severity: a.severity, state: a.state, tag: a.tag, shelved_until: a.shelved_until, shelved_at: m?.at ?? null, shelved_by: m?.by ?? null, reason: m?.reason ?? '' };
+    }) });
+  }
   const al = /^\/alarms\/([^/]+)\/(events|shelve|unshelve|comments|assign|ack-link)$/.exec(rest);
   if (al) {
     const [, id, what] = al;
@@ -638,10 +704,20 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     if (what === 'events') return send(200, { items: [...(a?.acked_by ? [{ kind: 'ack', author: a.acked_by, body: '', at: a.acked_at! }] : []), ...evs] });
     if (!operate) return send(403, { detail: 'operator role required' });
     const b = await body(req);
-    if (what === 'ack-link') return send(200, { url: `${url.origin}/ack/mock-${id}`, expires_in: Number(b.ttl_s) || 3600 });
+    if (what === 'ack-link') return send(200, { url: `/api/v1/ack/mock-${id}`, expires_in: Number(b.ttl_s) || 3600 });
     if (!a) return send(404, { detail: 'unknown alarm' });
-    if (what === 'shelve') { a.shelved_until = iso(t + (Number(b.minutes) || 60) * 60e3); evs.push({ kind: 'shelve', author: who, body: String(b.reason ?? ''), at: iso(t) }); return send(200, { shelved_until: a.shelved_until }); }
-    if (what === 'unshelve') { a.shelved_until = null; evs.push({ kind: 'unshelve', author: who, body: '', at: iso(t) }); return send(200, {}); }
+    if (what === 'shelve') {
+      // same rules as the backend: a reason, at most a week, never a closed alarm
+      const reason = String(b.reason ?? '').trim();
+      const minutes = Number(b.minutes);
+      if (!(minutes >= 1 && minutes <= SHELVE_MAX_MIN) || reason.length < 3) return send(422, { detail: 'a shelve reason and a duration of 1 minute to 7 days are required' });
+      if (a.state === 'cleared') return send(409, { detail: 'a cleared alarm cannot be shelved' });
+      a.shelved_until = iso(t + minutes * 60e3);
+      shelfMeta.set(id, { by: who, reason, at: iso(t) });
+      evs.push({ kind: 'shelve', author: who, body: reason, at: iso(t) });
+      return send(200, { shelved_until: a.shelved_until });
+    }
+    if (what === 'unshelve') { a.shelved_until = null; shelfMeta.delete(id); evs.push({ kind: 'unshelve', author: who, body: '', at: iso(t) }); return send(200, {}); }
     if (what === 'comments') { evs.push({ kind: 'comment', author: who, body: String(b.body ?? ''), at: iso(t) }); return send(200, {}); }
     const m = members.find((x) => x.user_id === b.user_id);
     Object.assign(a, { assigned_to: m?.user_id ?? null, assigned_name: m?.display_name ?? null });

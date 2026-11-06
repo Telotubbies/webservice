@@ -3,6 +3,7 @@
 // Thai copy: short, plain control-room words; "รับทราบ" = acknowledge.
 
 import i18n from '../../lib/i18n';
+import './i18nF06';
 
 i18n.addResourceBundle('en', 'translation', { alx: {
   trendBefore: 'Raised before this window ({{time}}).',

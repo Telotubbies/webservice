@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 VERSIONS = Path(__file__).resolve().parents[2] / "backend" / "migrations" / "versions"
-HEAD = "0056"
+HEAD = "0057"
 
 
 def _migrations() -> dict[str, tuple[str | None, Path]]:
