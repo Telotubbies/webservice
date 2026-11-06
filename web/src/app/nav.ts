@@ -96,6 +96,7 @@ const ALL_NAV: NavGroup[] = [
     { to: '/live', key: 'nav.line', icon: 'datastreams-monitoring' },
     { to: '/wall', key: 'nav.wall', icon: 'resize-expand' },
     { to: '/commands', key: 'nav.commands', icon: 'prompt' },
+    { to: '/decisions', key: 'nav.decisions', icon: 'bell-curve' },
   ] },
   { cluster: 'plant', group: 'nav.alarms', icon: 'attention-circled', href: '/alarms', items: [
     { to: '/my-work', key: 'nav.myWork', icon: 'check' },

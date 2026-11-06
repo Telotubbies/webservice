@@ -77,6 +77,7 @@ from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
 from .plant.board import router as board_router
 from .work.routes import router as work_router
+from .decisions.routes import router as decisions_router
 from .plant.hierarchy import router as hierarchy_router
 from .production.formulas import router as formulas_router
 from .alarming.push import router as push_router
@@ -1738,6 +1739,7 @@ app.include_router(plant_router)
 app.include_router(hierarchy_router)
 app.include_router(board_router)
 app.include_router(work_router)
+app.include_router(decisions_router)
 app.include_router(formulas_router)
 app.include_router(push_router)
 app.include_router(cameras_router)
