@@ -353,7 +353,7 @@ const en = {
     ackFailed: 'Could not acknowledge: {{reason}}',
     signInToAck: 'Sign in as an operator to acknowledge',
     searchLabel: 'Filter alarms',
-    searchPh: 'tag:motor1 sev:critical state:active or free text…',
+    searchPh: 'Filter alarms by name, equipment or status',
     shown: '{{count}} shown',
     toggleDetail: 'Show alarm detail',
     rule: 'Rule',
@@ -448,7 +448,7 @@ const en = {
     updated: 'Updated', duration: 'Duration',
     emptyFiltered: 'No commands match this filter',
     events: 'Lifecycle events', actorEdge: 'edge gateway', actorRelay: 'backend',
-    actorSweeper: 'system', noEvents: 'No step detail', searchPh: 'user:demo status:done or free text…',
+    actorSweeper: 'system', noEvents: 'No step detail', searchPh: 'Filter commands by user or status',
     searchLabel: 'Filter commands',
   },
   health: {
@@ -735,7 +735,7 @@ const en = {
     model: 'Model', noResults: 'The model returned no findings.', unreachable: 'Model server unreachable ({{error}}).',
   },
   downtime: {
-    product: 'Monitors', title: 'Downtimes', tabRules: 'Alarm rules', queryPh: 'Filter by rule, scope or description',
+    product: 'Alarm mute windows', title: 'Mute windows', tabRules: 'Alarm rules', queryPh: 'Filter by rule, scope or description',
     allRules: 'All rules', failed: 'Could not load or save downtimes.',
     facetState: 'Status', facetRecurring: 'Recurring', yes: 'Yes', no: 'No',
     state: { active: 'Active', scheduled: 'Scheduled', ended: 'Ended' },
@@ -1245,7 +1245,7 @@ const th: Dict = {
     ackFailed: 'รับทราบไม่สำเร็จ: {{reason}}',
     signInToAck: 'เข้าสู่ระบบในฐานะผู้ควบคุมเพื่อรับทราบ',
     searchLabel: 'กรองสัญญาณเตือน',
-    searchPh: 'tag:motor1 sev:critical state:active หรือข้อความอิสระ…',
+    searchPh: 'กรองสัญญาณเตือนตามชื่อ อุปกรณ์ หรือสถานะ',
     shown: 'แสดง {{count}} รายการ',
     toggleDetail: 'แสดงรายละเอียดสัญญาณเตือน',
     rule: 'เงื่อนไขเตือน',
@@ -1341,7 +1341,7 @@ const th: Dict = {
     emptyFiltered: 'ไม่มีคำสั่งที่ตรงกับตัวกรองนี้',
     events: 'เหตุการณ์วงจรคำสั่ง', actorEdge: 'เกตเวย์', actorRelay: 'แบ็กเอนด์',
     actorSweeper: 'ระบบ', noEvents: 'ไม่มีรายละเอียดขั้นตอน',
-    searchPh: 'user:demo status:done หรือข้อความอิสระ…', searchLabel: 'กรองคำสั่ง',
+    searchPh: 'กรองคำสั่งตามผู้ใช้หรือสถานะ', searchLabel: 'กรองคำสั่ง',
   },
   health: {
     title: 'สถานะระบบ', lede: 'การเชื่อมต่อตั้งแต่ PLC จนถึงหน้าจอนี้',
@@ -1626,7 +1626,7 @@ const th: Dict = {
     model: 'โมเดล', noResults: 'โมเดลไม่พบสิ่งผิดปกติ', unreachable: 'เชื่อมต่อเซิร์ฟเวอร์โมเดลไม่ได้ ({{error}})',
   },
   downtime: {
-    product: 'การเฝ้าระวัง', title: 'ช่วงปิดเสียงเตือน', tabRules: 'กฎสัญญาณเตือน', queryPh: 'กรองตามกฎ ขอบเขต หรือคำอธิบาย',
+    product: 'ช่วงปิดเสียงสัญญาณเตือน', title: 'ช่วงปิดเสียงเตือน', tabRules: 'กฎสัญญาณเตือน', queryPh: 'กรองตามกฎ ขอบเขต หรือคำอธิบาย',
     allRules: 'ทุกกฎ', failed: 'โหลดหรือบันทึกช่วงปิดเสียงเตือนไม่ได้',
     facetState: 'สถานะ', facetRecurring: 'ทำซ้ำ', yes: 'ใช่', no: 'ไม่',
     state: { active: 'กำลังทำงาน', scheduled: 'ตั้งเวลาไว้', ended: 'สิ้นสุดแล้ว' },

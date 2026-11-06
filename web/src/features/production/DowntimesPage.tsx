@@ -17,7 +17,7 @@ import { useAdminOrg, useAdminSite, canAdmin } from '../admin/admin';
 import { prodApi, type DtEvent, type ReasonInput, type ReasonRow } from './api';
 import './i18n';
 
-const fmtDur = (s: number) => s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.round(s / 60)}min`;
+import { fmtDuration, localName } from './names';
 
 export function DowntimesPage() {
   const { t, i18n } = useTranslation();
@@ -95,7 +95,8 @@ function DtCard({ orgId, siteId, ev, roots, all, reasonName, canClassify, onSave
   orgId: string; siteId: string; ev: DtEvent; roots: ReasonRow[]; all: ReasonRow[];
   reasonName: (r: ReasonRow) => string; canClassify: boolean; onSaved: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const fmtDur = (s: number) => fmtDuration(s, i18n.language);
   const [open, setOpen] = useState(false);
   const [reasonId, setReasonId] = useState(ev.reason_id ?? '');
   const [note, setNote] = useState(ev.note ?? '');
@@ -110,12 +111,12 @@ function DtCard({ orgId, siteId, ev, roots, all, reasonName, canClassify, onSave
   return (
     <li className="rounded-[5px] border border-line bg-paper shadow-card">
       <button type="button" onClick={() => setOpen((v) => !v)}
-        aria-expanded={open} aria-label={`${ev.device ?? ev.device_id} ${fmtDur(ev.seconds)}`}
+        aria-expanded={open} aria-label={`${localName(ev.device, i18n.language) || ev.device_id} ${fmtDur(ev.seconds)}`}
         className="flex w-full items-center gap-2 p-3 text-left">
         <span className={`size-2 shrink-0 rounded-full ${ev.needs_reason ? 'bg-[var(--color-caution)]' : 'bg-[var(--color-ok)]'}`}
           aria-hidden="true" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-semibold">{ev.device ?? ev.device_id}</span>
+          <span className="block truncate text-[13px] font-semibold">{localName(ev.device, i18n.language) || ev.device_id}</span>
           <span className="block text-[11px] text-ink-46">
             {ev.state && <>{t('prod.stopAt', { state: t(`prod.state_${ev.state}`) })}</>}
           </span>

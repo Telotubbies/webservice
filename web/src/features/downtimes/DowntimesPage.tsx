@@ -51,7 +51,7 @@ function ScheduleDialog({ dlgRef, rules, onSave }: {
   const close = () => { dlgRef.current?.close(); setTried(false); };
 
   return (
-    <dialog ref={dlgRef} className="m-auto w-[480px] rounded-[6px] border border-line p-0 shadow-pop backdrop:bg-black/40" aria-labelledby="dt-title">
+    <dialog ref={dlgRef} className="m-auto w-[480px] max-w-[calc(100vw-24px)] rounded-[6px] border border-line p-0 shadow-pop backdrop:bg-black/40" aria-labelledby="dt-title">
       <form
         method="dialog" className="p-4"
         onSubmit={(e) => {
@@ -134,8 +134,8 @@ export function DowntimesPage() {
       </div>
       {err && <div className="px-4 pt-2"><Notice>{err instanceof ApiError && err.status === 403 ? t('downtime.needOperator') : t('downtime.failed')}</Notice></div>}
 
-      <div className="flex flex-1 gap-4 p-4 pt-2">
-        <aside className="w-[220px] shrink-0 self-start border border-line bg-paper" aria-label={t('errtrack.facets')}>
+      <div className="flex flex-1 flex-col gap-4 p-4 pt-2 md:flex-row">
+        <aside className="w-full shrink-0 self-start md:w-[220px] border border-line bg-paper" aria-label={t('errtrack.facets')}>
           <FacetGroup title={t('downtime.facetState')} off={offState} emptyLabel={t('slos.noValues')}
             onToggle={(v) => setOffState((s) => toggleIn(s, v))}
             options={facetOptions(withState, (d) => d.state, (v) => t(`downtime.state.${v}`))} />

@@ -12,6 +12,7 @@ import { Confirm } from '../../shared/ui/Confirm';
 import { useAdminOrg, useAdminSite, canAdmin } from '../admin/admin';
 import { prodApi, type MachineRow, type Shift, type ShiftInput, type TagRef } from './api';
 import './i18n';
+import { localName } from './names';
 
 // ISO weekday numbers (1 = Monday … 7 = Sunday), matching the API.
 const DOW = [1, 2, 3, 4, 5, 6, 7];
@@ -34,7 +35,7 @@ const parseVals = (s: string): unknown[] =>
 const valsText = (v: unknown[] | undefined) => (v ?? []).map(String).join(', ');
 
 export function ShiftsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { orgId, orgRole } = useAdminOrg();
   const { site, sites, setSiteId } = useAdminSite(orgId);
   const canEdit = canAdmin(orgRole ?? 'none');
@@ -109,7 +110,7 @@ export function ShiftsPage() {
               <Table head={[t('prod.name'), t('prod.start'), t('prod.end'), t('prod.days'), t('prod.breaks'), t('prod.enabled'), '']}>
                 {shiftsQ.data!.items.map((s) => (
                   <tr key={s.id}>
-                    <td className="font-medium">{s.name}</td>
+                    <td className="font-medium">{localName(s.name, i18n.language)}</td>
                     <td className="font-mono tabular-nums">{s.start_time}</td>
                     <td className="font-mono tabular-nums">{s.end_time}</td>
                     <td className="font-mono text-[12px] tabular-nums">{s.days_of_week.join(',') || '—'}</td>
@@ -142,7 +143,7 @@ export function ShiftsPage() {
                     {daysQ.data!.items.map((d) => (
                       <li key={d.day} className="flex items-center gap-2 text-[13px]">
                         <span className="font-mono tabular-nums">{d.day}</span>
-                        <span className="min-w-0 flex-1 truncate text-ink-68">{d.reason}</span>
+                        <span className="min-w-0 flex-1 truncate text-ink-68">{localName(d.reason, i18n.language)}</span>
                         {canEdit && (
                           <button type="button" className="btn btn-sm btn-ghost text-[var(--color-danger)]"
                             onClick={() => delDay.mutate(d.day)}>{t('prod.delete')}</button>
@@ -176,8 +177,8 @@ export function ShiftsPage() {
               <Table head={[t('prod.colMachine'), t('prod.colLine'), t('prod.configured'), '']}>
                 {machinesQ.data!.items.map((mo) => (
                   <tr key={mo.device_id}>
-                    <td className="font-medium">{mo.name}</td>
-                    <td className="text-ink-68">{mo.line}</td>
+                    <td className="font-medium">{localName(mo.name, i18n.language)}</td>
+                    <td className="text-ink-68">{localName(mo.line, i18n.language)}</td>
                     <td>{mo.configured ? t('prod.configured') : t('prod.notConfigured')}</td>
                     <td>{canEdit && (
                       <button type="button" className="btn btn-sm btn-ghost"

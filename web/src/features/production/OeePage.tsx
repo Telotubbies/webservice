@@ -11,6 +11,7 @@ import { Segmented } from '../../shared/ui/Segmented';
 import { useAdminOrg, useAdminSite } from '../admin/admin';
 import { prodApi } from './api';
 import './i18n';
+import { fmtDuration, localName } from './names';
 
 type RangeKey = '24h' | '7d' | '30d';
 const RANGES: RangeKey[] = ['24h', '7d', '30d'];
@@ -33,7 +34,7 @@ function FactorCard({ label, value }: { label: string; value: number | null }) {
 }
 
 export function OeePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { orgId } = useAdminOrg();
   const { site } = useAdminSite(orgId);
   const [params, setParams] = useSearchParams();
@@ -98,12 +99,12 @@ export function OeePage() {
               onChange={(e) => set('device', e.target.value)} aria-label={t('prod.machine')}>
               <option value="">{t('prod.allMachines')}</option>
               {machines.filter((m) => m.configured).map((m) => (
-                <option key={m.device_id} value={m.device_id}>{m.name}</option>))}
+                <option key={m.device_id} value={m.device_id}>{localName(m.name, i18n.language)}</option>))}
             </select>
             <select className="input h-8 w-auto text-[12px]" value={shift}
               onChange={(e) => set('shift', e.target.value)} aria-label={t('prod.shift')}>
               <option value="">{t('prod.allShifts')}</option>
-              {shifts.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {shifts.map((s) => <option key={s.id} value={s.id}>{localName(s.name, i18n.language)}</option>)}
             </select>
             <Segmented<RangeKey> label={t('prod.oeeTitle')} value={range}
               options={RANGES.map((r) => ({ value: r, label: t(`prod.range${r}`) }))}
@@ -135,8 +136,8 @@ export function OeePage() {
                 ]}>
                   {d.machines.map((m) => (
                     <tr key={m.device_id}>
-                      <td className="font-medium">{m.name}</td>
-                      <td className="text-ink-68">{m.line}</td>
+                      <td className="font-medium">{localName(m.name, i18n.language)}</td>
+                      <td className="text-ink-68">{localName(m.line, i18n.language)}</td>
                       <td className="font-mono tabular-nums">{pct(m.availability)}</td>
                       <td className="font-mono tabular-nums">{pct(m.performance)}</td>
                       <td className="font-mono tabular-nums">{pct(m.quality)}</td>
@@ -163,9 +164,9 @@ export function OeePage() {
                     {paretoQ.data!.items.map((r) => (
                       <li key={r.reason_id ?? 'none'}>
                         <div className="flex items-baseline justify-between gap-2 text-[12px]">
-                          <span className="truncate">{r.name_en || r.name_th || r.code || t('prod.unclassified')}</span>
+                          <span className="truncate">{(i18n.language === 'th' ? r.name_th || r.name_en : r.name_en || r.name_th) || r.code || t('prod.unclassified')}</span>
                           <span className="shrink-0 font-mono tabular-nums text-ink-68">
-                            {Math.round(r.seconds / 60)} min · {r.count}×
+                            {fmtDuration(r.seconds, i18n.language)} · {r.count}×
                           </span>
                         </div>
                         <div className="mt-0.5 h-2 rounded bg-subtle" role="img"
