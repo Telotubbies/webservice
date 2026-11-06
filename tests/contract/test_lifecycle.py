@@ -43,12 +43,12 @@ def _cmd(tag_path=WRITABLE_BOOL, value=True, ttl_s=5, issued_at=None):
 def test_status_vocabulary_is_contract_exact():
     assert COMMAND_STATUSES == {
         "accepted", "dispatched", "acknowledged", "rejected", "failed",
-        "timeout",
+        "unknown", "timeout",  # unknown: F05, written but not read back
     }
 
 
 def test_terminal_statuses():
-    assert TERMINAL_STATUSES == {"acknowledged", "rejected", "failed", "timeout"}
+    assert TERMINAL_STATUSES == {"acknowledged", "rejected", "failed", "unknown", "timeout"}
     for s in TERMINAL_STATUSES:
         assert is_terminal(s)
     assert not is_terminal("accepted")
