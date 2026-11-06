@@ -72,3 +72,60 @@ export function statsOf(samples: Sample[]): Stats {
   }
   return n ? { last, lastT, min, max, avg: sum / n } : { last: null, lastT: null, min: null, max: null, avg: null };
 }
+
+// ── API rows → samples ───────────────────────────────────────────────────────
+
+export interface RawRow { ts: string; v: number | boolean | string; q?: string }
+export interface BucketRow { ts: string; min: number | null; max: number | null; avg: number | null; n: number }
+
+/** Raw rows: a non-good quality or non-numeric value is a bad sample (v null).
+ *  Bucket rows keep the band; a bucket with no numeric sample is bad. */
+export function rowsToSamples(rows: (RawRow | BucketRow)[]): Sample[] {
+  const out: Sample[] = [];
+  for (const r of rows) {
+    const t = Date.parse(r.ts);
+    if (Number.isNaN(t)) continue;
+    if ('avg' in r) {
+      out.push({ t, v: r.avg, mn: r.min, mx: r.max, n: r.n });
+      continue;
+    }
+    const v = typeof r.v === 'boolean' ? (r.v ? 1 : 0) : Number(r.v);
+    out.push({ t, v: (r.q && r.q !== 'good') || !Number.isFinite(v) ? null : v });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+// ── band + y domain ──────────────────────────────────────────────────────────
+
+export interface BandPoint { t: number; mn: number; mx: number }
+
+/** Runs of consecutive rollup buckets that carry a band. A bad bucket or
+ *  silence longer than `maxGapMs` ends a run, so the band never bridges a gap. */
+export function bandSegments(samples: Sample[], maxGapMs: number): BandPoint[][] {
+  const runs: BandPoint[][] = [];
+  let cur: BandPoint[] = [];
+  let prevT: number | null = null;
+  for (const p of samples) {
+    if (p.v == null || p.mn == null || p.mx == null) { if (cur.length) runs.push(cur); cur = []; prevT = null; continue; }
+    if (prevT != null && p.t - prevT > maxGapMs && cur.length) { runs.push(cur); cur = []; }
+    cur.push({ t: p.t, mn: p.mn, mx: p.mx });
+    prevT = p.t;
+  }
+  if (cur.length) runs.push(cur);
+  return runs;
+}
+
+/** y range that holds the band (so a spike averaged away still fits), the
+ *  limits and a 6 % margin. Null when there is nothing to scale to. */
+export function yDomain(samples: Sample[], limitValues: number[] = []): [number, number] | null {
+  let lo = Infinity; let hi = -Infinity;
+  for (const p of samples) {
+    if (p.v == null) continue;
+    lo = Math.min(lo, p.mn ?? p.v); hi = Math.max(hi, p.mx ?? p.v);
+  }
+  if (!Number.isFinite(lo)) return null;
+  for (const v of limitValues) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.06;
+  return [lo - pad, hi + pad];
+}

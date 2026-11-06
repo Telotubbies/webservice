@@ -161,6 +161,8 @@ export interface ChartSpec {
   theme?: ChartTheme;
   /** events drawn as hairlines with an x-axis tick */
   annotations?: Annotation[];
+  /** extra uPlot plugins (min–max band, gap shading) appended after the built-ins */
+  plugins?: uPlot.Plugin[];
 }
 
 const AXIS_FONT = '11px "IBM Plex Mono", "Roboto Mono", monospace';
@@ -243,6 +245,7 @@ export function chartOptions(spec: ChartSpec): uPlot.Options {
       onsetsPlugin(limits, { axis: ct.axis, crit: ct.crit, warn: ct.warn }),
       annotationsPlugin(spec.annotations ?? [], { axis: ct.axis, crit: ct.crit, warn: ct.warn }),
       tooltipPlugin(series, c.theme, locale),
+      ...(spec.plugins ?? []),
     ],
     hooks: spec.onZoom ? {
       setSelect: [(u) => {
@@ -314,9 +317,14 @@ function limitPlugin(limits: Limit[], c: CanvasColors, unit?: string, locale?: s
  *  value + unit). Built from DOM nodes — labels are never parsed as HTML. */
 function tooltipPlugin(series: SeriesSpec[], theme: 'light' | 'dark', locale?: string): uPlot.Plugin {
   let tip: HTMLDivElement | null = null;
+  let hovered = false;
   return {
     hooks: {
       init: [(u) => {
+        // a synced crosshair moves on every chart of the group, but only the
+        // chart under the pointer (or holding keyboard focus) gets a tooltip
+        u.over.addEventListener('mouseenter', () => { hovered = true; });
+        u.over.addEventListener('mouseleave', () => { hovered = false; if (tip) tip.style.display = 'none'; });
         tip = document.createElement('div');
         Object.assign(tip.style, {
           position: 'absolute', pointerEvents: 'none', display: 'none', zIndex: '5',
@@ -330,7 +338,8 @@ function tooltipPlugin(series: SeriesSpec[], theme: 'light' | 'dark', locale?: s
       setCursor: [(u) => {
         if (!tip) return;
         const { left, top, idx } = u.cursor;
-        if (idx == null || left == null || left < 0 || top == null) { tip.style.display = 'none'; return; }
+        const focused = !!u.root.parentElement?.contains(document.activeElement);
+        if (idx == null || left == null || left < 0 || top == null || !(hovered || focused)) { tip.style.display = 'none'; return; }
         const x = u.data[0][idx];
         tip.replaceChildren();
         const head = document.createElement('div');
