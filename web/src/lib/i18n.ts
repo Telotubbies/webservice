@@ -17,6 +17,7 @@ const en = {
     monitoring: 'Monitoring', infrastructure: 'Infrastructure', metrics: 'Metrics', automation: 'Automation',
     devices: 'Devices', addDevice: 'Add device', secPosture: 'Posture', secIssues: 'Issues', secFindings: 'Findings', secApi: 'Business logic', secAccess: 'Access', secCloud: 'Plant security', secApiProtection: 'App & API protection', monitors: 'Monitors', monTemplates: 'Templates', secMonitors: 'Monitors', secAlarms: 'Alarms', secReliability: 'Reliability',
     overview: 'Overview', line: 'Line view', line3d: '3D twin', trends: 'Trends', alarms: 'Alarms', errors: 'Error tracking', dashboards: 'Dashboards', slos: 'SLOs', downtimes: 'Alarm mute windows',
+    myWork: 'My work',
     tags: 'Tags', commands: 'Commands', health: 'System health', activity: 'Activity',
     intelligence: 'Intelligence', insights: 'Insights',
     bitsAi: 'Assistant AI', devPortal: 'Developer Portal', incidentResponse: 'Incident Response', apm: 'APM', digitalExperience: 'Digital Experience',
@@ -29,7 +30,7 @@ const en = {
     newBadge: 'NEW', actionNewDashboard: 'New dashboard', actionNewNotebook: 'New notebook', secDashboards: 'Dashboards', secNotebooks: 'Notebooks', secLive: 'Live views', actionNewRule: 'New rule', actionInvite: 'Invite member',
     invite: 'Invite', support: 'Support', help: 'Help',
     notifyChannels: 'Notification channels', production: 'Production', oee: 'OEE', stops: 'Stops',
-    shifts: 'Shifts', reports: 'Reports', plan: 'Plan', platform: 'Platform', status: 'Status',
+    shifts: 'Shifts', handovers: 'Handovers', reports: 'Reports', plan: 'Plan', platform: 'Platform', status: 'Status',
     plantTwin: 'Plant twin', grpPlant: 'Plant', grpEngineering: 'Engineering', live: 'Live', wall: 'Wall display', plantSetup: 'Plant setup', plantMapping: 'Model mapping', connectivity: 'Connectivity', dataSources: 'Data sources', vision: 'Vision AI', cameras: 'Cameras', visionModels: 'Models', visionRules: 'Vision rules', visionEvents: 'Vision events', platformTools: 'Platform tools', secData: 'Data', healthShort: 'Health',
   },
   org: {
@@ -909,6 +910,7 @@ const th: Dict = {
     monitoring: 'การเฝ้าระวัง', infrastructure: 'โครงสร้างพื้นฐาน', metrics: 'ค่าวัด', automation: 'การสั่งงาน',
     devices: 'อุปกรณ์', addDevice: 'เพิ่มอุปกรณ์', secPosture: 'ภาพรวมความปลอดภัย', secIssues: 'ปัญหา', secFindings: 'ผลตรวจ', secApi: 'ตรรกะธุรกิจ', secAccess: 'การเข้าถึง', secCloud: 'ความปลอดภัยโรงงาน', secApiProtection: 'ป้องกันแอปและ API', monitors: 'มอนิเตอร์', monTemplates: 'เทมเพลต', secMonitors: 'มอนิเตอร์', secAlarms: 'สัญญาณเตือน', secReliability: 'ความน่าเชื่อถือ',
     overview: 'ภาพรวม', line: 'ผังไลน์', line3d: 'ผังสามมิติ', trends: 'กราฟแนวโน้ม', alarms: 'สัญญาณเตือน', errors: 'ติดตามข้อผิดพลาด', dashboards: 'แดชบอร์ด', slos: 'เป้าหมายระดับบริการ', downtimes: 'ช่วงปิดเสียงเตือน',
+    myWork: 'งานของฉัน',
     tags: 'สัญญาณ', commands: 'ประวัติคำสั่ง', health: 'สถานะระบบ', activity: 'กิจกรรม',
     intelligence: 'ข้อมูลเชิงลึก', insights: 'อินไซต์',
     bitsAi: 'ผู้ช่วย AI', devPortal: 'พอร์ทัลนักพัฒนา', incidentResponse: 'รับมือเหตุการณ์', apm: 'APM', digitalExperience: 'ประสบการณ์ดิจิทัล',
@@ -921,7 +923,7 @@ const th: Dict = {
     newBadge: 'ใหม่', actionNewDashboard: 'แดชบอร์ดใหม่', actionNewNotebook: 'สมุดบันทึกใหม่', secDashboards: 'แดชบอร์ด', secNotebooks: 'สมุดบันทึก', secLive: 'มุมมองสด', actionNewRule: 'กฎใหม่', actionInvite: 'เชิญสมาชิก',
     invite: 'เชิญ', support: 'สนับสนุน', help: 'ช่วยเหลือ',
     notifyChannels: 'ช่องแจ้งเตือน', production: 'การผลิต', oee: 'OEE', stops: 'การหยุดเครื่อง',
-    shifts: 'กะ', reports: 'รายงาน', plan: 'แผน', platform: 'แพลตฟอร์ม', status: 'สถานะ',
+    shifts: 'กะ', handovers: 'การส่งมอบ', reports: 'รายงาน', plan: 'แผน', platform: 'แพลตฟอร์ม', status: 'สถานะ',
     plantTwin: 'ดิจิทัลทวินโรงงาน', grpPlant: 'โรงงาน', grpEngineering: 'งานวิศวกรรม', live: 'หน้างานสด', wall: 'จอรวม', plantSetup: 'ตั้งค่าโรงงาน', plantMapping: 'จับคู่โมเดล', connectivity: 'การเชื่อมต่อ', dataSources: 'แหล่งข้อมูล', vision: 'Vision AI', cameras: 'กล้อง', visionModels: 'โมเดล', visionRules: 'กฎ Vision', visionEvents: 'เหตุการณ์ Vision', platformTools: 'เครื่องมือแพลตฟอร์ม', secData: 'ข้อมูล', healthShort: 'สถานะ',
   },
   org: {

@@ -4,7 +4,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { PageBar, PageBody, Card, Table } from '../../shared/ui/Page';
 import { EmptyState, ErrorState, SkeletonRows } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
@@ -38,7 +38,8 @@ export function OeePage() {
   const { orgId } = useAdminOrg();
   const { site } = useAdminSite(orgId);
   const [params, setParams] = useSearchParams();
-  const range = (params.get('range') as RangeKey) || '24h';
+  const rawRange = params.get('range') ?? '';
+  const range: RangeKey = RANGES.includes(rawRange as RangeKey) ? rawRange as RangeKey : '24h';
   const device = params.get('device') ?? '';
   const shift = params.get('shift') ?? '';
   const set = (k: string, v: string) => {
@@ -68,15 +69,11 @@ export function OeePage() {
     enabled: !!orgId && !!site,
   });
   const paretoQ = useQuery({
-    queryKey: ['prod-pareto', orgId, site?.id, range, device],
-    queryFn: () => {
-      const to = new Date();
-      const from = new Date(to.getTime() - RANGE_S[range] * 1000);
-      return prodApi.pareto(orgId!, site!.id, {
-        from: from.toISOString(), to: to.toISOString(), device: device || undefined,
-      });
-    },
-    enabled: !!orgId && !!site,
+    queryKey: ['prod-pareto', orgId, site?.id, device, oeeQ.data?.from, oeeQ.data?.to],
+    queryFn: () => prodApi.pareto(orgId!, site!.id, {
+      from: oeeQ.data!.from!, to: oeeQ.data!.to!, device: device || undefined,
+    }),
+    enabled: !!orgId && !!site && !!oeeQ.data?.from && !!oeeQ.data?.to,
   });
   const trendQ = useQuery({
     queryKey: ['prod-trend', orgId, site?.id, device],
@@ -88,6 +85,13 @@ export function OeePage() {
   const shifts = shiftsQ.data?.items ?? [];
   const d = oeeQ.data;
   const err = oeeQ.error ?? machinesQ.error;
+  const stopsUrl = (extra: Record<string, string>) => {
+    const q = new URLSearchParams({ needs_reason: 'all' });
+    if (d?.from) q.set('from', d.from);
+    if (d?.to) q.set('to', d.to);
+    for (const [k, v] of Object.entries(extra)) if (v) q.set(k, v);
+    return `/production/stops?${q}`;
+  };
 
   return (
     <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
@@ -121,7 +125,9 @@ export function OeePage() {
         {d && machines.some((m) => m.configured) && (
           <>
             <div className="flex flex-wrap gap-3">
-              <FactorCard label={t('prod.availability')} value={d.totals.availability} />
+              <Link to={stopsUrl({ device, shift })} className="min-w-[130px] flex-1" aria-label={`${t('prod.availability')} — ${t('prod.seeStops')}`}>
+                <FactorCard label={t('prod.availability')} value={d.totals.availability} />
+              </Link>
               <FactorCard label={t('prod.performance')} value={d.totals.performance} />
               <FactorCard label={t('prod.quality')} value={d.totals.quality} />
               <FactorCard label="OEE" value={d.totals.oee} />
@@ -136,7 +142,12 @@ export function OeePage() {
                 ]}>
                   {d.machines.map((m) => (
                     <tr key={m.device_id}>
-                      <td className="font-medium">{localName(m.name, i18n.language)}</td>
+                      <td className="font-medium">
+                        <Link className="underline decoration-dotted underline-offset-2" to={stopsUrl({ device: m.device_id, shift })}
+                          aria-label={`${localName(m.name, i18n.language)} — ${t('prod.seeStops')}`}>
+                          {localName(m.name, i18n.language)}
+                        </Link>
+                      </td>
                       <td className="text-ink-68">{localName(m.line, i18n.language)}</td>
                       <td className="font-mono tabular-nums">{pct(m.availability)}</td>
                       <td className="font-mono tabular-nums">{pct(m.performance)}</td>
@@ -164,7 +175,10 @@ export function OeePage() {
                     {paretoQ.data!.items.map((r) => (
                       <li key={r.reason_id ?? 'none'}>
                         <div className="flex items-baseline justify-between gap-2 text-[12px]">
-                          <span className="truncate">{(i18n.language === 'th' ? r.name_th || r.name_en : r.name_en || r.name_th) || r.code || t('prod.unclassified')}</span>
+                          <Link className="min-w-0 truncate underline decoration-dotted underline-offset-2"
+                            to={stopsUrl({ device, reason_id: r.reason_id ?? 'unclassified' })}>
+                            {(i18n.language === 'th' ? r.name_th || r.name_en : r.name_en || r.name_th) || r.code || t('prod.unclassified')}
+                          </Link>
                           <span className="shrink-0 font-mono tabular-nums text-ink-68">
                             {fmtDuration(r.seconds, i18n.language)} · {r.count}×
                           </span>

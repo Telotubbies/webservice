@@ -934,6 +934,9 @@ _DT_EV = (
 @router.get("/api/v1/orgs/{org}/sites/{site}/downtime-events")
 async def list_dt_events(org: str, site: str, request: Request,
                          needs_reason: bool | None = Query(None),
+                         device: str | None = Query(None),
+                         reason_id: str | None = Query(None),
+                         shift: str | None = Query(None),
                          from_: str | None = Query(None, alias="from"),
                          to: str | None = Query(None),
                          p=Depends(_user)):
@@ -946,15 +949,43 @@ async def list_dt_events(org: str, site: str, request: Request,
         t_to = parse_ts(to) if to else None
     except ValueError:
         raise HTTPException(400, "invalid_request") from None
+    if t_from is not None and t_to is not None and t_to <= t_from:
+        raise HTTPException(400, "invalid_range")
+    dev = m._uuid_or_404(device, "machine") if device else None
+    unclassified = reason_id == "unclassified"
+    if reason_id is not None and not unclassified:
+        rid = m._uuid_or_404(reason_id, "reason")
+    else:
+        rid = None
+    sh = m._uuid_or_404(shift, "shift") if shift else None
     async with tenant_tx(m.st(request).pools.app, org_id) as tc:
-        await _site_tz(tc, site_id)
+        tz_name = await _site_tz(tc, site_id)
+        w_starts: list = []
+        w_ends: list = []
+        if sh is not None:
+            ok = await tc.fetchval(
+                "SELECT 1 FROM shifts WHERE id=$1 AND site_id=$2", sh, site_id)
+            if not ok:
+                raise HTTPException(404, "shift not found")
+            wf, wt = _range(from_, to)
+            windows, _, _ = await _oee_windows(tc, site_id, _tz(tz_name), wf, wt, sh)
+            w_starts = [a for a, _ in windows]
+            w_ends = [b for _, b in windows]
         rows = await tc.fetch(
             _DT_EV + " WHERE d.site_id=$1 AND d.kind='stop'"
             " AND ($2::bool IS NULL OR d.needs_reason=$2)"
             " AND ($3::timestamptz IS NULL OR d.starts_at >= $3)"
             " AND ($4::timestamptz IS NULL OR d.starts_at <= $4)"
-            " ORDER BY d.starts_at DESC LIMIT 300",
-            site_id, needs_reason, t_from, t_to)
+            " AND ($5::uuid IS NULL OR d.device_id=$5)"
+            " AND ($6::uuid IS NULL OR d.reason_id=$6)"
+            " AND (NOT $7 OR d.reason_id IS NULL)"
+            " AND ($8::bool = false OR EXISTS ("
+            "   SELECT 1 FROM unnest($9::timestamptz[], $10::timestamptz[])"
+            "   AS w(starts_at, ends_at)"
+            "   WHERE d.starts_at >= w.starts_at AND d.starts_at < w.ends_at))"
+            " ORDER BY d.starts_at DESC, d.id DESC LIMIT 300",
+            site_id, needs_reason, t_from, t_to, dev, rid, unclassified,
+            sh is not None, w_starts, w_ends)
     return {"items": [_dt_event_json(r) for r in rows], "next_cursor": None}
 
 

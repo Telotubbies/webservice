@@ -64,6 +64,32 @@ export interface TrendItem {
   units: number; rejects: number;
 }
 export interface TimelineItem { state: string; from: string; to: string; seconds: number }
+export interface SnapshotAlarm {
+  id: string; tag: string; rule: string | null; severity: string; state: string;
+  raised_at: string; cleared_at?: string | null;
+}
+export interface SnapshotReview {
+  id: string; camera_id: string; camera: string | null; fired_at: string;
+  detail: Record<string, unknown>;
+}
+export interface HandoverSnapshot {
+  captured_at: string;
+  alarms: SnapshotAlarm[];
+  downtimes: DtEvent[];
+  reviews: SnapshotReview[];
+  truncated: { alarms: boolean; downtimes: boolean; reviews: boolean };
+}
+export interface Handover {
+  id: string; site_id: string;
+  outgoing_by: string; outgoing_name: string; outgoing_at: string;
+  note: string; snapshot: HandoverSnapshot;
+  incoming_by: string | null; incoming_name: string | null; incoming_at: string | null;
+}
+export interface DtContext {
+  downtime: DtEvent; from: string; to: string;
+  tag: { id: string; path: string; name: string; unit: string | null } | null;
+  alarms: SnapshotAlarm[]; truncated: boolean;
+}
 export type ReportTemplate = 'shift' | 'daily' | 'weekly_oee' | 'monthly_alarms';
 export interface ScheduleRow {
   id: string; site_id: string | null; template: ReportTemplate; to_addrs: string[];
@@ -108,14 +134,28 @@ export const prodApi = {
   patchReason: (o: string, id: string, b: Partial<ReasonInput>) =>
     call<{ reason: ReasonRow }>(`${org(o)}/downtime-reasons/${id}`, json('PATCH', b)),
   deleteReason: (o: string, id: string) => call<void>(`${org(o)}/downtime-reasons/${id}`, { method: 'DELETE' }),
-  dtEvents: (o: string, s: string, params: { needs_reason?: boolean; from?: string; to?: string } = {}) => {
+  dtEvents: (o: string, s: string, params: { needs_reason?: boolean; device?: string; reason_id?: string; shift?: string; from?: string; to?: string } = {}) => {
     const q = new URLSearchParams();
     if (params.needs_reason != null) q.set('needs_reason', String(params.needs_reason));
+    if (params.device) q.set('device', params.device);
+    if (params.reason_id) q.set('reason_id', params.reason_id);
+    if (params.shift) q.set('shift', params.shift);
     if (params.from) q.set('from', params.from);
     if (params.to) q.set('to', params.to);
     const qs = q.toString();
     return call<List<DtEvent>>(`${site(o, s)}/downtime-events${qs ? `?${qs}` : ''}`);
   },
+  dtContext: (o: string, s: string, id: string) =>
+    call<DtContext>(`${site(o, s)}/downtime-events/${id}/context`),
+  // shift handover (F09)
+  handoverPending: (o: string, s: string) => call<{ snapshot: HandoverSnapshot }>(`${site(o, s)}/handovers/pending`),
+  handovers: (o: string, s: string) =>
+    call<{ items: Handover[]; can_sign: boolean; current_user_id: string | null }>(`${site(o, s)}/handovers`),
+  handover: (o: string, s: string, id: string) => call<{ handover: Handover }>(`${site(o, s)}/handovers/${id}`),
+  sendHandover: (o: string, s: string, b: { note: string }) =>
+    call<{ handover: Handover }>(`${site(o, s)}/handovers`, json('POST', b)),
+  acceptHandover: (o: string, s: string, id: string) =>
+    call<{ handover: Handover }>(`${site(o, s)}/handovers/${id}/accept`, { method: 'POST' }),
   classify: (o: string, s: string, id: string, b: { reason_id?: string | null; note?: string }) =>
     call<{ downtime: DtEvent }>(`${site(o, s)}/downtime-events/${id}/classify`, json('POST', b)),
   // OEE

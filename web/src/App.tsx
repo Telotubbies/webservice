@@ -67,6 +67,7 @@ const ErrorTrackingPage = lazy(() => import('./features/errors/ErrorTrackingPage
 const SloPage = lazy(() => import('./features/slo/SloPage').then((m) => ({ default: m.SloPage })));
 const SloSettingsPage = lazy(() => import('./features/slo/SloSettingsPage').then((m) => ({ default: m.SloSettingsPage })));
 const DowntimesPage = lazy(() => import('./features/downtimes/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
+const MyWorkPage = lazy(() => import('./features/mywork/MyWorkPage').then((m) => ({ default: m.MyWorkPage })));
 
 // ── Dashboards ──
 const DashboardsPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardsPage })));
@@ -131,6 +132,7 @@ const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').th
 const OeePage = lazy(() => import('./features/production/OeePage').then((m) => ({ default: m.OeePage })));
 const ProductionDowntimesPage = lazy(() => import('./features/production/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
 const ShiftsPage = lazy(() => import('./features/production/ShiftsPage').then((m) => ({ default: m.ShiftsPage })));
+const HandoversPage = lazy(() => import('./features/production/HandoversPage').then((m) => ({ default: m.HandoversPage })));
 const ReportsPage = lazy(() => import('./features/production/ReportsPage').then((m) => ({ default: m.ReportsPage })));
 
 // ── Notifications ──
@@ -298,6 +300,7 @@ export default function App() {
             <Route path="slos" element={page(SloPage)} />
             <Route path="slos/settings" element={page(SloSettingsPage)} />
             <Route path="downtimes" element={page(DowntimesPage)} />
+            <Route path="my-work" element={page(MyWorkPage)} />
             <Route path="dashboards" element={page(DashboardsPage)} />
             <Route path="dashboards/:id" element={page(DashboardViewPage)} />
             <Route path="connect/gateways" element={page(DevicesPage)} />
@@ -345,6 +348,7 @@ export default function App() {
             <Route path="production/oee" element={page(OeePage)} />
             <Route path="production/stops" element={page(ProductionDowntimesPage)} />
             <Route path="production/shifts" element={page(ShiftsPage)} />
+<Route path="production/handovers" element={page(HandoversPage)} />
             <Route path="production/reports" element={page(ReportsPage)} />
             {/* notifications + signed ack link (Phase 3) */}
             <Route path="notifications/channels" element={page(ChannelsPage)} />

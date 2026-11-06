@@ -98,6 +98,7 @@ const ALL_NAV: NavGroup[] = [
     { to: '/commands', key: 'nav.commands', icon: 'prompt' },
   ] },
   { cluster: 'plant', group: 'nav.alarms', icon: 'attention-circled', href: '/alarms', items: [
+    { to: '/my-work', key: 'nav.myWork', icon: 'check' },
     { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
     { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
     { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },
@@ -111,6 +112,7 @@ const ALL_NAV: NavGroup[] = [
     { to: '/production/oee', key: 'nav.oee', icon: 'metric' },
     { to: '/production/stops', key: 'nav.stops', icon: 'pause' },
     { to: '/production/shifts', key: 'nav.shifts', icon: 'clock' },
+    { to: '/production/handovers', key: 'nav.handovers', icon: 'signpost' },
     { to: '/production/reports', key: 'nav.reports', icon: 'download' },
   ] },
   { cluster: 'plant', group: 'nav.dashboards', icon: 'dashboard', href: '/dashboards', items: [

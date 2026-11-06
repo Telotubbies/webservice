@@ -3,17 +3,21 @@
 // the two-level tree, adds an optional note, saves. 390px is the design
 // breakpoint: everything is single-column, full-width tappable rows.
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
-import { ApiError } from '../../lib/api';
+import { ApiError, tagQueryApi } from '../../lib/api';
 import { fmtAge, fmtDateTime } from '../../lib/format';
 import { PageBar, PageBody, Card, Table } from '../../shared/ui/Page';
 import { EmptyState, ErrorState, PermissionNotice, SkeletonRows } from '../../shared/ui/Feedback';
 import { Confirm } from '../../shared/ui/Confirm';
 import { canOperate } from '../../app/session';
 import { useAdminOrg, useAdminSite, canAdmin } from '../admin/admin';
+import { StandardChart } from '../charts/StandardChart';
+import { pickSource } from '../charts/source';
+import { rowsToSamples, type BucketRow, type RawRow } from '../charts/shape';
+import type { ChartHistory } from '../charts/useChartHistory';
 import { prodApi, type DtEvent, type ReasonInput, type ReasonRow } from './api';
 import './i18n';
 
@@ -27,22 +31,69 @@ export function DowntimesPage() {
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const openOnly = params.get('needs_reason') !== 'all';
+  const device = params.get('device') ?? '';
+  const reasonFilter = params.get('reason_id') ?? '';
+  const shift = params.get('shift') ?? '';
+  const from = params.get('from') ?? '';
+  const to = params.get('to') ?? '';
   const [reasonMgmt, setReasonMgmt] = useState(false);
 
+  const set = (k: string, v: string) => {
+    setParams((p) => { const n = new URLSearchParams(p); if (v) n.set(k, v); else n.delete(k); return n; }, { replace: true });
+  };
+  const localInput = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const isoParam = (v: string) => {
+    if (!v) return undefined;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  };
+  const rangeInvalid = (!!from && isoParam(from) === undefined) || (!!to && isoParam(to) === undefined);
+
   const eventsQ = useQuery({
-    queryKey: ['prod-dt', orgId, site?.id, openOnly],
-    queryFn: () => prodApi.dtEvents(orgId!, site!.id, { needs_reason: openOnly || undefined }),
+    queryKey: ['prod-dt', orgId, site?.id, openOnly, device, reasonFilter, shift, from, to],
+    queryFn: () => prodApi.dtEvents(orgId!, site!.id, {
+      needs_reason: openOnly || undefined,
+      device: device || undefined,
+      reason_id: reasonFilter || undefined,
+      shift: shift || undefined,
+      from: isoParam(from),
+      to: isoParam(to),
+    }),
     enabled: !!orgId && !!site,
   });
   const reasonsQ = useQuery({
     queryKey: ['prod-reasons', orgId],
     queryFn: () => prodApi.reasons(orgId!), enabled: !!orgId,
   });
+  const machinesQ = useQuery({
+    queryKey: ['prod-machines', orgId, site?.id],
+    queryFn: () => prodApi.machines(orgId!, site!.id),
+    enabled: !!orgId && !!site,
+  });
+  const shiftsQ = useQuery({
+    queryKey: ['prod-shifts', orgId, site?.id],
+    queryFn: () => prodApi.shifts(orgId!, site!.id),
+    enabled: !!orgId && !!site,
+  });
 
   const events = eventsQ.data?.items ?? [];
   const roots = (reasonsQ.data?.items ?? []).filter((r) => !r.parent_id && r.enabled);
   const reasonName = (r: ReasonRow) => (i18n.language === 'th' && r.name_th ? r.name_th : r.name_en);
-  const err = eventsQ.error ?? reasonsQ.error;
+  const err = eventsQ.error ?? reasonsQ.error ?? machinesQ.error ?? shiftsQ.error;
+  const machines = machinesQ.data?.items ?? [];
+  const shifts = shiftsQ.data?.items ?? [];
+  const activeParts = [
+    device ? `${t('prod.dtFilterDevice')}: ${localName(machines.find((x) => x.device_id === device)?.name ?? device, i18n.language)}` : '',
+    reasonFilter ? `${t('prod.dtFilterReason')}: ${reasonFilter === 'unclassified' ? t('prod.dtFilterUnclassified') : reasonName((reasonsQ.data?.items ?? []).find((r) => r.id === reasonFilter) ?? { name_en: reasonFilter, name_th: reasonFilter } as ReasonRow)}` : '',
+    shift ? `${t('prod.dtFilterShift')}: ${localName(shifts.find((x) => x.id === shift)?.name ?? shift, i18n.language)}` : '',
+    from || to ? `${from || '…'} → ${to || '…'}` : '',
+  ].filter(Boolean);
+  const hasFilters = device || reasonFilter || shift || from || to;
 
   return (
     <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
@@ -65,9 +116,63 @@ export function DowntimesPage() {
         }
       />
       <PageBody>
+        <div className="mb-3 flex flex-wrap items-end gap-2">
+          <label className="text-[12px] text-ink-68">
+            <span className="block">{t('prod.dtFilterDevice')}</span>
+            <select className="input mt-0.5 h-8 w-auto min-w-[8rem] text-[12px]" value={device}
+              onChange={(e) => set('device', e.target.value)}>
+              <option value="">{t('prod.dtFilterAll')}</option>
+              {machines.map((x) => <option key={x.device_id} value={x.device_id}>{localName(x.name, i18n.language)}</option>)}
+            </select>
+          </label>
+          <label className="text-[12px] text-ink-68">
+            <span className="block">{t('prod.dtFilterReason')}</span>
+            <select className="input mt-0.5 h-8 w-auto min-w-[8rem] text-[12px]" value={reasonFilter}
+              onChange={(e) => set('reason_id', e.target.value)}>
+              <option value="">{t('prod.dtFilterAll')}</option>
+              <option value="unclassified">{t('prod.dtFilterUnclassified')}</option>
+              {(reasonsQ.data?.items ?? []).filter((r) => r.enabled).map((r) => (
+                <option key={r.id} value={r.id}>{r.parent_id ? '— ' : ''}{reasonName(r)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-[12px] text-ink-68">
+            <span className="block">{t('prod.dtFilterShift')}</span>
+            <select className="input mt-0.5 h-8 w-auto min-w-[7rem] text-[12px]" value={shift}
+              onChange={(e) => set('shift', e.target.value)}>
+              <option value="">{t('prod.dtFilterAll')}</option>
+              {shifts.map((x) => <option key={x.id} value={x.id}>{localName(x.name, i18n.language)}</option>)}
+            </select>
+          </label>
+          <label className="text-[12px] text-ink-68">
+            <span className="block">{t('prod.dtFilterFrom')}</span>
+            <input type="datetime-local" className="input mt-0.5 h-8 w-auto text-[12px]" value={localInput(from)}
+              onChange={(e) => set('from', e.target.value ? new Date(e.target.value).toISOString() : '')} />
+          </label>
+          <label className="text-[12px] text-ink-68">
+            <span className="block">{t('prod.dtFilterTo')}</span>
+            <input type="datetime-local" className="input mt-0.5 h-8 w-auto text-[12px]" value={localInput(to)}
+              onChange={(e) => set('to', e.target.value ? new Date(e.target.value).toISOString() : '')} />
+          </label>
+          {!!hasFilters && (
+            <button type="button" className="btn btn-sm btn-ghost h-8" onClick={() => {
+              setParams((p) => { const n = new URLSearchParams(p);
+                for (const k of ['device', 'reason_id', 'shift', 'from', 'to']) n.delete(k);
+                return n; }, { replace: true });
+            }}>{t('prod.dtFilterClear')}</button>
+          )}
+        </div>
+        {!!hasFilters && (
+          <p className="mb-2 text-[11px] text-ink-46" role="note">
+            {t('prod.dtFilterActive', { parts: activeParts.join(' · ') })}
+          </p>
+        )}
+        {rangeInvalid && (
+          <p className="mb-2 text-[11px] text-[var(--color-danger)]" role="alert">{t('prod.dtFilterInvalid')}</p>
+        )}
         {!canClassify && <PermissionNotice role="operator">{t('prod.needClassify')}</PermissionNotice>}
         {err && <ErrorState detail={err instanceof ApiError ? err.message : undefined}
-          onRetry={() => { void eventsQ.refetch(); void reasonsQ.refetch(); }} />}
+          onRetry={() => { void eventsQ.refetch(); void reasonsQ.refetch(); void machinesQ.refetch(); void shiftsQ.refetch(); }} />}
 
         {reasonMgmt && <ReasonManager orgId={orgId!} />}
 
@@ -77,7 +182,7 @@ export function DowntimesPage() {
         )}
         <ul className="space-y-2" aria-label={t('prod.dtTitle')}>
           {events.map((ev) => (
-            <DtCard key={ev.id} orgId={orgId!} siteId={site!.id} ev={ev}
+            <DtCard key={`${orgId}/${site!.id}/${ev.id}`} orgId={orgId!} siteId={site!.id} ev={ev}
               roots={roots} all={reasonsQ.data?.items ?? []}
               reasonName={reasonName} canClassify={canClassify}
               onSaved={() => void qc.invalidateQueries({ queryKey: ['prod-dt', orgId, site?.id] })} />
@@ -107,6 +212,28 @@ function DtCard({ orgId, siteId, ev, roots, all, reasonName, canClassify, onSave
       { reason_id: reasonId || null, note: note.trim() || undefined }),
     onSuccess: () => { setOpen(false); onSaved(); },
   });
+  const ctxQ = useQuery({
+    queryKey: ['prod-dt-ctx', orgId, siteId, ev.id],
+    queryFn: () => prodApi.dtContext(orgId, siteId, ev.id),
+    enabled: open,
+  });
+  const load = useCallback(async (tag: string, f: number, toMs: number): Promise<ChartHistory> => {
+    const plan = pickSource(f, toMs, Date.now());
+    const isoMs = (ms: number) => new Date(ms).toISOString();
+    if (plan.source !== 'raw') {
+      const r = await tagQueryApi.history(orgId, siteId, { tag, from: isoMs(f), to: isoMs(toMs), agg: 'avg', bucket_s: plan.bucketS! });
+      return { samples: rowsToSamples(r.rows as BucketRow[]), plan, truncated: false };
+    }
+    const spans: [number, number][] = [];
+    for (let a = f; a < toMs; a += 80 * 60e3) spans.push([a, Math.min(toMs, a + 80 * 60e3)]);
+    const res = await Promise.all(spans.map(([a, b]) =>
+      tagQueryApi.history(orgId, siteId, { tag, from: isoMs(a), to: isoMs(b), agg: 'raw', limit: 5000 })));
+    const seen = new Set<string>();
+    const rows = res.flatMap((r) => r.rows as RawRow[]).filter((r) => !seen.has(r.ts) && !!seen.add(r.ts));
+    return { samples: rowsToSamples(rows), plan, truncated: res.some((r) => r.rows.length >= 5000) };
+  }, [orgId, siteId]);
+  const ctx = ctxQ.data;
+  const ctxRange: [number, number] | null = ctx ? [Date.parse(ctx.from), Date.parse(ctx.to)] : null;
 
   return (
     <li className="rounded-[5px] border border-line bg-paper shadow-card">
@@ -147,6 +274,49 @@ function DtCard({ orgId, siteId, ev, roots, all, reasonName, canClassify, onSave
               </>
             )}
           </dl>
+          <div className="mb-3" aria-label={t('prod.dtContext')}>
+            <h4 className="text-[12px] font-semibold text-ink-68">{t('prod.dtContext')}</h4>
+            {ctxQ.isLoading && <SkeletonRows rows={2} h={40} />}
+            {ctxQ.isError && (
+              <p className="mt-1 text-[11px] text-[var(--color-danger)]" role="alert">
+                {t('prod.failed', { reason: 'context' })}{' '}
+                <button type="button" className="underline" onClick={() => void ctxQ.refetch()}>{t('common.retry')}</button>
+              </p>
+            )}
+            {ctx && ctxRange && (
+              <>
+                {ctx.tag ? (
+                  <div className="mt-1 min-w-0">
+                    <StandardChart
+                      key={`${orgId}/${siteId}/${ctx.tag.id}`}
+                      tag={ctx.tag.id} label={ctx.tag.name || ctx.tag.path}
+                      unit={ctx.tag.unit ?? undefined} decimals={0}
+                      range={ctxRange} load={load} height={160}
+                      events={ctx.alarms.map((a) => ({ t: Date.parse(a.raised_at), kind: 'alarm' as const, label: a.rule ?? a.tag, severity: a.severity === 'critical' ? 'critical' as const : 'warning' as const }))}
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[11px] text-ink-46">{t('prod.dtNoChart')}</p>
+                )}
+                <h5 className="mt-2 text-[12px] font-semibold text-ink-68">{t('prod.dtContextAlarms')}</h5>
+                {ctx.alarms.length === 0 ? (
+                  <p className="mt-1 text-[11px] text-ink-46">{t('prod.dtContextNone')}</p>
+                ) : (
+                  <ul className="mt-1 space-y-1">
+                    {ctx.alarms.map((a) => (
+                      <li key={a.id} className="min-w-0 break-words text-[12px]">
+                        <span className="font-medium">{a.rule ?? a.tag}</span>
+                        <span className="block text-[11px] text-ink-46">
+                          {a.tag} · {a.severity} · {fmtDateTime(a.raised_at)}{a.cleared_at ? ` → ${fmtDateTime(a.cleared_at)}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {ctx.truncated && <p className="mt-1 text-[11px] text-ink-46" role="note">{t('prod.dtTruncatedAlarms')}</p>}
+              </>
+            )}
+          </div>
           {canClassify ? (
             <>
               <label className="block text-[12px] font-semibold text-ink-68" htmlFor={`r-${ev.id}`}>
