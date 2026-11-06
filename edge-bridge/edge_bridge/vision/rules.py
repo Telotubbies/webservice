@@ -200,6 +200,7 @@ class _Rule:
     first_match: float | None = None
     fired: bool = False                # edge-trigger: re-arms when the condition clears
     last_fire: float = 0.0
+    claimed_at: float | None = None    # atomic fire claim, taken in _fire under _lock
 
 
 def parse_rule(raw) -> _Rule | None:
@@ -536,6 +537,21 @@ class RuleEngine:
         if rule.dry_run:
             self._emit(cam, rule, "dry_run", track, st, thumb,
                        {"would": [a["kind"] for a in rule.actions]})
+            return
+        # One fire per rule per MIN_REFIRE_S, claimed atomically: the tag's
+        # in-flight claim is released as soon as a fast write completes, so a
+        # second thread arriving late would otherwise write the PLC again.
+        with self._lock:
+            now = self._now()
+            dup = rule.claimed_at is not None and now - rule.claimed_at < MIN_REFIRE_S
+            if not dup:
+                rule.claimed_at = now
+        if dup:
+            res = [{"action": a["kind"], "tag_path": a["tag_path"],
+                    "result": "blocked", "reason": "in_flight"}
+                   for a in rule.actions if a["kind"] in ("plc_write", "counter")]
+            self._emit(cam, rule, "blocked", track, st, thumb, {"actions": res},
+                       blocked_reason="in_flight")
             return
         severity, results, blocked = None, [], None
         for a in rule.actions:
