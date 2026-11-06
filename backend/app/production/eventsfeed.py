@@ -39,24 +39,24 @@ _UNION = """
   SELECT a.raised_at AS ts, 'alarm:' || a.id::text || ':raised' AS id,
          'alarm' AS type, 'raised' AS action, a.severity,
          t.site_id, t.id AS tag_id, t.path AS tag_path,
-         NULL::text AS actor, r.name AS subject
+         NULL::text AS actor, COALESCE(r.name, a.rule_name) AS subject
     FROM alarms a
-    JOIN alarm_rules r ON r.org_id=a.org_id AND r.tag_id=a.tag_id AND r.id=a.rule_id
+    LEFT JOIN alarm_rules r ON r.org_id=a.org_id AND r.tag_id=a.tag_id AND r.id=a.rule_id
     JOIN tags t ON t.org_id=a.org_id AND t.id=a.tag_id
   UNION ALL
   SELECT a.acked_at, 'alarm:' || a.id::text || ':acked',
          'alarm', 'acked', a.severity,
-         t.site_id, t.id, t.path, a.acked_by::text, r.name
+         t.site_id, t.id, t.path, a.acked_by::text, COALESCE(r.name, a.rule_name)
     FROM alarms a
-    JOIN alarm_rules r ON r.org_id=a.org_id AND r.tag_id=a.tag_id AND r.id=a.rule_id
+    LEFT JOIN alarm_rules r ON r.org_id=a.org_id AND r.tag_id=a.tag_id AND r.id=a.rule_id
     JOIN tags t ON t.org_id=a.org_id AND t.id=a.tag_id
    WHERE a.acked_at IS NOT NULL
   UNION ALL
   SELECT a.cleared_at, 'alarm:' || a.id::text || ':cleared',
          'alarm', 'cleared', a.severity,
-         t.site_id, t.id, t.path, NULL, r.name
+         t.site_id, t.id, t.path, NULL, COALESCE(r.name, a.rule_name)
     FROM alarms a
-    JOIN alarm_rules r ON r.org_id=a.org_id AND r.tag_id=a.tag_id AND r.id=a.rule_id
+    LEFT JOIN alarm_rules r ON r.org_id=a.org_id AND r.tag_id=a.tag_id AND r.id=a.rule_id
     JOIN tags t ON t.org_id=a.org_id AND t.id=a.tag_id
    WHERE a.cleared_at IS NOT NULL
   UNION ALL
