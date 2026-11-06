@@ -327,7 +327,17 @@ const derived = [
 const OPCUA_TREE: Record<string, { node_id: string; name: string; node_class: string; data_type: string | null; writable: boolean }[]> = {
   root: [{ node_id: 'ns=2;s=Batching', name: 'Batching', node_class: 'Object', data_type: null, writable: false }],
   'ns=2;s=Batching': ['Air', 'Plant'].map((n) => ({ node_id: `ns=2;s=Batching.${n}`, name: n, node_class: 'Object', data_type: null, writable: false })),
+  'ns=2;s=Batching.Plant': [['Hopper Level', 'Double', false], ['Mixer Speed SP', 'Double', true], ['Mixer Running', 'Boolean', true], ['Discharge Temp', 'Double', false]]
+    .map(([n, dt, w]) => ({ node_id: `ns=2;s=Batching.Plant.${String(n).replace(/ /g, '')}`, name: String(n), node_class: 'Variable', data_type: String(dt), writable: Boolean(w) })),
 };
+/** Stable fake live value for a browsed node (mock only). */
+const nodeLive = (id: string, t: number) => /Running/.test(id) ? { v: Math.floor(t / 20000) % 2 === 0, q: 'good' } : { v: Math.round((40 + 25 * Math.sin(t / 15000 + id.length)) * 10) / 10, q: 'good' };
+/** Critical-rule approvals: rule id -> who proposed it ('me' = the signed-in mock user). */
+const APPROVALS = new Map<string, { by: 'me' | 'other'; at: string }>();
+// seed: a critical rule a colleague proposed, so the second-person step can be tried
+sim.RULES.push({ id: 'r-pend', tail: 'sort.line1.bin1.level_pct', name: 'Sorter bin level HiHi', kind: 'hihi', threshold: 97, stale_s: null, window_s: null, deadband: 1, severity: 'critical', enabled: false });
+APPROVALS.set('r-pend', { by: 'other', at: new Date(Date.now() - 3600e3).toISOString() });
+const ruleApproval = (id: string) => APPROVALS.has(id) ? 'pending' : 'approved';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -359,7 +369,7 @@ const v2alarm = (a: sim.SimAlarm) => ({
 });
 const adminRule = (r: sim.SimRule) => ({
   id: r.id, tag_id: idOf(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s,
-  window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled,
+  window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled, approval: ruleApproval(r.id),
 });
 const alarmEvents: Record<string, { kind: string; author: string; body: string; at: string }[]> = {};
 /** Who shelved an alarm, why and when — the backend keeps this on the alarm row (migration 0057). */
@@ -625,6 +635,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     }
     const st = /^\/sources\/([^/]+)\/tags$/.exec(tail);
     if (st && GET) { const items = plant.sourceTags(st[1]); return items ? send(200, { items }) : send(404, { detail: 'unknown source' }); }
+    if (/^\/sources\/([^/]+)\/read-nodes$/.test(tail)) {
+      const b = await body(req);
+      return send(200, { items: ((b.node_ids as string[]) ?? []).map((node_id) => ({ node_id, ...nodeLive(node_id, t) })) });
+    }
     const br = /^\/sources\/([^/]+)\/browse$/.exec(tail);
     if (br) { const b = await body(req); return send(200, { items: OPCUA_TREE[String(b.node_id ?? 'root')] ?? [] }); }
     if (tail === '/cameras' && GET) return send(200, { items: plant.cameras(edge, MATERIAL_SCHEMA.defaults) });
@@ -985,6 +999,40 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
 
   // alarms + rules — rules are the simulator's, so edits change what raises
   if (rest === '/alarms') return done(200, list(sim.ALARMS.slice(0, Math.min(1000, Number(q('limit')) || 200)).map(v2alarm)));
+  if (rest === '/alarm-rules:backtest' && req.method === 'POST') {
+    const b = await body(req);
+    const g = plant.tagById(String(b.tag_id ?? ''));
+    if (!g) return done(404, { detail: 'tag not found' });
+    const hours = Number(b.hours) || 168;
+    const rows = plant.series(g, t - hours * 3600e3, t, 2000, 'raw') as { ts: string; v: number | boolean }[];
+    const th = Number(b.threshold), db = Number(b.deadband) || 0;
+    const hi = b.kind === 'hi' || b.kind === 'hihi', lo = b.kind === 'lo' || b.kind === 'lolo';
+    if (!hi && !lo && b.kind !== 'stale') return done(422, { detail: 'backtest_unsupported_kind' });
+    const fires: string[] = [];
+    let on = false;
+    for (const r of rows) {
+      const v = Number(r.v);
+      if (hi || lo) {
+        const trip = hi ? v > th : v < th, clear = hi ? v <= th - db : v >= th + db;
+        if (!on && trip) { on = true; fires.push(r.ts); } else if (on && clear) on = false;
+      }
+    }
+    return done(200, { count: fires.length, first: fires.slice(0, 5), last: fires.at(-1) ?? null, samples: rows.length, hours, truncated: false });
+  }
+  if (rest === '/alarm-rules/pending' && GET) {
+    return done(200, list(sim.RULES.filter((r) => APPROVALS.has(r.id)).map((r) => ({ ...adminRule(r), mine: APPROVALS.get(r.id)!.by === 'me', requested_at: APPROVALS.get(r.id)!.at }))));
+  }
+  const dec = /^\/alarm-rules\/([^/]+)\/(approve|reject)$/.exec(rest);
+  if (dec && req.method === 'POST') {
+    if (!c.config) return done(403, { detail: 'admin role required' });
+    const r = sim.RULES.find((x) => x.id === dec[1]);
+    const ap = APPROVALS.get(dec[1]);
+    if (!r || !ap) return done(409, { detail: 'rule_not_pending' });
+    if (ap.by === 'me') return done(403, { detail: 'author_cannot_approve' });
+    APPROVALS.delete(r.id);
+    r.enabled = dec[2] === 'approve';
+    return done(200, { rule: { ...adminRule(r), approval: dec[2] === 'approve' ? 'approved' : 'rejected' } });
+  }
   const rr = /^\/alarm-rules(?:\/([^/]+))?$/.exec(rest);
   if (rr) {
     if (!GET && !c.config) return done(403, { detail: 'admin role required' });
@@ -1010,6 +1058,7 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
         threshold: (b.threshold as number | null) ?? null, stale_s: (b.stale_s as number | null) ?? null, window_s: (b.window_s as number | null) ?? null,
         deadband: Number(b.deadband ?? 0), severity: (b.severity ?? 'info') as sim.SimRule['severity'], enabled: b.enabled !== false,
       };
+      if (r.severity === 'critical') { r.enabled = false; APPROVALS.set(r.id, { by: 'me', at: iso(t) }); }
       sim.RULES.push(r);
       return done(200, { rule: adminRule(r) });
     }
