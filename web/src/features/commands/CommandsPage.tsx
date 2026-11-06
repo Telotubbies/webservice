@@ -9,6 +9,8 @@ import { useNow, useStore } from '../../lib/hooks';
 import { fmtAge } from '../../lib/format';
 import { canOperate, useRole } from '../../app/session';
 import { LifecyclePill } from '../line/LifecyclePill';
+import { outcomeOf } from '../line/commandOutcome';
+import '../line/i18n';
 import { useEquipment } from '../../lib/equipment';
 import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 import { PageBar, Card, Table } from '../../shared/ui/Page';
@@ -45,16 +47,17 @@ export function CommandsPage() {
           {!operable ? (
             <Notice tone="info">{t('commands.restricted')}</Notice>
           ) : rows.length > 0 ? (
-            <Table head={[t('commands.colId'), t('commands.colSignal'), t('commands.colValue'), t('commands.colStatus'), t('commands.colUser'), t('commands.colTime'), t('commands.colDetail')]}>
+            <Table head={[t('commands.colId'), t('commands.colSignal'), t('commands.colValue'), t('commands.colStatus'), t('f05.colReason'), t('f05.colResult'), t('commands.colUser'), t('commands.colTime')]}>
               {rows.map((c: Command) => (
                 <tr key={c.id}>
                   <td className="font-mono text-[11px] text-ink-46">{c.id.slice(0, 8)}</td>
                   <td className="font-mono text-[12px]">{c.tag}</td>
                   <td className="font-mono text-[12px]">{String(c.value ?? '—')}</td>
                   <td><LifecyclePill status={c.status} /></td>
+                  <td className="max-w-48 text-[12px]" data-col="reason">{(c as Command & { note?: string | null }).note || <span className="text-ink-46">{t('f05.noReason')}</span>}</td>
+                  <td className="max-w-64 text-[12px] text-ink-68" data-col="result">{outcomeOf(t, c.status, c.detail).text}</td>
                   <td className="text-[12px] text-ink-68">{c.user ?? '—'}</td>
                   <td className="text-[12px] text-ink-68">{fmtAge(c.updated_at ?? c.created_at, now)}</td>
-                  <td className="max-w-48 truncate text-[12px] text-ink-68">{c.detail ?? ''}</td>
                 </tr>
               ))}
             </Table>

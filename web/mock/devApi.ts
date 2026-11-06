@@ -36,17 +36,17 @@ const insights = [
 
 // ── Commands: sim.write + the edge's lifecycle (issued → sent → acked → done)
 interface Cmd {
-  id: string; tag: string; value: number | boolean; status: string; detail?: string;
+  id: string; tag: string; value: number | boolean; status: string; detail?: string; note?: string;
   created_at: string; updated_at: string; user: string; events: { from: string; to: string; actor: string; reason?: string | null; at: string }[];
 }
 const commands: Cmd[] = [];
 let cmdSeq = 0;
-function seedCommand(tail: string, value: number | boolean, agoMs: number, user: string, status = 'done', detail?: string) {
+function seedCommand(tail: string, value: number | boolean, agoMs: number, user: string, status = 'done', detail?: string, note = 'Production plan') {
   const at = T0 - agoMs;
   const id = `cmd-${++cmdSeq}`;
   const steps = status === 'denied' ? ['issued', 'denied'] : status === 'timeout' ? ['issued', 'sent', 'timeout'] : ['issued', 'sent', 'acked', 'done'];
   commands.push({
-    id, tag: tagName(tail), value, status, detail, created_at: iso(at), updated_at: iso(at + 900), user,
+    id, tag: tagName(tail), value, status, detail, note, created_at: iso(at), updated_at: iso(at + 900), user,
     events: steps.slice(1).map((to, i) => ({ from: steps[i], to, actor: to === 'denied' ? 'backend' : 'edge-batching-01', reason: to === 'denied' ? detail ?? null : null, at: iso(at + 300 * (i + 1)) })),
   });
 }
@@ -59,28 +59,77 @@ seedCommand('sort.line1.motor1.speed_sp', 70, 9 * H, 'Demo operator', 'denied', 
 seedCommand('batch.plant.auto.enabled', true, 14 * H, 'Nok P. (engineer)', 'timeout', 'edge did not ack within 10 s');
 commands.reverse();
 
-const CMD_V2: Record<string, string> = { issued: 'accepted', sent: 'dispatched', acked: 'acknowledged', done: 'acknowledged', denied: 'rejected', failed: 'failed', timeout: 'timeout' };
+const CMD_V2: Record<string, string> = { issued: 'accepted', sent: 'dispatched', acked: 'dispatched', done: 'acknowledged', denied: 'rejected', failed: 'failed', unknown: 'unknown', timeout: 'timeout' };
 const cmdV2 = (c: Cmd) => ({
   id: c.id, tag_id: sim.tagByName(c.tag)?.id ?? '', value: c.value, status: CMD_V2[c.status] ?? c.status, reason: c.detail ?? null, ttl_s: 10,
-  idempotency_key: null, issued_at: c.created_at, updated_at: c.updated_at, actor: { user_id: null, display_name: c.user }, version: c.events.length + 1,
+  note: c.note ?? null, idempotency_key: null, issued_at: c.created_at, updated_at: c.updated_at, actor: { user_id: null, display_name: c.user }, version: c.events.length + 1,
 });
 
-function issue(tag: string, value: unknown, user: string): { code: number; body: unknown } {
-  const r = sim.write(tag, value);
-  if (!r.ok) {
-    const code = r.reason === 'unknown_tag' ? 404 : r.reason === 'not_writable' ? 403 : 422;
-    return { code, body: { detail: r.reason } };
+// F05: what the mock "edge" does after a write. Tests flip it through
+// /__mock/fault; the outcome is always derived from the read-back, never assumed.
+let fault: 'mismatch' | 'unknown' | 'timeout' | null = null;
+const MOCK_TTL_MS = 3000;
+const REASON_MAX = 200;
+
+/** Same gates as the backend's CommandManager.preflight (none short-circuited). */
+function preflight(tag: string, value: unknown, note: unknown) {
+  const g = sim.tagByName(tag);
+  const checks: { id: string; ok: boolean; blocking: boolean; error: string | null; [k: string]: unknown }[] = [];
+  const reason = typeof note === 'string' ? note.trim() : '';
+  checks.push({ id: 'reason', ok: reason !== '' && reason.length <= REASON_MAX, blocking: true, error: reason === '' ? 'reason_required' : reason.length > REASON_MAX ? 'reason_too_long' : null });
+  checks.push({ id: 'writable', ok: !!g?.writable, blocking: true, error: g?.writable ? null : 'not_writable' });
+  const isBool = typeof value === 'boolean';
+  const typeOk = g ? (g.type === 'bool' ? isBool : !isBool && typeof value === 'number' && Number.isFinite(value)) : false;
+  checks.push({ id: 'type', ok: typeOk, blocking: true, error: typeOk ? null : 'invalid_value' });
+  const lo = g?.min ?? null, hi = g?.max ?? null;
+  const inRange = !typeOk || g?.type === 'bool' || !(((lo != null) && (value as number) < lo) || ((hi != null) && (value as number) > hi));
+  checks.push({ id: 'range', ok: inRange, blocking: true, error: inRange ? null : 'out_of_range', min: lo, max: hi });
+  // permissive: the belt must be cool before the drive is started
+  const hot = g?.tail === 'sort.line1.motor1.running' && value === true && Number(sim.value(tagName('sort.line1.conv1.temp_c'))) >= 72;
+  checks.push({ id: 'permissive', ok: !hot, blocking: true, error: hot ? 'permissive_not_met' : null, tag: 'sort/line1/conv1/temp_c', why: hot ? 'not_satisfied' : undefined });
+  const busy = commands.find((c) => c.tag === tag && ['issued', 'sent', 'acked'].includes(c.status));
+  checks.push({ id: 'in_flight', ok: !busy, blocking: true, error: busy ? 'command_in_flight' : null, active_command_id: busy?.id });
+  checks.push({ id: 'edge', ok: true, blocking: false, error: null });
+  return { g, checks };
+}
+
+function issue(tag: string, value: unknown, user: string, note?: unknown, dryRun = false): { code: number; body: unknown } {
+  if (!sim.tagByName(tag)) return { code: 404, body: { detail: 'unknown_tag' } };
+  const { checks } = preflight(tag, value, note);
+  const refusal = checks.find((c) => c.blocking && !c.ok);
+  if (dryRun) {
+    return { code: 200, body: { dry_run: true, ok: !refusal, sent: false, checks, expected: { value, readback: 'edge reads the value back after the write', unit: sim.tagByName(tag)?.unit ?? null } } };
   }
+  if (refusal) {
+    const code = refusal.error === 'not_writable' ? 403 : refusal.error === 'permissive_not_met' || refusal.error === 'command_in_flight' ? 409 : 422;
+    return { code, body: { detail: refusal.error, ...refusal } };
+  }
+  const old = sim.value(tag);
+  const mode = fault;
   const t = now();
-  const c: Cmd = { id: `cmd-${++cmdSeq}`, tag, value: value as number | boolean, status: 'issued', created_at: iso(t), updated_at: iso(t), user, events: [] };
+  const c: Cmd = { id: `cmd-${++cmdSeq}`, tag, value: value as number | boolean, status: 'issued', note: String(note).trim(), created_at: iso(t), updated_at: iso(t), user, events: [] };
   commands.unshift(c);
-  // the edge's round-trip: dispatched over MQTT, acked by the PLC, read back
-  const advance = (to: string, ms: number) => setTimeout(() => {
-    c.events.push({ from: c.status, to, actor: to === 'sent' ? 'backend' : 'edge', at: iso(now()) });
+  const advance = (to: string, ms: number, reason?: string, actor = 'edge') => setTimeout(() => {
+    c.events.push({ from: c.status, to, actor: to === 'sent' ? 'backend' : actor, reason: reason ?? null, at: iso(now()) });
     c.status = to; c.updated_at = iso(now());
-    broadcast({ type: 'command', command_id: c.id, status: to, tag });
+    if (reason) c.detail = reason;
+    broadcast({ type: 'command', command_id: c.id, status: to, tag, ...(reason ? { detail: reason } : {}) });
   }, ms);
-  advance('sent', 120); advance('acked', 420); advance('done', 800);
+  advance('sent', 120);
+  if (mode === 'timeout') { advance('timeout', MOCK_TTL_MS, 'no response within ttl_s=15', 'sweeper'); return { code: 200, body: { command_id: c.id } }; }
+  // the PLC write, then the read-back that decides the outcome
+  sim.write(tag, value);
+  advance('acked', 420);
+  if (mode === 'unknown') { advance('unknown', 800, 'readback_unavailable:quality_bad'); return { code: 200, body: { command_id: c.id } }; }
+  if (mode === 'mismatch') {
+    if (old !== undefined) sim.write(tag, old);
+    advance('failed', 800, `readback_mismatch:expected=${value},actual=${old}`);
+    return { code: 200, body: { command_id: c.id } };
+  }
+  const actual = sim.value(tag);
+  const match = typeof value === 'boolean' ? actual === value : Math.abs(Number(actual) - Number(value)) <= 1e-3 * Math.abs(Number(value)) + 1e-6;
+  if (match) advance('done', 800, `readback_ok:${actual}`);
+  else advance('failed', 800, `readback_mismatch:expected=${value},actual=${actual}`);
   return { code: 200, body: { command_id: c.id } };
 }
 
@@ -403,11 +452,16 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   if (p === '/api/alarm-rules') {
     return send(200, sim.RULES.map((r) => ({ tag: tagName(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s, window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled })));
   }
+  if (p === '/__mock/fault' && req.method === 'POST') {
+    const b = await body(req);
+    fault = b.mode === 'mismatch' || b.mode === 'unknown' || b.mode === 'timeout' ? b.mode : null;
+    return send(200, { mode: fault });
+  }
   if (p === '/api/commands') {
     if (!operate) return send(403, { detail: 'operator role required' });
     if (req.method === 'POST') {
       const b = await body(req);
-      const r = issue(String(b.tag ?? ''), b.value, who);
+      const r = issue(String(b.tag ?? ''), b.value, who, b.reason, b.dry_run === true);
       return send(r.code, r.body);
     }
     return send(200, commands.slice(0, Math.min(500, Number(url.searchParams.get('limit')) || 50)));
@@ -756,7 +810,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     const noise = Array.from({ length: 80 }, (_, i) => ({
       seq: 200 + i, at: iso(T0 - i * 2.5 * H), actor: actors[i % actors.length], action: acts[i % acts.length], target: {}, detail: {}, hash: `h${i}`,
     }));
-    const all = [...noise, ...auditSeed].sort((a, b) => b.at.localeCompare(a.at));
+    // every command transition leaves an audit row carrying the operator's reason
+    const cmdAudit = commands.flatMap((c) => [{ from: 'none', to: 'accepted', actor: `user:${c.user}`, reason: null as string | null, at: c.created_at }, ...c.events.map((e) => ({ ...e, reason: e.reason ?? null }))]
+      .map((e, i) => ({ seq: 1000 + Number(c.id.replace(/\D/g, '')) * 10 + i, at: e.at, actor: e.actor.startsWith('user:') ? e.actor : `edge:${e.actor}`, action: `command.${CMD_V2[e.to] ?? e.to}`, target: { command_id: c.id, tag: c.tag }, detail: { value: c.value, reason: e.reason, note: c.note ?? 'legacy: no reason recorded' }, hash: `c${c.id}-${i}` })));
+    const all = [...noise, ...auditSeed, ...cmdAudit].sort((a, b) => b.at.localeCompare(a.at));
     const filtered = action ? all.filter((a) => a.action === action) : all;
     return send(200, list(filtered.slice(0, Math.min(500, Number(url.searchParams.get('limit')) || 50))));
   }

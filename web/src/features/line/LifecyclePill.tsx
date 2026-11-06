@@ -5,6 +5,7 @@
 import { useTranslation } from 'react-i18next';
 import { Icon } from '../../shared/ui/Icon';
 import { isTerminal } from './useCommand';
+import './i18n';
 
 const TONE: Record<string, string> = {
   issued: 'bg-subtle text-ink-68',
@@ -16,6 +17,7 @@ const TONE: Record<string, string> = {
   rejected: 'bg-[#fff4e0] text-[var(--color-caution)]',
   failed: 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]',
   timeout: 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]',
+  unknown: 'bg-[var(--color-caution-soft)] text-[var(--color-caution-ink)]',
 };
 
 export function LifecyclePill({ status }: { status: string }) {
