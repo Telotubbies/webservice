@@ -15,9 +15,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r backend/requirements.txt pytest pytest-timeout httpx websockets
+      - run: pip install -r backend/requirements.txt -r edge-bridge/requirements.txt pytest pytest-asyncio pytest-timeout httpx websockets
       - name: Contract + unit tests (no services needed)
         run: cd tests && python -m pytest -m "not integration"
+      - name: edge-bridge unit tests (PLC write gate)
+        run: cd edge-bridge && python -m pytest tests
 
   integration:
     runs-on: ubuntu-latest
@@ -26,7 +28,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r backend/requirements.txt pytest pytest-timeout httpx websockets
+      - run: pip install -r backend/requirements.txt -r edge-bridge/requirements.txt pytest pytest-asyncio pytest-timeout httpx websockets
       - name: Generate broker material (dynsec secrets + dev TLS certs)
         run: ./infra/gen-secrets.sh && ./infra/gen-certs.sh
       - name: "Bring up stack (test overlay: 1883 + tester identity)"
@@ -49,7 +51,9 @@ jobs:
           python-version: "3.12"
       - run: pip install -r backend/requirements.txt -r tests/requirements.txt
       - name: "Bring up stack with the test overlay (Postgres on 127.0.0.1:5433, seeded Keycloak users)"
-        run: make up-test
+        # postgres was SIGKILLed mid-init once on a runner (restart policy then
+        # recovered it); compose --wait had already given up. One retry is safe.
+        run: make up-test || make up-test
       - name: Tenant isolation / RLS gate (runtime DB roles)
         run: make test-db
       - name: Security sweep

@@ -24,7 +24,8 @@ export function HeatStrip({ ts, from, to, bins = 48, label, picked, onPick, tip 
   const w = (to - from) / bins;
   const clock = (ms: number) => new Date(ms).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false });
   return (
-    <div role="group" aria-label={label} className="flex h-5 gap-px">
+    <div className="overflow-x-auto">
+    <div role="group" aria-label={label} className="flex h-6 gap-px max-md:w-max">
       {counts.map((n, i) => {
         const a = from + i * w;
         const name = `${t('viz2.heatLabel', { count: n, from: clock(a), to: clock(a + w) })}${tip ? ` · ${tip(i)}` : ''}`;
@@ -34,10 +35,11 @@ export function HeatStrip({ ts, from, to, bins = 48, label, picked, onPick, tip 
             key={i} type="button" title={name} aria-label={name} aria-pressed={onPick ? on : undefined}
             disabled={!onPick || n === 0}
             onClick={() => onPick?.(on ? null : i)}
-            className={`min-w-0 flex-1 rounded-[1px] disabled:cursor-default ${STEP[rampStep(n, max)]} ${on ? 'outline outline-2 outline-offset-1 outline-accent' : ''}`}
+            className={`min-w-6 flex-1 rounded md:min-w-0 disabled:cursor-default ${STEP[rampStep(n, max)]} ${on ? 'outline outline-2 outline-offset-1 outline-accent' : ''}`}
           />
         );
       })}
+    </div>
     </div>
   );
 }

@@ -1,9 +1,12 @@
 """Model registry routes: upload/inspect, classes, activation, roles, pinned deletes, .pt spool."""
 
 import concurrent.futures
+import io
 import json
 import os
+import pickle
 import uuid
+import zipfile
 
 import pytest
 
@@ -123,8 +126,21 @@ def test_nonmember_404_viewer_403(viewer_api, model):
     assert viewer_api.get(f"{BASE}/{uuid.uuid4()}/versions").status_code == 404
 
 
-def test_pt_upload_queues_job_and_never_becomes_a_model_file(admin_api, model):
+def _safe_pt() -> bytes:
+    """Minimal zip-format checkpoint whose pickle imports nothing (passes ptscan)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("m/data.pkl", pickle.dumps({"w": 1}, protocol=2))
+    return buf.getvalue()
+
+
+def test_raw_pickle_pt_is_refused(admin_api, model):
     r = _up(admin_api, model, b"\x80\x04\x95 pretend pickle bytes", "weights.pt")
+    assert r.status_code == 422 and r.json()["detail"] == "unsafe_checkpoint"
+
+
+def test_pt_upload_queues_job_and_never_becomes_a_model_file(admin_api, model):
+    r = _up(admin_api, model, _safe_pt(), "weights.pt")
     assert r.status_code == 201, r.text
     v = r.json()["version"]
     assert v["status"] == "processing" and v["source_format"] == "pt" and v["sha256"] is None

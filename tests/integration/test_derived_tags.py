@@ -24,8 +24,8 @@ def admin(base_url):
 @pytest.fixture()
 def inputs(admin):
     items = [t for t in admin.get(f"{BASE}/tags").json()["items"]
-             if t["type"] == "number" and t["path"].startswith("auto/")]
-    assert len(items) >= 2, "needs two numeric device tags (make seed-dev)"
+             if t["type"] == "number" and not t["path"].startswith("auto/")]
+    assert len(items) >= 2, "needs two numeric device tags (is the edge-bridge sim running?)"
     return items[0], items[1]
 
 

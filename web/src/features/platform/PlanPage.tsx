@@ -10,12 +10,7 @@ import { useAdminOrg } from '../admin/admin';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { PageSkeleton, ErrorState, Notice } from '../../shared/ui/Feedback';
 
-// API cap keys → copy keys; unknown keys fall through to `plat.<key>`.
-const CAP_LABEL: Record<string, string> = {
-  max_sites: 'capSites', max_edges: 'capEdges', max_tags: 'capTags',
-  max_users: 'capUsers', max_cameras: 'capCameras', max_vision_models: 'capModels',
-  gpu_hours_monthly: 'capGpu',
-};
+import { capLabelKey } from './capLabel';
 
 /** One usage-vs-cap row; the bar turns red at 80% of a finite cap. */
 function UsageBar({ label, usage, cap, warn }: {
@@ -75,7 +70,7 @@ export function PlanPage() {
                 </div>
               )}
               {Object.entries(d.usage).map(([k, u]) => (
-                <UsageBar key={k} label={t(`plat.${CAP_LABEL[k] ?? k}`)}
+                <UsageBar key={k} label={t(`plat.${capLabelKey(k)}`)}
                           usage={u.usage} cap={u.cap}
                           warn={() => t('plat.nearLimit')} />
               ))}

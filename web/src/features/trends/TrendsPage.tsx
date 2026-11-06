@@ -146,7 +146,7 @@ export function TrendsPage() {
   return (
     <>
       <PageBar title={t('nav.trends')} lede={t('trends.lede')} actions={
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
         <EquipmentPicker onChange={(tags) => { if (tags?.length) patch({ tags: tags.slice(0, MAX_SERIES).join(',') }); }} />
         <Segmented
           value={mode}

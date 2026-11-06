@@ -46,9 +46,10 @@ export function writeFlag(key: string, on: boolean): void {
 }
 
 /** Routes where the panel must never open by itself: the wall display runs
- *  unattended on a TV, and the guide is already the help. */
+ *  unattended on a TV, the guide is already the help, and the Overview is the
+ *  first landing page, which the panel must not cover (the rail button stays). */
 export function autoOpenAllowed(pathname: string): boolean {
-  return !pathname.startsWith('/wall') && !pathname.startsWith('/guide');
+  return pathname !== '/' && !pathname.startsWith('/overview') && !pathname.startsWith('/wall') && !pathname.startsWith('/guide');
 }
 
 /** Window event other surfaces (user menu, guide) fire to open the panel. */

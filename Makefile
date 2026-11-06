@@ -11,7 +11,7 @@ DB_TEST_ENV := WDS_TEST_APP_DSN=postgresql://wds_app:$${WDS_APP_PASSWORD:-app-de
   WDS_TEST_SYSTEM_DSN=postgresql://wds_system:$${WDS_SYSTEM_PASSWORD:-system-dev-pass}@127.0.0.1:5433/wds \
   WDS_TEST_SUPER_DSN=postgresql://postgres:$${POSTGRES_SUPERUSER_PASSWORD:-postgres-dev-pass}@127.0.0.1:5433/wds
 
-.PHONY: psql help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev idp backup restore migrate-sqlite
+.PHONY: e2e-smoke coverage psql help up up-test down ps logs build clean secrets secrets-check certs test test-contract test-db test-integration test-security test-perf uat web-build migrate verify-audit seed-dev idp backup restore migrate-sqlite
 
 help: ## show this
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -163,3 +163,9 @@ web-build: ## frontend typecheck + production bundle
 
 psql: ## psql shell in the dev postgres container (PG_CONTAINER / PG_USER to override)
 	@PG_TTY=1 sh scripts/psql.sh
+
+e2e-smoke: ## browser smoke vs web dev server + mock API (needs python playwright + Edge)
+	$(PY) -I tests/e2e/smoke.py
+
+coverage: ## unit coverage per package; COVERAGE_CHECK=1 fails below the floors
+	PY=$(PY) bash scripts/coverage.sh $(if $(COVERAGE_CHECK),--check)

@@ -29,6 +29,7 @@ def b_video(org_b, app_dsn):
                 "INSERT INTO videos(id, org_id, site_id, filename, content_type, size_bytes, sha256,"
                 " storage_key, uploaded_by) VALUES ($1,$2,$3,'b-secret.mp4','video/mp4',1234,$4,$5,$6)",
                 vid, org_b["org"], org_b["site"], "0" * 64, f"videos/{org_b['org']}/{vid}", ADMIN_UID)
+            await conn.execute("COMMIT")  # _tenant_conn opens a transaction; closing alone rolls it back
         finally:
             await conn.close()
     asyncio.run(go())

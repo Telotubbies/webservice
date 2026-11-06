@@ -190,7 +190,9 @@ async def _seed_site(tc, org, site, edge) -> None:
             "  description=excluded.description, edge_id=excluded.edge_id",
             _tag_id(t["path"]), org, site, edge, t["path"], t["name"], t["type"], t["unit"],
             t["writable"], t["min"], t["max"], t["description"])
-    await _attach_batching_source(tc, org, site, edge)
+    await _attach_source(tc, org, site, edge, BATCH_SOURCE, lambda p: p.startswith("batch/"))
+    # every other seeded tag belongs to the 'Simulator' source, as migration 0015 backfills
+    await _attach_source(tc, org, site, edge, SIM_SOURCE, lambda p: not p.startswith("batch/"))
     if CONCRETE:
         from .concrete import seed_hierarchy
         await seed_hierarchy(tc, org, site)
@@ -208,19 +210,21 @@ async def _seed_site(tc, org, site, edge) -> None:
 
 
 BATCH_SOURCE = "Batching plant (sim)"
+SIM_SOURCE = "Simulator"
 
 
-async def _attach_batching_source(tc, org, site, edge) -> None:
-    """The `batch/...` tags (Centrale a Beton) run in their own sim source so the
+async def _attach_source(tc, org, site, edge, name, wanted) -> None:
+    """Attach the seeded tags whose path satisfies `wanted` to a sim source named
+    `name`. The `batch/...` tags (Centrale a Beton) get their own source so the
     edge simulates the whole plant together. Idempotent; bumps the edge cfg
     version only when something changed."""
-    specs = {t["path"]: t for t in load_tag_specs() if t["path"].startswith("batch/")}
+    specs = {t["path"]: t for t in _seeded_tags() if wanted(t["path"])}
     if not specs:
         return
     sid = await tc.fetchval(
         "INSERT INTO data_sources(org_id, site_id, edge_id, name, protocol)"
         " VALUES ($1,$2,$3,$4,'sim') ON CONFLICT (org_id, edge_id, name)"
-        " DO UPDATE SET name = excluded.name RETURNING id", org, site, edge, BATCH_SOURCE)
+        " DO UPDATE SET name = excluded.name RETURNING id", org, site, edge, name)
     changed = 0
     for path, t in specs.items():
         addr = {"behavior": t["behavior"], "initial": t["initial"]}  # jsonb codec encodes

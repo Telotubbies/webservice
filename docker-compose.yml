@@ -40,10 +40,13 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "wds"]
+      # TCP, not the socket: initdb's temporary server listens on the socket only,
+      # so a socket check reports ready mid-init and then fails when it restarts.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "wds"]
       interval: 3s
       timeout: 3s
       retries: 20
+      start_period: 90s
     restart: unless-stopped
     logging: *default-logging
 
