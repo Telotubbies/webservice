@@ -18,16 +18,16 @@ def motor_on(api, operator_headers):
     # Other tests mutate speed_sp (burst test leaves it at an arbitrary value),
     # so pin it explicitly: 58 Hz -> temp target well past the 80 degC rule.
     r = api.post("/api/commands", headers=operator_headers,
-                 json={"tag": TAGS["speed_sp"], "value": 58.0,
+                 json={"reason": "integration test", "tag": TAGS["speed_sp"], "value": 58.0,
                        "idempotency_key": f"alarm-sp-{uuid.uuid4()}", "ttl_s": 20})
     assert r.status_code == 201, r.text
     r = api.post("/api/commands", headers=operator_headers,
-                 json={"tag": TAGS["running"], "value": True,
+                 json={"reason": "integration test", "tag": TAGS["running"], "value": True,
                        "idempotency_key": f"alarm-{uuid.uuid4()}", "ttl_s": 20})
     assert r.status_code == 201, r.text
     yield
     api.post("/api/commands", headers=operator_headers,
-             json={"tag": TAGS["running"], "value": False,
+             json={"reason": "integration test", "tag": TAGS["running"], "value": False,
                    "idempotency_key": f"alarm-off-{uuid.uuid4()}", "ttl_s": 20})
 
 

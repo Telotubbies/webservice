@@ -137,7 +137,7 @@ class CommandManager:
             c["extra"]["active_command_id"] = str(active)
         checks.append(c)
         edge = self.registry.edge(tag.edge_id) if tag.edge_id else None
-        checks.append(_check("edge", bool(edge is not None and edge.ok),
+        checks.append(_check("edge", bool(edge is not None and edge.status == "active"),
                              "edge_offline", code=409, blocking=False))
         return checks
 

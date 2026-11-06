@@ -45,7 +45,7 @@ TERMINAL = ("done", "denied", "failed", "timeout")
 def _post_command(api, headers, tag, value):
     return api.post(
         "/api/commands", headers=headers,
-        json={"tag": tag, "value": value,
+        json={"reason": "integration test", "tag": tag, "value": value,
               "idempotency_key": f"rl-{uuid.uuid4()}", "ttl_s": 15})
 
 
@@ -64,7 +64,7 @@ def _wait_no_inflight(api, headers, tag, timeout_s=20):
     burst post that slipped in behind it."""
     def poll():
         r = api.get("/api/commands", headers=headers,
-                    params={"tag": tag, "limit": 1})
+                    params={"reason": "integration test", "tag": tag, "limit": 1})
         rows = r.json() if r.status_code == 200 else []
         return (rows[0]["status"] in TERMINAL) if rows else True
     wait_until(poll, timeout_s, desc=f"no in-flight command on {tag}")

@@ -195,7 +195,7 @@ def test_command_happy_path_bool_tag(api, operator_headers):
     r = api.post(
         "/api/commands",
         headers=operator_headers,
-        json={"tag": TAGS["running"], "value": True, "ttl_s": 15},
+        json={"reason": "integration test", "tag": TAGS["running"], "value": True, "ttl_s": 15},
     )
     assert r.status_code == 201, r.text
     command_id = r.json()["command_id"]
@@ -208,7 +208,7 @@ def test_command_happy_path_setpoint(api, operator_headers):
     r = api.post(
         "/api/commands",
         headers=operator_headers,
-        json={"tag": TAGS["speed_sp"], "value": 30.0, "ttl_s": 15},
+        json={"reason": "integration test", "tag": TAGS["speed_sp"], "value": 30.0, "ttl_s": 15},
     )
     assert r.status_code == 201, r.text
     final = _wait_command_status(api, r.json()["command_id"], operator_headers)
@@ -216,7 +216,7 @@ def test_command_happy_path_setpoint(api, operator_headers):
 
 
 def test_command_no_token_401(anon_api):
-    r = anon_api.post("/api/commands", json={"tag": TAGS["running"], "value": True})
+    r = anon_api.post("/api/commands", json={"reason": "integration test", "tag": TAGS["running"], "value": True})
     assert r.status_code == 401
 
 
@@ -224,13 +224,13 @@ def test_command_viewer_token_403(api, viewer_headers):
     r = api.post(
         "/api/commands",
         headers=viewer_headers,
-        json={"tag": TAGS["running"], "value": True},
+        json={"reason": "integration test", "tag": TAGS["running"], "value": True},
     )
     assert r.status_code == 403
 
 
 def test_command_bad_payload_400(api, operator_headers):
-    r = api.post("/api/commands", headers=operator_headers, json={"tag": "x"})
+    r = api.post("/api/commands", headers=operator_headers, json={"reason": "integration test", "tag": "x"})
     assert r.status_code == 400
 
 
@@ -238,7 +238,7 @@ def test_command_ttl_zero_400(api, operator_headers):
     r = api.post(
         "/api/commands",
         headers=operator_headers,
-        json={"tag": TAGS["running"], "value": True, "ttl_s": 0},
+        json={"reason": "integration test", "tag": TAGS["running"], "value": True, "ttl_s": 0},
     )
     assert r.status_code == 400
 
@@ -251,7 +251,7 @@ def test_command_readonly_tag_denied(api, operator_headers):
     r = api.post(
         "/api/commands",
         headers=operator_headers,
-        json={"tag": TAGS["temp_c"], "value": 12.0, "ttl_s": 15},
+        json={"reason": "integration test", "tag": TAGS["temp_c"], "value": 12.0, "ttl_s": 15},
     )
     if r.status_code in (400, 403):
         pytest.xfail(f"backend rejected upfront with {r.status_code} "
@@ -265,21 +265,19 @@ def test_command_readonly_tag_denied(api, operator_headers):
 
 
 def test_command_out_of_range_denied(api, operator_headers):
+    # F05: the server refuses a value outside the tag's limits before sending
     r = api.post(
         "/api/commands",
         headers=operator_headers,
-        json={"tag": TAGS["speed_sp"], "value": 999.0, "ttl_s": 15},
+        json={"reason": "integration test", "tag": TAGS["speed_sp"], "value": 999.0, "ttl_s": 15},
     )
-    assert r.status_code == 201, r.text
-    final = _wait_command_status(api, r.json()["command_id"], operator_headers)
-    assert final["status"] == "denied"
-    if final.get("detail"):
-        assert "out_of_range" in str(final["detail"])
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == "out_of_range"
 
 
 def test_idempotency_key_replay(api, operator_headers):
     key = f"test-{uuid.uuid4()}"
-    body = {"tag": TAGS["running"], "value": True,
+    body = {"reason": "integration test", "tag": TAGS["running"], "value": True,
             "idempotency_key": key, "ttl_s": 15}
     r1 = api.post("/api/commands", headers=operator_headers, json=body)
     assert r1.status_code == 201, r1.text
@@ -311,7 +309,7 @@ BAD_ORIGIN = {"Origin": "http://evil.example"}
 
 def test_mutation_bad_origin_403(anon_api):
     r = anon_api.post("/api/commands",
-                      json={"tag": TAGS["running"], "value": True},
+                      json={"reason": "integration test", "tag": TAGS["running"], "value": True},
                       headers=BAD_ORIGIN)
     assert r.status_code == 403
 
@@ -320,7 +318,7 @@ def test_mutation_bad_origin_403_even_authenticated(api):
     """The gate runs before auth — a valid operator token can't rescue a
     cross-site write attempt."""
     r = api.post("/api/commands",
-                 json={"tag": TAGS["running"], "value": True},
+                 json={"reason": "integration test", "tag": TAGS["running"], "value": True},
                  headers=BAD_ORIGIN)
     assert r.status_code == 403
 
@@ -337,7 +335,7 @@ def test_mutation_missing_origin_reaches_auth(anon_api):
     through to the normal auth layer, which answers 401 — proof the check
     didn't 403 blindly."""
     r = anon_api.post("/api/commands",
-                      json={"tag": TAGS["running"], "value": True})
+                      json={"reason": "integration test", "tag": TAGS["running"], "value": True})
     assert r.status_code == 401
 
 
@@ -347,7 +345,7 @@ def test_mutation_same_origin_passes_gate(api):
     if api.base_url.port:
         host = f"{host}:{api.base_url.port}"
     r = api.post("/api/commands",
-                 json={"tag": TAGS["running"], "value": True, "ttl_s": 15},
+                 json={"reason": "integration test", "tag": TAGS["running"], "value": True, "ttl_s": 15},
                  headers={"Origin": f"http://{host}"})
     assert r.status_code == 201, r.text
 

@@ -108,7 +108,7 @@ def test_oidc_token_reads_api(api, op_token):
 def test_oidc_viewer_cannot_command(api, view_token):
     h = {"Authorization": f"Bearer {view_token}"}
     r = api.post("/api/commands", headers=h,
-                 json={"tag": TAGS["running"], "value": True, "ttl_s": 5})
+                 json={"reason": "integration test", "tag": TAGS["running"], "value": True, "ttl_s": 5})
     assert r.status_code == 403
     # viewer IS a member — reads pass
     assert api.get("/api/tags", headers=h).status_code == 200
@@ -117,7 +117,7 @@ def test_oidc_viewer_cannot_command(api, view_token):
 def test_oidc_token_commands_lifecycle(api, op_token):
     h = {"Authorization": f"Bearer {op_token}"}
     r = api.post("/api/commands", headers=h,
-                 json={"tag": TAGS["speed_sp"], "value": 30.0, "ttl_s": 10})
+                 json={"reason": "integration test", "tag": TAGS["speed_sp"], "value": 30.0, "ttl_s": 10})
     assert r.status_code == 201, r.text
 
 
