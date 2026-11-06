@@ -24,7 +24,10 @@ describe('autoOpenAllowed', () => {
   test('never pops over the unattended wall display or the guide', () => {
     expect(autoOpenAllowed('/wall')).toBe(false);
     expect(autoOpenAllowed('/guide')).toBe(false);
-    expect(autoOpenAllowed('/')).toBe(true);
-    expect(autoOpenAllowed('/overview')).toBe(true);
+    expect(autoOpenAllowed('/alarms')).toBe(true);
+  });
+  test('never covers the Overview on first login', () => {
+    expect(autoOpenAllowed('/')).toBe(false);
+    expect(autoOpenAllowed('/overview')).toBe(false);
   });
 });
