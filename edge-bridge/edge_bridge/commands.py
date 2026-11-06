@@ -231,6 +231,7 @@ class CommandHandler:
     def _verify_readback(self, tag: str, value: object) -> tuple[str, str]:
         """Read the tag back after a successful write. (status, reason)."""
         last = "no_value"
+        mismatch = None  # an earlier mismatch must not be hidden by a later unreadable read
         for attempt in range(self._readback_tries):
             if attempt:
                 self._sleep(self._readback_wait_s)
@@ -247,10 +248,9 @@ class CommandHandler:
                 continue
             if _same(value, tv.v):
                 return "acknowledged", f"readback_ok:{_fmt(tv.v)}"
-            last = f"mismatch:{_fmt(tv.v)}"
-        if last.startswith("mismatch:"):
-            return "failed", (f"readback_mismatch:expected={_fmt(value)}"
-                              f",actual={last.split(':', 1)[1]}")
+            mismatch = _fmt(tv.v)
+        if mismatch is not None:
+            return "failed", f"readback_mismatch:expected={_fmt(value)},actual={mismatch}"
         return "unknown", f"readback_unavailable:{last}"
 
     def _adapter_name(self, tag_path: str) -> str:

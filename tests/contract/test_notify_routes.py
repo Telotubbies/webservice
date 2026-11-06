@@ -490,3 +490,9 @@ def test_dedup_semantics():
     assert asyncio.run(notify._dedup(tc, "ep", CHANNEL, "raised")) is False
     tc2 = TenantConn(conn=C(True), org_id=ORG)
     assert asyncio.run(notify._dedup(tc2, "ep", CHANNEL, "raised")) is True
+
+
+def test_ack_preview_anonymous_cannot_tell_bad_token_from_good():
+    tok = notify.make_ack_token(ORG, ALARM, uuid.uuid4(), int(time.time()) + 3600)
+    codes = {_app(p=None).get(f"/api/v1/ack/{t}").status_code for t in (tok, "not-a-token")}
+    assert codes == {401}

@@ -34,7 +34,7 @@ CMD_WINDOW = float(os.environ.get("RATE_COMMANDS_WINDOW_S", "10"))
 MUT_LIMIT = int(os.environ.get("RATE_MUTATIONS_PER_USER", "600"))
 LOGOUT_LIMIT = int(os.environ.get("RATE_LOGOUT_PER_IP", "10"))
 
-BURN_TAG = TAGS["speed_mps"]   # read-only; isolated user+tag bucket
+BURN_TAG = TAGS["speed_sp"]   # writable (F05 refuses read-only tags before the bucket); isolated user+tag bucket
 TERMINAL = ("done", "denied", "failed", "timeout")
 
 

@@ -1110,14 +1110,14 @@ async def ack_preview(token: str, request: Request):
     """What the link is about, before anyone taps Acknowledge. Read-only: it
     never consumes the token. Needs a signed-in member (401 auth_required)."""
     m = _m()
+    try:  # authenticate first: an anonymous caller must not tell a bad token from a good one
+        p = await m._authenticate(request)
+    except Exception:
+        raise HTTPException(401, "auth_required") from None
     parsed = parse_ack_token(token)
     if parsed is None:
         raise HTTPException(404, "link not found")
     org_id, alarm_id, jti, _exp = parsed
-    try:
-        p = await m._authenticate(request)
-    except Exception:
-        raise HTTPException(401, "auth_required") from None
     m._v2_org(str(org_id), p, m._READ)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
         live = await tc.fetchval(

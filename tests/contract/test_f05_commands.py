@@ -68,7 +68,7 @@ class FakeTC:
 def mgr(monkeypatch):
     async def allowed(tc, user, tag_id): return True
     monkeypatch.setattr(cm, "area_allowed", allowed)
-    reg = SimpleNamespace(edge=lambda eid: SimpleNamespace(ok=True))
+    reg = SimpleNamespace(edge=lambda eid: SimpleNamespace(status="active"))
     return cm.CommandManager(POOLS, None, None, reg)
 
 
@@ -290,3 +290,9 @@ def test_every_transition_audits_the_operators_reason(mgr):
     assert row[2] == "command.unknown"
     assert row[4]["note"] == "Catch up on plan"
     assert row[4]["reason"] == "readback_unavailable:quality_bad"
+
+
+def test_earlier_mismatch_is_not_hidden_by_a_later_unreadable_read():
+    h, out = _edge(Adapter([(40.0, Quality.GOOD), None]))
+    r = _send(h, out)
+    assert r["status"] == "failed" and r["reason"] == "readback_mismatch:expected=32,actual=40"
