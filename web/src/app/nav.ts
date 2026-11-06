@@ -112,6 +112,7 @@ const ALL_NAV: NavGroup[] = [
     { to: '/production/oee', key: 'nav.oee', icon: 'metric' },
     { to: '/production/stops', key: 'nav.stops', icon: 'pause' },
     { to: '/production/shifts', key: 'nav.shifts', icon: 'clock' },
+    { to: '/production/handovers', key: 'nav.handovers', icon: 'signpost' },
     { to: '/production/reports', key: 'nav.reports', icon: 'download' },
   ] },
   { cluster: 'plant', group: 'nav.dashboards', icon: 'dashboard', href: '/dashboards', items: [

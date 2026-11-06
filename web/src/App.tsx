@@ -132,6 +132,7 @@ const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').th
 const OeePage = lazy(() => import('./features/production/OeePage').then((m) => ({ default: m.OeePage })));
 const ProductionDowntimesPage = lazy(() => import('./features/production/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
 const ShiftsPage = lazy(() => import('./features/production/ShiftsPage').then((m) => ({ default: m.ShiftsPage })));
+const HandoversPage = lazy(() => import('./features/production/HandoversPage').then((m) => ({ default: m.HandoversPage })));
 const ReportsPage = lazy(() => import('./features/production/ReportsPage').then((m) => ({ default: m.ReportsPage })));
 
 // ── Notifications ──
@@ -347,6 +348,7 @@ export default function App() {
             <Route path="production/oee" element={page(OeePage)} />
             <Route path="production/stops" element={page(ProductionDowntimesPage)} />
             <Route path="production/shifts" element={page(ShiftsPage)} />
+<Route path="production/handovers" element={page(HandoversPage)} />
             <Route path="production/reports" element={page(ReportsPage)} />
             {/* notifications + signed ack link (Phase 3) */}
             <Route path="notifications/channels" element={page(ChannelsPage)} />

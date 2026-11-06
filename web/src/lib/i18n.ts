@@ -30,7 +30,7 @@ const en = {
     newBadge: 'NEW', actionNewDashboard: 'New dashboard', actionNewNotebook: 'New notebook', secDashboards: 'Dashboards', secNotebooks: 'Notebooks', secLive: 'Live views', actionNewRule: 'New rule', actionInvite: 'Invite member',
     invite: 'Invite', support: 'Support', help: 'Help',
     notifyChannels: 'Notification channels', production: 'Production', oee: 'OEE', stops: 'Stops',
-    shifts: 'Shifts', reports: 'Reports', plan: 'Plan', platform: 'Platform', status: 'Status',
+    shifts: 'Shifts', handovers: 'Handovers', reports: 'Reports', plan: 'Plan', platform: 'Platform', status: 'Status',
     plantTwin: 'Plant twin', grpPlant: 'Plant', grpEngineering: 'Engineering', live: 'Live', wall: 'Wall display', plantSetup: 'Plant setup', plantMapping: 'Model mapping', connectivity: 'Connectivity', dataSources: 'Data sources', vision: 'Vision AI', cameras: 'Cameras', visionModels: 'Models', visionRules: 'Vision rules', visionEvents: 'Vision events', platformTools: 'Platform tools', secData: 'Data', healthShort: 'Health',
   },
   org: {
@@ -923,7 +923,7 @@ const th: Dict = {
     newBadge: 'ใหม่', actionNewDashboard: 'แดชบอร์ดใหม่', actionNewNotebook: 'สมุดบันทึกใหม่', secDashboards: 'แดชบอร์ด', secNotebooks: 'สมุดบันทึก', secLive: 'มุมมองสด', actionNewRule: 'กฎใหม่', actionInvite: 'เชิญสมาชิก',
     invite: 'เชิญ', support: 'สนับสนุน', help: 'ช่วยเหลือ',
     notifyChannels: 'ช่องแจ้งเตือน', production: 'การผลิต', oee: 'OEE', stops: 'การหยุดเครื่อง',
-    shifts: 'กะ', reports: 'รายงาน', plan: 'แผน', platform: 'แพลตฟอร์ม', status: 'สถานะ',
+    shifts: 'กะ', handovers: 'การส่งมอบ', reports: 'รายงาน', plan: 'แผน', platform: 'แพลตฟอร์ม', status: 'สถานะ',
     plantTwin: 'ดิจิทัลทวินโรงงาน', grpPlant: 'โรงงาน', grpEngineering: 'งานวิศวกรรม', live: 'หน้างานสด', wall: 'จอรวม', plantSetup: 'ตั้งค่าโรงงาน', plantMapping: 'จับคู่โมเดล', connectivity: 'การเชื่อมต่อ', dataSources: 'แหล่งข้อมูล', vision: 'Vision AI', cameras: 'กล้อง', visionModels: 'โมเดล', visionRules: 'กฎ Vision', visionEvents: 'เหตุการณ์ Vision', platformTools: 'เครื่องมือแพลตฟอร์ม', secData: 'ข้อมูล', healthShort: 'สถานะ',
   },
   org: {

@@ -86,6 +86,8 @@ from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .edge.mqtt_client import MQTTBridge
 from .production.oee import router as oee_router, downtime_sweep
+from .production.handovers import router as handovers_router
+from .production.downtime_context import router as dt_context_router
 from .production.reports import router as reports_router, report_sweep
 from .core.observability import (
     ObservabilityMiddleware,
@@ -1751,6 +1753,8 @@ app.include_router(notify.router)
 app.include_router(orgapi.router)
 app.include_router(platform_api.router)
 app.include_router(oee_router)
+app.include_router(handovers_router)
+app.include_router(dt_context_router)
 app.include_router(reports_router)
 app.include_router(consents.router)
 app.include_router(onboarding.router)
