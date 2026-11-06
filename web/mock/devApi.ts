@@ -324,12 +324,12 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
 
   // public routes
   if (p === '/api/auth/config') return send(200, { env: 'dev', dev_tokens: true, oidc: null });
-  if (p === '/api/health') return send(200, { status: 'ok', db: 'ok', mqtt: 'ok', edge: 'up' });
+  if (p === '/api/health') return send(200, { status: 'ok', db: 'up', mqtt: 'up', edge: 'up' });
   if (p === '/api/v1/status') {
     const since = iso(T0 - 9 * DAY);
-    return send(200, { status: 'operational', env: 'dev', updated_at: iso(now()), components: [
+    return send(200, { status: plant.EDGES.every((e) => e.online) ? 'operational' : 'degraded', env: 'dev', updated_at: iso(now()), components: [
       { name: 'api', ok: true, since }, { name: 'database', ok: true, since }, { name: 'mqtt', ok: true, since },
-      { name: 'edge-batching-01', ok: true, since: iso(T0 - 3 * DAY) }, { name: 'edge-sorter-02', ok: true, since: iso(T0 - 3 * DAY) },
+      ...plant.EDGES.map((e) => ({ name: e.name, ok: e.online, since: iso(T0 - 3 * DAY) })),
       { name: 'notifications', ok: true, since },
     ] });
   }
@@ -957,7 +957,7 @@ export function mockApi(): Plugin {
       const stop = sim.start();
       linkIncidents();
       sim.subscribe((msg) => broadcast(msg));
-      const beat = setInterval(() => broadcast({ type: 'health', mqtt: 'ok', edge: 'up' }), 5000);
+      const beat = setInterval(() => broadcast({ type: 'health', mqtt: 'up', edge: 'up' }), 5000);
       server.httpServer?.once('close', () => { stop(); clearInterval(beat); for (const c of clients) c.close(1001); });
       if (server.httpServer) {
         attachWs(server.httpServer as import('node:http').Server, '/ws', (conn) => {
@@ -972,7 +972,7 @@ export function mockApi(): Plugin {
               authed = true;
               clearTimeout(deadline);
               clients.add(conn);
-              conn.send({ type: 'health', mqtt: 'ok', edge: 'up' });
+              conn.send({ type: 'health', mqtt: 'up', edge: 'up' });
               return;
             }
             if (m.type === 'ping') conn.send({ type: 'pong', ts: iso(now()) });

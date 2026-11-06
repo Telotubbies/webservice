@@ -9,10 +9,8 @@ import { PageBar, Card, Table } from '../../shared/ui/Page';
 import { PageSkeleton, Skeleton } from '../../shared/ui/Feedback';
 import { Notice, ErrorState, EmptyState } from '../../shared/ui/Feedback';
 import { AdminFrame, OrgScope } from './access';
-
-/* Edge status: glyph + text in ink on a tinted chip — the tint carries the
-   colour cue, the glyph the shape cue, so contrast never depends on hue. */
-const EDGE_GLYPH: Record<string, string> = { up: '●', down: '▲', stale: '◆' };  // same shapes as Devices / Health
+import { EDGE_GLYPH, EDGE_PILL, edgeState } from '../health/fleet';
+import '../health/fleetI18n';
 
 export function AdminPage() {
   const { t } = useTranslation();
@@ -34,6 +32,9 @@ export function AdminPage() {
   if (!orgId) return <><PageBar title={t('nav.admin')} /><div className="p-4"><Notice tone="warn">{t('auth.denied')}</Notice></div></>;
 
   const edgeItems = edges.data?.items ?? [];
+  const now = Date.now();
+  const hbOf = (e: (typeof edgeItems)[number]) => e.last_hb ?? (e as { last_hb_at?: string | null }).last_hb_at ?? null;
+  const st = (e: (typeof edgeItems)[number]) => edgeState({ status: e.status, lastHb: hbOf(e) }, now);
   const tagItems = tags.data?.items ?? [];
   const TAG_PREVIEW = 12;
 
@@ -66,18 +67,14 @@ export function AdminPage() {
                 <tr key={e.id}>
                   <td className="whitespace-nowrap font-medium">{e.name}</td>
                   <td>
-                    {/* down ▲ / stale ◆ take colour; up and any status we don't know stay
-                        neutral — a healthy gateway is not news (ISA-101, WCAG 1.4.1) */}
-                    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                      e.status === 'down' ? 'bg-danger-soft text-[var(--color-danger)]'
-                        : e.status === 'stale' ? 'bg-caution-soft text-[var(--color-caution-ink)]'
-                        : 'bg-neutral-soft text-ink'
-                    }`}>
-                      <span aria-hidden className="text-[9px]">{EDGE_GLYPH[e.status] ?? '●'}</span>
-                      {t(`health.${e.status}`, { defaultValue: e.status })}
+                    {/* same state vocabulary as the Health fleet table: a gateway that
+                        never connected is "Never connected", not a green "active" */}
+                    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-semibold ${EDGE_PILL[st(e)]}`}>
+                      <span aria-hidden className="text-[9px]">{EDGE_GLYPH[st(e)]}</span>
+                      {t(`fleet.state.${st(e)}`)}
                     </span>
                   </td>
-                  <td className="font-mono text-[11px] text-ink-68">{e.last_hb ?? '—'}</td>
+                  <td className="font-mono text-[11px] text-ink-68">{hbOf(e) ?? '—'}</td>
                   <td className="w-36">
                     <span className="flex items-center gap-1.5 font-mono text-[12px]">
                       {e.buffer_depth}
