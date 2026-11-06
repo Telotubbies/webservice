@@ -274,3 +274,19 @@ def test_rejected_write_is_never_read_back():
     a = Adapter([(32.0, Quality.GOOD)], ok=False)
     h, out = _edge(a)
     assert _send(h, out)["status"] == "rejected" and a.reads == 0
+
+
+# -------------------------------------------------------------------- audit
+def test_every_transition_audits_the_operators_reason(mgr):
+    """command.<status> audit rows carry the note, so the reason is in the log."""
+    class TC(FakeTC):
+        async def fetchrow(self, sql, *a):
+            return {"tag_id": uuid4(), "value": 32.0, "idempotency_key": None,
+                    "note": "Catch up on plan"}
+    tc = TC()
+    asyncio.run(mgr._record(tc, uuid4(), "dispatched", "unknown", f"edge:{EDGE}",
+                            "readback_unavailable:quality_bad"))
+    row = [w for w in tc.writes if "audit_log" in w[0]][0][1]
+    assert row[2] == "command.unknown"
+    assert row[4]["note"] == "Catch up on plan"
+    assert row[4]["reason"] == "readback_unavailable:quality_bad"

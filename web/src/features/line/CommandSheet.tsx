@@ -58,7 +58,7 @@ export function CommandSheet({ pending, onClose }: { pending: Pending; onClose: 
     <section className="min-w-0 rounded border border-line-hard bg-paper" aria-labelledby="f05-title" data-testid="command-sheet">
       <h3 id="f05-title" ref={head} tabIndex={-1} className="border-b border-line px-3 py-2 text-[15px] font-semibold outline-none">{title}</h3>
       <div className="border-b border-line px-3 py-2">
-        <h4 className="text-[12px] font-semibold text-ink-68">{t('line.controls')}</h4>
+        <h4 className="text-[12px] font-semibold text-ink-68">{t('f05.whatHappens')}</h4>
         <p className="mt-1 text-[13px]" data-testid="expected">{expect}</p>
       </div>
 

@@ -5,6 +5,7 @@ import i18n from '../../lib/i18n';
 i18n.addResourceBundle('en', 'translation', {
   lifecycle: { unknown: 'Not confirmed' },
   f05: {
+    whatHappens: 'What should happen',
     start: 'Start', stop: 'Stop', setpoint: 'Change setpoint',
     titleStart: 'Start the conveyor', titleStop: 'Stop the conveyor', titleSetpoint: 'Change speed setpoint to {{v}} Hz',
     expectStart: 'The belt starts moving and material flows to the bin. Check the line is clear.',
@@ -38,6 +39,7 @@ i18n.addResourceBundle('en', 'translation', {
 i18n.addResourceBundle('th', 'translation', {
   lifecycle: { unknown: 'ยังไม่ยืนยัน' },
   f05: {
+    whatHappens: 'สิ่งที่ควรเกิดขึ้น',
     start: 'เริ่ม', stop: 'หยุด', setpoint: 'เปลี่ยนค่าตั้ง',
     titleStart: 'เริ่มสายพาน', titleStop: 'หยุดสายพาน', titleSetpoint: 'เปลี่ยนค่าตั้งความเร็วเป็น {{v}} Hz',
     expectStart: 'สายพานจะเริ่มเคลื่อนและวัสดุไหลไปที่ถังรับ ตรวจสอบว่าไลน์ปลอดภัย',

@@ -388,6 +388,13 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   const thumb = /^\/api\/v1\/orgs\/[^/]+\/vision\/events\/([\w-]+)\/thumb$/.exec(p);
   if (thumb) return svg(res, plant.frameSvg('cam-1'));
 
+  // test-only (F05 e2e): choose how the mock edge fails; unauthenticated like /api/mock/frame
+  if (p === '/api/__mock/fault' && req.method === 'POST') {
+    const b = await body(req);
+    fault = b.mode === 'mismatch' || b.mode === 'unknown' || b.mode === 'timeout' ? b.mode : null;
+    return send(200, { mode: fault });
+  }
+
   const role = roleOf(req);
   if (!role) return send(401, { detail: 'mock: sign in with demo-operator or demo-viewer' });
   const t = now();
@@ -451,11 +458,6 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   }
   if (p === '/api/alarm-rules') {
     return send(200, sim.RULES.map((r) => ({ tag: tagName(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s, window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled })));
-  }
-  if (p === '/__mock/fault' && req.method === 'POST') {
-    const b = await body(req);
-    fault = b.mode === 'mismatch' || b.mode === 'unknown' || b.mode === 'timeout' ? b.mode : null;
-    return send(200, { mode: fault });
   }
   if (p === '/api/commands') {
     if (!operate) return send(403, { detail: 'operator role required' });
