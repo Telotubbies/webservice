@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import * as sim from './sim.ts';
 import * as plant from './plant.ts';
+import { boardRoute } from './board.ts';
 import { attachWs, type Conn } from './ws.ts';
 import { PLANT_KINDS } from './data/plantKinds.ts';
 import { MATERIAL_SCHEMA } from './data/materialSchema.ts';
@@ -1025,6 +1026,13 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     });
     // shortcut: the mock does not evaluate formulas; the real engine is backend/app/production/formula.py
     return done(200, { ok: true, type: /[<>=]/.test(String(b.expr ?? '')) ? 'bool' : 'number', value: null, quality: 'good', inputs, windows: /\d+[smhd]\)/.test(String(b.expr ?? '')) ? 1 : 0, max_window_s: 0 });
+  }
+
+  // plant board (F07): drafts, versions and part captures, in memory
+  if (rest.startsWith('/plant-board')) {
+    const bd = req.method === 'GET' ? {} : await body(req);
+    const r = boardRoute(rest, req.method ?? 'GET', q, bd, { config: c.config, who: c.who, now: iso(t) });
+    if (r) return done(r.code, r.data);
   }
 
   // plant model: no uploaded .glb → the console shows the bundled demo plant
