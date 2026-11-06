@@ -77,7 +77,7 @@ class TelemetrySpool:
                 before = self.dropped
                 self.dropped += n
                 if before // 100 != self.dropped // 100 or before == 0:  # rate-limited: ~1 line / 100 drops
-                    log.warning("telemetry spool full (%d rows) — dropping oldest (dropped=%d)",
+                    log.warning("telemetry spool full (%d rows), dropping oldest (dropped=%d)",
                                 self.max_rows, self.dropped)
 
     def peek(self, after_id: int, limit: int) -> list[tuple[int, str, str]]:
