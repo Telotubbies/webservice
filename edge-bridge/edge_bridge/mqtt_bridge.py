@@ -12,6 +12,14 @@ stays valid during its grace window, then is disabled broker-side. A
 refused CONNACK (e.g. the edge was disabled) retries with the same
 backoff: the process can't distinguish "disabled" from "wrong password"
 and shouldn't exit on either.
+
+Telemetry store-and-forward (F03): `tele/*` publishes made while offline go
+to a durable sqlite spool (spool.py) instead of paho's in-memory queue. A
+drain thread replays it oldest-first after reconnect, at most _DRAIN_WINDOW
+unacked at a time (paho allows 20 in flight, so live samples always have
+room and publish immediately), and deletes a row only on its PUBACK — a
+crash mid-drain re-sends instead of losing. Replays may duplicate; the
+backend dedups history on (tag_id, ts) and the payload keeps sample time.
 """
 
 from __future__ import annotations
@@ -19,10 +27,14 @@ from __future__ import annotations
 import json
 import logging
 import random
+import sqlite3
 import threading
+from collections import deque
 from typing import Callable
 
 import paho.mqtt.client as mqtt
+
+from .spool import TelemetrySpool
 
 log = logging.getLogger("edge_bridge.mqtt")
 
@@ -30,7 +42,9 @@ _BACKOFF_MIN_S = 1.0
 _BACKOFF_MAX_S = 60.0
 _JITTER = 0.5  # delay * uniform(1-JITTER, 1+JITTER)
 _KEEPALIVE_S = 30
-_MAX_QUEUED = 500  # bound on paho's out-queue while offline; excess publishes are dropped+counted
+_MAX_QUEUED = 500  # bound on paho's out-queue while offline (non-telemetry); excess dropped+counted
+_DRAIN_WINDOW = 10   # spooled publishes awaiting PUBACK at once — half of paho's 20 in-flight
+_DRAIN_TICK_S = 0.05  # with the window: <= 200 backlog msg/s, live data never waits behind it
 
 
 class MqttBridge:
@@ -52,7 +66,8 @@ class MqttBridge:
     def __init__(self, host: str, port: int, client_id: str,
                  cred_provider: Callable[[], tuple[str | None, str | None]] | None = None,
                  ca_file: str | None = None,
-                 will_topic: str | None = None, will_payload: str | None = None):
+                 will_topic: str | None = None, will_payload: str | None = None,
+                 spool: TelemetrySpool | None = None):
         self._host = host
         self._port = port
         self._cred_provider = cred_provider
@@ -74,6 +89,7 @@ class MqttBridge:
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._dispatch_message
+        self._client.on_publish = self._on_publish
 
         self.connected = threading.Event()
         self._stop = threading.Event()
@@ -82,12 +98,32 @@ class MqttBridge:
         self._attempts = 0
         self._ever_connected = False
         self._session = False   # CONNACK-accepted during the current attempt
-        self.dropped = 0        # publishes refused while the offline out-queue was full
+        self._queue_dropped = 0  # non-telemetry publishes refused while the out-queue was full
+        if spool is None:
+            try:
+                spool = TelemetrySpool.from_env()
+            except (OSError, sqlite3.Error, ValueError):
+                # no writable state dir: run on, but an outage now loses telemetry
+                log.exception("telemetry spool unavailable — offline telemetry is NOT durable")
+        self._spool = spool
+        self._acked: deque[int] = deque()    # PUBACK mids, appended on paho's thread
+        self._inflight: dict[int, int] = {}  # mid -> spool row id (drain thread only)
+        self._cursor = 0                     # last spool row id handed to paho
+        self._new_session = False            # set on CONNACK, consumed by the drain thread
+        self._drainer = threading.Thread(
+            target=self._drain_loop, name="telemetry-drain", daemon=True)
+
+    @property
+    def dropped(self) -> int:
+        """Publishes lost to full buffers — heartbeat buffer_dropped."""
+        return self._queue_dropped + (self._spool.dropped if self._spool else 0)
 
     # -- lifecycle ----------------------------------------------------------
 
     def start(self) -> None:
         self._thread.start()
+        if self._spool is not None:
+            self._drainer.start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -96,6 +132,8 @@ class MqttBridge:
         except Exception:
             pass
         self._thread.join(timeout=5.0)
+        if self._drainer.is_alive():
+            self._drainer.join(timeout=5.0)
 
     def reconnect(self) -> None:
         """Drop the session; the supervisor reconnects (re-reading credentials)."""
@@ -106,11 +144,13 @@ class MqttBridge:
 
     def queued(self) -> int:
         """Buffered QoS1 messages awaiting the connection — surfaced in the
-        heartbeat as buffer_depth (doc 17 §6 heartbeat schema)."""
+        heartbeat as buffer_depth (doc 17 §6 heartbeat schema). Rows being
+        drained count in both buffers (<= _DRAIN_WINDOW overcount)."""
+        spooled = self._spool.depth() if self._spool else 0
         try:
-            return len(self._client._out_messages)  # paho internal, read-only
+            return len(self._client._out_messages) + spooled  # paho internal, read-only
         except Exception:  # noqa: BLE001
-            return 0
+            return spooled
 
     # -- supervisor ----------------------------------------------------------
 
@@ -178,6 +218,7 @@ class MqttBridge:
             return
         self._ever_connected = True
         self._session = True
+        self._new_session = True
         self.connected.set()
         log.info("mqtt connected host=%s port=%d attempt=%d",
                  self._host, self._port, self._attempts)
@@ -199,6 +240,10 @@ class MqttBridge:
             except Exception:
                 log.exception("on_disconnect callback failed")
 
+    def _on_publish(self, client, userdata, mid, reason_code=None, properties=None):
+        # paho holds its out-message lock here: hand off, never block or touch sqlite
+        self._acked.append(mid)
+
     def _dispatch_message(self, client, userdata, msg) -> None:
         if self.on_message is not None:
             try:
@@ -215,19 +260,67 @@ class MqttBridge:
         else:
             log.info("subscribed topic=%s qos=%d", topic, qos)
 
+    # -- telemetry spool drain (own thread) -------------------------------------
+
+    def _drain_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._drain_once()
+            except Exception:  # noqa: BLE001 — sqlite hiccup: retry next tick
+                log.exception("telemetry drain failed")
+            self._stop.wait(_DRAIN_TICK_S)
+
+    def _drain_once(self) -> None:
+        """Delete PUBACKed rows, then hand paho the next oldest rows up to the
+        window. Unacked rows stay on disk; paho itself re-sends them after a
+        reconnect (same client, same mid), and a restart replays from row 1."""
+        while self._acked:
+            row = self._inflight.pop(self._acked.popleft(), None)
+            if row is not None:     # None = a live publish's ack
+                self._spool.ack(row)
+        if not self.connected.is_set():
+            return
+        if self._new_session:
+            # paho may have lost in-flight messages with the old session: replay from the oldest row
+            self._new_session = False
+            self._inflight.clear()
+            self._cursor = 0
+        room = _DRAIN_WINDOW - len(self._inflight)
+        if room <= 0:
+            return
+        for row, topic, payload in self._spool.peek(self._cursor, room):
+            info = self._client.publish(topic, payload, qos=1)
+            # NO_CONN: the link dropped under us, but paho queued it and re-sends
+            if info.rc not in (mqtt.MQTT_ERR_SUCCESS, mqtt.MQTT_ERR_NO_CONN):
+                break
+            self._inflight[info.mid] = row
+            self._cursor = row
+
     def _queue_has_room(self) -> bool:
         """Bound paho's out-queue while offline: non-durable payloads
-        (frames, telemetry, events) drop+count past _MAX_QUEUED; durable ones
+        (frames, events) drop+count past _MAX_QUEUED; durable ones
         (audits) see a False return and spool to disk instead."""
         if self.connected.is_set():
             return True
         if self.queued() < _MAX_QUEUED:
             return True
-        self.dropped += 1
-        if self.dropped % 100 == 1:
+        self._queue_dropped += 1
+        if self._queue_dropped % 100 == 1:
             log.warning("offline out-queue full (>=%d) — dropping publishes "
-                        "(total dropped=%d)", _MAX_QUEUED, self.dropped)
+                        "(total dropped=%d)", _MAX_QUEUED, self._queue_dropped)
         return False
+
+    def _publish_telemetry(self, topic: str, data: str, qos: int) -> bool:
+        if self.connected.is_set():
+            info = self._client.publish(topic, data, qos=qos)  # live: never waits for backlog
+            if info.rc == mqtt.MQTT_ERR_SUCCESS:
+                return True
+        try:
+            self._spool.append(topic, data)  # offline: durable until PUBACKed
+            return True
+        except sqlite3.Error:
+            log.exception("telemetry spool append failed topic=%s", topic)
+            return False
 
     def publish_raw(self, topic: str, payload: bytes, qos: int = 0) -> bool:
         if not self._queue_has_room():
@@ -236,6 +329,8 @@ class MqttBridge:
         return info.rc == mqtt.MQTT_ERR_SUCCESS
 
     def publish_json(self, topic: str, payload: dict, qos: int = 1) -> bool:
+        if self._spool is not None and topic.split("/", 5)[4:5] == ["tele"]:
+            return self._publish_telemetry(topic, json.dumps(payload), qos)
         if not self._queue_has_room():
             return False
         info = self._client.publish(topic, json.dumps(payload), qos=qos)
