@@ -303,3 +303,81 @@ def test_code_write_timeout_blocks_trigger(tmp_path, monkeypatch):
     e._pool.shutdown(wait=True)
     assert _triggers(a) == []
     assert any(r["status"] == "blocked:code_not_written" for r in bridge.audits)
+
+
+# ------------------------------------------------ round 2: lock scope
+def _blocking_trig(entered, release):
+    class B(MatAdapter):
+        def write(self, tag, value):
+            if tag == TRIG and value is True:
+                entered.set()
+                release.wait(3)
+            return super().write(tag, value)
+    return B()
+
+
+def test_new_visit_cannot_register_between_check_and_trigger_write(tmp_path):
+    """While A's trigger edge is being written, B's visit bump must wait."""
+    import threading
+    entered, release = threading.Event(), threading.Event()
+    a = _blocking_trig(entered, release)
+    e, _b = _engine(tmp_path, a)
+    e.on_material(_cam(), _pkg("sand"), None)
+    assert entered.wait(3)
+    t = threading.Thread(target=e.on_material, args=(_cam(), _pkg("gravel"), None))
+    t.start()
+    t.join(0.3)
+    blocked = t.is_alive()
+    release.set()
+    t.join(3)
+    e._pool.shutdown(wait=True)
+    assert blocked
+
+
+def test_holder_swap_waits_for_material_write(tmp_path):
+    import threading
+    from edge_bridge.cfg import AdapterHolder
+    entered, release = threading.Event(), threading.Event()
+    a, other = _blocking_trig(entered, release), MatAdapter()
+    holder = AdapterHolder(a, 1000)
+    e = RuleEngine(holder, FakeBridge(), FakeCfg(), str(tmp_path), clock=FakeClock())
+    e.on_material(_cam(), _pkg("sand"), None)
+    assert entered.wait(3)
+    t = threading.Thread(target=holder.swap, args=(other,), kwargs={"close_old": False})
+    t.start()
+    t.join(0.3)
+    blocked = t.is_alive()
+    release.set()
+    t.join(3)
+    e._pool.shutdown(wait=True)
+    assert blocked and holder.get() is other
+
+
+def test_long_pulse_does_not_block_next_visit_and_still_resets(tmp_path):
+    import time
+    a = MatAdapter()
+    e, _b = _engine(tmp_path, a)
+    cam = _cam(outputs={"code": "mat/code", "trigger": "mat/trig", "pulse_ms": 1000})
+    e.on_material(cam, _pkg("sand"), None)
+    t0 = time.monotonic()
+    while (TRIG, True) not in a.writes and time.monotonic() - t0 < 3:
+        time.sleep(0.01)
+    t1 = time.monotonic()
+    e.on_material(cam, _pkg("gravel", margin=0.1, uncertain=True), None)
+    assert time.monotonic() - t1 < 0.4
+    e._pool.shutdown(wait=True)
+    assert _triggers(a) == [True, False]               # the old pulse is still reset
+
+
+def test_pulse_reset_failure_raises_critical_alarm(tmp_path, caplog):
+    import logging
+
+    class NoReset(MatAdapter):
+        def write(self, tag, value):
+            if tag == TRIG and value is False:
+                return WriteResult.denied("plc_fault")
+            return super().write(tag, value)
+
+    with caplog.at_level(logging.CRITICAL):
+        _run(tmp_path, NoReset(), [_pkg("sand")])
+    assert any("ALARM" in r.getMessage() and r.levelno == logging.CRITICAL for r in caplog.records)

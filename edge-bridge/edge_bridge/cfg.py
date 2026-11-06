@@ -72,6 +72,7 @@ class AdapterHolder:
 
     def __init__(self, adapter: TagAdapter, poll_ms: int):
         self._lock = threading.Lock()
+        self.write_lock = threading.Lock()   # taken by RuleEngine around each material write
         self._adapter = adapter
         self.poll_ms = poll_ms
 
@@ -81,7 +82,7 @@ class AdapterHolder:
 
     def swap(self, new: TagAdapter, poll_ms: int | None = None,
              close_old: bool = True) -> TagAdapter:
-        with self._lock:
+        with self.write_lock, self._lock:     # never swap mid material write
             old, self._adapter = self._adapter, new
             if poll_ms is not None:
                 self.poll_ms = poll_ms

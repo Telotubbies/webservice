@@ -330,7 +330,8 @@ class RuleEngine:
         self._inflight: dict[str, object] = {}          # tag_path -> claimed (under _lock)
         self._tag_writes: dict[str, list[float]] = {}   # tag_path -> monotonic list (under _lock)
         self._visit = 0                                 # latest material visit (bumped under _lock)
-        self._mat_lock = threading.Lock()               # serialises material writes: check visit + write
+        # one lock for: visit bump, supersede check + write, and the holder's adapter swap
+        self._mat_lock = getattr(holder, "write_lock", None) or threading.Lock()
         self._write_queued = 0                          # queued+running pool writes (under _lock)
         self._writes_dropped = 0                        # writes refused because the queue was full
         self._offline_since: float | None = None        # stamped at disconnect, not lazily
@@ -428,10 +429,10 @@ class RuleEngine:
         code = {"gravel": o["gravel_value"], "sand": o["sand_value"]}[pkg["decision"]] if certain \
             else o["none_value"]
         acts, code_act, code_fut = [], None, None
-        with self._lock:                        # a newer visit voids every older visit's pending writes
+        with self._mat_lock:                    # a newer visit voids every older visit's pending writes
             self._visit += 1
             visit = self._visit
-        adapter = self._holder.get()            # code and trigger go to the same PLC link
+            adapter = self._holder.get()        # code and trigger go to the same PLC link
         if o["code"]:
             code_act = {"kind": "plc_write", "tag_path": o["code"], "value": code, "pulse_ms": None}
             acts.append(code_act)
@@ -706,7 +707,7 @@ class RuleEngine:
                 return False
         adapter = action.get("adapter") or self._holder.get()
         name = self._adapter_name(action["tag_path"])
-        ok, detail, value = False, "error", action.get("value")
+        ok, detail, value, pulse = False, "error", action.get("value"), False
         if action.get("delay_ms"):              # settle time, before taking the material lock
             time.sleep(action["delay_ms"] / 1000.0)
         mat = "visit" in action
@@ -735,22 +736,27 @@ class RuleEngine:
                 else:
                     res = adapter.write(name, action["value"])
                     ok, detail = res.ok, res.detail
-                    if ok and action.get("pulse_ms"):
-                        time.sleep(action["pulse_ms"] / 1000.0)
-                        reset = False if isinstance(action["value"], bool) else 0
-                        res2 = adapter.write(name, reset)
-                        if not res2.ok:
-                            # a pulse that never resets leaves the tag latched —
-                            # retry once, then record the failure in the audit
-                            log.error("pulse reset failed tag=%s: %s — retrying once",
-                                      name, res2.detail)
-                            res2 = adapter.write(name, reset)
-                        if not res2.ok:
-                            log.error("pulse reset retry failed tag=%s: %s",
-                                      name, res2.detail)
-                            ok, detail = False, f"reset_failed:{res2.detail}"[:200]
+                    pulse = ok and action.get("pulse_ms")
         except Exception as exc:                # noqa: BLE001 — a PLC fault must not kill the pool
             ok, detail = False, f"write_failed:{exc}"[:200]
+        if pulse:                               # outside the lock: a long pulse must not stall later trucks
+            try:
+                time.sleep(action["pulse_ms"] / 1000.0)
+            finally:                            # the reset always runs
+                reset = False if isinstance(action["value"], bool) else 0
+                err = None
+                for _ in range(2):              # retry once
+                    try:
+                        res2 = adapter.write(name, reset)
+                        err = None if res2.ok else res2.detail
+                    except Exception as exc:    # noqa: BLE001
+                        err = str(exc)
+                    if err is None:
+                        break
+                if err is not None:
+                    log.critical("ALARM: pulse reset failed, trigger tag %s may be stuck HIGH: %s",
+                                 name, err)
+                    ok, detail = False, f"reset_failed:{err}"[:200]
         self._audit(camera_id, rule_id, action["tag_path"], value,
                     "fired" if ok else detail)
         return ok
