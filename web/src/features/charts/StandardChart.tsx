@@ -4,7 +4,7 @@
 // The data source follows the window (raw → 1m → 1h) and re-picks on zoom,
 // so zooming into a rollup spike loads the finer data under it.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TimeSeries } from '../../viz/TimeSeries';
 import type { Annotation } from '../../viz/annotations';
@@ -77,17 +77,28 @@ export function StandardChartView({
   const pts = useMemo(() => samples.filter((s) => s.v != null).map((s) => ({ t: s.t, v: s.v as number })), [samples]);
   const stroke = seriesStroke(color, theme.name);
 
+  const fmt = (v: number | null) => (v == null ? t('charts.none') : `${fmtNum(v, decimals, lang)}${unit ? ` ${unit}` : ''}`);
   // the plugin is built once; effects hand it the latest shapes and repaint
   const band$ = useMemo(() => bandPlugin(), []);
   const plugins = useMemo(() => [band$.plugin], [band$]);
   useEffect(() => {
-    band$.update({ band, gaps, color: stroke, bad: `${theme.crit}22`, missing: `${theme.grid}99` });
-  }, [band$, band, gaps, stroke, theme]);
+    band$.update({
+      band, gaps, color: stroke, bad: `${theme.crit}22`, missing: `${theme.grid}99`,
+      limits: limits.map((l) => ({ v: l.v, color: l.severity === 'critical' ? theme.crit : theme.warn })),
+    });
+  }, [band$, band, gaps, stroke, theme, limits]);
+
+  // tooltip line for rollup points; the plot is built once, so read through a ref
+  const byTime = useRef(new Map<number, string>());
+  useEffect(() => {
+    byTime.current = new Map(samples.filter((s) => s.mn != null && s.mx != null)
+      .map((s) => [s.t / 1000, `${t('charts.min')} ${fmt(s.mn ?? null)} · ${t('charts.max')} ${fmt(s.mx ?? null)}`]));
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  const detail = useCallback((tSec: number) => byTime.current.get(tSec) ?? null, []);
 
   const hasBand = band.length > 0;
   const hasBad = gaps.some((g) => g.kind === 'bad');
   const hasMissing = pts.length > 0 && gaps.some((g) => g.kind === 'missing');
-  const fmt = (v: number | null) => (v == null ? t('charts.none') : `${fmtNum(v, decimals, lang)}${unit ? ` ${unit}` : ''}`);
   const centre = (range[0] + range[1]) / 2;
   const half = (range[1] - range[0]) / 2;
   const zoomBy = (k: number) => onZoom(Math.round(centre - half * k), Math.round(centre + half * k));
@@ -102,12 +113,12 @@ export function StandardChartView({
         <div className="ml-auto flex items-center gap-1.5">
           {plan && (
             <span className="rounded border border-line px-1.5 py-0.5 font-mono text-[11px] text-ink-2" title={t('charts.sourceHint')} data-source={plan.source}>
-              {t(`charts.source_${plan.source}`)}{plan.bucketS ? ` · ${t('charts.bucket', { n: bucketLabel(plan.bucketS) })}` : ''}
+              {t(`charts.source_${plan.source}`)}{plan.bucketS ? ` · ${t('charts.bucket', { n: bucketLabel(plan.bucketS, t) })}` : ''}
             </span>
           )}
-          <button type="button" className="btn btn-sm" onClick={() => zoomBy(0.5)} aria-label={t('charts.zoomIn')}>+</button>
-          <button type="button" className="btn btn-sm" onClick={() => zoomBy(2)} aria-label={t('charts.zoomOut')}>−</button>
-          {zoomed && <button type="button" className="btn btn-sm" onClick={onZoomReset}>{t('charts.zoomReset')}</button>}
+          <button type="button" className="btn btn-sm btn-ghost btn-icon" onClick={() => zoomBy(0.5)} aria-label={t('charts.zoomIn')} title={t('charts.zoomIn')}>+</button>
+          <button type="button" className="btn btn-sm btn-ghost btn-icon" onClick={() => zoomBy(2)} aria-label={t('charts.zoomOut')} title={t('charts.zoomOut')}>−</button>
+          {zoomed && <button type="button" className="btn btn-sm btn-ghost" onClick={onZoomReset}>{t('charts.zoomReset')}</button>}
         </div>
       </header>
       {history?.truncated && <p className="mt-1 text-[11px] text-ink-2" role="note">{t('charts.truncated')}</p>}
@@ -116,7 +127,7 @@ export function StandardChartView({
         <TimeSeries
           series={[{ key: label, label, color, unit, decimals, pts }]}
           limits={limits} unit={unit} xRange={range} height={height} syncKey={syncKey}
-          annotations={events} plugins={plugins}
+          annotations={events} plugins={plugins} detail={detail}
           yMin={dom?.[0]} yMax={dom?.[1]}
           loading={loading} error={error} onRetry={onRetry} hasPrevious={!!history}
           onZoom={onZoom}
@@ -154,6 +165,6 @@ export function StandardChartView({
   );
 }
 
-function bucketLabel(s: number): string {
-  return s % 3600 === 0 ? `${s / 3600} h` : s % 60 === 0 ? `${s / 60} min` : `${s} s`;
+function bucketLabel(s: number, t: (k: string, o: { n: number }) => string): string {
+  return s % 3600 === 0 ? t('charts.unitH', { n: s / 3600 }) : s % 60 === 0 ? t('charts.unitMin', { n: s / 60 }) : t('charts.unitS', { n: s });
 }

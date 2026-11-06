@@ -5,17 +5,17 @@
 import type uPlot from 'uplot';
 import type { BandPoint, Gap } from './shape';
 
-export interface BandState { band: BandPoint[][]; gaps: Gap[]; color: string; bad: string; missing: string }
+export interface BandState { band: BandPoint[][]; gaps: Gap[]; color: string; bad: string; missing: string; limits: { v: number; color: string }[] }
 
 export function bandPlugin(): { plugin: uPlot.Plugin; update: (s: BandState) => void } {
-  let state: BandState = { band: [], gaps: [], color: '#888', bad: 'transparent', missing: 'transparent' };
+  let state: BandState = { band: [], gaps: [], color: '#888', bad: 'transparent', missing: 'transparent', limits: [] };
   let plot: uPlot | null = null;
   const plugin: uPlot.Plugin = {
     hooks: {
       init: [(u) => { plot = u; }],
       destroy: [() => { plot = null; }],
       drawClear: [(u) => {
-        const { band, gaps, color, bad, missing } = state;
+        const { band, gaps, color, bad, missing, limits } = state;
         const ctx = u.ctx;
         const dpr = devicePixelRatio || 1;
         const { left, top, width, height } = u.bbox;
@@ -37,21 +37,37 @@ export function bandPlugin(): { plugin: uPlot.Plugin; update: (s: BandState) => 
             ctx.globalAlpha = 1;
           }
         }
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.3;
-        for (const run of band) {
-          if (run.length === 1) {
-            const p = run[0];
-            ctx.globalAlpha = 0.55;
-            ctx.fillRect(X(p.t) - 1.5 * dpr, Y(p.mx), 3 * dpr, Math.max(dpr, Y(p.mn) - Y(p.mx)));
-            ctx.globalAlpha = 0.3;
-            continue;
-          }
+        const trace = (run: BandPoint[]) => {
           ctx.beginPath();
+          if (run.length === 1) { // one bucket: a 3 px column
+            const p = run[0];
+            ctx.rect(X(p.t) - 1.5 * dpr, Y(p.mx), 3 * dpr, Math.max(dpr, Y(p.mn) - Y(p.mx)));
+            return;
+          }
           run.forEach((p, i) => (i ? ctx.lineTo(X(p.t), Y(p.mx)) : ctx.moveTo(X(p.t), Y(p.mx))));
           for (let i = run.length - 1; i >= 0; i--) ctx.lineTo(X(run[i].t), Y(run[i].mn));
           ctx.closePath();
-          ctx.fill();
+        };
+        for (const run of band) {
+          ctx.fillStyle = color;
+          ctx.globalAlpha = run.length === 1 ? 0.55 : 0.3;
+          trace(run); ctx.fill();
+          // the part of the band beyond a limit takes the limit's colour, strongly
+          for (const l of limits) {
+            const yl = Y(l.v);
+            ctx.save();
+            ctx.beginPath(); ctx.rect(left, top, width, yl - top); ctx.clip();
+            ctx.fillStyle = l.color; ctx.globalAlpha = 0.75;
+            trace(run); ctx.fill();
+            ctx.restore();
+          }
+          // max envelope: a spike averaged out of the line still has an outline
+          if (run.length > 1) {
+            ctx.globalAlpha = 0.7; ctx.strokeStyle = color; ctx.lineWidth = 1.25 * dpr;
+            ctx.beginPath();
+            run.forEach((p, i) => (i ? ctx.lineTo(X(p.t), Y(p.mx)) : ctx.moveTo(X(p.t), Y(p.mx))));
+            ctx.stroke();
+          }
         }
         ctx.restore();
       }],

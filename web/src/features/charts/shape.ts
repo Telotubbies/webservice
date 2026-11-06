@@ -75,7 +75,7 @@ export function statsOf(samples: Sample[]): Stats {
 
 // ── API rows → samples ───────────────────────────────────────────────────────
 
-export interface RawRow { ts: string; v: number | boolean | string; q?: string }
+export interface RawRow { ts: string; v: number | boolean | string | null | undefined; q?: string }
 export interface BucketRow { ts: string; min: number | null; max: number | null; avg: number | null; n: number }
 
 /** Raw rows: a non-good quality or non-numeric value is a bad sample (v null).
@@ -89,7 +89,9 @@ export function rowsToSamples(rows: (RawRow | BucketRow)[]): Sample[] {
       out.push({ t, v: r.avg, mn: r.min, mx: r.max, n: r.n });
       continue;
     }
-    const v = typeof r.v === 'boolean' ? (r.v ? 1 : 0) : Number(r.v);
+    // null / '' / undefined are missing, not 0 (Number(null) === 0)
+    const blank = r.v == null || (typeof r.v === 'string' && r.v.trim() === '');
+    const v = blank ? NaN : typeof r.v === 'boolean' ? (r.v ? 1 : 0) : Number(r.v);
     out.push({ t, v: (r.q && r.q !== 'good') || !Number.isFinite(v) ? null : v });
   }
   return out.sort((a, b) => a.t - b.t);

@@ -119,6 +119,30 @@ export function fmtTime(ms: number, withSeconds = false): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}${withSeconds ? `:${pad(d.getSeconds())}` : ''}`;
 }
 
+/** x-axis tick: on ranges of a day or more the tick at local midnight reads
+ *  as the date ("5 Nov"), every other tick as a time. */
+export function fmtAxisTick(ms: number, spanSec: number, locale?: string): string {
+  const d = new Date(ms);
+  if (spanSec >= 86400 && d.getHours() === 0 && d.getMinutes() === 0) {
+    return d.toLocaleDateString(locale?.startsWith('th') ? 'th-TH' : 'en-GB', { day: 'numeric', month: 'short' });
+  }
+  return fmtTime(ms, spanSec < 600);
+}
+
+/** Top edges for limit tags so two never overlap: each sits above its line,
+ *  or below when that collides with a tag already placed. */
+export function placeLabels(ys: number[], h: number, top: number): number[] {
+  const placed: number[] = [];
+  const free = (b: number) => placed.every((p) => Math.abs(p - b) >= h);
+  return ys.map((y) => {
+    const cands = [y - h - 2, y + 2];
+    let b = cands.find((c) => c >= top && free(c));
+    if (b == null) { b = cands[0]; while (!free(b)) b += h; }
+    placed.push(b);
+    return b;
+  });
+}
+
 /** "9 Aug 14:20–14:35" for a same-day window, dates on both ends otherwise. */
 export function fmtRange(fromMs: number, toMs: number, locale?: string): string {
   const a = new Date(fromMs);
@@ -163,6 +187,8 @@ export interface ChartSpec {
   annotations?: Annotation[];
   /** extra uPlot plugins (min–max band, gap shading) appended after the built-ins */
   plugins?: uPlot.Plugin[];
+  /** extra tooltip line for a sample time (epoch s), e.g. the min–max of a rollup point */
+  detail?: (tSec: number) => string | null;
 }
 
 const AXIS_FONT = '11px "IBM Plex Mono", "Roboto Mono", monospace';
@@ -213,7 +239,7 @@ export function chartOptions(spec: ChartSpec): uPlot.Options {
         grid: { stroke: c.grid, width: 1 }, ticks: { stroke: c.tick, width: 1, size: 4 },
         values: (u, splits) => {
           const span = (u.scales.x.max ?? 0) - (u.scales.x.min ?? 0);
-          return splits.map((s) => fmtTime(s * 1000, span < 600));
+          return splits.map((s) => fmtAxisTick(s * 1000, span, locale));
         },
       },
       {
@@ -244,7 +270,7 @@ export function chartOptions(spec: ChartSpec): uPlot.Options {
       limitPlugin(limits, c, unit, locale, decimals),
       onsetsPlugin(limits, { axis: ct.axis, crit: ct.crit, warn: ct.warn }),
       annotationsPlugin(spec.annotations ?? [], { axis: ct.axis, crit: ct.crit, warn: ct.warn }),
-      tooltipPlugin(series, c.theme, locale),
+      tooltipPlugin(series, c.theme, locale, spec.detail),
       ...(spec.plugins ?? []),
     ],
     hooks: spec.onZoom ? {
@@ -282,9 +308,10 @@ function limitPlugin(limits: Limit[], c: CanvasColors, unit?: string, locale?: s
         const ctx = u.ctx;
         const dpr = devicePixelRatio || 1;
         const { left, top, width, height } = u.bbox;
-        for (const l of limits) {
-          const y = Math.round(u.valToPos(l.v, 'y', true));
-          if (y < top - 1 || y > top + height + 1) continue;
+        const shown = limits.map((l) => ({ l, y: Math.round(u.valToPos(l.v, 'y', true)) }))
+          .filter(({ y }) => y >= top - 1 && y <= top + height + 1).sort((a, b) => a.y - b.y);
+        const tops = placeLabels(shown.map((s) => s.y), 12 * dpr + 2 * dpr, top);
+        shown.forEach(({ l, y }, i) => {
           ctx.save();
           ctx.strokeStyle = c.limit[l.severity];
           ctx.lineWidth = 1.5 * dpr;
@@ -298,7 +325,7 @@ function limitPlugin(limits: Limit[], c: CanvasColors, unit?: string, locale?: s
           ctx.font = `600 ${10 * dpr}px "IBM Plex Sans", "NotoSans", sans-serif`;
           const tw = ctx.measureText(text).width;
           const bx = left + width - tw - 8 * dpr;
-          const by = y - 14 * dpr < top ? y + 2 * dpr : y - 14 * dpr;
+          const by = tops[i];
           ctx.globalAlpha = 0.92;
           ctx.fillStyle = c.paper;
           ctx.fillRect(bx - 3 * dpr, by, tw + 6 * dpr, 12 * dpr);
@@ -307,7 +334,7 @@ function limitPlugin(limits: Limit[], c: CanvasColors, unit?: string, locale?: s
           ctx.textBaseline = 'top';
           ctx.fillText(text, bx, by + 1 * dpr);
           ctx.restore();
-        }
+        });
       }],
     },
   };
@@ -315,7 +342,7 @@ function limitPlugin(limits: Limit[], c: CanvasColors, unit?: string, locale?: s
 
 /** Crosshair tooltip: time on top, one row per series (swatch + name +
  *  value + unit). Built from DOM nodes — labels are never parsed as HTML. */
-function tooltipPlugin(series: SeriesSpec[], theme: 'light' | 'dark', locale?: string): uPlot.Plugin {
+function tooltipPlugin(series: SeriesSpec[], theme: 'light' | 'dark', locale?: string, detail?: (tSec: number) => string | null): uPlot.Plugin {
   let tip: HTMLDivElement | null = null;
   let hovered = false;
   return {
@@ -361,6 +388,13 @@ function tooltipPlugin(series: SeriesSpec[], theme: 'light' | 'dark', locale?: s
           row.append(sw, name, val);
           tip!.appendChild(row);
         });
+        const extra = detail?.(x);
+        if (extra) {
+          const d = document.createElement('div');
+          d.textContent = extra;
+          Object.assign(d.style, { font: '11px "IBM Plex Mono", monospace', color: 'var(--color-ink-68)', marginTop: '2px' });
+          tip.appendChild(d);
+        }
         tip.style.display = 'block';
         const ow = u.over.clientWidth;
         const tw = tip.offsetWidth;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { bandSegments, rowsToSamples, statsOf, yDomain, type BucketRow } from './shape';
+import { fmtAxisTick, placeLabels } from '../trends/viz';
 import { pickSource } from './source';
 
 const H = 3600e3;
@@ -70,4 +71,31 @@ describe('yDomain', () => {
     expect(b - a).toBeGreaterThan(2);
     expect(yDomain([{ t: 0, v: null }])).toBeNull();
   });
+});
+
+describe('missing raw values are not zeros (fix 1)', () => {
+  test('null, empty string and undefined are bad samples; 0 stays good', () => {
+    const rows = [null, '', undefined, 0, '0', '  '].map((v, i) => ({ ts: new Date(NOW + i * 1000).toISOString(), v, q: 'good' }));
+    const s = rowsToSamples(rows as never);
+    expect(s.map((p) => p.v)).toEqual([null, null, null, 0, 0, null]);
+    expect(statsOf(s).min).toBe(0);
+    expect(statsOf(rowsToSamples(rows.slice(0, 3) as never)).min).toBeNull();
+  });
+});
+
+describe('placeLabels (fix 3)', () => {
+  test('labels at nearby lines never overlap', () => {
+    const tops = placeLabels([100, 108, 400], 12, 0);
+    for (let i = 0; i < tops.length; i++) for (let j = i + 1; j < tops.length; j++) expect(Math.abs(tops[i] - tops[j])).toBeGreaterThanOrEqual(12);
+  });
+  test('a lone label sits above its line', () => expect(placeLabels([100], 12, 0)).toEqual([86]));
+});
+
+describe('fmtAxisTick (fix 4)', () => {
+  const mid = new Date(2026, 10, 5, 0, 0).getTime();
+  test('multi-day ranges show the date at midnight and time elsewhere', () => {
+    expect(fmtAxisTick(mid, 7 * 86400, 'en')).toBe('5 Nov');
+    expect(fmtAxisTick(mid + 12 * H, 7 * 86400, 'en')).toBe('12:00');
+  });
+  test('short ranges stay times', () => expect(fmtAxisTick(mid, 3600, 'en')).toBe('00:00'));
 });
