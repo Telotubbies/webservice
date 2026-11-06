@@ -6,8 +6,13 @@ Pipeline (contract §Command lifecycle + SDLC 04 §5):
     parse JSON -> clock trusted? -> TTL live? -> idempotent replay? ->
     adapter.write() -> always publish cmd-resp
 
-Wire vocabulary (doc 17 §6): status ∈ acknowledged | rejected | failed,
-reason carries the detail (clock_untrusted, ttl_expired, not_writable,
+F05 read-back: a PLC write is only `acknowledged` after the value is read back
+and matches. A different value is `failed` (readback_mismatch), a value that
+cannot be read back (bad quality, read error, tag missing) is `unknown`
+(readback_unavailable) — never success.
+
+Wire vocabulary (doc 17 §6 + F05): status ∈ acknowledged | rejected | failed |
+unknown, reason carries the detail (clock_untrusted, ttl_expired, not_writable,
 out_of_range, …). The command payload names the tag as `tag_path` — the
 site-relative path (area/line/device/signal), which maps back to the
 adapter's dotted name via site_code.
@@ -17,12 +22,15 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from datetime import datetime, timezone
 
 from . import ops
+from .adapters.base import Quality
 from .clock import EdgeClock
 from .config import Config
 from .mqtt_bridge import MqttBridge
@@ -35,6 +43,8 @@ _MAX_FUTURE_S = 2.0          # issued_at tolerance for harmless clock noise
 _IDEMPOTENCY_MAX = 1000      # SDLC 04 §5: remember last N command keys
 _OP_WORKERS = 2              # read-only ops (test_source/browse) run here
 _OP_INFLIGHT_MAX = 4         # queued + running; more get an immediate "busy"
+_READBACK_TRIES = 3          # PLC scan lag: re-read a few times before judging
+_READBACK_WAIT_S = 0.3
 
 
 class CommandHandler:
@@ -44,6 +54,9 @@ class CommandHandler:
         self._holder = holder  # AdapterHolder: adapter may be swapped live
         self._clock = clock
         self._bridge = bridge
+        self._readback_tries = _READBACK_TRIES
+        self._readback_wait_s = _READBACK_WAIT_S
+        self._sleep = time.sleep
         # idempotency_key -> (status, reason); FIFO eviction
         self._seen: OrderedDict[str, tuple[str, str]] = OrderedDict()
         self.handled = 0
@@ -204,6 +217,8 @@ class CommandHandler:
             result = self._holder.get().write(tag, value)
             status = "acknowledged" if result.ok else "rejected"
             reason = result.detail
+            if result.ok:
+                status, reason = self._verify_readback(tag, value)
         except Exception as exc:
             status, reason = "failed", f"write_failed:{exc}"
 
@@ -213,6 +228,31 @@ class CommandHandler:
                 self._seen.popitem(last=False)
         return status, reason, command_id
 
+    def _verify_readback(self, tag: str, value: object) -> tuple[str, str]:
+        """Read the tag back after a successful write. (status, reason)."""
+        last = "no_value"
+        mismatch = None  # an earlier mismatch must not be hidden by a later unreadable read
+        for attempt in range(self._readback_tries):
+            if attempt:
+                self._sleep(self._readback_wait_s)
+            try:
+                tv = next((x for x in self._holder.get().read_all() if x.name == tag), None)
+            except Exception as exc:  # noqa: BLE001 - a failed read is "unknown", not a crash
+                last = f"read_error:{exc}"
+                continue
+            if tv is None:
+                last = "tag_not_readable"
+                continue
+            if tv.q is not Quality.GOOD:
+                last = f"quality_{tv.q.value}"
+                continue
+            if _same(value, tv.v):
+                return "acknowledged", f"readback_ok:{_fmt(tv.v)}"
+            mismatch = _fmt(tv.v)
+        if mismatch is not None:
+            return "failed", f"readback_mismatch:expected={_fmt(value)},actual={mismatch}"
+        return "unknown", f"readback_unavailable:{last}"
+
     def _adapter_name(self, tag_path: str) -> str:
         """'sort/line1/motor1/speed_sp' or 'plant1.sort.line1.motor1.speed_sp'
         -> the adapter's dotted name."""
@@ -221,6 +261,20 @@ class CommandHandler:
         if not name.startswith(prefix):
             name = prefix + name
         return name
+
+
+def _fmt(v: object) -> str:
+    return str(v).lower() if isinstance(v, bool) else f"{v:g}" if isinstance(v, (int, float)) else str(v)
+
+
+def _same(want: object, got: object) -> bool:
+    """Bools compare as bools (a PLC may report 0/1); numbers within the
+    float32-ish tolerance a setpoint legitimately round-trips with."""
+    if isinstance(want, bool):
+        return isinstance(got, (bool, int, float)) and bool(got) == want
+    if isinstance(got, bool) or not isinstance(got, (int, float)) or not isinstance(want, (int, float)):
+        return False
+    return math.isclose(float(want), float(got), rel_tol=1e-3, abs_tol=1e-6)
 
 
 def _parse_ts(raw: str) -> datetime:

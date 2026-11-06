@@ -75,7 +75,7 @@ def test_only_admins_create_and_the_engine_writes_samples(admin, api, inputs, cl
     assert tag["type"] == "number" and tag["version"] == 1
 
     # a calculated tag is not writable and never takes a command
-    cmd = admin.post(f"{BASE}/commands", json={"tag_id": tag["id"], "value": 1})
+    cmd = admin.post(f"{BASE}/commands", json={"note": "integration test", "tag_id": tag["id"], "value": 1})
     assert cmd.status_code in (404, 409, 422)
 
     deadline = time.time() + 15

@@ -5,7 +5,7 @@
 // store flush.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { live } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
@@ -18,8 +18,10 @@ import { PartPanel } from './PartPanel';
 import { PlanView } from './PlantPlan';
 import { HmiView } from './HmiView';
 import { useSceneSource } from './useSceneSource';
+import { BoardPage } from './BoardPage';
+import './i18n';
 
-type Mode = '3d' | 'hmi' | 'top' | 'front';
+type Mode = '3d' | 'hmi' | 'board' | 'top' | 'front';
 
 export function Line3DPage() {
   const { t } = useTranslation();
@@ -38,6 +40,14 @@ export function Line3DPage() {
   const [q, setQ] = useState('');
   const [plans, setPlans] = useState<Partial<Record<PlanKind, PlanImage>>>({});
   const ver = useStore(() => live.version);
+  // ?part=<label> (the board's control link) selects that part so its panel and control sheet open
+  const [params] = useSearchParams();
+  const wanted = params.get('part');
+  useEffect(() => {
+    if (!ready || !wanted) return;
+    const i = src.parts.findIndex((p) => p.label === wanted);
+    if (i >= 0) { setMode('3d'); setSel(String(i)); }
+  }, [ready, wanted, src.parts]);
   const reduced = useMemo(() => matchMedia('(prefers-reduced-motion: reduce)').matches, []);
 
   useEffect(() => {
@@ -92,7 +102,7 @@ export function Line3DPage() {
   // 2D views are rendered once per kind from the loaded scene
   useEffect(() => {
     const v = viewRef.current;
-    if (mode === '3d' || mode === 'hmi' || !ready || !v || plans[mode]) return;
+    if (mode === '3d' || mode === 'hmi' || mode === 'board' || !ready || !v || plans[mode]) return;
     const kind = mode;
     setPlans((p) => ({ ...p, [kind]: v.plan(kind, 1800) }));
   }, [mode, ready, plans]);
@@ -116,12 +126,12 @@ export function Line3DPage() {
         title={t('plant.title')}
         lede={t('plant.lede')}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex overflow-hidden rounded border border-line" role="group" aria-label={t('plant.view')}>
-              {(['3d', 'hmi', 'top', 'front'] as Mode[]).map((m) => (
+              {(['3d', 'hmi', 'board', 'top', 'front'] as Mode[]).map((m) => (
                 <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
                   className={`h-7 px-2.5 text-[11px] font-semibold ${mode === m ? 'bg-info-soft text-blue' : 'text-ink-68 hover:bg-subtle'}`}>
-                  {t(`plant.mode.${m}`)}
+                  {m === 'board' ? t('board.mode') : t(`plant.mode.${m}`)}
                 </button>
               ))}
             </div>
@@ -155,7 +165,8 @@ export function Line3DPage() {
           {t('plant.demoBanner')}
         </p>
       )}
-      <div className="flex h-[calc(100svh-88px)] gap-3 p-4">
+      {mode === 'board' && src.status === 'ready' && <BoardPage src={src} />}
+      <div className={`flex h-[calc(100svh-88px)] gap-3 p-4 ${mode === 'board' ? 'hidden' : ''}`}>
         <div className="relative h-full min-w-0 flex-1 overflow-hidden rounded-[5px] border border-line bg-paper shadow-card">
           {failed ? (
             <ErrorState onRetry={() => { setFail(false); setReady(false); src.reload(); }} />

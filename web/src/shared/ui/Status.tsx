@@ -43,10 +43,11 @@ export function SeverityBadge({ severity }: { severity: string }) {
 /** Alarm lifecycle state — Triggered → Acked → Cleared (ISA-18.2).
  *  Free-form backend strings normalise to the three canonical states;
  *  redundant-coded via .alarm-state (colour + label — styles in index.css). */
-export type AlarmState = 'active' | 'acked' | 'cleared';
+export type AlarmState = 'active' | 'rtn_unack' | 'acked' | 'cleared';
 
 export function normAlarmState(s: string): AlarmState {
   const v = s.toLowerCase();
+  if (v === 'rtn_unack' || v === 'rtn' || v.startsWith('return')) return 'rtn_unack';
   if (v.startsWith('ack')) return 'acked';
   if (v.startsWith('clear') || v.startsWith('resol') || v.startsWith('clos')) return 'cleared';
   return 'active';
@@ -57,11 +58,11 @@ export function AlarmStateBadge({ state, ackedBy }: { state: string; ackedBy?: s
   const s = normAlarmState(state);
   return (
     <span
-      className={`alarm-state is-${s}`}
+      className={`alarm-state is-${s}${s === 'rtn_unack' ? ' border border-dashed border-[var(--color-caution)] bg-[var(--color-caution-soft)]' : ''}`}
       data-state={s}
       title={s === 'acked' && ackedBy ? t('alarms.ackedBy', { who: ackedBy }) : undefined}
     >
-      {t(`alarms.${s}`)}
+      {s === 'rtn_unack' && <span aria-hidden>↩ </span>}{t(`alarms.${s}`)}
     </span>
   );
 }

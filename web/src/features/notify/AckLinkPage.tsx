@@ -14,6 +14,7 @@ import { Link, useParams } from 'react-router';
 import { getToken, onUnauthorized } from '../../lib/api';
 import { Card } from '../../shared/ui/Page';
 import { PageSkeleton } from '../../shared/ui/Feedback';
+import { AckPreview, useAckPreview } from '../alarms/AckPreview';
 import './i18n';
 
 type Phase = 'ready' | 'working' | 'acked' | 'auth' | 'gone' | 'used' | 'error';
@@ -26,6 +27,7 @@ export function AckLinkPage() {
   // The token is single-use, so the effect must not fire twice — this ref
   // survives StrictMode's double-invoke where a state flag would not.
   const fired = useRef(false);
+  const preview = useAckPreview(token);
 
   // Opening the link must never acknowledge: chat and SMS previewers fetch
   // URLs on their own. Only the tap below sends the POST.
@@ -54,8 +56,11 @@ export function AckLinkPage() {
     <div className="grid min-h-[calc(100svh-var(--h-topbar))] place-items-center p-4">
       <div className="w-full max-w-sm">
       <Card>
-        {phase === 'ready' && (
+        {phase === 'ready' && preview.kind === 'used' && <p className="text-center text-[14px] font-semibold">{t('ack.used')}</p>}
+        {phase === 'ready' && preview.kind === 'gone' && <p className="text-center text-[14px] font-semibold">{t('ack.gone')}</p>}
+        {phase === 'ready' && preview.kind !== 'used' && preview.kind !== 'gone' && (
           <div className="text-center">
+            {preview.kind === 'ok' && <AckPreview alarm={preview.alarm} />}
             <p className="text-[14px] font-semibold">{t('ack.confirmTitle')}</p>
             <p className="mt-1 text-[12px] text-ink-68">{t('ack.confirmBody')}</p>
             <button type="button" className="btn mt-4 min-h-12 w-full justify-center text-[15px]" onClick={commit}>{t('ack.confirmBtn')}</button>
@@ -64,7 +69,7 @@ export function AckLinkPage() {
         {phase === 'working' && <PageSkeleton rows={2} />}
         {phase === 'acked' && (
           <div className="text-center">
-            <p className="text-[16px] font-semibold text-[var(--color-ok)]">{t('ack.ok')}</p>
+            <p className="text-[16px] font-semibold">{t('ack.ok')}</p>
             {alarmId && <p className="mt-2"><Link className="text-blue hover:underline" to={`/alarms/${alarmId}`}>{t('ack.open')}</Link></p>}
           </div>
         )}

@@ -3,9 +3,16 @@
 Phase-2 scope: same dispatch path as v1 (publish directly after commit); the
 transactional outbox + PUBACK-confirmed `dispatched` replace it in phase 4.
 
-  accepted ─publish ok→ dispatched ─edge resp→ acknowledged | rejected | failed
+  accepted ─publish ok→ dispatched ─edge resp→ acknowledged | rejected | failed | unknown
       │                     └──── no resp by ttl ───────────→ timeout
       └─ publish error → failed(dispatch_error)
+
+F05: `acknowledged` now means the edge wrote AND read the value back; a
+mismatch is `failed`, a write that cannot be confirmed is `unknown`, and no
+reply is `timeout` — none of the three may ever render as success. Every
+command carries an operator reason (`note`), enforced here (a trust
+boundary: not only in the UI), together with writable / type / limit /
+permissive-tag gates. `preflight()` runs the same gates without sending.
 
 Invariants kept: I7 no automatic retry of writes, I8 one in-flight command per
 tag (partial unique index), I9 restart sweep never leaves a tag bricked.
@@ -32,13 +39,14 @@ from .mqtt_client import command_topic
 log = logging.getLogger("backend.commands")
 
 INFLIGHT = ("accepted", "dispatched")
-TERMINAL = ("acknowledged", "rejected", "failed", "timeout")
+TERMINAL = ("acknowledged", "rejected", "failed", "unknown", "timeout")
 # doc 17 wire vocabulary is already the v2 one (edge emits these verbatim)
 RESP_MAP = {"acknowledged": "acknowledged", "rejected": "rejected",
-            "failed": "failed"}
+            "failed": "failed", "unknown": "unknown"}
 # v2 -> v1 wire names (CONTRACT.md) for the v1 API / WS shim
 V1_STATUS = {"accepted": "issued", "dispatched": "sent", "acknowledged": "done",
-             "rejected": "denied", "failed": "failed", "timeout": "timeout"}
+             "rejected": "denied", "failed": "failed", "unknown": "unknown",
+             "timeout": "timeout"}
 
 CMD_SQL = """
 SELECT c.id, c.org_id, c.site_id, c.tag_id, c.value, c.status, c.reason,
@@ -51,6 +59,31 @@ EVENT_SQL = """
 SELECT from_status, to_status, actor, reason, at
 FROM command_events WHERE command_id=$1 ORDER BY id
 """
+
+
+# A permissive (`tags.requires`) must have been seen true this recently, or the
+# write is refused: a stale "guard door closed" is not a permissive.
+PERMISSIVE_MAX_AGE_S = 30.0
+REASON_MAX = 200
+# v1 body has no reason field yet (main.py wiring is an integration item):
+# the audit row still says so explicitly instead of staying empty.
+V1_NO_REASON = "v1_api: no reason supplied"
+_UNSET = object()
+
+
+def _truthy(v) -> bool:
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    return False
+
+
+def _check(cid: str, ok: bool, error: str | None = None, *, code: int = 422,
+           blocking: bool = True, **extra) -> dict:
+    """One gate result. `error` is the API `detail` when a blocking gate fails."""
+    return {"id": cid, "ok": ok, "blocking": blocking, "code": code,
+            "error": None if ok else error, "extra": extra}
 
 
 def _uuid_str(v) -> str | None:
@@ -69,10 +102,108 @@ class CommandManager:
         # `commands` row. request id -> (edge_id, future)
         self._pending_ops: dict[str, tuple[UUID, asyncio.Future]] = {}
 
+    # ------------------------------------------------------------ preflight
+    async def preflight(self, tc: TenantConn, *, tag, user_id: UUID, value,
+                        note) -> list[dict]:
+        """Every server-side gate, none short-circuited, so a dry run can show
+        the whole checklist. `issue()` refuses on the first failing blocking
+        gate; the UI is never the only guard on a limit or a permissive."""
+        checks: list[dict] = []
+        reason = note.strip() if isinstance(note, str) else ""
+        if not reason:
+            checks.append(_check("reason", False, "reason_required"))
+        elif len(reason) > REASON_MAX:
+            checks.append(_check("reason", False, "reason_too_long", max=REASON_MAX))
+        else:
+            checks.append(_check("reason", True))
+        checks.append(_check("area", await area_allowed(tc, user_id, tag.id),
+                             "area_forbidden", code=403))
+        checks.append(_check("writable", bool(tag.writable), "not_writable", code=403))
+        is_bool = isinstance(value, bool)
+        type_ok = is_bool if tag.type == "bool" else (
+            not is_bool and isinstance(value, (int, float)) and math.isfinite(value))
+        checks.append(_check("type", type_ok, "invalid_value", expected=tag.type))
+        lo, hi = tag.min_value, tag.max_value
+        in_range = True
+        if tag.type != "bool" and type_ok:
+            in_range = not ((lo is not None and value < lo) or (hi is not None and value > hi))
+        checks.append(_check("range", in_range, "out_of_range", min=lo, max=hi))
+        checks.append(await self._permissive_check(tc, tag))
+        active = await tc.fetchval(
+            "SELECT id FROM commands WHERE tag_id=$1 AND status = ANY($2::text[])",
+            tag.id, list(INFLIGHT))
+        c = _check("in_flight", active is None, "command_in_flight", code=409)
+        if active is not None:
+            c["extra"]["active_command_id"] = str(active)
+        checks.append(c)
+        edge = self.registry.edge(tag.edge_id) if tag.edge_id else None
+        checks.append(_check("edge", bool(edge is not None and edge.status == "active"),
+                             "edge_offline", code=409, blocking=False))
+        return checks
+
+    async def _permissive_check(self, tc: TenantConn, tag) -> dict:
+        """`tags.requires` = site-relative paths that must read true, good
+        quality and fresh. Unknown / stale / bad / false all refuse (fail closed)."""
+        req = await tc.fetchval("SELECT requires FROM tags WHERE id=$1", tag.id)
+        paths = [p for p in (req or []) if isinstance(p, str)]
+        if not paths:
+            return _check("permissive", True, required=[])
+        rows = await tc.fetch(
+            "SELECT t.path, l.v, l.q, l.ts FROM tags t"
+            " LEFT JOIN tag_latest l ON l.tag_id = t.id"
+            " WHERE t.site_id=$1 AND t.path = ANY($2::text[])", tag.site_id, paths)
+        seen = {r["path"]: r for r in rows}
+        now = utcnow()
+        for p in paths:
+            r = seen.get(p)
+            if r is None or r["v"] is None:
+                why = "missing"
+            elif r["q"] != "good":
+                why = "bad_quality"
+            elif (now - r["ts"]).total_seconds() > PERMISSIVE_MAX_AGE_S:
+                why = "stale"
+            elif not _truthy(r["v"]):
+                why = "not_satisfied"
+            else:
+                continue
+            return _check("permissive", False, "permissive_not_met", code=409,
+                          tag=p, why=why, required=paths)
+        return _check("permissive", True, required=paths)
+
+    @staticmethod
+    def _refusal(checks: list[dict]) -> tuple[int, dict] | None:
+        for c in checks:
+            if c["blocking"] and not c["ok"]:
+                return c["code"], {"detail": c["error"], **c["extra"]}
+        return None
+
+    async def dry_run(self, *, tag, org_id: UUID, value, note,
+                      user_id: UUID) -> tuple[int, dict]:
+        """Run every gate and report; never inserts a command, never publishes.
+        Leaves one audit row (`command.dry_run`) so rehearsals are traceable."""
+        if tag is None or tag.edge_id is None:
+            return 404, {"detail": "unknown_tag"}
+        async with tenant_tx(self.pools.app, org_id, user_id) as tc:
+            checks = await self.preflight(tc, tag=tag, user_id=user_id,
+                                          value=value, note=note)
+            ok = self._refusal(checks) is None
+            await audit.append(tc, f"user:{user_id}", "command.dry_run",
+                               {"tag_id": str(tag.id)},
+                               {"value": value, "ok": ok,
+                                "note": note.strip() if isinstance(note, str) else None})
+        return 200, {
+            "dry_run": True, "ok": ok, "sent": False,
+            "checks": [{"id": c["id"], "ok": c["ok"], "blocking": c["blocking"],
+                        "error": c["error"], **c["extra"]} for c in checks],
+            "expected": {"value": value,
+                         "readback": "edge reads the value back after the write",
+                         "unit": tag.unit},
+        }
+
     # ---------------------------------------------------------------- issue
     async def issue(self, *, tag, org_id: UUID, site_id: UUID, value,
                     ttl_s: int, idempotency_key: str | None, user_id: UUID,
-                    note: str | None = None) -> tuple[int, dict]:
+                    note=_UNSET) -> tuple[int, dict]:
         """Issue a command. `tag` is a resolved registry.Tag for the path's
         org+site (None → v1 `unknown_tag` 404). `org_id`/`site_id` come from
         the RESOLVED ROUTE (v2 path ids / v1 shim constants) — never from the
@@ -89,14 +220,15 @@ class CommandManager:
                 # v1 contract: unknown tag is decided by the edge (not_writable)
                 # — but with no tag row there is nothing to reference. Reject.
                 return 404, {"detail": "unknown_tag"}
-            if not await area_allowed(tc, user_id, tag.id):
-                return 403, {"detail": "area_forbidden"}
+            if note is _UNSET:  # v1 shim: body has no reason field (yet)
+                note = V1_NO_REASON
+            note = note.strip() if isinstance(note, str) else note
+            checks = await self.preflight(tc, tag=tag, user_id=user_id,
+                                          value=value, note=note)
+            refusal = self._refusal(checks)
+            if refusal is not None:
+                return refusal
             site_id = tag.site_id  # composite FK pins tag to its own site
-            active = await tc.fetchval(
-                "SELECT id FROM commands WHERE tag_id=$1 AND status = ANY($2::text[])",
-                tag.id, list(INFLIGHT))
-            if active is not None:
-                return 409, {"detail": "command_in_flight", "active_command_id": str(active)}
             if self.cmd_limiter is not None:
                 # Doc 16 gate 7 — deliberately run AFTER gate 8's in-flight
                 # check: a 409 retry must not burn the caller's command
@@ -261,11 +393,11 @@ class CommandManager:
         await tc.execute(
             "INSERT INTO command_events(org_id, command_id, from_status, to_status, actor, reason)"
             " VALUES ($1,$2,$3,$4,$5,$6)", tc.org_id, cid, prev, new, actor, reason)
-        cmd = await tc.fetchrow("SELECT tag_id, value, idempotency_key FROM commands WHERE id=$1",
+        cmd = await tc.fetchrow("SELECT tag_id, value, idempotency_key, note FROM commands WHERE id=$1",
                                 cid)
         await audit.append(tc, actor, f"command.{new}",
                            {"command_id": str(cid), "tag_id": str(cmd["tag_id"])},
-                           {"value": cmd["value"], "reason": reason,
+                           {"value": cmd["value"], "reason": reason, "note": cmd["note"],
                             "idempotency_key": cmd["idempotency_key"]})
 
     async def _status(self, cid: UUID, org_id: UUID) -> str:
@@ -294,6 +426,7 @@ class CommandManager:
             "value": r["value"],
             "status": V1_STATUS[r["status"]],
             "detail": r["reason"],
+            "note": r["note"],  # operator's reason (F05)
             "idempotency_key": r["idempotency_key"],
             "user": r["actor_name"],
             "created_at": iso_z(r["issued_at"]),

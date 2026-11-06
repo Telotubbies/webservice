@@ -15,7 +15,7 @@ function isAlarm(x: unknown): x is Alarm {
 export async function ackAlarm(alarm: Alarm): Promise<void> {
   const res = await api.ackAlarm(alarm.id);
   const next: Alarm = isAlarm(res) ? { ...alarm, ...res } : { ...alarm, state: 'acked' };
-  if (next.state === 'acked' && !next.acked_at) next.acked_at = new Date().toISOString();
+  if ((next.state === 'acked' || next.state === 'cleared') && !next.acked_at) next.acked_at = new Date().toISOString();
   live.upsertAlarm(next);
 }
 

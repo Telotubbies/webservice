@@ -70,7 +70,7 @@ def org_b_full(org_b, base_url):
     wait_until(tag_visible, 45, interval_s=2.0,
                desc="org-B tag registered (registry refresh)")
     r = admin.post(_v2b(org_b, "/commands"),
-                   json={"tag_id": org_b["tag"], "value": True,
+                   json={"note": "integration test", "tag_id": org_b["tag"], "value": True,
                          "idempotency_key": f"sec-{uuid.uuid4().hex[:8]}"})
     assert r.status_code == 201, r.text
     org_b["command"] = r.json()["command"]["id"]
@@ -122,7 +122,7 @@ def test_nonmember_mutation_routes_all_404(operator_api, org_b_full):
     b = org_b_full
     probes = [
         ("post", _v2b(b, "/commands"),
-         {"tag_id": b["tag"], "value": True}),
+         {"note": "integration test", "tag_id": b["tag"], "value": True}),
         ("post", _v2b(b, f"/alarms/{b['alarm']}/ack"), None),
         ("post", _v2b(b, "/alarm-rules"),
          {"name": "x", "tag_id": b["tag"], "kind": "hi", "threshold": 1,
@@ -165,7 +165,7 @@ def test_foreign_ids_under_member_paths_are_404(admin_api, org_b_full):
         ("post", _v2(O, S, f"/edges/{b['edge']}/rotate"), None),
         ("post", _v2(O, S, f"/edges/{b['edge']}/disable"), None),
         ("post", _v2(O, S, "/commands"),
-         {"tag_id": b["tag"], "value": True}),
+         {"note": "integration test", "tag_id": b["tag"], "value": True}),
         # org-B site addressed under the shim org, and the shim site
         # under org B
         ("get", f"/api/v1/orgs/{O}/sites/{b['site']}/tags"),
@@ -173,7 +173,7 @@ def test_foreign_ids_under_member_paths_are_404(admin_api, org_b_full):
         # shim tag under org-B path
         ("get", _v2b(b, f"/tags/{shim_tag}/latest")),
         ("post", _v2b(b, "/commands"),
-         {"tag_id": shim_tag, "value": 1.0}),
+         {"note": "integration test", "tag_id": shim_tag, "value": 1.0}),
     ]
     for method, path, *rest in probes:
         payload = rest[0] if rest else None

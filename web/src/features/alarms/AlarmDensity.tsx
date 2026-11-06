@@ -6,6 +6,7 @@
 import { useTranslation } from 'react-i18next';
 import { normSeverity, type Severity } from '../../shared/ui/Status';
 import type { Alarm } from '../../types';
+import { FLOOD_THRESHOLD } from './alarms';
 import { HeatStrip } from '../../viz/HeatStrip';
 
 export const DENSITY_BUCKETS = 48;
@@ -31,12 +32,19 @@ export function bucketAlarms(alarms: Alarm[], now: number): Bucket[] {
 }
 
 
+/** Busiest 10 minutes in the window (two neighbouring 5-minute buckets). */
+export function peakPer10Min(buckets: Bucket[]): number {
+  return buckets.reduce((m, b, i) => Math.max(m, b.count + (buckets[i + 1]?.count ?? 0)), 0);
+}
+
 export function AlarmDensity({ alarms, now, picked, onPick }: {
   alarms: Alarm[]; now: number; picked: Bucket | null; onPick: (b: Bucket | null) => void;
 }) {
   const { t, i18n } = useTranslation();
   const buckets = bucketAlarms(alarms, now);
   const total = buckets.reduce((n, b) => n + b.count, 0);
+  const peak = peakPer10Min(buckets);
+  const flood = peak >= FLOOD_THRESHOLD;
   const clock = (ms: number) => new Date(ms).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' });
 
   return (
@@ -45,6 +53,14 @@ export function AlarmDensity({ alarms, now, picked, onPick }: {
         <span className="font-semibold">{t('alarms.density')}</span>
         <span className="text-ink-46">{total === 0 ? t('alarms.densityQuiet') : t('alarms.shown', { count: total })}</span>
         <span className="flex-1" />
+        <span
+          className={`font-mono tabular-nums ${flood ? 'font-semibold text-[var(--color-danger)]' : 'text-ink-46'}`}
+          data-flood={flood}
+          title={t('alx.floodHint', { limit: FLOOD_THRESHOLD })}
+        >
+          {flood && <span aria-hidden>▲ </span>}
+          {t(flood ? 'alx.floodOver' : 'alx.floodPeak', { peak, limit: FLOOD_THRESHOLD })}
+        </span>
         {picked && (
           <button type="button" className="text-blue hover:underline focus-visible:outline-2 focus-visible:outline-blue" onClick={() => onPick(null)}>
             {t('alarms.densityClear')}

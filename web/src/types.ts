@@ -19,7 +19,7 @@ export interface Alarm {
   tag: string;
   rule: string;
   severity: string;    // 'critical' | 'warning' | ... (free-form per contract)
-  state: 'active' | 'acked' | 'cleared' | string;
+  state: 'active' | 'rtn_unack' | 'acked' | 'cleared' | string;
   ts: string;
   acked_at?: string | null;
   acked_by?: string | null;
