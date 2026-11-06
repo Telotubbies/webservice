@@ -175,7 +175,7 @@ def run(web):
         page.get_by_role("button", name="View", exact=True).click()
         page.locator('svg a[aria-label^="Open controls for Mixer"]').first.click()
         page.wait_for_timeout(1500)
-        check("click: opens the control page for that part", "/live" in page.url and "part=Mixer" in page.url, page.url)
+        check("click: opens the control page for that part", "part=Mixer" in page.url, page.url)
 
         # 8. phone width: schematic scrolls inside its card, page does not
         page.set_viewport_size({"width": 390, "height": 844})

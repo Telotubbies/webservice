@@ -5,7 +5,7 @@
 // store flush.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { live } from '../../lib/live';
 import { useStore } from '../../lib/hooks';
@@ -40,6 +40,14 @@ export function Line3DPage() {
   const [q, setQ] = useState('');
   const [plans, setPlans] = useState<Partial<Record<PlanKind, PlanImage>>>({});
   const ver = useStore(() => live.version);
+  // ?part=<label> (the board's control link) selects that part so its panel and control sheet open
+  const [params] = useSearchParams();
+  const wanted = params.get('part');
+  useEffect(() => {
+    if (!ready || !wanted) return;
+    const i = src.parts.findIndex((p) => p.label === wanted);
+    if (i >= 0) { setMode('3d'); setSel(String(i)); }
+  }, [ready, wanted, src.parts]);
   const reduced = useMemo(() => matchMedia('(prefers-reduced-motion: reduce)').matches, []);
 
   useEffect(() => {
