@@ -127,14 +127,19 @@ Tag      { "id", "site_id", "edge_id", "path": "sort/line1/motor1/running", "nam
            "type": "bool|number", "unit"?, "writable", "min"?, "max"?, "step"?, "enum"?, "requires"?: [string] }
 TagValue { "tag_id", "v", "q": "good|bad|stale|uncertain", "ts" }
 Alarm    { "id", "tag_id", "rule_id", "severity": "info|warning|critical",
-           "state": "active|acked|cleared", "raised_at", "acked_at"?, "acked_by"?, "cleared_at"?, "version" }
+           "state": "active|acked|rtn_unack|cleared", "raised_at", "acked_at"?, "acked_by"?, "cleared_at"?, "version" }
 AlarmRule{ "id", "tag_id", "kind": "hi|hihi|lo|lolo|stale", "threshold"?, "stale_s"?, "deadband"?, "severity", "enabled" }
-Command  { "id", "tag_id", "value", "status": "accepted|dispatched|acknowledged|rejected|failed|timeout",
-           "reason"?, "ttl_s", "issued_at", "updated_at", "actor": {"user_id","display_name"}, "version",
+Command  { "id", "tag_id", "value", "status": "accepted|dispatched|acknowledged|rejected|failed|timeout|unknown",
+           "note"?, "reason"?, "ttl_s", "issued_at", "updated_at", "actor": {"user_id","display_name"}, "version",
            "events"?: [{ "from", "to", "actor", "reason"?, "at" }] }
 ```
 
-POST `/commands` body: `{ "tag_id", "value", "ttl_s"?: 1..60 (default 10), "idempotency_key"?: string ≤64, "note"?: string ≤200 }`.
+POST `/commands` body: `{ "tag_id", "value", "ttl_s"?: 1..60 (default 10), "idempotency_key"?: string ≤64, "note"?: string ≤200, "dry_run"?: bool }`.
+`note` (the reason) is required on every command (422 `reason_required` / `reason_too_long`). Status `unknown` is terminal: the edge wrote the tag but could not read it back (a read-back mismatch is `failed`). The edge cmd-resp status may also be `unknown`. Refusals carry `detail` one of `permissive_not_met`, `invalid_value`, `out_of_range`, `not_writable`. With `dry_run: true` nothing is sent or stored; the answer is `200 {dry_run: true, ok, sent: false, checks: [{id, ok, blocking, error}], expected: {value, readback, unit}}` and one `command.dry_run` audit row. The v1 `POST /api/commands` accepts `reason` (maps to `note`) and `dry_run` the same way; v1 status `unknown` also exists.
+
+Alarm response (F06): `rtn_unack` = returned to normal, not yet acknowledged (counts as active, ackable). Shelving needs a reason (3+ chars), at most 7 days, 409 on a cleared alarm; `GET /api/v1/orgs/{org}/alarm-shelf` lists current shelves (who, why, until). `GET /api/v1/ack/{token}` previews an ack link without consuming it; `POST` acks.
+
+Plant board (F07), under `/api/v1/orgs/{org}/sites/{site}/plant-board`: `GET` (published + draft), `PUT /draft`, `POST /publish`, `POST /rollback`, `GET|PUT /captures`. Writes need `config:write` and are audited.
 
 ## 5. WebSocket `/ws/v1`
 

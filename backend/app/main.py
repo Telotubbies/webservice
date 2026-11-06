@@ -75,6 +75,7 @@ from .vision.models import router as models_router
 from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
+from .plant.board import router as board_router
 from .plant.hierarchy import router as hierarchy_router
 from .production.formulas import router as formulas_router
 from .alarming.push import router as push_router
@@ -191,6 +192,8 @@ class CommandIn(BaseModel):
     value: float | bool
     ttl_s: int = Field(default=10, ge=1, le=60)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=64)
+    reason: str | None = Field(default=None, max_length=200)
+    dry_run: bool = False
 
     @field_validator("tag")
     @classmethod
@@ -208,6 +211,7 @@ class CommandInV2(BaseModel):
     ttl_s: int = Field(default=10, ge=1, le=60)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=64)
     note: str | None = Field(default=None, max_length=200)
+    dry_run: bool = False
 
     _v_finite = field_validator("value")(_finite)
 
@@ -992,11 +996,17 @@ async def post_command(body: CommandIn, request: Request,
                        sc: Scope = Depends(v1_operate)):
     step_up(sc.p)
     s = st(request)
+    tag = s.registry.by_display_name(sc.site_id, body.tag)
+    if body.dry_run:
+        code, resp = await s.commands.dry_run(
+            tag=tag, org_id=sc.org_id, value=body.value, note=body.reason,
+            user_id=sc.p.user_id)
+        return JSONResponse(status_code=code, content=resp)
     code, resp = await s.commands.issue(
-        tag=s.registry.by_display_name(sc.site_id, body.tag),
-        org_id=sc.org_id, site_id=sc.site_id,
+        tag=tag, org_id=sc.org_id, site_id=sc.site_id,
         value=body.value, ttl_s=body.ttl_s,
-        idempotency_key=body.idempotency_key, user_id=sc.p.user_id)
+        idempotency_key=body.idempotency_key, user_id=sc.p.user_id,
+        note=body.reason)
     out = JSONResponse(status_code=code, content=resp)
     if code == 429:
         # RFC 6585 — clients back off on the header, not the body
@@ -1340,6 +1350,11 @@ async def v2_post_command(org: str, site: str, body: CommandInV2,
     step_up(p)
     tag = await _v2_tag_or_404(request, org_id, site_id, body.tag_id)
     s = st(request)
+    if body.dry_run:
+        code, resp = await s.commands.dry_run(
+            tag=tag, org_id=org_id, value=body.value, note=body.note,
+            user_id=p.user_id)
+        return JSONResponse(status_code=code, content=resp)
     code, resp = await s.commands.issue(
         tag=tag, org_id=org_id, site_id=site_id, value=body.value,
         ttl_s=body.ttl_s, idempotency_key=body.idempotency_key,
@@ -1718,6 +1733,7 @@ app.include_router(datasources_router)
 app.include_router(videos_router)
 app.include_router(plant_router)
 app.include_router(hierarchy_router)
+app.include_router(board_router)
 app.include_router(formulas_router)
 app.include_router(push_router)
 app.include_router(cameras_router)
