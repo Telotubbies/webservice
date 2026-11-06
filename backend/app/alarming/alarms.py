@@ -10,7 +10,9 @@ clear; stale (no fresh good sample for stale_s) evaluated by a periodic sweep.
 Trend kinds (window_s lookback over tag_history, `threshold` is the trip level):
 roc (|change| over the window), anomaly (z-score vs the window baseline),
 forecast (linear fit projected window_s ahead). They clear at threshold-deadband.
-One open (active|acked) alarm per rule is enforced by a partial unique index.
+Lifecycle (ISA-18.2): active -ack-> acked -normal-> cleared; active -normal->
+rtn_unack -ack-> cleared, and rtn_unack -trip-> active again (same episode).
+One open (active|acked|rtn_unack) alarm per rule: partial unique index.
 """
 
 from __future__ import annotations
@@ -33,7 +35,8 @@ from ..db.util import iso_z, utcnow
 
 log = logging.getLogger("backend.alarms")
 
-OPEN_STATES = ("active", "acked")
+OPEN_STATES = ("active", "acked", "rtn_unack")
+ABNORMAL_STATES = ("active", "acked")  # the process value is still out of limits
 
 
 @dataclass(frozen=True)
@@ -123,10 +126,10 @@ def is_evaluable(q: str, ts: datetime, now: datetime | None = None) -> bool:
 
 
 ALARM_SQL = """
-SELECT a.id, a.tag_id, a.rule_id, r.name AS rule, a.severity, a.state, a.raised_at,
+SELECT a.id, a.tag_id, a.rule_id, COALESCE(r.name, a.rule_name) AS rule, a.late, a.severity, a.state, a.raised_at,
        a.acked_at, a.cleared_at, a.version, u.display_name AS acked_by,
        a.shelved_until, a.assigned_to, au.display_name AS assigned_name
-FROM alarms a JOIN alarm_rules r ON r.id = a.rule_id
+FROM alarms a LEFT JOIN alarm_rules r ON r.id = a.rule_id
 LEFT JOIN users u ON u.id = a.acked_by
 LEFT JOIN users au ON au.id = a.assigned_to
 """
@@ -190,29 +193,37 @@ class AlarmEngine:
 
     # ── Evaluation ──
     async def evaluate(self, tc: TenantConn, tag_id: UUID, v, q: str, ts: datetime) -> None:
-        if not is_evaluable(q, ts):
+        if q != "good":
             return
+        # A good sample older than ALARM_FRESH_S is a backfill/replay: it may
+        # RECORD a past excursion (marked late) but never resolve or re-open
+        # anything, since we do not know the value now (I1/I2).
+        late = not is_evaluable(q, ts)
         rules = self._rules.get(tag_id)
         if not rules:
             return
         numeric = isinstance(v, (int, float)) and not isinstance(v, bool)
         for rule in rules:
+            if late:
+                if (numeric and rule.kind not in TREND_KINDS and rule.kind != "stale"
+                        and triggered(rule, float(v))):
+                    await self._raise(tc, rule, ts, late=True)
+                continue
             open_row = await tc.fetchrow(
-                "SELECT id FROM alarms WHERE rule_id=$1 AND state = ANY($2::text[])",
+                "SELECT id, state FROM alarms WHERE rule_id=$1 AND state = ANY($2::text[])",
                 rule.id, list(OPEN_STATES))
             if rule.kind == "stale":
-                if open_row is not None:
-                    await self._clear(tc, open_row["id"], rule)
+                await self._normal(tc, rule, open_row, ts)
                 continue
             if not numeric:
                 continue
             if rule.kind in TREND_KINDS:
                 await self._evaluate_trend(tc, rule, float(v), ts, open_row)
                 continue
-            if open_row is None and triggered(rule, float(v)):
-                await self._raise(tc, rule, ts)
-            elif open_row is not None and cleared(rule, float(v)):
-                await self._clear(tc, open_row["id"], rule)
+            if triggered(rule, float(v)):
+                await self._trip(tc, rule, open_row, ts)
+            elif cleared(rule, float(v)):
+                await self._normal(tc, rule, open_row, ts)
 
     async def _evaluate_trend(self, tc: TenantConn, rule: Rule, v: float,
                               ts: datetime, open_row) -> None:
@@ -233,10 +244,10 @@ class AlarmEngine:
         score = trend_score(rule.kind, samples, ts.timestamp(), rule.window_s)
         if score is None:
             return
-        if open_row is None and trend_triggered(rule, score):
-            await self._raise(tc, rule, ts)
-        elif open_row is not None and trend_cleared(rule, score):
-            await self._clear(tc, open_row["id"], rule)
+        if trend_triggered(rule, score):
+            await self._trip(tc, rule, open_row, ts)
+        elif trend_cleared(rule, score):
+            await self._normal(tc, rule, open_row, ts)
 
     async def sweep_stale(self) -> None:
         """Raise `stale` rules whose tag has no fresh good sample within
@@ -255,11 +266,10 @@ class AlarmEngine:
                         " AND ts > $2", rule.tag_id, now - timedelta(seconds=rule.stale_s))
                     if last is not None:
                         continue
-                    exists = await tc.fetchval(
-                        "SELECT 1 FROM alarms WHERE rule_id=$1 AND state = ANY($2::text[])",
+                    open_row = await tc.fetchrow(
+                        "SELECT id, state FROM alarms WHERE rule_id=$1 AND state = ANY($2::text[])",
                         rule.id, list(OPEN_STATES))
-                    if not exists:
-                        await self._raise(tc, rule, now)
+                    await self._trip(tc, rule, open_row, now)
 
     async def _muted(self, tc: TenantConn, rule: Rule, ts: datetime) -> bool:
         """A maintenance window covers this rule (or every rule) at `ts`; a
@@ -270,19 +280,26 @@ class AlarmEngine:
             " AND mod(extract(epoch FROM $2 - starts_at), 604800)"
             "     < extract(epoch FROM ends_at - starts_at))) LIMIT 1", rule.id, ts))
 
-    async def _raise(self, tc: TenantConn, rule: Rule, ts: datetime) -> None:
+    async def _raise(self, tc: TenantConn, rule: Rule, ts: datetime,
+                     late: bool = False) -> None:
         # §3.2: a downtime suppresses NOTIFICATION DELIVERY, not the alarm —
         # the episode is recorded (console + audit + history) and the send-time
         # gate in notify.py drops the delivery with a 'suppressed' row. A muted
         # raise still doesn't enqueue here either (cheaper than a job that
         # only writes 'suppressed').
+        if late and await tc.fetchval(
+                # replayed duplicate: this instant is already inside a recorded episode
+                "SELECT 1 FROM alarms WHERE rule_id=$1 AND raised_at <= $2"
+                " AND (cleared_at IS NULL OR cleared_at >= $2) LIMIT 1", rule.id, ts):
+            return
         muted = await self._muted(tc, rule, ts)
         try:
             async with tc.conn.transaction():  # savepoint: losing the race is fine
                 aid = await tc.fetchval(
-                    "INSERT INTO alarms(org_id, tag_id, rule_id, severity, state, raised_at)"
-                    " VALUES ($1,$2,$3,$4,'active',$5) RETURNING id",
-                    tc.org_id, rule.tag_id, rule.id, rule.severity, ts)
+                    "INSERT INTO alarms(org_id, tag_id, rule_id, rule_name, severity,"
+                    " state, raised_at, late) VALUES ($1,$2,$3,$4,$5,'active',$6,$7)"
+                    " RETURNING id",
+                    tc.org_id, rule.tag_id, rule.id, rule.name, rule.severity, ts, late)
         except asyncpg.UniqueViolationError:
             return
         await audit.append(tc, "alarm-engine", "alarm.raise",
@@ -299,12 +316,46 @@ class AlarmEngine:
                            "org_id": str(tc.org_id),
                            "tag_id": str(rule.tag_id)},
                           org_id=tc.org_id)
-        if not muted and _rule_wants_notify(rule, rule.severity):
+        if not muted and not late and _rule_wants_notify(rule, rule.severity):
             await _enqueue_notify(tc, rule, aid, "raised")
+
+    async def _trip(self, tc: TenantConn, rule: Rule, open_row, ts: datetime) -> None:
+        """Process is out of limits: raise, or re-arm an rtn_unack episode."""
+        if open_row is None:
+            await self._raise(tc, rule, ts)
+        elif open_row["state"] == "rtn_unack":
+            await self._set_state(tc, open_row["id"], rule, "active", "alarm.realarm", None)
+
+    async def _normal(self, tc: TenantConn, rule: Rule, open_row, ts: datetime) -> None:
+        """Process is back in limits: unacked stays open as rtn_unack."""
+        if open_row is None:
+            return
+        if open_row["state"] == "active":
+            await self._set_state(tc, open_row["id"], rule, "rtn_unack", "alarm.rtn", ts)
+        elif open_row["state"] == "acked":
+            await self._clear(tc, open_row["id"], rule)
+
+    async def _set_state(self, tc: TenantConn, alarm_id: UUID, rule: Rule, state: str,
+                         action: str, cleared_at: datetime | None) -> None:
+        n = await tc.execute(
+            "UPDATE alarms SET state=$2, cleared_at=$3, version=version+1"
+            " WHERE id=$1 AND state = ANY($4::text[])",
+            alarm_id, state, cleared_at, list(OPEN_STATES))
+        if n == "UPDATE 0":
+            return
+        await audit.append(tc, "alarm-engine", action,
+                           {"alarm_id": str(alarm_id), "tag_id": str(rule.tag_id)},
+                           {"rule": rule.name})
+        alarm = await self._serialize(tc, alarm_id)
+        self.ws.broadcast({"type": "alarm_update", **alarm,
+                           "org_id": str(tc.org_id),
+                           "tag_id": str(rule.tag_id)},
+                          org_id=tc.org_id)
 
     async def _clear(self, tc: TenantConn, alarm_id: UUID, rule: Rule) -> None:
         n = await tc.execute(
-            "UPDATE alarms SET state='cleared', cleared_at=now(), version=version+1"
+            "UPDATE alarms SET state='cleared', cleared_at=COALESCE(cleared_at, now()),"
+            " version=version+1"
             " WHERE id=$1 AND state = ANY($2::text[])", alarm_id, list(OPEN_STATES))
         if n == "UPDATE 0":
             return
@@ -356,6 +407,20 @@ class AlarmEngine:
                                "tag_id": str(row["tag_id"])},
                               org_id=tc.org_id)
             return alarm
+        if row["state"] == "rtn_unack":
+            await tc.execute(
+                "UPDATE alarms SET state='cleared', acked_at=now(), acked_by=$2,"
+                " version=version+1 WHERE id=$1 AND state='rtn_unack'", alarm_id, user_id)
+            await audit.append(tc, actor, "alarm.ack",
+                               {"alarm_id": str(alarm_id), "tag_id": str(row["tag_id"])})
+            self.counters["alarms_acked"] += 1
+            self.counters["alarms_cleared"] += 1
+            alarm = await self._serialize(tc, alarm_id)
+            self.ws.broadcast({"type": "alarm_update", **alarm,
+                               "org_id": str(tc.org_id),
+                               "tag_id": str(row["tag_id"])},
+                              org_id=tc.org_id)
+            return alarm
         return await self._serialize(tc, alarm_id)
 
     async def list_alarms_v2(self, tc: TenantConn, site_id: UUID,
@@ -382,10 +447,11 @@ class AlarmEngine:
         return {
             "id": str(r["id"]),
             "tag_id": str(r["tag_id"]),
-            "rule_id": str(r["rule_id"]),
+            "rule_id": str(r["rule_id"]) if r["rule_id"] else None,
             "rule": r["rule"],                  # display convenience
             "severity": r["severity"],
             "state": r["state"],
+            "late": r["late"],
             "raised_at": iso_z(r["raised_at"]),
             "acked_at": iso_z(r["acked_at"]) if r["acked_at"] else None,
             "acked_by": r["acked_by"],
@@ -409,6 +475,7 @@ class AlarmEngine:
             "rule": r["rule"],
             "severity": r["severity"],
             "state": r["state"],
+            "late": r["late"],
             "ts": iso_z(r["raised_at"]),
             "acked_by": r["acked_by"],
             "version": r["version"],
