@@ -27,7 +27,7 @@ from conftest import TAGS, OPERATOR_TOKEN, wait_until  # noqa: E402
 
 CMD_LIMIT = int(os.environ.get("RATE_COMMANDS_PER_TAG", "5"))
 CMD_WINDOW = float(os.environ.get("RATE_COMMANDS_WINDOW_S", "10"))
-MUT_LIMIT = int(os.environ.get("RATE_MUTATIONS_PER_USER", "60"))
+MUT_LIMIT = int(os.environ.get("RATE_MUTATIONS_PER_USER", "600"))
 WS_CAP = int(os.environ.get("RATE_WS_PER_IP", "20"))
 
 
