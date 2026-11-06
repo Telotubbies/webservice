@@ -23,7 +23,7 @@ export const controlHref = (p: { label: string }) => `/?part=${encodeURIComponen
 export const DEMO_SHA = 'demo-centrale-beton';
 
 /** capture-cache key: the sha alone would reuse another tenant's pictures after an org switch */
-export const capKey = (sha: string) => { const s = getScope(); return `${s?.orgId}/${s?.siteId}/${sha}`; };
+export const capKey = (sha: string, s: { orgId: string; siteId: string } | null = getScope()) => `${s?.orgId}/${s?.siteId}/${sha}`;
 
 const base = (path: string) => {
   const s = getScope();
