@@ -25,7 +25,8 @@
 :lang(th) main :is(
   [class*='text-[9px]'], [class*='text-[9.5px]'], [class*='text-[10px]'], [class*='text-[10.5px]'],
   [class*='text-[11px]'], [class*='text-[12px]'], [class*='text-[13px]']
-) { font-size: 14px; }
+)
+:not(:is([class~='h-4'], [class~='h-5'], [class~='h-6'], [class~='h-7'], [class*='overflow-hidden'], .truncate, [class~='h-5'] *, [class~='h-6'] *, [class~='h-7'] *, [class*='overflow-hidden'] *, .truncate *)) { font-size: 14px; }
 :lang(th) main :is(th, td, dd, dt, label, p, li, button, a) { line-height: 1.5; }
 :lang(th) :is(.overline, .field-label, .btn-sm) { font-size: 14px; }
 :lang(th) :is(.font-mono, .num, code, kbd) { font-family: var(--font-sans); font-variant-numeric: tabular-nums; }

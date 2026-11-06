@@ -605,8 +605,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   if (rest === '/onboarding') {
     // derived from the mock's own lists, never hard-coded to "all done"
     const steps: [string, string, boolean][] = [
-      ['gateway', '/infrastructure/sources', plant.edges(t).length > 0], ['data', '/infrastructure/sources', true],
-      ['dashboard', '/dashboards?new=1', dashboards.some((d) => d.mine)], ['alarm_rule', '/admin/rules/new', true],
+      ['gateway', '/infrastructure/sources', plant.edges(t).length > 0], ['data', '/infrastructure/sources', sim.TAGS.some((g) => sim.value(g.name) != null)],
+      ['dashboard', '/dashboards?new=1', dashboards.some((d) => d.mine)], ['alarm_rule', '/admin/rules/new', sim.RULES.some((r) => r.enabled)],
       ['notify', '/settings', v2channels.some((c) => c.enabled)], ['teammate', '/admin/users', members.length > 1],
     ];
     const done = steps.filter((x) => x[2]).length;

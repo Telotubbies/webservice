@@ -213,7 +213,11 @@ export function LinePage() {
         <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
           <Card title={t('line.schematic')} pad={false}
             actions={<span className="text-[11px] text-ink-46">{t('line.selectHint')}{runTs && ` · ${t('state.updated', { age: fmtAge(runTs, now) })}`}</span>}>
-            <div className="overflow-x-auto p-2"><Mimic sel={sel} onSelect={setSel} /></div>
+            <div className="relative">
+              <div className="overflow-x-auto p-2" tabIndex={0} role="region" aria-label={t('line.schematic')}><Mimic sel={sel} onSelect={setSel} /></div>
+              <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-paper to-transparent md:hidden" />
+            </div>
+            <p className="px-3 pb-1 text-[11px] text-ink-46 md:hidden">{t('line.scrollHint')}</p>
             <p className="border-t border-line px-3 py-2 text-[11px] text-ink-46">{t('line.legend')}</p>
           </Card>
           <Faceplate id={sel} onSelect={setSel} />
