@@ -10,7 +10,7 @@ from alembic import op
 
 revision = "0057"
 # 0056 is reserved for another feature; re-point this at "0056" when it lands.
-down_revision = "0055"
+down_revision = "0056"
 branch_labels = None
 depends_on = None
 
