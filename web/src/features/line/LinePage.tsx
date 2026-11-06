@@ -51,8 +51,8 @@ function Controls() {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
+    <div className="line-controls flex flex-col gap-3">
+      <div className="flex gap-3">
         <button className="btn flex-1 justify-center" disabled={busy} onClick={() => setConfirmStart(true)}>
           <Icon name="play" size={14} /> {t('control.start')}
         </button>
@@ -90,7 +90,7 @@ function Controls() {
         )}
       </div>
       <form
-        className="flex gap-2"
+        className="flex gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           // Number('') === 0, so blank input must be rejected explicitly.
@@ -210,10 +210,14 @@ export function LinePage() {
       <PageBar title={t('line.title')} lede={t('line.lede')} actions={<EquipmentPicker />} />
       <div className="flex flex-col gap-3 p-4">
         <LineStatusBar />
-        <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
           <Card title={t('line.schematic')} pad={false}
             actions={<span className="text-[11px] text-ink-46">{t('line.selectHint')}{runTs && ` · ${t('state.updated', { age: fmtAge(runTs, now) })}`}</span>}>
-            <div className="overflow-x-auto p-2"><Mimic sel={sel} onSelect={setSel} /></div>
+            <div className="relative">
+              <div className="overflow-x-auto p-2" tabIndex={0} role="region" aria-label={t('line.schematic')}><Mimic sel={sel} onSelect={setSel} /></div>
+              <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-paper to-transparent md:hidden" />
+            </div>
+            <p className="px-3 pb-1 text-[11px] text-ink-46 md:hidden">{t('line.scrollHint')}</p>
             <p className="border-t border-line px-3 py-2 text-[11px] text-ink-46">{t('line.legend')}</p>
           </Card>
           <Faceplate id={sel} onSelect={setSel} />

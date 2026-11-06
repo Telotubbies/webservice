@@ -63,7 +63,7 @@ export function Confirm({ title, body, confirm, danger = true, onYes, onNo }: {
     <div className="fixed inset-0 z-[90] grid place-items-center bg-ink/30" onClick={onNo}>
       <div
         ref={boxRef}
-        className="w-[400px] max-w-[92vw] rounded-md border border-line bg-paper shadow-flyout"
+        className="w-[400px] max-w-[calc(100vw-24px)] rounded-md border border-line bg-paper shadow-flyout"
         onClick={(e) => e.stopPropagation()}
         role="alertdialog"
         aria-modal="true"
