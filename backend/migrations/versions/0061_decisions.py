@@ -10,7 +10,7 @@ from alembic import op
 
 revision = "0061"
 # TODO(integration): set to the real head after the other waves merge (0058 is only the head on ui-v4 today).
-down_revision = "0058"
+down_revision = "0060"
 branch_labels = None
 depends_on = None
 
