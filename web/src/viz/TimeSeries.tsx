@@ -40,7 +40,7 @@ const reducedMotion = () =>
 export function TimeSeries({
   series, limits = [], unit, xRange, height, fill = false, syncKey, onZoom,
   yMin, yMax, legend = true, loading, error, onRetry, compact = false,
-  annotations = [], view, hasPrevious = false,
+  annotations = [], view, hasPrevious = false, plugins, detail,
 }: {
   series: ChartSeries[];
   limits?: Limit[];
@@ -64,6 +64,10 @@ export function TimeSeries({
   view?: 'chart' | 'table';
   /** a previous render exists: a refetch dims it instead of a skeleton */
   hasPrevious?: boolean;
+  /** extra uPlot plugins, built once per chart (they read their data from a ref) */
+  plugins?: uPlot.Plugin[];
+  /** extra tooltip line for a sample time (epoch s) */
+  detail?: (tSec: number) => string | null;
 }) {
   const { t, i18n } = useTranslation();
   const box = useRef<HTMLDivElement>(null);
@@ -111,7 +115,7 @@ export function TimeSeries({
     const size = () => ({ width: Math.max(120, el.clientWidth), height: height ?? Math.max(80, el.clientHeight) });
     const opts = chartOptions({
       ...size(),
-      series, limits, unit, locale: i18n.language, yMin, yMax, syncKey, theme, annotations,
+      series, limits, unit, locale: i18n.language, yMin, yMax, syncKey, theme, annotations, plugins, detail,
       xRange: rangeRef.current,
       onZoom: zoomRef.current ? (a, b) => zoomRef.current?.(a, b) : undefined,
     });
