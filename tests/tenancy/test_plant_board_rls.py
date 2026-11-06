@@ -3,7 +3,6 @@ one draft per model, status/version CHECK, unique published versions."""
 
 from __future__ import annotations
 
-import json
 
 import asyncpg
 import pytest
@@ -12,7 +11,7 @@ pytestmark = pytest.mark.db
 
 from tenancy.conftest import make_pools, run
 
-LAYOUT = json.dumps({"v": 1, "w": 100, "h": 100, "items": {}})
+LAYOUT = {"v": 1, "w": 100, "h": 100, "items": {}}
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 8
 
 
@@ -69,6 +68,29 @@ def test_one_draft_and_unique_versions_and_status_check(two_orgs):
                     with pytest.raises(asyncpg.CheckViolationError):
                         async with tc.conn.transaction():
                             await _board(tc, a, status, version, sha="other-sha")
+        finally:
+            await pools.close()
+    run(go())
+
+
+def test_draft_upsert_keeps_one_row(two_orgs):
+    """The draft upsert the API uses (ON CONFLICT on the partial unique index)."""
+    a, _ = two_orgs
+    from app.db.context import tenant_tx
+
+    async def go():
+        pools = await make_pools()
+        try:
+            async with tenant_tx(pools.app, a["org"]) as tc:
+                for w in (100, 200):
+                    await tc.fetchrow(
+                        "INSERT INTO plant_boards(org_id, site_id, model_id, model_sha, status, layout)"
+                        " VALUES ($1,$2,NULL,'demo-sha','draft',$3::jsonb)"
+                        " ON CONFLICT (org_id, site_id, model_sha) WHERE status = 'draft'"
+                        " DO UPDATE SET layout=EXCLUDED.layout RETURNING *",
+                        a["org"], a["site"], {**LAYOUT, "w": w})
+                rows = await tc.fetch("SELECT layout FROM plant_boards WHERE status='draft'")
+                assert len(rows) == 1 and rows[0]["layout"]["w"] == 200
         finally:
             await pools.close()
     run(go())

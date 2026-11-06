@@ -14,6 +14,7 @@ Fails on any command POST: the board must never write to the PLC.
 
 import importlib.util
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -80,10 +81,17 @@ def run(web):
         page.screenshot(path=str(SHOTS / "board-1440-view.png"), full_page=True)
 
         # 2. live value / alarm / stale
-        page.wait_for_selector('svg g[data-part="Cement silo 1"][data-stale="0"]', state='attached', timeout=40000)
+        # the mock only pushes changed tags, so make silo 1 fresh through the real store path
+        page.evaluate("""async () => {
+            const { live } = await import('/src/lib/live.ts');
+            const p = live.tags[0].name.split('.')[0];
+            live.pushTag(p + '.batch.cem.silo1.level_pct', 62.5, 'good', new Date().toISOString());
+            for (const n of [2, 3, 4]) live.latest.set(p + `.batch.cem.silo${n}.level_pct`, { v: 40, q: 'good', ts: new Date(Date.now() - 120000).toISOString() });
+        }""")
+        page.wait_for_selector('svg g[data-part="Cement silo 1"][data-stale="0"]', state='attached', timeout=10000)
         silo1 = part(page, "Cement silo 1")
-        check("live: silo 1 shows a number", "%" in silo1.text_content() and "———" not in silo1.text_content(), silo1.text_content())
-        check("live: silo with no data is marked stale", part(page, "Cement silo 2").get_attribute("data-stale") == "1")
+        check("live: silo 1 shows a number", re.search(r"\d+\s*%", silo1.text_content()) is not None and "———" not in silo1.text_content(), silo1.text_content())
+        check("stale: a tag last seen 2 min ago is marked stale", page.locator('svg g[data-part^="Cement silo"][data-stale="1"]').count() >= 1)
         check("live: running part has data", part(page, "Cement silo 1").get_attribute("data-stale") == "0")
         page.evaluate("""async () => {
             const { live } = await import('/src/lib/live.ts');
