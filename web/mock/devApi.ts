@@ -648,7 +648,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     if (what === 'events') return send(200, { items: [...(a?.acked_by ? [{ kind: 'ack', author: a.acked_by, body: '', at: a.acked_at! }] : []), ...evs] });
     if (!operate) return send(403, { detail: 'operator role required' });
     const b = await body(req);
-    if (what === 'ack-link') return send(200, { url: `${url.origin}/ack/mock-${id}`, expires_in: Number(b.ttl_s) || 3600 });
+    if (what === 'ack-link') return send(200, { url: `/api/v1/ack/mock-${id}`, expires_in: Number(b.ttl_s) || 3600 });
     if (!a) return send(404, { detail: 'unknown alarm' });
     if (what === 'shelve') {
       // same rules as the backend: a reason, at most a week, never a closed alarm

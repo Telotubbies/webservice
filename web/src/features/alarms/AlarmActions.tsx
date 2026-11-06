@@ -15,19 +15,14 @@ import type { Alarm } from '../../types';
 import '../notify/i18n';
 import './i18n';
 
-const SHELF_MINUTES = [60, 240, 480, 1440, 10080] as const;
-
 export function AlarmActions({ alarm, orgId, operable }: {
   alarm: Alarm; orgId: string | null; operable: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const aid = String(alarm.id);
-  const shelved = !!alarm.shelved_until && Date.parse(alarm.shelved_until) > Date.now();
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
-  const [mins, setMins] = useState<number>(480);
-  const [reason, setReason] = useState('');
   const [assignee, setAssignee] = useState('');
   const [comment, setComment] = useState('');
   const [link, setLink] = useState<string | null>(null);
@@ -52,16 +47,6 @@ export function AlarmActions({ alarm, orgId, operable }: {
   const ok = (key: string) => { setErr(''); setMsg(t(key)); };
   const refresh = () => void qc.invalidateQueries({ queryKey: ['alarm-events', orgId, aid] });
 
-  const shelve = useMutation({
-    mutationFn: () => notifyApi.shelve(orgId!, aid, mins, reason.trim()),
-    onSuccess: (r) => { refresh(); setErr(''); setMsg(t('al.shelveDone', { at: new Date(r.shelved_until).toLocaleString(i18n.language) })); },
-    onError: () => fail('al.shelveFail'),
-  });
-  const unshelve = useMutation({
-    mutationFn: () => notifyApi.unshelve(orgId!, aid),
-    onSuccess: () => { refresh(); ok('al.assignDone'); },
-    onError: () => fail('al.shelveFail'),
-  });
   const assign = useMutation({
     mutationFn: (uid: string | null) => notifyApi.assign(orgId!, aid, uid),
     onSuccess: () => { refresh(); ok('al.assignDone'); },
@@ -74,7 +59,7 @@ export function AlarmActions({ alarm, orgId, operable }: {
   });
   const makeLink = useMutation({
     mutationFn: () => notifyApi.ackLink(orgId!, aid),
-    onSuccess: (r) => { setLink(`${window.location.origin}${r.url}`); setLinkTtlS(r.expires_in); setErr(''); },
+    onSuccess: (r) => { setLink(`${window.location.origin}${r.url.replace('/api/v1/ack/', '/ack/')}`); setLinkTtlS(r.expires_in); setErr(''); },
     onError: () => fail('al.ackLinkFail'),
   });
 
@@ -84,34 +69,6 @@ export function AlarmActions({ alarm, orgId, operable }: {
   return (
     <Card title={t('al.actions')}>
       <div className="space-y-3">
-        {/* shelve strip */}
-        {operable && (
-          <div className="flex flex-wrap items-center gap-2">
-            {shelved ? (
-              <>
-                <span className="text-[12px] font-semibold text-ink-68">
-                  {t('al.shelvedBadge', { at: new Date(alarm.shelved_until!).toLocaleString(i18n.language) })}
-                </span>
-                <button type="button" className="btn btn-sm" disabled={unshelve.isPending}
-                  onClick={() => unshelve.mutate()}>{t('al.unshelve')}</button>
-              </>
-            ) : (
-              <>
-                <label className="text-[12px] text-ink-68" htmlFor="al-shelf-mins">{t('al.shelveFor')}</label>
-                <select id="al-shelf-mins" className="input h-8 w-28" value={mins}
-                  onChange={(e) => setMins(Number(e.target.value))}>
-                  {SHELF_MINUTES.map((m) => <option key={m} value={m}>{t(`al.m${m}`)}</option>)}
-                </select>
-                <input className="input h-8 w-40" value={reason} maxLength={500}
-                  placeholder={t('al.shelveReason')} aria-label={t('al.shelveReason')}
-                  onChange={(e) => setReason(e.target.value)} />
-                <button type="button" className="btn btn-sm" disabled={shelve.isPending}
-                  onClick={() => shelve.mutate()}>{t('al.shelve')}</button>
-              </>
-            )}
-          </div>
-        )}
-
         {/* assign + mobile ack link */}
         {operable && (
           <div className="flex flex-wrap items-center gap-2">

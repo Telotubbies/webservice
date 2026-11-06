@@ -540,7 +540,8 @@ async def _job_notify_send(st, payload: dict) -> None:
             if event in ("raised", "escalation"):
                 link = await _issue_ack_link(tc, alarm_id, None)
                 base = config.PUBLIC_URL or ""
-                text += f"\nAcknowledge: {base}{link}"
+                # the SPA route /ack/<token> shows the alarm first; the API path would 405 in a browser
+                text += f"\nAcknowledge: {base}{link.replace('/api/v1/ack/', '/ack/')}"
         else:  # built-in vision alarms carry their own text
             subject = str(payload.get("title") or "Vision alarm")[:300]
             text = str(payload.get("detail") or "")[:4000]
