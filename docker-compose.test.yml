@@ -19,7 +19,10 @@ services:
       # v4 T4: rate-limit envs pass through so a test run can shrink the
       # buckets (tests probe until the configured limit, so any value works).
       RATE_COMMANDS_PER_TAG: "${RATE_COMMANDS_PER_TAG:-5}"
-      RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-60}"
+      RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-600}"
+      # Fixtures create orgs/edges/cameras as ONE admin user; 60/min starves
+      # a full run. Same refill rate (1/s), 10x burst. Prod defaults untouched.
+      RATE_MUTATIONS_WINDOW_S: "${RATE_MUTATIONS_WINDOW_S:-600}"
       RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"
       # v4 T13: also trust the pinned gateway (172.30.10.1 = host-side
       # docker-proxy). Host-published ports NAT the peer to the gateway, so

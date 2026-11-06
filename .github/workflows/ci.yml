@@ -51,7 +51,9 @@ jobs:
           python-version: "3.12"
       - run: pip install -r backend/requirements.txt -r tests/requirements.txt
       - name: "Bring up stack with the test overlay (Postgres on 127.0.0.1:5433, seeded Keycloak users)"
-        run: make up-test
+        # postgres was SIGKILLed mid-init once on a runner (restart policy then
+        # recovered it); compose --wait had already given up. One retry is safe.
+        run: make up-test || make up-test
       - name: Tenant isolation / RLS gate (runtime DB roles)
         run: make test-db
       - name: Security sweep

@@ -13,6 +13,7 @@ import i18n from '../../lib/i18n';
 import '../../index.css';
 import { applyTheme } from '../../theme/theme';
 import { StandardChart } from './StandardChart';
+import { SERIES } from '../../viz/palette';
 import { rowsToSamples, type BucketRow, type RawRow } from './shape';
 import { pickSource } from './source';
 import type { ChartHistory } from './useChartHistory';
@@ -60,7 +61,7 @@ createRoot(document.getElementById('root')!).render(
       <main className="mx-auto grid max-w-[980px] gap-4 bg-paper p-4">
         <StandardChart tag="temperature" label="Oven temperature" unit="°C" range={[NOW - 30 * MIN, NOW]} syncKey="live" load={load} limits={lim}
           events={[{ t: NOW - 5 * MIN, kind: 'alarm', severity: 'warning', label: 'High' }, { t: NOW - 26 * MIN, kind: 'command', label: 'Setpoint change' }]} />
-        <StandardChart tag="pressure" label="Line pressure" unit="bar" range={[NOW - 30 * MIN, NOW]} syncKey="live" load={load} color="#0b9a9a" decimals={2} />
+        <StandardChart tag="pressure" label="Line pressure" unit="bar" range={[NOW - 30 * MIN, NOW]} syncKey="live" load={load} color={SERIES.light[3]} decimals={2} />
         <StandardChart tag="temperature" label="Oven temperature, 7 days" unit="°C" range={[NOW - 7 * D, NOW]} limits={lim} load={load} />
         <StandardChart tag="temperature" label="Oven temperature, 30 days" unit="°C" range={[NOW - 30 * D, NOW]} limits={lim} load={load} />
       </main>
