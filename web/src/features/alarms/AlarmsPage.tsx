@@ -162,7 +162,7 @@ export function AlarmsPage() {
   const unackedCrit = unacked.filter((a) => normSeverity(a.severity) === 'critical').length;
   const ackedCount = all.filter((a) => a.state === 'acked').length;
   const ws = useStore(() => live.ws);
-  const shelf = useQuery({ queryKey: ['alarm-shelf', orgId], queryFn: () => shelfApi.list(orgId!), enabled: !!orgId, refetchInterval: 30_000 });
+  const shelf = useQuery({ queryKey: ['alarm-shelf', orgId], queryFn: () => shelfApi.list(orgId!), enabled: !!orgId, refetchInterval: 30_000, staleTime: 0, refetchOnMount: 'always' });
   const shelfCount = shelf.data ? shelf.data.items.filter((r) => Date.parse(r.shelved_until) > now).length : undefined;
 
   // F03 flood grouping — `?group=state|rule|eq`, deep-linkable, default state

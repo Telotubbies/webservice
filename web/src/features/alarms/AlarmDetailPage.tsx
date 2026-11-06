@@ -66,7 +66,7 @@ export function AlarmDetailPage() {
       assigned_name: a.assigned_name ?? v2.assigned_name,
     } : a;
   }, [all, id, site.data]);
-  const shelf = useQuery({ queryKey: ['alarm-shelf', orgId], queryFn: () => shelfApi.list(orgId!), enabled: !!orgId, refetchInterval: 30_000 });
+  const shelf = useQuery({ queryKey: ['alarm-shelf', orgId], queryFn: () => shelfApi.list(orgId!), enabled: !!orgId, refetchInterval: 30_000, staleTime: 0, refetchOnMount: 'always' });
   const unshelve = useMutation({
     mutationFn: () => notifyApi.unshelve(orgId!, String(id)),
     onSuccess: () => {
@@ -208,7 +208,7 @@ export function AlarmDetailPage() {
               </button>
             )}
             {operable && alarm.state !== 'cleared' && !shelvedNow && orgId && (
-              <button type="button" className="btn min-h-11 flex-1 justify-center md:flex-none" onClick={() => setShelving(true)}>{t('shelve.open')}</button>
+              <button type="button" className="btn btn-ghost min-h-11 flex-1 justify-center md:flex-none" onClick={() => setShelving(true)}>{t('shelve.open')}</button>
             )}
             {operable && (
               <a href="#al-assignee" className="btn btn-ghost min-h-11 flex-1 justify-center md:flex-none">{t('al.assign')}</a>

@@ -368,7 +368,15 @@ export function ackAlarm(id: string | number, who: string): SimAlarm | null {
 export function raiseAlarm(ruleId: string): SimAlarm | null {
   const r = RULES.find((x) => x.id === ruleId);
   if (!r) return null;
-  if (openByRule.has(r.id)) return openByRule.get(r.id)!;
+  const open = openByRule.get(r.id);
+  if (open && HELD.has(open.id)) return open;
+  if (open) {
+    // the plant tripped this rule by itself: take the live alarm over, unacknowledged and held
+    Object.assign(open, { state: 'active', ts: new Date().toISOString(), acked_by: null, acked_at: null, cleared_at: null, version: open.version + 1 });
+    HELD.add(open.id);
+    emit({ type: 'alarm_update', ...open });
+    return open;
+  }
   const t = tagByTail(r.tail);
   if (!t) return null;
   const a: SimAlarm = {

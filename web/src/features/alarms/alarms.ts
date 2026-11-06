@@ -155,7 +155,7 @@ export function bucketAlarms(sorted: Alarm[], by: GroupBy): AlarmBucket[] {
   };
 
   if (by === 'state') {
-    return groupAlarms(sorted).map((g) => toBucket(g.key, `alarms.${alarmStateKey(g.state) ?? 'active'}`, undefined, g.alarms));
+    return groupAlarms(sorted).map((g) => toBucket(g.key, g.state === 'rtn_unack' ? 'alx.stateRtn' : `alarms.${alarmStateKey(g.state) ?? 'active'}`, undefined, g.alarms));
   }
 
   const m = new Map<string, Alarm[]>();

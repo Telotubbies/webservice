@@ -31,7 +31,7 @@ export function ShelvedList({ orgId, operable, now }: { orgId: string | null; op
     queryKey: ['alarm-shelf', orgId],
     queryFn: () => shelfApi.list(orgId!),
     enabled: !!orgId,
-    refetchInterval: 30_000,
+    refetchInterval: 30_000, staleTime: 0, refetchOnMount: 'always',
   });
   const unshelve = useMutation({
     mutationFn: (id: string) => notifyApi.unshelve(orgId!, id),
