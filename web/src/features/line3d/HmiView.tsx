@@ -21,14 +21,14 @@ const ISA: Record<string, string> = {
   temperature: 'TI', temp: 'TI', position: 'ZI', value: 'XI', rpm: 'SI',
 };
 const FLUID: Record<string, string> = { water: '#2f7fc8', air: '#8d99ae', cement: '#7c7f86', admixture: '#9b5fc0' };
-const C = {
+export const C = {
   body: '#cdd2db', edge: '#4f5869', run: '#4a5563',   // running = dark neutral, never green (ISA-101)
   alarm: '#d6342c', warn: '#e0a100',
   sel: '#0e9bb5', fill: '#7d9cc9', text: '#1d2330', muted: '#5d6676',
 };
 
-const runFlag = (p: PlantPart) => p.bindings.run ?? p.bindings.open ?? p.bindings.state;
-const numRoles = (p: PlantPart) => Object.keys(p.bindings).filter((r) => !['run', 'open', 'state', 'door', 'high', 'low'].includes(r));
+export const runFlag = (p: PlantPart) => p.bindings.run ?? p.bindings.open ?? p.bindings.state;
+export const numRoles = (p: PlantPart) => Object.keys(p.bindings).filter((r) => !['run', 'open', 'state', 'door', 'high', 'low'].includes(r));
 
 /** Long names wrap at the last space so they fit over a narrow symbol. */
 function twoLines(label: string, w: number): string[] {
@@ -36,7 +36,7 @@ function twoLines(label: string, w: number): string[] {
   return label.length * 7.5 > w + 24 && cut > 0 ? [label.slice(0, cut), label.slice(cut + 1)] : [label];
 }
 
-function useAlarmed(parts: PlantPart[]) {
+export function useAlarmed(parts: PlantPart[]) {
   useStore(() => live.version);
   const map = new Map<string, 'critical' | 'warning'>();
   const owner = new Map<string, string>();
@@ -52,7 +52,7 @@ function useAlarmed(parts: PlantPart[]) {
 }
 
 /** ISA value box: tag letters + live value + unit; dims when stale. */
-function ValueBox({ x, y, role, path, now }: { x: number; y: number; role: string; path: string; now: number }) {
+export function ValueBox({ x, y, role, path, now }: { x: number; y: number; role: string; path: string; now: number }) {
   const { i18n } = useTranslation();
   const name = liveName(path);
   const tv = live.latest.get(name);

@@ -16,6 +16,9 @@ export interface BoardState {
   versions: { version: number; created_at: string; created_by: string | null }[];
 }
 
+/** Where a part's controls live (F05's page on the existing control route). */
+export const controlHref = (p: { label: string }) => `/live?part=${encodeURIComponent(p.label)}`;
+
 /** sha used for the bundled demo plant, which has no uploaded model row */
 export const DEMO_SHA = 'demo-centrale-beton';
 

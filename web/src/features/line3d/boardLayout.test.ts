@@ -156,3 +156,14 @@ test('layout json round-trips', () => {
   const l: BoardLayout = autoLayout(null, parts, boxes, groups);
   expect(JSON.parse(JSON.stringify(l))).toEqual(l);
 });
+
+test('fillMissing adds new parts and moves nothing', async () => {
+  const { fillMissing } = await import('./boardLayout');
+  const full = autoLayout(null, parts, boxes, groups);
+  const gone = partKey(bin);
+  const rest = { ...full.items };
+  delete rest[gone];
+  const filled = fillMissing({ ...full, items: rest }, parts, boxes, groups);
+  expect(filled.items[gone]).toBeDefined();
+  for (const k of Object.keys(rest)) expect(filled.items[k]).toEqual(rest[k]);
+});

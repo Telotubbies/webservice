@@ -91,6 +91,11 @@ export function sizeOf(b: PartBox): { w: number; h: number } {
 const hit = (a: Rect, b: Rect, pad: number) =>
   a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
 
+/** A part occupies more than its picture: a caption and a value box sit under it. */
+const VALUE_W = 108;
+const CAPTION_H = 50;
+const cellOf = (r: Rect): Rect => ({ x: r.x - Math.max(0, (VALUE_W - r.w) / 2), y: r.y, w: Math.max(r.w, VALUE_W), h: r.h + CAPTION_H });
+
 export interface LaidOut { w: number; h: number; items: Record<string, Rect>; lanes: Lane[] }
 
 /**
@@ -106,7 +111,7 @@ export function layoutBoard(
   const box = new Map(boxes.map((b) => [b.key, b]));
   const items: Record<string, Rect> = {};
   const obstacles: Rect[] = [];
-  for (const [k, r] of Object.entries(pinned)) { items[k] = { ...r }; obstacles.push(items[k]); }
+  for (const [k, r] of Object.entries(pinned)) { items[k] = { ...r }; obstacles.push(cellOf(r)); }
 
   const byArea = new Map<string, { key: string; b: PartBox }[]>();
   for (const p of parts) {
@@ -126,16 +131,16 @@ export function layoutBoard(
     let x = PAD, y = laneTop + LANE_HEAD, rowH = 0, bottom = y;
     for (const e of area.list) {
       const { w, h } = sizeOf(e.b);
+      const cw = Math.max(w, VALUE_W), ch = h + CAPTION_H;
       for (let guard = 0; guard < 2000; guard++) {
-        const r = { x, y, w, h };
-        const blocker = obstacles.find((o) => hit(r, o, GAP / 2));
+        const blocker = obstacles.find((o) => hit({ x, y, w: cw, h: ch }, o, GAP / 2));
         if (blocker) { x = blocker.x + blocker.w + GAP / 2; continue; }
-        if (x + w > BOARD_W - PAD && x > PAD) { x = PAD; y += (rowH || 20) + GAP; rowH = 0; continue; }
+        if (x + cw > BOARD_W - PAD && x > PAD) { x = PAD; y += (rowH || 20) + GAP; rowH = 0; continue; }
         break;
       }
-      const r = { x: snap(x), y: snap(y), w, h };
-      items[e.key] = r; obstacles.push(r);
-      x = r.x + w + GAP; rowH = Math.max(rowH, h); bottom = Math.max(bottom, r.y + h);
+      const r = { x: snap(x + (cw - w) / 2), y: snap(y), w, h };
+      items[e.key] = r; obstacles.push(cellOf(r));
+      x += cw + GAP; rowH = Math.max(rowH, ch); bottom = Math.max(bottom, r.y + ch);
     }
     lanes.push({ id: area.id, y: laneTop, h: bottom - laneTop });
     top = bottom + GAP;
@@ -143,7 +148,7 @@ export function layoutBoard(
   const all = Object.values(items);
   return {
     w: Math.max(BOARD_W, ...all.map((r) => r.x + r.w + PAD)),
-    h: Math.max(top, ...all.map((r) => r.y + r.h + PAD)),
+    h: Math.max(top, ...all.map((r) => r.y + r.h + CAPTION_H + PAD)),
     items, lanes,
   };
 }
@@ -211,7 +216,7 @@ const mid = (r: Rect): [number, number] => [r.x + r.w / 2, r.y + r.h / 2];
 
 /** Orthogonal route between two rectangles (down, across, down; or straight across when side by side). */
 export function elbow(a: Rect, b: Rect): [number, number][] {
-  const [ax, ay] = mid(a), [bx, by] = mid(b);
+  const ax = mid(a)[0], bx = mid(b)[0];
   if (b.y >= a.y + a.h) {
     const y1 = a.y + a.h, y2 = b.y, my = snap((y1 + y2) / 2, 2);
     return ax === bx ? [[ax, y1], [bx, y2]] : [[ax, y1], [ax, my], [bx, my], [bx, y2]];
@@ -306,4 +311,13 @@ export function mappingIssues(parts: PlantPart[], caps: Record<string, { w: numb
     else if (Math.max(c.w, c.h) / Math.max(1, Math.min(c.w, c.h)) > 12) out[k] = 'thin';
   }
   return out;
+}
+
+/** Place parts that have no item yet (new mapping) without moving anything that exists. */
+export function fillMissing(l: BoardLayout, parts: PlantPart[], boxes: PartBox[], groups: Record<string, string>): BoardLayout {
+  const pinned = Object.fromEntries(Object.entries(l.items).map(([k, i]) => [k, { x: i.x, y: i.y, w: i.w, h: i.h }]));
+  const out = layoutBoard(parts, boxes, groups, pinned);
+  const items = { ...l.items };
+  for (const [k, r] of Object.entries(out.items)) items[k] ??= r;
+  return { ...l, w: Math.max(l.w, out.w), h: Math.max(l.h, out.h), items };
 }
