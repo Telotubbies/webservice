@@ -35,3 +35,5 @@
 :lang(th) :is(.hm-btn.sm, .hm-site, .hm-tz, .hm-pill, .hm-shifted, .hm-fl, .hm-updated, .hm-link, .hm-unit, .hm-ph-title,
   .hm-delta, .hm-per-name, .hm-grip, .hm-ebar .w, .hm-ytick, .hm-xtick, .hm-th span, .hm-smax, .hm-smin, .hm-sstatus,
   .hm-tr, .hm-tr.th, .hm-top-row, .hm-aglyph, .hm-atag, .hm-aage, .hm-dr-kicker, .hm-fs legend, .hm-field, .hm-hint) { font-size: 14px; }
+:lang(th) main .uppercase { text-transform: none; }
+:lang(th) main [class*='tracking-'] { letter-spacing: 0; }
