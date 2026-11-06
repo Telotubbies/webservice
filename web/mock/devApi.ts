@@ -189,6 +189,7 @@ const v2policies: Record<string, unknown>[] = [
     { after_minutes: 2, channel_ids: ['c-2'], team_ids: [], oncall_team: 'team-maint' },
   ] },
 ];
+const decisions: Record<string, unknown>[] = [];
 const v2downtimes: Record<string, unknown>[] = [
   { id: 'd-1', rule_id: 'r-4', rule: 'Vision feed stale', description: 'Camera lens cleaning', starts_at: iso(T0 - H), ends_at: iso(T0 + 3 * H), recurring: false, mine: true },
   { id: 'd-2', rule_id: null, rule: null, description: 'Weekly preventive maintenance — sorter gearbox', starts_at: iso(T0 + 2 * DAY), ends_at: iso(T0 + 2 * DAY + 4 * H), recurring: true, mine: false },
@@ -973,6 +974,20 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     return done(200, { tag: { id: g.id, path: plant.pathOf(g), name: g.tail.split('.').pop(), unit: g.unit ?? null }, from: iso(from), to: iso(to), agg, ...(bucket ? { bucket_s: bucket } : {}), truncated: false, rows });
   }
   if (rest === '/tag-stats') { const { from, to } = range(url, H); return done(200, { from: iso(from), to: iso(to), gap_s: 30, items: plant.tagStats(from, to) }); }
+  if (rest === '/decisions') {
+    if (GET) {
+      const s = q('subject');
+      return done(200, { items: decisions.filter((d) => !s || d.subject === s).slice(0, Number(q('limit')) || 20) });
+    }
+    if (req.method === 'POST') {
+      if (!c.operate) return done(403, { detail: 'operator role required' });
+      const b = await body(req);
+      if (typeof b.reason !== 'string' || b.reason.trim().length < 3 || !['refill_now', 'refill_later', 'switch_source'].includes(b.option_key as string) || !b.subject) return done(422, { detail: 'invalid decision' });
+      const d = { id: `dec-${decisions.length + 1}`, subject: String(b.subject), option_key: b.option_key, reason: b.reason.trim(), snapshot: b.snapshot ?? {}, decided_by: c.who, decided_at: iso(t) };
+      decisions.unshift(d);
+      return done(200, { decision: d });
+    }
+  }
   if (rest === '/hierarchy') return done(200, plant.hierarchy(q('tags') === 'true'));
   if (rest === '/health') return done(200, plant.siteHealth(t));
   if (rest === '/edges' && GET) return done(200, list(plant.edges(t)));

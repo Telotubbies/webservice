@@ -67,6 +67,7 @@ const ErrorTrackingPage = lazy(() => import('./features/errors/ErrorTrackingPage
 const SloPage = lazy(() => import('./features/slo/SloPage').then((m) => ({ default: m.SloPage })));
 const SloSettingsPage = lazy(() => import('./features/slo/SloSettingsPage').then((m) => ({ default: m.SloSettingsPage })));
 const DowntimesPage = lazy(() => import('./features/downtimes/DowntimesPage').then((m) => ({ default: m.DowntimesPage })));
+const DecisionsPage = lazy(() => import('./features/decisions/DecisionsPage').then((m) => ({ default: m.DecisionsPage })));
 
 // ── Dashboards ──
 const DashboardsPage = lazy(() => import('./features/dashboards/DashboardsPage').then((m) => ({ default: m.DashboardsPage })));
@@ -298,6 +299,7 @@ export default function App() {
             <Route path="slos" element={page(SloPage)} />
             <Route path="slos/settings" element={page(SloSettingsPage)} />
             <Route path="downtimes" element={page(DowntimesPage)} />
+            <Route path="decisions" element={page(DecisionsPage)} />
             <Route path="dashboards" element={page(DashboardsPage)} />
             <Route path="dashboards/:id" element={page(DashboardViewPage)} />
             <Route path="connect/gateways" element={page(DevicesPage)} />
