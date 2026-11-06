@@ -34,7 +34,7 @@ CMD_WINDOW = float(os.environ.get("RATE_COMMANDS_WINDOW_S", "10"))
 MUT_LIMIT = int(os.environ.get("RATE_MUTATIONS_PER_USER", "600"))
 LOGOUT_LIMIT = int(os.environ.get("RATE_LOGOUT_PER_IP", "10"))
 
-BURN_TAG = TAGS["speed_mps"]   # read-only; isolated user+tag bucket
+BURN_TAG = TAGS["speed_sp"]   # writable (F05 refuses read-only tags before the bucket); isolated user+tag bucket
 TERMINAL = ("done", "denied", "failed", "timeout")
 
 
@@ -59,7 +59,7 @@ def test_command_bucket_429_retry_after(api, op_headers):
     hit, accepted = None, 0
     for _ in range(CMD_LIMIT * 4 + 2):
         r = api.post("/api/commands", headers=op_headers,
-                     json={"tag": BURN_TAG, "value": 1.0, "ttl_s": 15,
+                     json={"reason": "integration test", "tag": BURN_TAG, "value": 1.0, "ttl_s": 15,
                            "idempotency_key": f"sec-rl-{uuid.uuid4()}"})
         if r.status_code == 429:
             hit = r
@@ -76,7 +76,7 @@ def test_command_bucket_429_retry_after(api, op_headers):
     # recovery: Retry-After is honest — a legit command lands after it
     time.sleep(min(int(ra) + 1, int(CMD_WINDOW) + 2))
     r = api.post("/api/commands", headers=op_headers,
-                 json={"tag": BURN_TAG, "value": 1.0, "ttl_s": 15,
+                 json={"reason": "integration test", "tag": BURN_TAG, "value": 1.0, "ttl_s": 15,
                        "idempotency_key": f"sec-rl2-{uuid.uuid4()}"})
     assert r.status_code == 201, (r.status_code, r.text[:200])
     _wait_terminal(api, r.json()["command_id"], op_headers)

@@ -5,16 +5,17 @@ Requires BASE_URL. Tests read the same RATE_* envs as the stack under test
 per IP) — set them when the stack is configured differently. Probes are
 bounded so a smaller configured limit still works, just faster.
 
-The command bucket is keyed user+tag, so the burn tests use the read-only
-`level_pct` tag: commands there still pass every gate and burn tokens (the
-edge denies them later), while `running`/`speed_sp`/`temp_c` budgets stay
-free for the rest of the suite.
+The command bucket is keyed user+tag, so the burn tests use the writable
+`speed_sp` tag: commands there pass every gate and burn tokens (the
+edge acknowledges them), so run this file apart from tests that need `speed_sp` budget;
+the others stay free.
 """
 
 import asyncio
 import contextlib
 import json
 import os
+import sys
 import threading
 import time
 import uuid
@@ -38,14 +39,14 @@ def _full_command_bucket():
     any prior state — makes the burn tests order- and rerun-independent."""
     time.sleep(CMD_WINDOW + 2)
 
-BURN_TAG = TAGS["level_pct"]  # read-only: burns an isolated user+tag bucket
+BURN_TAG = TAGS["speed_sp"]  # writable (F05 refuses read-only tags before the bucket); isolated user+tag bucket
 TERMINAL = ("done", "denied", "failed", "timeout")
 
 
 def _post_command(api, headers, tag, value):
     return api.post(
         "/api/commands", headers=headers,
-        json={"tag": tag, "value": value,
+        json={"reason": "integration test", "tag": tag, "value": value,
               "idempotency_key": f"rl-{uuid.uuid4()}", "ttl_s": 15})
 
 
@@ -259,6 +260,15 @@ def test_ws_same_origin_and_missing_origin_allowed(ws_base):
     assert out["none"] == "health", out
 
 
+# Docker Desktop on Windows gives every host connection a different source IP,
+# so one client looks like many and the per-IP cap cannot bite from the host.
+# Verified: from inside the backend container the 21st socket closes 4403.
+_WIN_PEER = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Docker Desktop (Windows) changes the peer IP per connection; the cap works on Linux/CI")
+
+
+@_WIN_PEER
 def test_ws_spoofed_xff_does_not_bypass_ip_cap(ws_base):
     """Client-supplied X-Forwarded-For is attacker-controlled (nginx appends
     after it — first element can be arbitrary). The per-IP bucket must key
@@ -301,6 +311,7 @@ def test_ws_spoofed_xff_does_not_bypass_ip_cap(ws_base):
         f"spoofed XFF minted {held} distinct buckets — cap bypassed"
 
 
+@_WIN_PEER
 def test_ws_per_ip_cap_closes_4403(ws_base):
     """More than RATE_WS_PER_IP sockets from one client IP -> the extra is
     closed 4403 at accept time. Probes until the cap hits so any configured

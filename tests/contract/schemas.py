@@ -33,23 +33,24 @@ QUALITIES = frozenset({"good", "bad", "stale", "uncertain"})
 
 #: Backend command lifecycle — CONTRACT.v2 §6 / backend commands table.
 COMMAND_STATUSES = frozenset(
-    {"accepted", "dispatched", "acknowledged", "rejected", "failed", "timeout"}
+    {"accepted", "dispatched", "acknowledged", "rejected", "failed", "unknown", "timeout"}
 )
-TERMINAL_STATUSES = frozenset({"acknowledged", "rejected", "failed", "timeout"})
+TERMINAL_STATUSES = frozenset({"acknowledged", "rejected", "failed", "unknown", "timeout"})
 #: Statuses that count as "in-flight" for the one-command-per-tag rule.
 IN_FLIGHT_STATUSES = frozenset({"accepted", "dispatched"})
 
 #: The v1 WS/REST shim still surfaces the CONTRACT.md vocabulary — the
 #: backend maps v2 -> v1 wire names for the compatibility surface.
 V1_COMMAND_STATUSES = frozenset(
-    {"issued", "sent", "acked", "done", "denied", "failed", "timeout"}
+    {"issued", "sent", "acked", "done", "denied", "failed", "unknown", "timeout"}
 )
 
 #: What the *edge* may publish on cmd-resp (doc 17 §6). "timeout" is NOT an
 #: edge status; it is assigned by the backend when no resp arrives in ttl_s.
-EDGE_RESP_STATUSES = frozenset({"acknowledged", "rejected", "failed"})
+EDGE_RESP_STATUSES = frozenset({"acknowledged", "rejected", "failed", "unknown"})
 EDGE_STATUS_MAP = {
     "acknowledged": "acknowledged", "rejected": "rejected", "failed": "failed",
+    "unknown": "unknown",  # F05: written but not confirmed by read-back
 }
 
 #: `reason` vocabulary for status=rejected. Doc 17 §6 names the field
@@ -504,10 +505,11 @@ def map_edge_status(edge_status: str) -> str:
 # Terminals (acknowledged|rejected|failed|timeout) have no outgoing edges.
 LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
     "accepted": frozenset({"dispatched", "failed", "timeout"}),
-    "dispatched": frozenset({"acknowledged", "rejected", "failed", "timeout"}),
+    "dispatched": frozenset({"acknowledged", "rejected", "failed", "unknown", "timeout"}),
     "acknowledged": frozenset(),
     "rejected": frozenset(),
     "failed": frozenset(),
+    "unknown": frozenset(),
     "timeout": frozenset(),
 }
 

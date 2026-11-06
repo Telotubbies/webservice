@@ -113,7 +113,7 @@ export const DEMO_MODEL_URL = '/models/centrale-beton.glb';
 
 export const DEMO_PARTS: PlantPart[] = [
   { label: 'Skip hoist', kind: 'slider', nodes: [15],
-    bindings: {}, params: { dir: [0.5, 0.85, 0], dist: 28, period: 14 } },
+    bindings: { position: 'batch/agg/skip1/position_pct', run: 'batch/agg/skip1/moving' }, params: { dir: [0.5, 0.85, 0], dist: 28, period: 14 } },
   { label: 'Mixer', kind: 'mixer', nodes: [18],
     bindings: { run: 'batch/mix/mixer1/running', current: 'batch/mix/mixer1/current_a', door: 'batch/mix/mixer1/door_open' }, params: { axis: 'x', rpm: 40, mix: true } },
   { label: 'Weigh hopper', kind: 'vessel', nodes: [117],

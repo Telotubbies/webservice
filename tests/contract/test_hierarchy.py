@@ -37,10 +37,12 @@ def test_every_write_needs_config_write():
 
 
 def test_command_issue_runs_the_area_gate_before_inserting():
+    # the gate lives in preflight(), which issue() runs before it inserts
+    pre = inspect.getsource(commands.CommandManager.preflight)
+    assert "area_allowed" in pre and '"area_forbidden"' in pre
     src = inspect.getsource(commands.CommandManager.issue)
-    assert "area_allowed" in src
-    assert src.index("area_allowed") < src.index("INSERT INTO commands")
-    assert '"area_forbidden"' in src
+    assert "self.preflight" in src
+    assert src.index("self.preflight") < src.index("INSERT INTO commands")
 
 
 class _TC:

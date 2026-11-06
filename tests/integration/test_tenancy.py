@@ -278,7 +278,7 @@ def test_admin_can_ack_own_org(admin_api, org_b):
 
 def test_viewer_cannot_command(viewer_api, org_b):
     r = viewer_api.post(_v2(org_b, "/commands"),
-                        json={"tag_id": org_b["tag"], "value": True})
+                        json={"note": "integration test", "tag_id": org_b["tag"], "value": True})
     assert r.status_code == 403
 
 
@@ -288,13 +288,13 @@ def test_cross_org_command_tag_is_404(admin_api, org_b):
     shim_tags = admin_api.get(
         f"/api/v1/orgs/{V1_ORG_S}/sites/{V1_SITE_S}/tags").json()["items"]
     r = admin_api.post(_v2(org_b, "/commands"),
-                       json={"tag_id": shim_tags[0]["id"], "value": 1.0})
+                       json={"note": "integration test", "tag_id": shim_tags[0]["id"], "value": 1.0})
     assert r.status_code == 404
 
 
 def test_command_round_trip_scoped(admin_api, operator_api, org_b):
     r = admin_api.post(_v2(org_b, "/commands"),
-                       json={"tag_id": org_b["tag"], "value": True,
+                       json={"note": "integration test", "tag_id": org_b["tag"], "value": True,
                              "idempotency_key": f"t9-{uuid.uuid4().hex[:8]}"})
     assert r.status_code == 201, r.text
     cmd = r.json()["command"]
@@ -419,7 +419,7 @@ def test_dev_member_of_other_org_only_gets_no_shim(viewer_api, org_b, base_url):
         assert viewer_api.get("/api/tags").status_code == 403
         assert viewer_api.post(
             "/api/commands",
-            json={"tag": "plant1.sort.line1.motor1.speed_sp",
+            json={"reason": "integration test", "tag": "plant1.sort.line1.motor1.speed_sp",
                   "value": 1.0}).status_code == 403
         assert viewer_api.post(
             f"/api/alarms/{uuid.uuid4()}/ack").status_code == 403

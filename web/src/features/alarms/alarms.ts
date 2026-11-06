@@ -11,12 +11,12 @@ import { equipmentOf } from '../../lib/plant';
 import type { Alarm, Severity } from '../../types';
 
 const SEV_RANK = { critical: 0, warning: 1, info: 2 } as const;
-const STATE_RANK: Record<string, number> = { active: 0, acked: 1, cleared: 2 };
+const STATE_RANK: Record<string, number> = { active: 0, rtn_unack: 1, acked: 2, cleared: 3 };
 
 /** ISA-18.2 ordering: unacknowledged first, then severity, then newest. */
 export function sortAlarms(list: Alarm[]): Alarm[] {
   return [...list].sort((a, b) =>
-    (STATE_RANK[a.state] ?? 3) - (STATE_RANK[b.state] ?? 3)
+    (STATE_RANK[a.state] ?? 4) - (STATE_RANK[b.state] ?? 4)
     || SEV_RANK[normSeverity(a.severity)] - SEV_RANK[normSeverity(b.severity)]
     || (Date.parse(b.ts) || 0) - (Date.parse(a.ts) || 0));
 }
@@ -54,6 +54,7 @@ const SEV_ALIAS: Record<string, Severity> = {
 const STATE_ALIAS: Record<string, string> = {
   active: 'active', triggered: 'active', unacked: 'active', open: 'active',
   acked: 'acked', ack: 'acked',
+  rtn_unack: 'rtn_unack', rtn: 'rtn_unack', returned: 'rtn_unack',
   cleared: 'cleared', resolved: 'cleared', closed: 'cleared',
 };
 
@@ -115,11 +116,11 @@ export function groupAlarms(sorted: Alarm[]): AlarmGroup[] {
   return groups;
 }
 
-const KNOWN_STATES = new Set(['active', 'acked', 'cleared']);
+const KNOWN_STATES = new Set(['active', 'rtn_unack', 'acked', 'cleared']);
 
 /** State label key that never leaks a raw backend string into i18n lookup. */
-export function alarmStateKey(state: string): 'active' | 'acked' | 'cleared' | null {
-  return KNOWN_STATES.has(state) ? (state as 'active' | 'acked' | 'cleared') : null;
+export function alarmStateKey(state: string): 'active' | 'rtn_unack' | 'acked' | 'cleared' | null {
+  return KNOWN_STATES.has(state) ? (state as 'active' | 'rtn_unack' | 'acked' | 'cleared') : null;
 }
 
 // ── Flood grouping (F03) ─────────────────────────────────────────────────────
@@ -154,7 +155,7 @@ export function bucketAlarms(sorted: Alarm[], by: GroupBy): AlarmBucket[] {
   };
 
   if (by === 'state') {
-    return groupAlarms(sorted).map((g) => toBucket(g.key, `alarms.${alarmStateKey(g.state) ?? 'active'}`, undefined, g.alarms));
+    return groupAlarms(sorted).map((g) => toBucket(g.key, g.state === 'rtn_unack' ? 'alx.stateRtn' : `alarms.${alarmStateKey(g.state) ?? 'active'}`, undefined, g.alarms));
   }
 
   const m = new Map<string, Alarm[]>();
@@ -170,3 +171,10 @@ export function bucketAlarms(sorted: Alarm[], by: GroupBy): AlarmBucket[] {
     return toBucket(`eq:${k || 'other'}`, eqKey, undefined, list);
   });
 }
+
+/** Needs an acknowledgement: still active, or back to normal but never acknowledged (ISA-18.2 RTN-unack). */
+export const needsAck = (a: Pick<Alarm, 'state'>): boolean => a.state === 'active' || a.state === 'rtn_unack';
+
+/** A shelf that is still running. */
+export const isShelved = (a: Pick<Alarm, 'shelved_until'>, now: number): boolean =>
+  !!a.shelved_until && Date.parse(a.shelved_until) > now;

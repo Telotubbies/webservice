@@ -82,7 +82,7 @@ class RespCollector:
 def test_concurrent_same_tag_post_one_409(api, operator_headers):
     """09 §6.6: two clients POST to the same tag concurrently → one 201, one
     409 with active_command_id. No double-write allowed."""
-    body = {"tag": TAGS["speed_sp"], "value": 25.0, "ttl_s": 30}
+    body = {"reason": "integration test", "tag": TAGS["speed_sp"], "value": 25.0, "ttl_s": 30}
 
     def exchange():
         barrier = threading.Barrier(2)
@@ -119,13 +119,13 @@ def test_idempotent_replay_after_409(api, operator_headers):
     key = f"replay-{uuid.uuid4()}"
     tag = TAGS["running"]
     r1 = api.post("/api/commands", headers=operator_headers,
-                  json={"tag": tag, "value": True, "idempotency_key": key, "ttl_s": 30})
+                  json={"reason": "integration test", "tag": tag, "value": True, "idempotency_key": key, "ttl_s": 30})
     assert r1.status_code == 201
     id1 = r1.json()["command_id"]
 
     # different key, same tag → should 409 while first is in-flight
     r2 = api.post("/api/commands", headers=operator_headers,
-                  json={"tag": tag, "value": False,
+                  json={"reason": "integration test", "tag": tag, "value": False,
                         "idempotency_key": f"other-{uuid.uuid4()}", "ttl_s": 30})
     # (may be 201 if r1 already finished — race is fine, key assertion is r3)
     if r2.status_code == 409:
@@ -133,7 +133,7 @@ def test_idempotent_replay_after_409(api, operator_headers):
 
     # same key replay must return the original command, never 409
     r3 = api.post("/api/commands", headers=operator_headers,
-                  json={"tag": tag, "value": True, "idempotency_key": key, "ttl_s": 30})
+                  json={"reason": "integration test", "tag": tag, "value": True, "idempotency_key": key, "ttl_s": 30})
     assert r3.status_code == 200
     assert r3.json()["command_id"] == id1
 
@@ -146,7 +146,7 @@ def test_command_burst_no_5xx(api, operator_headers):
     for i in range(20):
         tag = TAGS["speed_sp"] if i % 2 else TAGS["running"]
         r = api.post("/api/commands", headers=operator_headers,
-                     json={"tag": tag, "value": 10.0 + i if i % 2 else bool(i % 2),
+                     json={"reason": "integration test", "tag": tag, "value": 10.0 + i if i % 2 else bool(i % 2),
                            "idempotency_key": f"burst-{uuid.uuid4()}", "ttl_s": 30})
         codes.append(r.status_code)
     assert all(c in (201, 409, 429) for c in codes), codes
@@ -157,7 +157,7 @@ def test_sqlish_tag_name_no_500(api, operator_headers):
     for evil in ("a.b'; DROP TABLE--", "plant1.sort.line1.conv1.' OR 1=1--",
                  "plant1.sort.line1.conv1.temp_c;DELETE FROM telemetry"):
         r = api.post("/api/commands", headers=operator_headers,
-                     json={"tag": evil, "value": 1})
+                     json={"reason": "integration test", "tag": evil, "value": 1})
         assert r.status_code in (400, 404, 422), (evil, r.status_code)
         r = api.get(f"/api/tags/{evil}/latest")
         assert r.status_code in (400, 404, 422), (evil, r.status_code)
@@ -165,7 +165,7 @@ def test_sqlish_tag_name_no_500(api, operator_headers):
 
 
 def test_oversized_payload_rejected(api, operator_headers):
-    big = {"tag": TAGS["running"], "value": True,
+    big = {"reason": "integration test", "tag": TAGS["running"], "value": True,
            "idempotency_key": "x" * (1024 * 1024)}
     r = api.post("/api/commands", headers=operator_headers, json=big)
     assert r.status_code in (400, 404, 413, 422), r.status_code
@@ -173,7 +173,7 @@ def test_oversized_payload_rejected(api, operator_headers):
 
 def test_malformed_json_body(api, operator_headers):
     r = api.post("/api/commands", headers=operator_headers,
-                 content=b'{"tag": "x",,}',  # noqa: S608 — intentionally malformed
+                 content=b'{"reason": "integration test", "tag": "x",,}',  # noqa: S608 — intentionally malformed
                  )
     assert r.status_code in (400, 415, 422), r.status_code
 
@@ -238,7 +238,7 @@ def test_edge_duplicate_req_id_no_double_apply(mqtt_client):
 def test_edge_malformed_cmd_payload_ignored(mqtt_client, api):
     """ATTACK_PLAN: garbage on cmd topic must not crash the edge."""
     req_id = f"bad-{uuid.uuid4()}"
-    for junk in (b"not json at all", b'{"tag": 5, "value":', b"{}"):
+    for junk in (b"not json at all", b'{"reason": "integration test", "tag": 5, "value":', b"{}"):
         mqtt_client.publish(v2_cmd(req_id), junk, qos=1)
     time.sleep(1)
     # edge still alive: it should still answer a well-formed command
@@ -346,7 +346,7 @@ def test_command_timeout_edge_offline(api, operator_headers, disruptive, compose
     compose("stop", "edge-bridge")
     try:
         r = api.post("/api/commands", headers=operator_headers,
-                     json={"tag": TAGS["running"], "value": True, "ttl_s": 3})
+                     json={"reason": "integration test", "tag": TAGS["running"], "value": True, "ttl_s": 3})
         assert r.status_code == 201
         command_id = r.json()["command_id"]
 

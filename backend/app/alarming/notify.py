@@ -540,7 +540,8 @@ async def _job_notify_send(st, payload: dict) -> None:
             if event in ("raised", "escalation"):
                 link = await _issue_ack_link(tc, alarm_id, None)
                 base = config.PUBLIC_URL or ""
-                text += f"\nAcknowledge: {base}{link}"
+                # the SPA route /ack/<token> shows the alarm first; the API path would 405 in a browser
+                text += f"\nAcknowledge: {base}{link.replace('/api/v1/ack/', '/ack/')}"
         else:  # built-in vision alarms carry their own text
             subject = str(payload.get("title") or "Vision alarm")[:300]
             text = str(payload.get("detail") or "")[:4000]
@@ -707,7 +708,8 @@ async def shelve_sweep(st) -> None:
                 "SELECT id FROM alarms WHERE shelved_until IS NOT NULL"
                 " AND shelved_until < now()")
             for r in rows:
-                await tc.execute("UPDATE alarms SET shelved_until=NULL WHERE id=$1", r["id"])
+                await tc.execute("UPDATE alarms SET shelved_until=NULL, shelved_at=NULL,"
+                                 " shelved_by=NULL, shelve_reason=NULL WHERE id=$1", r["id"])
                 await tc.execute(
                     "INSERT INTO alarm_events(org_id, alarm_id, kind, author)"
                     " VALUES ($1,$2,'unshelve','system')", org_id, r["id"])
@@ -1103,6 +1105,39 @@ async def issue_ack_link(org: str, alarm: str, body: AckLinkIn, request: Request
     return {"url": path, "expires_in": body.ttl_s or int(config.ACK_TOKEN_TTL_S)}
 
 
+@router.get("/api/v1/ack/{token}")
+async def ack_preview(token: str, request: Request):
+    """What the link is about, before anyone taps Acknowledge. Read-only: it
+    never consumes the token. Needs a signed-in member (401 auth_required)."""
+    m = _m()
+    try:  # authenticate first: an anonymous caller must not tell a bad token from a good one
+        p = await m._authenticate(request)
+    except Exception:
+        raise HTTPException(401, "auth_required") from None
+    parsed = parse_ack_token(token)
+    if parsed is None:
+        raise HTTPException(404, "link not found")
+    org_id, alarm_id, jti, _exp = parsed
+    m._v2_org(str(org_id), p, m._READ)
+    async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
+        live = await tc.fetchval(
+            "SELECT 1 FROM ack_tokens WHERE jti=$1 AND alarm_id=$2"
+            " AND used_at IS NULL AND expires_at > now()", jti, alarm_id)
+        if live is None:
+            raise HTTPException(410, "link_used_or_expired")
+        r = await tc.fetchrow(
+            "SELECT a.id, COALESCE(r.name, a.rule_name) AS rule, a.severity, a.state,"
+            " a.raised_at, t.path AS tag"
+            " FROM alarms a LEFT JOIN alarm_rules r ON r.id = a.rule_id"
+            " JOIN tags t ON t.id = a.tag_id AND t.org_id = a.org_id WHERE a.id=$1",
+            alarm_id)
+    if r is None:
+        raise HTTPException(404, "alarm not found")
+    return {"alarm": {"id": str(r["id"]), "rule": r["rule"], "severity": r["severity"],
+                      "state": r["state"], "tag": r["tag"],
+                      "raised_at": iso_z(r["raised_at"])}}
+
+
 @router.post("/api/v1/ack/{token}")
 async def ack_by_token(token: str, request: Request):
     """Single-use ack link. The token authorizes the *alarm identity*; the ack
@@ -1136,8 +1171,12 @@ async def ack_by_token(token: str, request: Request):
     return {"alarm": alarm}
 
 
+SHELVE_MAX_MIN = 7 * 24 * 60   # ISA-18.2: a shelf is time-limited, one week at most
+SHELVE_REASON_MIN = 3
+
+
 class ShelveIn(BaseModel):
-    minutes: int = Field(ge=1, le=30 * 24 * 60)   # silence up to 30 days
+    minutes: int = Field(ge=1, le=SHELVE_MAX_MIN)
     reason: str = Field(default="", max_length=500)
 
 
@@ -1152,20 +1191,52 @@ async def shelve_alarm(org: str, alarm: str, body: ShelveIn, request: Request,
     m = _m()
     org_id = m._v2_org(org, p, m._OPERATE)
     aid = m._uuid_or_404(alarm, "alarm")
+    reason = body.reason.strip()
+    if len(reason) < SHELVE_REASON_MIN:
+        raise HTTPException(422, "a shelve reason is required")
     await m._mutation_gate(request, p.user_id)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
-        await _alarm_or_404(tc, aid)
+        state = await tc.fetchval("SELECT state FROM alarms WHERE id=$1", aid)
+        if state is None:
+            raise HTTPException(404, "alarm not found")
+        if state == "cleared":
+            raise HTTPException(409, "a cleared alarm cannot be shelved")
         await tc.execute(
             "UPDATE alarms SET shelved_until = now() + ($2 || ' minutes')::interval,"
-            " version=version+1 WHERE id=$1", aid, body.minutes)
+            " shelved_at = now(), shelved_by = $3, shelve_reason = $4,"
+            " version=version+1 WHERE id=$1", aid, body.minutes, p.user_id, reason)
         await tc.execute(
             "INSERT INTO alarm_events(org_id, alarm_id, kind, author, body)"
             " VALUES ($1,$2,'shelve',$3,$4)", org_id, aid, f"user:{p.user_id}",
-            body.reason[:500])
+            reason)
         await audit.append(tc, f"user:{p.user_id}", "alarm.shelved",
                            {"alarm_id": str(aid)}, {"minutes": body.minutes})
         until = await tc.fetchval("SELECT shelved_until FROM alarms WHERE id=$1", aid)
     return {"shelved_until": iso_z(until)}
+
+
+@router.get("/api/v1/orgs/{org}/alarm-shelf")
+async def shelved_alarms(org: str, request: Request, p=Depends(_user)):
+    """Who shelved what, why, and when the shelf expires (ISA-18.2 shelving list)."""
+    m = _m()
+    org_id = m._v2_org(org, p, m._READ)
+    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT a.id, COALESCE(r.name, a.rule_name) AS rule, a.severity, a.state,"
+            " a.shelved_until, a.shelved_at, a.shelve_reason, u.display_name AS shelved_by,"
+            " t.path AS tag"
+            " FROM alarms a LEFT JOIN alarm_rules r ON r.id = a.rule_id"
+            " JOIN tags t ON t.id = a.tag_id AND t.org_id = a.org_id"
+            " LEFT JOIN users u ON u.id = a.shelved_by"
+            " WHERE a.shelved_until IS NOT NULL AND a.shelved_until > now()"
+            " ORDER BY a.shelved_until LIMIT 200")
+    return {"items": [{
+        "id": str(r["id"]), "rule": r["rule"], "severity": r["severity"],
+        "state": r["state"], "tag": r["tag"],
+        "shelved_until": iso_z(r["shelved_until"]),
+        "shelved_at": iso_z(r["shelved_at"]) if r["shelved_at"] else None,
+        "shelved_by": r["shelved_by"], "reason": r["shelve_reason"] or "",
+    } for r in rows]}
 
 
 @router.post("/api/v1/orgs/{org}/alarms/{alarm}/unshelve")
@@ -1176,7 +1247,8 @@ async def unshelve_alarm(org: str, alarm: str, request: Request, p=Depends(_user
     await m._mutation_gate(request, p.user_id)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
         n = await tc.execute(
-            "UPDATE alarms SET shelved_until=NULL, version=version+1"
+            "UPDATE alarms SET shelved_until=NULL, shelved_at=NULL, shelved_by=NULL,"
+            " shelve_reason=NULL, version=version+1"
             " WHERE id=$1 AND shelved_until IS NOT NULL", aid)
         if n == "UPDATE 0":
             raise HTTPException(404, "alarm not found or not shelved")

@@ -182,6 +182,7 @@ git worktree add .claude/worktrees/F02 -b feat/F02-alarm-lifecycle integration/p
 | 3 | F08, F09, F10, F11 | ได้ แต่ F09 ต้องรอ F06 และ F08 |
 | 4 | F12, F13, F14 | ได้ |
 | 5 | F15, F16, F17 | ได้ |
+| 6 | F18, F20, F21 แล้วจึง F19 | F19 ต้องรอ F18 ส่วน F21 ข้อที่เป็น Critical ทำคู่กับ F05 และ F15 ได้เลย |
 
 ถ้าเวลาไม่พอ ให้ทำรอบ 0 ถึง 3 ก่อน ส่วน F12 เฉพาะ label กับ confusion matrix
 
@@ -374,6 +375,20 @@ git worktree add .claude/worktrees/F02 -b feat/F02-alarm-lifecycle integration/p
 - **สกิล:** ชุด UI + `design-taste-frontend`, `frontend-design`, `hallmark`
 - **งาน:** ทำตามบอร์ด Landing และใช้เฉพาะความสามารถที่มีจริง
 - **เสร็จเมื่อ:** ผ่านการตรวจที่ 1440 และ 390, รองรับ reduced motion และไม่มีข้อความเกินจริง
+
+## รอบ 6: ข้อมูล การเชื่อม ERP และความปลอดภัย
+
+รายละเอียดอยู่ใน [docs/data-architecture.md](data-architecture.md) หัวข้อ 6 และ [docs/security-design.md](security-design.md) หัวข้อ 7 ให้ใช้รายการไฟล์ งาน และเงื่อนไข "เสร็จเมื่อ" จากเอกสารนั้นเป็นหลัก
+
+| รหัส | งาน | migration | สกิลหลัก |
+|---|---|---|---|
+| F18 (L) | Integration layer: ตาราง mapping, outbox, webhook ที่เซ็น HMAC, API key ต่อองค์กร, ยอดรายกะและรายชั่วโมง, คอลัมน์ `sites.data_origin` | `0066`, `0067` | `engineering:system-design`, `security-review` |
+| F19 (M) | Odoo connector อ่านอย่างเดียวก่อน และนำเข้า CSV ผ่านเส้นทางเดียวกัน | `0068` | `engineering:testing-strategy` |
+| F20 (M) | วงจรชีวิตข้อมูล: retention, rollup ที่ใช้ quality flag, export ครบทุกตาราง, ลบข้อมูลเมื่อ tenant ออก | `0069` | `engineering:testing-strategy` |
+| F21 (L) | Security hardening: อนุมัติเปิดใช้ AI ต่อ site, mount เฉพาะ `ca.crt`, ปิด self-registration, secret scan และ pin dependency ใน CI | `0070`, `0071` | `security-review` |
+
+- **การตัดสินใจของผู้ประสานงาน:** ย้าย `sites.data_origin` เข้า `0066` เพื่อกันข้อมูลจำลองหลุดออกไป ERP ตั้งแต่วันแรก
+- **ทุกฟีเจอร์ต้องมี** เทสต์ E2E ตาม `tests/e2e/e2e_<รหัส>_*.py`
 
 ## ตารางจุดเสี่ยงชนกัน
 

@@ -11,12 +11,10 @@ import { useNow, useStore } from '../../lib/hooks';
 import { LINE_EQUIPMENT as EQUIPMENT, SIGNALS, T, formatSignal, unitOf, type LineEquipmentId as EquipmentId } from '../../lib/plant';
 import { fmtAge } from '../../lib/format';
 import { useControlGate, gateReasonKey } from '../../app/session';
-import { useCommand } from './useCommand';
-import { LifecyclePill } from './LifecyclePill';
+import { CommandSheet, type Pending } from './CommandSheet';
 import { QualityMark, SeverityBadge, AlarmStateBadge } from '../../shared/ui/Status';
 import { PageBar, Card } from '../../shared/ui/Page';
 import { Icon } from '../../shared/ui/Icon';
-import { Confirm } from '../../shared/ui/Confirm';
 import { ErrorState, PageSkeleton } from '../../shared/ui/Feedback';
 import { LineStatusBar } from '../../shared/ui/LineStatusBar';
 import { Sparkline } from '../../shared/ui/Sparkline';
@@ -27,16 +25,14 @@ import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
 const SP_MIN = 0;
 const SP_MAX = 60;
 
-/** Gated write controls (start / stop / speed setpoint). When the role or
- *  link can't operate, the whole card collapses to a reason note. */
+/** Gated write controls (start / stop / speed setpoint). Each action opens the
+ *  control sheet (expected result, checks, reason, test, send). When the role
+ *  or link can't operate, the whole card collapses to a reason note. */
 function Controls() {
   const { t, i18n } = useTranslation();
   const gate = useControlGate();
-  const { send, tracked, error, busy } = useCommand();
   const [sp, setSp] = useState('40');
-  const [confirmStop, setConfirmStop] = useState(false);
-  const [confirmStart, setConfirmStart] = useState(false);
-  const [pendingSp, setPendingSp] = useState<number | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
   const [spError, setSpError] = useState('');
   useStore(() => live.version);
   const currentSp = live.latest.get(T.speedSp);
@@ -50,44 +46,19 @@ function Controls() {
     );
   }
 
+  if (pending) {
+    return <CommandSheet key={`${pending.tag}-${String(pending.value)}`} pending={pending} onClose={() => setPending(null)} />;
+  }
+
   return (
-    <div className="line-controls flex flex-col gap-3">
-      <div className="flex gap-3">
-        <button className="btn flex-1 justify-center" disabled={busy} onClick={() => setConfirmStart(true)}>
+    <div className="line-controls flex flex-col gap-4">
+      <div className="flex gap-4">
+        <button className="btn min-h-12 flex-1 justify-center" onClick={() => setPending({ tag: T.running, value: true, kind: 'start' })}>
           <Icon name="play" size={14} /> {t('control.start')}
         </button>
-        <button className="btn btn-danger flex-1 justify-center" disabled={busy} onClick={() => setConfirmStop(true)}>
+        <button className="btn btn-danger min-h-12 flex-1 justify-center" onClick={() => setPending({ tag: T.running, value: false, kind: 'stop' })}>
           <Icon name="stop" size={14} /> {t('control.stop')}
         </button>
-        {confirmStart && (
-          <Confirm
-            title={t('control.confirmStartTitle')}
-            body={t('control.startConsequence')}
-            confirm={t('control.start')}
-            danger={false}
-            onYes={() => { setConfirmStart(false); void send(T.running, true); }}
-            onNo={() => setConfirmStart(false)}
-          />
-        )}
-        {pendingSp !== null && (
-          <Confirm
-            title={t('control.confirmWriteTitle')}
-            body={`${t('control.writeConsequence')} ${t('control.to')}: ${pendingSp} Hz`}
-            confirm={t('control.confirm')}
-            danger={false}
-            onYes={() => { const v = pendingSp; setPendingSp(null); void send(T.speedSp, v); }}
-            onNo={() => setPendingSp(null)}
-          />
-        )}
-        {confirmStop && (
-          <Confirm
-            title={t('control.confirmStopTitle')}
-            body={t('control.stopConsequence')}
-            confirm={t('control.stop')}
-            onYes={() => { setConfirmStop(false); void send(T.running, false); }}
-            onNo={() => setConfirmStop(false)}
-          />
-        )}
       </div>
       <form
         className="flex gap-3"
@@ -100,27 +71,21 @@ function Controls() {
             return;
           }
           setSpError('');
-          setPendingSp(v);
+          setPending({ tag: T.speedSp, value: v, kind: 'setpoint' });
         }}
       >
         <input
-          className="input num flex-1" value={sp} onChange={(e) => { setSp(e.target.value); setSpError(''); }}
+          className="input num min-h-12 min-w-0 flex-1" value={sp} onChange={(e) => { setSp(e.target.value); setSpError(''); }}
           aria-invalid={spError !== ''}
           aria-label={t('control.newValue')} inputMode="decimal"
         />
-        <button className="btn btn-ghost" type="submit" disabled={busy}>{t('control.apply')}</button>
+        <button className="btn btn-ghost min-h-12" type="submit">{t('control.apply')}</button>
       </form>
-      <p className="text-[10px] text-ink-46">
+      <p className="text-[12px] text-ink-46">
         {t('control.range', { min: SP_MIN, max: SP_MAX, unit: 'Hz' })}
         {currentSp && ` · ${t('line.nowHz', { v: formatSignal(T.speedSp, currentSp.v, i18n.language) })}`}
       </p>
       {spError && <p className="notice notice-error" role="alert">{spError}</p>}
-      {tracked && (
-        <p className="flex items-center gap-2 text-[11px] text-ink-46">
-          {t('control.sent')} <LifecyclePill status={tracked.status} />
-        </p>
-      )}
-      {error && <p className="notice notice-error" role="alert">{error}</p>}
     </div>
   );
 }

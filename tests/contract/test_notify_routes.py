@@ -56,6 +56,7 @@ class FakeConn:
         self.alarm = alarm
         self.team = team
         self.rule = rule
+        self.state = "active"
         self.audit = []
         self.executed = []
         self.fetchrow_sql = []
@@ -90,6 +91,10 @@ class FakeConn:
             return 1 if self.rule else None
         if "FROM alarms" in sql and "SELECT 1" in sql:
             return 1 if self.alarm else None
+        if "SELECT state FROM alarms" in sql:
+            return self.state if self.alarm else None
+        if "FROM ack_tokens" in sql and "SELECT 1" in sql:
+            return 1
         if "shelved_until FROM alarms" in sql:
             return datetime.now(timezone.utc) + timedelta(minutes=10)
         if "ack_tokens" in sql and "RETURNING" in sql:
@@ -312,7 +317,7 @@ def test_shelve_unshelve_comment_assign():
     conn = FakeConn()
     c = _app(conn=conn)
     r = c.post(f"/api/v1/orgs/{ORG}/alarms/{ALARM}/shelve", headers=H,
-               json={"minutes": 60, "reason": "maintenance"})
+               json={"minutes": 60, "reason": "bearing swap"})
     assert r.status_code == 200 and "shelved_until" in r.json()
     r = c.post(f"/api/v1/orgs/{ORG}/alarms/{ALARM}/unshelve", headers=H)
     assert r.status_code == 200
@@ -343,6 +348,54 @@ def test_shelve_bounds():
                   json={"minutes": 0}).status_code == 422
     assert c.post(f"/api/v1/orgs/{ORG}/alarms/{ALARM}/shelve", headers=H,
                   json={"minutes": 99999999}).status_code == 422
+
+
+def test_shelve_needs_a_reason():
+    c = _app()
+    for body in ({"minutes": 60}, {"minutes": 60, "reason": "  "}, {"minutes": 60, "reason": "x"}):
+        assert c.post(f"/api/v1/orgs/{ORG}/alarms/{ALARM}/shelve", headers=H,
+                      json=body).status_code == 422
+
+
+def test_shelve_is_time_limited_to_a_week():
+    c = _app()
+    ok = {"reason": "bearing swap"}
+    assert c.post(f"/api/v1/orgs/{ORG}/alarms/{ALARM}/shelve", headers=H,
+                  json={**ok, "minutes": 7 * 24 * 60}).status_code == 200
+    assert c.post(f"/api/v1/orgs/{ORG}/alarms/{ALARM}/shelve", headers=H,
+                  json={**ok, "minutes": 7 * 24 * 60 + 1}).status_code == 422
+
+
+def test_cleared_alarm_cannot_be_shelved():
+    conn = FakeConn()
+    conn.state = "cleared"
+    r = _app(conn=conn).post(f"/api/v1/orgs/{ORG}/alarms/{ALARM}/shelve", headers=H,
+                             json={"minutes": 60, "reason": "bearing swap"})
+    assert r.status_code == 409
+
+
+def test_shelve_records_who_and_why():
+    conn = FakeConn()
+    _app(conn=conn).post(f"/api/v1/orgs/{ORG}/alarms/{ALARM}/shelve", headers=H,
+                         json={"minutes": 60, "reason": "  bearing swap "})
+    sql, args = next((s, a) for s, a in conn.executed if "shelve_reason" in s)
+    assert "shelved_by" in sql and UID in args and "bearing swap" in args
+
+
+def test_shelf_list_readable_by_viewer():
+    r = _app(_principal("viewer")).get(f"/api/v1/orgs/{ORG}/alarm-shelf", headers=H)
+    assert r.status_code == 200 and r.json() == {"items": []}
+
+
+def test_ack_preview_does_not_consume_and_needs_auth():
+    exp = int(time.time()) + 3600
+    tok = notify.make_ack_token(ORG, ALARM, uuid.uuid4(), exp)
+    assert _app(p=None).get(f"/api/v1/ack/{tok}").status_code == 401
+    assert _app().get("/api/v1/ack/not-a-token", headers=H).status_code == 404
+    conn = FakeConn()
+    r = _app(conn=conn).get(f"/api/v1/ack/{tok}", headers=H)
+    assert r.status_code == 404          # FakeConn has no alarm row
+    assert not any("used_at=now()" in s for s, _ in conn.executed)
 
 
 def test_alarm_events_listing():
@@ -437,3 +490,9 @@ def test_dedup_semantics():
     assert asyncio.run(notify._dedup(tc, "ep", CHANNEL, "raised")) is False
     tc2 = TenantConn(conn=C(True), org_id=ORG)
     assert asyncio.run(notify._dedup(tc2, "ep", CHANNEL, "raised")) is True
+
+
+def test_ack_preview_anonymous_cannot_tell_bad_token_from_good():
+    tok = notify.make_ack_token(ORG, ALARM, uuid.uuid4(), int(time.time()) + 3600)
+    codes = {_app(p=None).get(f"/api/v1/ack/{t}").status_code for t in (tok, "not-a-token")}
+    assert codes == {401}

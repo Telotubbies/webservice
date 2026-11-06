@@ -9,7 +9,9 @@ import { SIGNALS } from '../../lib/plant';
 import { fmtAge } from '../../lib/format';
 import { canOperate, useRole } from '../../app/session';
 import { ackAlarm, errText } from './ackAlarm';
-import { SeverityBadge, AlarmStateBadge } from '../../shared/ui/Status';
+import { SeverityBadge } from '../../shared/ui/Status';
+import { AlarmStateChip } from './AlarmStateChip';
+import { needsAck } from './alarms';
 import { Icon } from '../../shared/ui/Icon';
 import type { Alarm } from '../../types';
 import './i18n';
@@ -22,7 +24,7 @@ export function AckButton({ alarm }: { alarm: Alarm }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   // viewers get one "view only" note in the toolbar, not a line per row
-  if (alarm.state !== 'active' || !canOperate(role)) return null;
+  if (!needsAck(alarm) || !canOperate(role)) return null;
   return (
     <span className="flex flex-col items-start gap-0.5">
       <button
@@ -52,7 +54,7 @@ export function ShelvedMark({ alarm, now }: { alarm: Alarm; now: number }) {
   return (
     <span className="rounded-full bg-subtle px-1.5 py-0.5 text-[10px] font-medium text-ink-68"
       title={t('al.shelvedBadge', { at: new Date(alarm.shelved_until).toLocaleString() })}>
-      {t('al.shelve')}
+      {t('shelve.mark')}
     </span>
   );
 }
@@ -64,7 +66,7 @@ export function StateCell({ alarm, now }: { alarm: Alarm; now: number }) {
   return (
     <span className="flex flex-col items-start gap-0.5">
       <span className="flex items-center gap-1.5">
-        <AlarmStateBadge state={s} ackedBy={alarm.acked_by} />
+        <AlarmStateChip state={s} ackedBy={alarm.acked_by} />
         <ShelvedMark alarm={alarm} now={now} />
       </span>
       {s === 'acked' && (
@@ -74,6 +76,11 @@ export function StateCell({ alarm, now }: { alarm: Alarm; now: number }) {
               ? t('alx.ackedWhoWhen', { who: alarm.acked_by, age: fmtAge(alarm.acked_at, now) })
               : t('alx.ackedWho', { who: alarm.acked_by })
             : t('alx.ackedUnknownWho')}
+        </span>
+      )}
+      {s === 'rtn_unack' && (
+        <span className="alarm-rtn-label text-[11px] text-ink-68">
+          {alarm.cleared_at ? t('alx.rtnSince', { age: fmtAge(alarm.cleared_at, now) }) : t('alx.rtnNeedsAck')}
         </span>
       )}
       {s === 'cleared' && (
@@ -123,7 +130,7 @@ export function AlarmCard({ alarm: a, now, onOpen, select }: {
         </span>
       </span>
       <span onClick={(e) => e.stopPropagation()} className="shrink-0">
-        {a.state === 'active' ? <AckButton alarm={a} /> : null}
+        {needsAck(a) ? <AckButton alarm={a} /> : null}
       </span>
     </div>
   );

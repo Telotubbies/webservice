@@ -186,7 +186,7 @@ def test_ws_operator_receives_command_events(ws_base, operator_headers, api):
             r = api.post(
                 "/api/commands",
                 headers=operator_headers,
-                json={"tag": TAGS["running"], "value": True,
+                json={"reason": "integration test", "tag": TAGS["running"], "value": True,
                       "idempotency_key": f"ws-{uuid.uuid4()}", "ttl_s": 20},
             )
             assert r.status_code == 201, r.text
@@ -223,7 +223,7 @@ async def _command_leak_probe(ws_url, auth_frame, operator_headers, api):
     async with websockets.connect(ws_url, open_timeout=10) as ws:
         await ws.send(json.dumps(auth_frame))
         api.post("/api/commands", headers=operator_headers,
-                 json={"tag": TAGS["speed_sp"], "value": 22.0,
+                 json={"reason": "integration test", "tag": TAGS["speed_sp"], "value": 22.0,
                        "idempotency_key": f"wsanon-{uuid.uuid4()}", "ttl_s": 20})
         end = asyncio.get_event_loop().time() + 8
         while asyncio.get_event_loop().time() < end:

@@ -435,11 +435,13 @@ async def migrate(src: Source, dsn: str, org_id: uuid.UUID | None,
                 st = await conn.execute(
                     "INSERT INTO commands(id, org_id, site_id, edge_id, tag_id,"
                     " value, status, reason, ttl_s, idempotency_key,"
-                    " actor_user_id, issued_at, updated_at)"
-                    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)"
+                    " actor_user_id, issued_at, updated_at, note)"
+                    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)"
                     " ON CONFLICT (id) DO NOTHING",
                     cid, org, site, edge, tid, _jsonable(value),
-                    status, reason, 10, c["idempotency_key"], actor, issued, updated)
+                    status, reason, 10, c["idempotency_key"], actor, issued, updated,
+                    # 0056 requires a note; legacy commands never had one
+                    "imported from legacy sqlite")
                 cmd_n += _n(st)
 
             # ---- audit: genesis row then legacy rows ---------------------

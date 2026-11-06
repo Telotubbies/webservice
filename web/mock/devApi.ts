@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import * as sim from './sim.ts';
 import * as plant from './plant.ts';
+import { boardRoute } from './board.ts';
 import { attachWs, type Conn } from './ws.ts';
 import { PLANT_KINDS } from './data/plantKinds.ts';
 import { MATERIAL_SCHEMA } from './data/materialSchema.ts';
@@ -36,17 +37,17 @@ const insights = [
 
 // ── Commands: sim.write + the edge's lifecycle (issued → sent → acked → done)
 interface Cmd {
-  id: string; tag: string; value: number | boolean; status: string; detail?: string;
+  id: string; tag: string; value: number | boolean; status: string; detail?: string; note?: string;
   created_at: string; updated_at: string; user: string; events: { from: string; to: string; actor: string; reason?: string | null; at: string }[];
 }
 const commands: Cmd[] = [];
 let cmdSeq = 0;
-function seedCommand(tail: string, value: number | boolean, agoMs: number, user: string, status = 'done', detail?: string) {
+function seedCommand(tail: string, value: number | boolean, agoMs: number, user: string, status = 'done', detail?: string, note = 'Production plan') {
   const at = T0 - agoMs;
   const id = `cmd-${++cmdSeq}`;
   const steps = status === 'denied' ? ['issued', 'denied'] : status === 'timeout' ? ['issued', 'sent', 'timeout'] : ['issued', 'sent', 'acked', 'done'];
   commands.push({
-    id, tag: tagName(tail), value, status, detail, created_at: iso(at), updated_at: iso(at + 900), user,
+    id, tag: tagName(tail), value, status, detail, note, created_at: iso(at), updated_at: iso(at + 900), user,
     events: steps.slice(1).map((to, i) => ({ from: steps[i], to, actor: to === 'denied' ? 'backend' : 'edge-batching-01', reason: to === 'denied' ? detail ?? null : null, at: iso(at + 300 * (i + 1)) })),
   });
 }
@@ -59,28 +60,77 @@ seedCommand('sort.line1.motor1.speed_sp', 70, 9 * H, 'Demo operator', 'denied', 
 seedCommand('batch.plant.auto.enabled', true, 14 * H, 'Nok P. (engineer)', 'timeout', 'edge did not ack within 10 s');
 commands.reverse();
 
-const CMD_V2: Record<string, string> = { issued: 'accepted', sent: 'dispatched', acked: 'acknowledged', done: 'acknowledged', denied: 'rejected', failed: 'failed', timeout: 'timeout' };
+const CMD_V2: Record<string, string> = { issued: 'accepted', sent: 'dispatched', acked: 'dispatched', done: 'acknowledged', denied: 'rejected', failed: 'failed', unknown: 'unknown', timeout: 'timeout' };
 const cmdV2 = (c: Cmd) => ({
   id: c.id, tag_id: sim.tagByName(c.tag)?.id ?? '', value: c.value, status: CMD_V2[c.status] ?? c.status, reason: c.detail ?? null, ttl_s: 10,
-  idempotency_key: null, issued_at: c.created_at, updated_at: c.updated_at, actor: { user_id: null, display_name: c.user }, version: c.events.length + 1,
+  note: c.note ?? null, idempotency_key: null, issued_at: c.created_at, updated_at: c.updated_at, actor: { user_id: null, display_name: c.user }, version: c.events.length + 1,
 });
 
-function issue(tag: string, value: unknown, user: string): { code: number; body: unknown } {
-  const r = sim.write(tag, value);
-  if (!r.ok) {
-    const code = r.reason === 'unknown_tag' ? 404 : r.reason === 'not_writable' ? 403 : 422;
-    return { code, body: { detail: r.reason } };
+// F05: what the mock "edge" does after a write. Tests flip it through
+// /__mock/fault; the outcome is always derived from the read-back, never assumed.
+let fault: 'mismatch' | 'unknown' | 'timeout' | null = null;
+const MOCK_TTL_MS = 3000;
+const REASON_MAX = 200;
+
+/** Same gates as the backend's CommandManager.preflight (none short-circuited). */
+function preflight(tag: string, value: unknown, note: unknown) {
+  const g = sim.tagByName(tag);
+  const checks: { id: string; ok: boolean; blocking: boolean; error: string | null; [k: string]: unknown }[] = [];
+  const reason = typeof note === 'string' ? note.trim() : '';
+  checks.push({ id: 'reason', ok: reason !== '' && reason.length <= REASON_MAX, blocking: true, error: reason === '' ? 'reason_required' : reason.length > REASON_MAX ? 'reason_too_long' : null });
+  checks.push({ id: 'writable', ok: !!g?.writable, blocking: true, error: g?.writable ? null : 'not_writable' });
+  const isBool = typeof value === 'boolean';
+  const typeOk = g ? (g.type === 'bool' ? isBool : !isBool && typeof value === 'number' && Number.isFinite(value)) : false;
+  checks.push({ id: 'type', ok: typeOk, blocking: true, error: typeOk ? null : 'invalid_value' });
+  const lo = g?.min ?? null, hi = g?.max ?? null;
+  const inRange = !typeOk || g?.type === 'bool' || !(((lo != null) && (value as number) < lo) || ((hi != null) && (value as number) > hi));
+  checks.push({ id: 'range', ok: inRange, blocking: true, error: inRange ? null : 'out_of_range', min: lo, max: hi });
+  // permissive: the belt must be cool before the drive is started
+  const hot = g?.tail === 'sort.line1.motor1.running' && value === true && Number(sim.value(tagName('sort.line1.conv1.temp_c'))) >= 72;
+  checks.push({ id: 'permissive', ok: !hot, blocking: true, error: hot ? 'permissive_not_met' : null, tag: 'sort/line1/conv1/temp_c', why: hot ? 'not_satisfied' : undefined });
+  const busy = commands.find((c) => c.tag === tag && ['issued', 'sent', 'acked'].includes(c.status));
+  checks.push({ id: 'in_flight', ok: !busy, blocking: true, error: busy ? 'command_in_flight' : null, active_command_id: busy?.id });
+  checks.push({ id: 'edge', ok: true, blocking: false, error: null });
+  return { g, checks };
+}
+
+function issue(tag: string, value: unknown, user: string, note?: unknown, dryRun = false): { code: number; body: unknown } {
+  if (!sim.tagByName(tag)) return { code: 404, body: { detail: 'unknown_tag' } };
+  const { checks } = preflight(tag, value, note);
+  const refusal = checks.find((c) => c.blocking && !c.ok);
+  if (dryRun) {
+    return { code: 200, body: { dry_run: true, ok: !refusal, sent: false, checks, expected: { value, readback: 'edge reads the value back after the write', unit: sim.tagByName(tag)?.unit ?? null } } };
   }
+  if (refusal) {
+    const code = refusal.error === 'not_writable' ? 403 : refusal.error === 'permissive_not_met' || refusal.error === 'command_in_flight' ? 409 : 422;
+    return { code, body: { detail: refusal.error, ...refusal } };
+  }
+  const old = sim.value(tag);
+  const mode = fault;
   const t = now();
-  const c: Cmd = { id: `cmd-${++cmdSeq}`, tag, value: value as number | boolean, status: 'issued', created_at: iso(t), updated_at: iso(t), user, events: [] };
+  const c: Cmd = { id: `cmd-${++cmdSeq}`, tag, value: value as number | boolean, status: 'issued', note: String(note).trim(), created_at: iso(t), updated_at: iso(t), user, events: [] };
   commands.unshift(c);
-  // the edge's round-trip: dispatched over MQTT, acked by the PLC, read back
-  const advance = (to: string, ms: number) => setTimeout(() => {
-    c.events.push({ from: c.status, to, actor: to === 'sent' ? 'backend' : 'edge', at: iso(now()) });
+  const advance = (to: string, ms: number, reason?: string, actor = 'edge') => setTimeout(() => {
+    c.events.push({ from: c.status, to, actor: to === 'sent' ? 'backend' : actor, reason: reason ?? null, at: iso(now()) });
     c.status = to; c.updated_at = iso(now());
-    broadcast({ type: 'command', command_id: c.id, status: to, tag });
+    if (reason) c.detail = reason;
+    broadcast({ type: 'command', command_id: c.id, status: to, tag, ...(reason ? { detail: reason } : {}) });
   }, ms);
-  advance('sent', 120); advance('acked', 420); advance('done', 800);
+  advance('sent', 120);
+  if (mode === 'timeout') { advance('timeout', MOCK_TTL_MS, 'no response within ttl_s=15', 'sweeper'); return { code: 200, body: { command_id: c.id } }; }
+  // the PLC write, then the read-back that decides the outcome
+  sim.write(tag, value);
+  advance('acked', 420);
+  if (mode === 'unknown') { advance('unknown', 800, 'readback_unavailable:quality_bad'); return { code: 200, body: { command_id: c.id } }; }
+  if (mode === 'mismatch') {
+    if (old !== undefined) sim.write(tag, old);
+    advance('failed', 800, `readback_mismatch:expected=${value},actual=${old}`);
+    return { code: 200, body: { command_id: c.id } };
+  }
+  const actual = sim.value(tag);
+  const match = typeof value === 'boolean' ? actual === value : Math.abs(Number(actual) - Number(value)) <= 1e-3 * Math.abs(Number(value)) + 1e-6;
+  if (match) advance('done', 800, `readback_ok:${actual}`);
+  else advance('failed', 800, `readback_mismatch:expected=${value},actual=${actual}`);
   return { code: 200, body: { command_id: c.id } };
 }
 
@@ -303,7 +353,7 @@ const range = (url: URL, defMs: number) => {
   return { from, to };
 };
 const v2alarm = (a: sim.SimAlarm) => ({
-  id: String(a.id), tag_id: a.tag_id, rule_id: a.rule_id, rule: a.rule, severity: a.severity, state: a.state, raised_at: a.ts,
+  id: String(a.id), tag_id: a.tag_id, rule_id: a.rule_id, rule: a.rule, severity: a.severity, state: a.state, late: false, raised_at: a.ts,
   acked_at: a.acked_at, acked_by: a.acked_by, cleared_at: a.cleared_at, version: a.version,
   shelved_until: a.shelved_until, assigned_to: a.assigned_to, assigned_name: a.assigned_name,
 });
@@ -312,6 +362,34 @@ const adminRule = (r: sim.SimRule) => ({
   window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled,
 });
 const alarmEvents: Record<string, { kind: string; author: string; body: string; at: string }[]> = {};
+/** Who shelved an alarm, why and when — the backend keeps this on the alarm row (migration 0057). */
+const shelfMeta = new Map<string, { by: string; reason: string; at: string }>();
+const SHELVE_MAX_MIN = 7 * 24 * 60;
+/** Response guidance the rationalisation (F11) will own; the mock carries a sample for three rules. */
+const GUIDANCE: Record<string, { cause: string; consequence: string; steps: string[]; respond_within_min: number }> = {
+  'r-1': {
+    cause: 'Belt slipping or tension low. Speed above normal load.',
+    consequence: 'Belt damage and a longer stop.',
+    steps: ['Return the speed setpoint to 32 Hz.', 'Check tension at the tail pulley.', 'Call maintenance if above 75 °C after 5 min.'],
+    respond_within_min: 4,
+  },
+  'r-2': {
+    cause: 'Discharge gate stuck or downstream belt stopped.',
+    consequence: 'Material spills over the bin and the sorter has to stop.',
+    steps: ['Check the discharge gate.', 'Confirm the downstream belt is running.'],
+    respond_within_min: 10,
+  },
+  'r-5': {
+    cause: 'Mixer overloaded or a lump in the drum.',
+    consequence: 'Motor trips and the batch is lost.',
+    steps: ['Stop the batch feed.', 'Inspect the drum before restarting.'],
+    respond_within_min: 3,
+  },
+};
+const expireShelves = () => {
+  const n = now();
+  for (const a of sim.ALARMS) if (a.shelved_until && Date.parse(a.shelved_until) <= n) { a.shelved_until = null; shelfMeta.delete(String(a.id)); }
+};
 
 export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://mock');
@@ -338,6 +416,29 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   if (frame) return svg(res, plant.frameSvg(frame[1]));
   const thumb = /^\/api\/v1\/orgs\/[^/]+\/vision\/events\/([\w-]+)\/thumb$/.exec(p);
   if (thumb) return svg(res, plant.frameSvg('cam-1'));
+
+  // test-only (F05 e2e): choose how the mock edge fails; unauthenticated like /api/mock/frame
+  if (p === '/api/__mock/fault' && req.method === 'POST') {
+    const b = await body(req);
+    fault = b.mode === 'mismatch' || b.mode === 'unknown' || b.mode === 'timeout' ? b.mode : null;
+    return send(200, { mode: fault });
+  }
+
+  // dev/e2e hooks: raise an alarm on demand, bring it back to normal, or make a
+  // shelf run out now. Unauthenticated on purpose: the mock is dev-only.
+  const hook = /^\/api\/mock\/alarms\/(raise|(\d+)\/(return|expire-shelf))$/.exec(p);
+  if (hook && req.method === 'POST') {
+    if (hook[1] === 'raise') {
+      const b = await body(req);
+      const a = sim.raiseAlarm(String(b.rule_id ?? 'r-1'));
+      return a ? send(200, a) : send(404, { detail: 'unknown rule' });
+    }
+    const a = sim.ALARMS.find((x) => String(x.id) === hook[2]);
+    if (!a) return send(404, { detail: 'unknown alarm' });
+    if (hook[3] === 'return') return send(200, sim.returnAlarm(a.id));
+    a.shelved_until = iso(now() + 2000);
+    return send(200, a);
+  }
 
   const role = roleOf(req);
   if (!role) return send(401, { detail: 'mock: sign in with demo-operator or demo-viewer' });
@@ -387,7 +488,22 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, rows.map((r) => ({ v: r.v, q: qAt(name, Date.parse(r.ts)), ts: r.ts })));
   }
 
-  if (p === '/api/alarms') return send(200, sim.ALARMS.slice(0, 300));
+  if (p === '/api/alarms') { expireShelves(); return send(200, sim.ALARMS.slice(0, 300)); }
+  // ack link: GET shows what the link is about, POST acknowledges (single use)
+  const tok = /^\/api\/v1\/ack\/mock-(\d+)$/.exec(p);
+  if (tok) {
+    const a = sim.ALARMS.find((x) => String(x.id) === tok[1]);
+    if (!a) return send(404, { detail: 'link not found' });
+    if (req.method === 'GET') {
+      if (a.state !== 'active' && a.state !== 'rtn_unack') return send(410, { detail: 'link_used_or_expired' });
+      return send(200, { alarm: { id: String(a.id), rule: a.rule, severity: a.severity, state: a.state, tag: a.tag, raised_at: a.ts } });
+    }
+    if (!operate) return send(403, { detail: 'operator role required' });
+    if (a.state !== 'active' && a.state !== 'rtn_unack') return send(410, { detail: 'link_used_or_expired' });
+    const acked = sim.ackAlarm(a.id, who);
+    (alarmEvents[String(a.id)] ??= []).push({ kind: 'ack', author: who, body: '', at: iso(t) });
+    return send(200, { alarm: acked });
+  }
   const ack = /^\/api\/alarms\/(\d+)\/ack$/.exec(p);
   if (ack && req.method === 'POST') {
     if (!operate) return send(403, { detail: 'operator role required' });
@@ -401,13 +517,13 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, insights.filter((i) => !state || i.state === state));
   }
   if (p === '/api/alarm-rules') {
-    return send(200, sim.RULES.map((r) => ({ tag: tagName(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s, window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled })));
+    return send(200, sim.RULES.map((r) => ({ ...GUIDANCE[r.id], tag: tagName(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s, window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled })));
   }
   if (p === '/api/commands') {
     if (!operate) return send(403, { detail: 'operator role required' });
     if (req.method === 'POST') {
       const b = await body(req);
-      const r = issue(String(b.tag ?? ''), b.value, who);
+      const r = issue(String(b.tag ?? ''), b.value, who, b.reason, b.dry_run === true);
       return send(r.code, r.body);
     }
     return send(200, commands.slice(0, Math.min(500, Number(url.searchParams.get('limit')) || 50)));
@@ -574,6 +690,13 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, { items: plant.deliveries(80).filter((d) => !ch || d.channel_id === ch) });
   }
   if (rest === '/alarm-quality') return send(200, plant.alarmQuality(Math.min(168, Number(url.searchParams.get('hours')) || 24)));
+  if (rest === '/alarm-shelf') {
+    expireShelves();
+    return send(200, { items: sim.ALARMS.filter((a) => a.shelved_until).sort((x, y) => Date.parse(x.shelved_until!) - Date.parse(y.shelved_until!)).map((a) => {
+      const m = shelfMeta.get(String(a.id));
+      return { id: String(a.id), rule: a.rule, severity: a.severity, state: a.state, tag: a.tag, shelved_until: a.shelved_until, shelved_at: m?.at ?? null, shelved_by: m?.by ?? null, reason: m?.reason ?? '' };
+    }) });
+  }
   const al = /^\/alarms\/([^/]+)\/(events|shelve|unshelve|comments|assign|ack-link)$/.exec(rest);
   if (al) {
     const [, id, what] = al;
@@ -582,10 +705,20 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     if (what === 'events') return send(200, { items: [...(a?.acked_by ? [{ kind: 'ack', author: a.acked_by, body: '', at: a.acked_at! }] : []), ...evs] });
     if (!operate) return send(403, { detail: 'operator role required' });
     const b = await body(req);
-    if (what === 'ack-link') return send(200, { url: `${url.origin}/ack/mock-${id}`, expires_in: Number(b.ttl_s) || 3600 });
+    if (what === 'ack-link') return send(200, { url: `/api/v1/ack/mock-${id}`, expires_in: Number(b.ttl_s) || 3600 });
     if (!a) return send(404, { detail: 'unknown alarm' });
-    if (what === 'shelve') { a.shelved_until = iso(t + (Number(b.minutes) || 60) * 60e3); evs.push({ kind: 'shelve', author: who, body: String(b.reason ?? ''), at: iso(t) }); return send(200, { shelved_until: a.shelved_until }); }
-    if (what === 'unshelve') { a.shelved_until = null; evs.push({ kind: 'unshelve', author: who, body: '', at: iso(t) }); return send(200, {}); }
+    if (what === 'shelve') {
+      // same rules as the backend: a reason, at most a week, never a closed alarm
+      const reason = String(b.reason ?? '').trim();
+      const minutes = Number(b.minutes);
+      if (!(minutes >= 1 && minutes <= SHELVE_MAX_MIN) || reason.length < 3) return send(422, { detail: 'a shelve reason and a duration of 1 minute to 7 days are required' });
+      if (a.state === 'cleared') return send(409, { detail: 'a cleared alarm cannot be shelved' });
+      a.shelved_until = iso(t + minutes * 60e3);
+      shelfMeta.set(id, { by: who, reason, at: iso(t) });
+      evs.push({ kind: 'shelve', author: who, body: reason, at: iso(t) });
+      return send(200, { shelved_until: a.shelved_until });
+    }
+    if (what === 'unshelve') { a.shelved_until = null; shelfMeta.delete(id); evs.push({ kind: 'unshelve', author: who, body: '', at: iso(t) }); return send(200, {}); }
     if (what === 'comments') { evs.push({ kind: 'comment', author: who, body: String(b.body ?? ''), at: iso(t) }); return send(200, {}); }
     const m = members.find((x) => x.user_id === b.user_id);
     Object.assign(a, { assigned_to: m?.user_id ?? null, assigned_name: m?.display_name ?? null });
@@ -756,7 +889,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     const noise = Array.from({ length: 80 }, (_, i) => ({
       seq: 200 + i, at: iso(T0 - i * 2.5 * H), actor: actors[i % actors.length], action: acts[i % acts.length], target: {}, detail: {}, hash: `h${i}`,
     }));
-    const all = [...noise, ...auditSeed].sort((a, b) => b.at.localeCompare(a.at));
+    // every command transition leaves an audit row carrying the operator's reason
+    const cmdAudit = commands.flatMap((c) => [{ from: 'none', to: 'accepted', actor: `user:${c.user}`, reason: null as string | null, at: c.created_at }, ...c.events.map((e) => ({ ...e, reason: e.reason ?? null }))]
+      .map((e, i) => ({ seq: 1000 + Number(c.id.replace(/\D/g, '')) * 10 + i, at: e.at, actor: e.actor.startsWith('user:') ? e.actor : `edge:${e.actor}`, action: `command.${CMD_V2[e.to] ?? e.to}`, target: { command_id: c.id, tag: c.tag }, detail: { value: c.value, reason: e.reason, note: c.note ?? 'legacy: no reason recorded' }, hash: `c${c.id}-${i}` })));
+    const all = [...noise, ...auditSeed, ...cmdAudit].sort((a, b) => b.at.localeCompare(a.at));
     const filtered = action ? all.filter((a) => a.action === action) : all;
     return send(200, list(filtered.slice(0, Math.min(500, Number(url.searchParams.get('limit')) || 50))));
   }
@@ -890,6 +1026,13 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     });
     // shortcut: the mock does not evaluate formulas; the real engine is backend/app/production/formula.py
     return done(200, { ok: true, type: /[<>=]/.test(String(b.expr ?? '')) ? 'bool' : 'number', value: null, quality: 'good', inputs, windows: /\d+[smhd]\)/.test(String(b.expr ?? '')) ? 1 : 0, max_window_s: 0 });
+  }
+
+  // plant board (F07): drafts, versions and part captures, in memory
+  if (rest.startsWith('/plant-board')) {
+    const bd = req.method === 'GET' ? {} : await body(req);
+    const r = boardRoute(rest, req.method ?? 'GET', q, bd, { config: c.config, who: c.who, now: iso(t) });
+    if (r) return done(r.code, r.data);
   }
 
   // plant model: no uploaded .glb → the console shows the bundled demo plant
