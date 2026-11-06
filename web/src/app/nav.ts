@@ -98,6 +98,7 @@ const ALL_NAV: NavGroup[] = [
     { to: '/commands', key: 'nav.commands', icon: 'prompt' },
   ] },
   { cluster: 'plant', group: 'nav.alarms', icon: 'attention-circled', href: '/alarms', items: [
+    { to: '/my-work', key: 'nav.myWork', icon: 'check' },
     { to: '/alarms', key: 'nav.alarms', icon: 'attention-circled' },
     { to: '/alarms/quality', key: 'nav.alarmQuality', icon: 'bell-curve' },
     { to: '/downtimes', key: 'nav.downtimes', icon: 'snooze' },

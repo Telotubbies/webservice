@@ -361,6 +361,7 @@ const adminRule = (r: sim.SimRule) => ({
   id: r.id, tag_id: idOf(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s,
   window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled,
 });
+const reviewedEvents = new Set<string>();
 const alarmEvents: Record<string, { kind: string; author: string; body: string; at: string }[]> = {};
 /** Who shelved an alarm, why and when — the backend keeps this on the alarm row (migration 0057). */
 const shelfMeta = new Map<string, { by: string; reason: string; at: string }>();
@@ -666,7 +667,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   }
   const vev = /^\/vision\/events\/([^/]+)(\/review)?$/.exec(rest);
   if (vev) {
-    if (vev[2]) return send(200, { ok: true });
+    if (vev[2]) { reviewedEvents.add(vev[1]); return send(200, { ok: true }); }
     const e = plant.visionEvents(200).items.find((x) => x.id === vev[1]);
     return e ? send(200, { event: e }) : send(404, { detail: 'unknown event' });
   }
@@ -1055,6 +1056,12 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     if (mach[2] === 'products') return done(200, list(m.configured ? [{ id: `pr-${m.device_id}`, product: m.device_id === plant.SORTER ? 'Gravel 3/4"' : 'Concrete C30', ideal_cycle_s: m.ideal_cycle_s, active: true }] : []));
     if (!m.configured) return done(404, { detail: 'no state map' });
     return done(200, { map: { device_id: m.device_id, state_tag_id: idOf(m.state), count_tag_id: m.device_id === plant.MIXER ? idOf('batch.mix.truck.count') : null, reject_tag_id: null, states: { running: [true], stopped: [false] }, stop_threshold_s: 60, updated_at: iso(T0 - 7 * DAY) } });
+  }
+  if (rest === '/my-work' && GET) {
+    const { from, to } = range(url, DAY);
+    const reviews = plant.visionEvents(60, 'material').items.filter((e) => !reviewedEvents.has(e.id)).slice(0, 15)
+      .map((e) => ({ id: e.id, camera_id: e.camera_id, camera: 'Aggregate CCTV (demo)', fired_at: e.fired_at, detail: e.detail }));
+    return done(200, { downtimes: plant.dtEvents(from, to, true), reviews });
   }
   if (rest === '/downtime-events' && GET) {
     const { from, to } = range(url, DAY);
