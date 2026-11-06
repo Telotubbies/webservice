@@ -86,7 +86,7 @@ def run(web):
             const { live } = await import('/src/lib/live.ts');
             const p = live.tags[0].name.split('.')[0];
             live.pushTag(p + '.batch.cem.silo1.level_pct', 62.5, 'good', new Date().toISOString());
-            for (const n of [2, 3, 4]) live.latest.set(p + `.batch.cem.silo${n}.level_pct`, { v: 40, q: 'good', ts: new Date(Date.now() - 120000).toISOString() });
+            for (const n of [2, 3, 4]) for (const sig of ['level_pct', 'high_level', 'low_level']) live.latest.set(p + `.batch.cem.silo${n}.${sig}`, { v: 40, q: 'good', ts: new Date(Date.now() - 120000).toISOString() });
         }""")
         page.wait_for_selector('svg g[data-part="Cement silo 1"][data-stale="0"]', state='attached', timeout=10000)
         silo1 = part(page, "Cement silo 1")
