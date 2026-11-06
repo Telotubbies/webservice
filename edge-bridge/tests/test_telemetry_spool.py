@@ -265,3 +265,11 @@ def test_reconnect_resends_rows_whose_ack_was_lost(tmp_path):
     drain_all(b)
     assert b._spool.depth() == 0
     assert [m for m in delivered_tele(b)][-25:][0] == sent[0]
+
+
+def test_eviction_logs_a_warning(tmp_path, caplog):
+    s = TelemetrySpool(str(tmp_path / "s.sqlite"), max_rows=2)
+    with caplog.at_level("WARNING"):
+        for i in range(3):
+            s.append("t", str(i))
+    assert "dropping oldest" in caplog.text and "dropped=1" in caplog.text

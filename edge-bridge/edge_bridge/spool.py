@@ -12,6 +12,7 @@ Env:
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import threading
@@ -19,6 +20,7 @@ import time
 from pathlib import Path
 
 DEFAULT_MAX_ROWS = 200_000
+log = logging.getLogger("edge_bridge.spool")
 
 
 class TelemetrySpool:
@@ -72,7 +74,11 @@ class TelemetrySpool:
                     "DELETE FROM spool WHERE id IN (SELECT id FROM spool ORDER BY id LIMIT ?)",
                     (over,)).rowcount
                 self._depth -= n
+                before = self.dropped
                 self.dropped += n
+                if before // 100 != self.dropped // 100 or before == 0:  # rate-limited: ~1 line / 100 drops
+                    log.warning("telemetry spool full (%d rows) — dropping oldest (dropped=%d)",
+                                self.max_rows, self.dropped)
 
     def peek(self, after_id: int, limit: int) -> list[tuple[int, str, str]]:
         """Oldest `limit` rows with id > after_id, in append order."""
