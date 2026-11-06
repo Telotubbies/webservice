@@ -111,7 +111,7 @@ def test_seeded_tags_have_sim_source():
                     bad += await tc.fetchval(
                         "SELECT count(*) FROM tags t JOIN data_sources ds"
                         " ON ds.org_id = t.org_id AND ds.id = t.source_id"
-                        " WHERE t.edge_id IS NOT NULL AND (ds.protocol <> 'sim' OR ds.name <> 'Simulator'"
+                        " WHERE t.edge_id IS NOT NULL AND (ds.protocol <> 'sim' OR ds.name NOT IN ('Simulator', 'Batching plant (sim)')"
                         " OR (t.address->>'behavior') IS NULL)")
             return owned, orphans, bad
         finally:
