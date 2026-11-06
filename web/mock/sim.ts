@@ -285,12 +285,13 @@ export const RULES: SimRule[] = [
 
 export interface SimAlarm {
   id: number; tag: string; tag_id: string; rule_id: string; rule: string; severity: string;
-  state: 'active' | 'acked' | 'cleared'; ts: string; acked_by: string | null; acked_at: string | null;
+  state: 'active' | 'acked' | 'rtn_unack' | 'cleared'; ts: string; acked_by: string | null; acked_at: string | null;
   cleared_at: string | null; version: number; shelved_until: string | null;
   assigned_to: string | null; assigned_name: string | null;
 }
 export const ALARMS: SimAlarm[] = [];                   // newest first, capped
 const openByRule = new Map<string, SimAlarm>();
+const HELD = new Set<number>();                     // on-demand alarms the engine must not auto-clear/ack
 let alarmSeq = 1000;
 
 export const ruleText = (r: SimRule): string => {
@@ -324,17 +325,25 @@ function evalRules(tMs: number): void {
       if (ALARMS.length > 600) ALARMS.length = 600;
       openByRule.set(r.id, a);
       emit({ type: 'alarm', ...a });
-    } else if (open && back) {
-      Object.assign(open, { state: 'cleared', cleared_at: iso, version: open.version + 1 });
-      openByRule.delete(r.id);
+    } else if (open && back && !HELD.has(open.id) && open.state !== 'rtn_unack') {
+      // ISA-18.2: back inside the limit. Acknowledged -> closed; never
+      // acknowledged -> returned to normal, still open until someone acks it.
+      const wasAcked = open.state === 'acked';
+      Object.assign(open, { state: wasAcked ? 'cleared' : 'rtn_unack', cleared_at: iso, version: open.version + 1 });
+      if (wasAcked) openByRule.delete(r.id);
       emit({ type: 'alarm_update', ...open });
     }
   }
   // the shift operator acknowledges what the user leaves alone (4 min), so
   // the console doesn't sit on a stale unacked banner forever
-  for (const a of openByRule.values()) {
+  for (const a of [...openByRule.values()]) {
+    if (HELD.has(a.id)) continue;
     if (a.state === 'active' && tMs - Date.parse(a.ts) > 240_000) {
       Object.assign(a, { state: 'acked', acked_by: 'shift-operator', acked_at: iso, version: a.version + 1 });
+      emit({ type: 'alarm_update', ...a });
+    } else if (a.state === 'rtn_unack' && tMs - Date.parse(a.cleared_at ?? a.ts) > 240_000) {
+      Object.assign(a, { state: 'cleared', acked_by: 'shift-operator', acked_at: iso, version: a.version + 1 });
+      openByRule.delete(a.rule_id);
       emit({ type: 'alarm_update', ...a });
     }
   }
@@ -342,8 +351,44 @@ function evalRules(tMs: number): void {
 
 export function ackAlarm(id: string | number, who: string): SimAlarm | null {
   const a = ALARMS.find((x) => String(x.id) === String(id));
-  if (!a || a.state !== 'active') return a ?? null;
-  Object.assign(a, { state: 'acked', acked_by: who, acked_at: new Date().toISOString(), version: a.version + 1 });
+  if (!a || (a.state !== 'active' && a.state !== 'rtn_unack')) return a ?? null;
+  // active -> acked; returned-to-normal -> closed
+  const next = a.state === 'active' ? 'acked' : 'cleared';
+  Object.assign(a, { state: next, acked_by: who, acked_at: new Date().toISOString(), version: a.version + 1 });
+  if (next === 'cleared') { openByRule.delete(a.rule_id); HELD.delete(a.id); }
+  emit({ type: 'alarm_update', ...a });
+  return a;
+}
+
+// ── On-demand alarms (dev + e2e) ────────────────────────────────────────────
+// A "held" alarm stays as raised until returnAlarm(): the simulated plant is
+// healthy, so without a hold the engine would clear it on the next tick and a
+// journey could never be tested against a live Active alarm.
+
+export function raiseAlarm(ruleId: string): SimAlarm | null {
+  const r = RULES.find((x) => x.id === ruleId);
+  if (!r) return null;
+  if (openByRule.has(r.id)) return openByRule.get(r.id)!;
+  const t = tagByTail(r.tail);
+  if (!t) return null;
+  const a: SimAlarm = {
+    id: ++alarmSeq, tag: t.name, tag_id: t.id, rule_id: r.id, rule: ruleText(r), severity: r.severity, state: 'active',
+    ts: new Date().toISOString(), acked_by: null, acked_at: null, cleared_at: null, version: 1, shelved_until: null, assigned_to: null, assigned_name: null,
+  };
+  ALARMS.unshift(a);
+  openByRule.set(r.id, a);
+  HELD.add(a.id);
+  emit({ type: 'alarm', ...a });
+  return a;
+}
+
+/** The process came back inside its limit: unacked -> rtn_unack, acked -> cleared. */
+export function returnAlarm(id: string | number): SimAlarm | null {
+  const a = ALARMS.find((x) => String(x.id) === String(id));
+  if (!a || (a.state !== 'active' && a.state !== 'acked')) return a ?? null;
+  const wasAcked = a.state === 'acked';
+  Object.assign(a, { state: wasAcked ? 'cleared' : 'rtn_unack', cleared_at: new Date().toISOString(), version: a.version + 1 });
+  if (wasAcked) { openByRule.delete(a.rule_id); HELD.delete(a.id); }
   emit({ type: 'alarm_update', ...a });
   return a;
 }
