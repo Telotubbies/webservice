@@ -39,6 +39,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -328,6 +329,8 @@ class RuleEngine:
         self._cams: dict[str, _CamState] = {}
         self._inflight: dict[str, object] = {}          # tag_path -> claimed (under _lock)
         self._tag_writes: dict[str, list[float]] = {}   # tag_path -> monotonic list (under _lock)
+        self._visit = 0                                 # latest material visit (bumped under _lock)
+        self._mat_lock = threading.Lock()               # serialises material writes: check visit + write
         self._write_queued = 0                          # queued+running pool writes (under _lock)
         self._writes_dropped = 0                        # writes refused because the queue was full
         self._offline_since: float | None = None        # stamped at disconnect, not lazily
@@ -425,6 +428,10 @@ class RuleEngine:
         code = {"gravel": o["gravel_value"], "sand": o["sand_value"]}[pkg["decision"]] if certain \
             else o["none_value"]
         acts, code_act, code_fut = [], None, None
+        with self._lock:                        # a newer visit voids every older visit's pending writes
+            self._visit += 1
+            visit = self._visit
+        adapter = self._holder.get()            # code and trigger go to the same PLC link
         if o["code"]:
             code_act = {"kind": "plc_write", "tag_path": o["code"], "value": code, "pulse_ms": None}
             acts.append(code_act)
@@ -436,6 +443,8 @@ class RuleEngine:
         if o["trigger"] and o["code"] and certain:
             acts.append({"kind": "plc_write", "tag_path": o["trigger"], "value": True,
                          "pulse_ms": o["pulse_ms"], "delay_ms": 150})
+        for a in acts:
+            a["visit"], a["adapter"] = visit, adapter
         rule = _Rule(id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"material:{cam['id']}")), name="material decision",
                      enabled=True, dry_run=cfg["dry_run"], allow_cloud_write=False,
                      offline_write_window_s=None, cond={}, actions=acts)
@@ -695,46 +704,53 @@ class RuleEngine:
                 self._audit(camera_id, rule_id, action["tag_path"], action.get("value"),
                             "blocked:code_not_written")
                 return False
-        adapter = self._holder.get()
+        adapter = action.get("adapter") or self._holder.get()
         name = self._adapter_name(action["tag_path"])
         ok, detail, value = False, "error", action.get("value")
+        if action.get("delay_ms"):              # settle time, before taking the material lock
+            time.sleep(action["delay_ms"] / 1000.0)
+        mat = "visit" in action
         try:
-            if action["kind"] == "counter":
-                cur = None
-                for tv in adapter.read_all():
-                    if tv.name == name:
-                        # only a GOOD-quality read is a real process value —
-                        # never increment a BAD/UNCERTAIN sample
-                        if getattr(tv, "q", None) == Quality.GOOD:
-                            cur = tv.v
-                        break
-                if not isinstance(cur, (int, float)) or isinstance(cur, bool):
-                    detail = "counter_unreadable"
+            with self._mat_lock if mat else nullcontext():
+                if mat and (action["visit"] != self._visit or adapter is not self._holder.get()):
+                    # a newer truck, or a swapped PLC link: this visit's data is no longer the PLC's
+                    self._audit(camera_id, rule_id, action["tag_path"], action.get("value"),
+                                "blocked:superseded")
+                    return False
+                if action["kind"] == "counter":
+                    cur = None
+                    for tv in adapter.read_all():
+                        if tv.name == name:
+                            # only a GOOD-quality read is a real process value —
+                            # never increment a BAD/UNCERTAIN sample
+                            if getattr(tv, "q", None) == Quality.GOOD:
+                                cur = tv.v
+                            break
+                    if not isinstance(cur, (int, float)) or isinstance(cur, bool):
+                        detail = "counter_unreadable"
+                    else:
+                        value = float(cur) + float(action["by"])
+                        res = adapter.write(name, value)
+                        ok, detail = res.ok, res.detail
                 else:
-                    value = float(cur) + float(action["by"])
-                    res = adapter.write(name, value)
+                    res = adapter.write(name, action["value"])
                     ok, detail = res.ok, res.detail
-            else:
-                if action.get("delay_ms"):
-                    time.sleep(action["delay_ms"] / 1000.0)
-                res = adapter.write(name, action["value"])
-                ok, detail = res.ok, res.detail
-                if ok and action.get("pulse_ms"):
-                    time.sleep(action["pulse_ms"] / 1000.0)
-                    reset = False if isinstance(action["value"], bool) else 0
-                    res2 = adapter.write(name, reset)
-                    if not res2.ok:
-                        # a pulse that never resets leaves the tag latched —
-                        # retry once, then record the failure in the audit
-                        log.error("pulse reset failed tag=%s: %s — retrying once",
-                                  name, res2.detail)
+                    if ok and action.get("pulse_ms"):
+                        time.sleep(action["pulse_ms"] / 1000.0)
+                        reset = False if isinstance(action["value"], bool) else 0
                         res2 = adapter.write(name, reset)
-                    if not res2.ok:
-                        log.error("pulse reset retry failed tag=%s: %s",
-                                  name, res2.detail)
-                        ok, detail = False, f"reset_failed:{res2.detail}"[:200]
+                        if not res2.ok:
+                            # a pulse that never resets leaves the tag latched —
+                            # retry once, then record the failure in the audit
+                            log.error("pulse reset failed tag=%s: %s — retrying once",
+                                      name, res2.detail)
+                            res2 = adapter.write(name, reset)
+                        if not res2.ok:
+                            log.error("pulse reset retry failed tag=%s: %s",
+                                      name, res2.detail)
+                            ok, detail = False, f"reset_failed:{res2.detail}"[:200]
         except Exception as exc:                # noqa: BLE001 — a PLC fault must not kill the pool
-            detail = f"write_failed:{exc}"[:200]
+            ok, detail = False, f"write_failed:{exc}"[:200]
         self._audit(camera_id, rule_id, action["tag_path"], value,
                     "fired" if ok else detail)
         return ok

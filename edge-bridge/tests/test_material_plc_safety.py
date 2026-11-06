@@ -203,3 +203,103 @@ def test_new_uncertain_truck_overwrites_previous_code(tmp_path):
     _run(tmp_path, a, [_pkg("sand"), _pkg("gravel", margin=0.1, uncertain=True)])
     assert _code(a) == [2, 0]
     assert _triggers(a) == [True, False]
+
+
+# ------------------------------------- overlapping visits (no executor drain)
+def test_stale_trigger_dropped_when_next_visit_code_write_fails(tmp_path):
+    """Truck A's trigger is still in its delay when truck B closes and B's code
+    write fails: A's trigger must not latch A's code for B."""
+    a = MatAdapter()
+    e, bridge = _engine(tmp_path, a)
+    e.on_material(_cam(), _pkg("sand"), None)          # A: code ok, trigger pending
+    a._fail_tags = {CODE}
+    e.on_material(_cam(), _pkg("gravel"), None)        # B: code write denied
+    e._pool.shutdown(wait=True)
+    assert _triggers(a) == []
+    assert any(r["status"] == "blocked:superseded" for r in bridge.audits)
+
+
+def test_stale_trigger_dropped_when_next_visit_uncertain(tmp_path):
+    a = MatAdapter()
+    e, _b = _engine(tmp_path, a)
+    e.on_material(_cam(), _pkg("sand"), None)
+    e.on_material(_cam(), _pkg("sand", margin=0.1, uncertain=True), None)
+    e._pool.shutdown(wait=True)
+    assert _triggers(a) == []
+    assert _code(a)[-1] == 0                           # B's none_value is the last code
+
+
+def test_slow_code_write_of_old_visit_gets_no_trigger(tmp_path):
+    """A's code write is still running when B closes (B's same-tag write is gated
+    off as in flight): nobody triggers, so the PLC never latches A's code for B."""
+    import threading
+    gate = threading.Event()
+
+    class Slow(MatAdapter):
+        def write(self, tag, value):
+            if tag == CODE and value == 2:
+                gate.wait(2)                           # A's code write is slow
+            return super().write(tag, value)
+
+    a = Slow()
+    e, _b = _engine(tmp_path, a)
+    e.on_material(_cam(), _pkg("sand"), None)
+    e.on_material(_cam(), _pkg("gravel"), None)
+    gate.set()
+    e._pool.shutdown(wait=True)
+    assert _triggers(a) == []
+
+
+# ---------------------------------------------------------- adapter swap
+def test_trigger_not_sent_through_swapped_adapter(tmp_path):
+    a, b = MatAdapter(), MatAdapter()
+    holder = FakeHolder(a)
+
+    class Swap(MatAdapter):
+        def write(self, tag, value):
+            r = super().write(tag, value)
+            if tag == CODE:
+                holder._a = b                          # live swap after the code write
+            return r
+
+    a2 = Swap()
+    holder._a = a2
+    e = RuleEngine(holder, FakeBridge(), FakeCfg(), str(tmp_path), clock=FakeClock())
+    e.on_material(_cam(), _pkg("sand"), None)
+    e._pool.shutdown(wait=True)
+    assert _code(a2) == [2]
+    assert _triggers(a2) == [] and _triggers(b) == []
+
+
+# ------------------------------------------------------------- faults
+def test_pulse_reset_exception_is_not_audited_as_fired(tmp_path):
+    class Boom(MatAdapter):
+        def write(self, tag, value):
+            if tag == TRIG and value is False:
+                raise OSError("link down")
+            return super().write(tag, value)
+
+    a = Boom()
+    _e, bridge = _run(tmp_path, a, [_pkg("sand")])
+    st = [r["status"] for r in bridge.audits if r["tag_path"] == "mat/trig"]
+    assert st and st[0] != "fired"
+
+
+def test_code_write_timeout_blocks_trigger(tmp_path, monkeypatch):
+    import threading
+    import edge_bridge.vision.rules as R
+    monkeypatch.setattr(R, "AFTER_WAIT_S", 0.05)
+    gate = threading.Event()
+
+    class Hang(MatAdapter):
+        def write(self, tag, value):
+            if tag == CODE:
+                gate.wait(1)
+            return super().write(tag, value)
+
+    a = Hang()
+    e, bridge = _engine(tmp_path, a)
+    e.on_material(_cam(), _pkg("sand"), None)
+    e._pool.shutdown(wait=True)
+    assert _triggers(a) == []
+    assert any(r["status"] == "blocked:code_not_written" for r in bridge.audits)
