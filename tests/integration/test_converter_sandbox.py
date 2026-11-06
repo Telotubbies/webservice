@@ -2,6 +2,8 @@
 or opens a socket must fail without effect. Needs the stack incl. `model-converter`
 (`make up-test`) and the docker CLI on the test host."""
 
+import json
+import os
 import pickle
 import shutil
 import subprocess
@@ -16,7 +18,7 @@ pytestmark = pytest.mark.integration
 
 from conftest import ADMIN_TOKEN, ORG_ID  # noqa: E402
 
-CONTAINER = "webservice-model-converter-1"
+CONTAINER = os.environ.get("CONVERTER_CONTAINER", "webservice-model-converter-1")  # compose project name varies
 BASE = f"/api/v1/orgs/{ORG_ID}/vision/models"
 
 PAYLOAD = """
@@ -71,22 +73,26 @@ def test_container_is_locked_down(converter):
     assert net == "none" and ro == "true" and int(mem) > 0 and int(pids) > 0 and "ALL" in caps and user.startswith("10001")
 
 
+def _drop_job(converter, jid, data: bytes):
+    """Hand the crafted .pt straight to the converter's spool. Upload now refuses it first (ptscan, 422);
+    this test is about the second gate, so it must not depend on the first one being bypassable."""
+    put = lambda name, body: subprocess.run(["docker", "exec", "-i", converter, "sh", "-c", f"cat > /spool/{name}"],
+                                            input=body, capture_output=True, timeout=30, check=True)
+    put(f"{jid}.pt", data)
+    put(f"{jid}.json", json.dumps({"id": jid, "task_hint": "detect", "queued_at": time.time()}).encode())  # job file last
+
+
 def test_crafted_pickle_fails_without_effect(base_url, converter):
-    import httpx
-    with httpx.Client(base_url=base_url, timeout=30, headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}) as c:
-        m = c.post(BASE, json={"name": f"evil-{uuid.uuid4().hex[:6]}", "task": "detect"}).json()["model"]
-        try:
-            v = c.post(f"{BASE}/{m['id']}/versions", params={"filename": "weights.pt"}, content=_evil_pt()).json()["version"]
-            deadline, status = time.time() + 120, "processing"
-            while time.time() < deadline and status == "processing":
-                time.sleep(2)
-                status = c.get(f"{BASE}/{m['id']}/versions/{v['id']}").json()["version"]["status"]
-            assert status == "failed", f"expected failed, got {status}"
-            reason = c.get(f"{BASE}/{m['id']}/versions/{v['id']}").json()["version"]["failure_reason"]
-        finally:
-            for x in c.get(f"{BASE}/{m['id']}/versions").json()["items"]:
-                c.delete(f"{BASE}/{m['id']}/versions/{x['id']}")
-            c.delete(f"{BASE}/{m['id']}")
+    jid = str(uuid.uuid4())
+    _drop_job(converter, jid, _evil_pt())
+    deadline = time.time() + 120
+    while time.time() < deadline:                        # the converter deletes the .pt once the job has run
+        time.sleep(2)
+        if _docker("exec", converter, "ls", f"/spool/{jid}.pt").returncode != 0:
+            break
+    else:
+        pytest.fail("the converter never finished the crafted job")
+    reason = "job ran in the converter"
     spool = _docker("exec", converter, "ls", "-a", "/spool").stdout
     _docker("exec", converter, "sh", "-c", "rm -f /spool/PROBE-*")
     assert "PROBE-fs" not in spool and "PROBE-net" not in spool, f"the pickle had an effect: {spool}"

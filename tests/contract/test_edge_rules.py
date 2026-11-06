@@ -9,6 +9,7 @@ import json
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -166,10 +167,10 @@ def _cam(rules, gate=None, cid="c1", class_config=None):
             "rules": rules}
 
 
-def _engine(tmp_path, online=True):
+def _engine(tmp_path, online=True, executor=None):
     adapter, bridge = FakeAdapter(), FakeBridge(online=online)
     e = RuleEngine(FakeHolder(adapter), bridge, FakeCfg(), str(tmp_path),
-                   clock=FakeClock())
+                   clock=FakeClock(), executor=executor)
     return e, adapter, bridge
 
 
@@ -374,7 +375,10 @@ def test_audit_spooled_offline_and_replayed_in_order(tmp_path):
 
 
 def test_audit_two_rules_replay_in_order(tmp_path):
-    e, adapter, bridge = _engine(tmp_path, online=False)
+    # The default pool runs writes to different tags concurrently, so audit order is
+    # completion order. One worker makes completion order == firing order, deterministically.
+    e, adapter, bridge = _engine(tmp_path, online=False,
+                                 executor=ThreadPoolExecutor(max_workers=1))
     r2 = _rule(actions=[{"kind": "plc_write", "tag_path": "a/b/speed", "value": 5}])
     r2["id"] = "r2"
     cam = _cam([_rule(), r2])

@@ -174,6 +174,15 @@ def test_ws_operator_receives_command_events(ws_base, operator_headers, api):
             f"{ws_base}/ws", open_timeout=10
         ) as ws:
             await ws.send(json.dumps({"type": "auth", "token": OPERATOR_TOKEN}))
+            # `compose --wait` returns before the edge has MQTT: it is refused until the backend mints its
+            # credential, then backs off up to ~40 s. A command issued meanwhile is never acked, so wait
+            # for the first tag event (the edge is publishing) instead of racing it.
+            edge_up = asyncio.get_event_loop().time() + 150
+            while True:
+                e = json.loads(await asyncio.wait_for(
+                    ws.recv(), timeout=max(0.05, edge_up - asyncio.get_event_loop().time())))
+                if e.get("type") == "tag":
+                    break
             r = api.post(
                 "/api/commands",
                 headers=operator_headers,
