@@ -263,3 +263,41 @@ def test_replayed_late_samples_are_idempotent(two_orgs):
         finally:
             await pools.close()
     run(go())
+
+
+def test_deleted_rule_history_still_in_feed_reports_and_standing(two_orgs):
+    a, _ = two_orgs
+    from app.alarming import notify
+    from app.db.context import tenant_tx
+    from app.production import eventsfeed, reports
+
+    async def go():
+        pools = await make_pools()
+        try:
+            eng, rule = await _setup(pools, a)
+            async with tenant_tx(pools.app, a["org"]) as tc:
+                name = await tc.fetchval("SELECT name FROM alarm_rules WHERE id=$1", rule.id)
+            await _feed(pools, eng, a, 5.0)
+            await _feed(pools, eng, a, 0.0)               # rtn_unack
+            (al,) = await _rows(pools, a, rule)
+            async with tenant_tx(pools.app, a["org"]) as tc:
+                await tc.execute("DELETE FROM alarm_rules WHERE id=$1", rule.id)
+                feed = await tc.fetch(
+                    "SELECT id, subject FROM (" + eventsfeed._UNION + ") u"
+                    " WHERE id LIKE $1", f"alarm:{al['id']}:%")
+                assert feed and {r["subject"] for r in feed} == {name}
+                rep = await reports.collect_report(
+                    tc, "monthly_alarms", a["org"], None, "UTC", datetime.now(timezone.utc))
+                top = next(s for s in rep["sections"] if s["title"] == "Top alarm rules")
+                assert [name, 1] in [list(r) for r in top["rows"]]
+                title, _body = await notify._alarm_message(tc, al["id"], "raised")
+                assert name in _body or name in title
+            # rtn_unack older than 24h is a standing alarm
+            old = datetime.now(timezone.utc) - timedelta(days=2)
+            row = {"rule_id": None, "rule": name, "severity": "warning",
+                   "state": "rtn_unack", "raised_at": old, "acked_at": None, "cleared_at": old}
+            q = notify._quality([row], 24.0, 1)
+            assert q["standing"] == 1 and q["rules"][0]["rule"] == name
+        finally:
+            await pools.close()
+    run(go())

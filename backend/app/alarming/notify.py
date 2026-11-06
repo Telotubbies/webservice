@@ -439,8 +439,8 @@ async def _channels_for_targets(tc: TenantConn, targets: dict) -> list[dict]:
 async def _alarm_message(tc: TenantConn, alarm_id: UUID, event: str,
                          level: int | None = None) -> tuple[str, str]:
     r = await tc.fetchrow(
-        "SELECT a.severity, a.raised_at, a.state, r.name AS rule, t.path AS tag"
-        " FROM alarms a JOIN alarm_rules r ON r.id=a.rule_id"
+        "SELECT a.severity, a.raised_at, a.state, COALESCE(r.name, a.rule_name) AS rule, t.path AS tag"
+        " FROM alarms a LEFT JOIN alarm_rules r ON r.id=a.rule_id"
         " JOIN tags t ON t.id=a.tag_id AND t.org_id=a.org_id WHERE a.id=$1", alarm_id)
     if r is None:
         return "Alarm", "alarm event"
@@ -1517,14 +1517,14 @@ def _quality(rows: list, hours: float, operators: int) -> dict:
         if 0 <= back < 24:
             hourly[23 - back] += 1
 
-    standing = sum(1 for r in rows if r["state"] in ("active", "acked")
+    standing = sum(1 for r in rows if r["state"] in ("active", "acked", "rtn_unack")
                    and (now - r["raised_at"]).total_seconds() > 86400)
     unacked = sum(1 for r in rows
                   if r["state"] == "active" and r["acked_at"] is None)
 
     by_rule: dict = {}
     for r in rows:
-        by_rule.setdefault(r["rule_id"], []).append(r)
+        by_rule.setdefault(r["rule_id"] or r["rule"], []).append(r)
     rule_rows = []
     for rid, lst in by_rule.items():
         lst.sort(key=lambda x: x["raised_at"])
@@ -1540,11 +1540,12 @@ def _quality(rows: list, hours: float, operators: int) -> dict:
         acks = [(x["acked_at"] - x["raised_at"]).total_seconds()
                 for x in lst if x["acked_at"]]
         rule_rows.append({
-            "rule_id": str(rid), "rule": lst[0]["rule"],
+            "rule_id": str(lst[0]["rule_id"]) if lst[0]["rule_id"] else None,
+            "rule": lst[0]["rule"],
             "severity": lst[0]["severity"], "count": len(lst),
             "share": len(lst) / total if total else 0.0,
             "chatter": chatter,
-            "standing": sum(1 for x in lst if x["state"] in ("active", "acked")
+            "standing": sum(1 for x in lst if x["state"] in ("active", "acked", "rtn_unack")
                             and (now - x["raised_at"]).total_seconds() > 86400),
             "unacked": sum(1 for x in lst
                            if x["state"] == "active" and x["acked_at"] is None),
@@ -1586,9 +1587,9 @@ async def alarm_quality(org: str, request: Request,
     sid = m._uuid_or_404(site_id, "site") if site_id else None
     async with tenant_tx(m.st(request).pools.app, org_id) as tc:
         rows = await tc.fetch(
-            "SELECT a.rule_id, r.name AS rule, a.severity, a.state, a.raised_at,"
+            "SELECT a.rule_id, COALESCE(r.name, a.rule_name) AS rule, a.severity, a.state, a.raised_at,"
             " a.acked_at, a.cleared_at FROM alarms a"
-            " JOIN alarm_rules r ON r.id = a.rule_id"
+            " LEFT JOIN alarm_rules r ON r.id = a.rule_id"
             " WHERE a.raised_at > now() - ($1 || ' hours')::interval"
             " AND ($2::uuid IS NULL OR a.tag_id IN"
             "      (SELECT id FROM tags WHERE site_id=$2))",

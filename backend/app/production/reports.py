@@ -227,9 +227,9 @@ async def collect_report(tc, template: str, org_id: UUID, site_id: UUID | None,
             "SELECT severity, state, count(*) AS n FROM alarms"
             " WHERE raised_at >= $1 GROUP BY severity, state ORDER BY severity, state", ws)
         top = await tc.fetch(
-            "SELECT r.name, count(*) AS n FROM alarms a"
-            " JOIN alarm_rules r ON r.org_id=a.org_id AND r.id=a.rule_id"
-            " WHERE a.raised_at >= $1 GROUP BY r.name ORDER BY n DESC, r.name LIMIT 10", ws)
+            "SELECT COALESCE(r.name, a.rule_name) AS name, count(*) AS n FROM alarms a"
+            " LEFT JOIN alarm_rules r ON r.org_id=a.org_id AND r.id=a.rule_id"
+            " WHERE a.raised_at >= $1 GROUP BY 1 ORDER BY n DESC, 1 LIMIT 10", ws)
         stats = await tc.fetchrow(
             "SELECT avg(EXTRACT(EPOCH FROM (acked_at - raised_at))) AS ack_s,"
             " avg(EXTRACT(EPOCH FROM (cleared_at - raised_at))) AS clear_s"
