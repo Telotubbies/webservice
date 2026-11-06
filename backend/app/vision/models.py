@@ -288,6 +288,9 @@ async def activate(org: str, model: str, version: str, body: AttestIn, request: 
     await m._mutation_gate(request, p.user_id)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
         mo = await _model_or_404(tc, model_id)
+        from .quality import gate_state
+        if (await gate_state(tc, model_id, vid))["gate"]["passed"] is False:
+            raise HTTPException(409, "quality_gate")      # reviewed accuracy is under the model's gate
         row = await tc.fetchrow(
             "UPDATE vision_model_versions SET status='active', license_attested_by=$3, license_attested_at=now()"
             " WHERE id=$1 AND model_id=$2 AND status='draft' AND classes IS NOT NULL RETURNING *",

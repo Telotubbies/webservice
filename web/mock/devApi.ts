@@ -671,6 +671,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return e ? send(200, { event: e }) : send(404, { detail: 'unknown event' });
   }
   if (rest === '/vision/events/bulk-review') { const b = await body(req); return send(200, { updated: (b.event_ids as unknown[] | undefined)?.length ?? 0 }); }
+  if (rest === '/vision/material/confusion') return send(200, { labels: ['gravel', 'sand', 'no-material'], n: 40, accuracy: 0.9, cells: { gravel: { gravel: 18, sand: 2, 'no-material': 0 }, sand: { gravel: 1, sand: 17, 'no-material': 0 }, 'no-material': { gravel: 0, sand: 1, 'no-material': 1 } } });
+  if (rest === '/vision/material/drift') return send(200, { hours: 24, items: [{ camera_id: 'cam-1', n_recent: 31, n_base: 210, status: 'ok', shift: 0.03 }, { camera_id: 'cam-2', n_recent: 12, n_base: 90, status: 'drift', shift: -0.21 }] });
+  if (/^\/vision\/events\/[^/]+\/true-material$/.test(rest) && req.method === 'PUT') return send(200, { ok: true, verdict: 'correct' });
+  if (/^\/vision\/models\/[^/]+\/(gate|versions\/[^/]+\/(quality|rollback))$/.test(rest)) return send(200, { ok: true, cameras: 1, gate: { min_accuracy: 0.9, min_samples: 30, passed: true } });
   if (rest === '/vision/material/cameras') return send(200, { items: plant.materialCameras(MATERIAL_SCHEMA.defaults) });
   if (rest === '/vision/material/summary') return send(200, plant.materialSummary(Number(url.searchParams.get('minutes')) || 60));
   if (rest === '/vision/metrics') return send(200, plant.visionMetrics(Number(url.searchParams.get('minutes')) || 60));

@@ -79,6 +79,7 @@ const GatewayPage = lazy(() => import('./features/datasources/GatewayPage').then
 const CamerasPage = lazy(() => import('./features/cameras/CamerasPage').then((m) => ({ default: m.CamerasPage })));
 const ModelsPage = lazy(() => import('./features/vision/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const VisionRulesPage = lazy(() => import('./features/vision/RulesPage').then((m) => ({ default: m.RulesPage })));
+const VisionQualityPage = lazy(() => import('./features/vision/QualityPage').then((m) => ({ default: m.QualityPage })));
 const VisionEventsPage = lazy(() => import('./features/vision/EventsPage').then((m) => ({ default: m.EventsPage })));
 const AddDeviceWizard = lazy(() => import('./features/devices/AddDeviceWizard').then((m) => ({ default: m.AddDeviceWizard })));
 const NetworkMapPage = lazy(() => import('./features/devices/NetworkMapPage').then((m) => ({ default: m.NetworkMapPage })));
@@ -307,6 +308,7 @@ export default function App() {
             <Route path="vision/models" element={page(ModelsPage)} />
             <Route path="vision/rules" element={page(VisionRulesPage)} />
             <Route path="vision/events" element={page(VisionEventsPage)} />
+        <Route path="vision/quality" element={page(VisionQualityPage)} />
             <Route path="connect/add" element={page(AddDeviceWizard)} />
             <Route path="connect" element={page(NetworkMapPage)} />
             <Route path="connect/profiles" element={page(ProfilesPage)} />

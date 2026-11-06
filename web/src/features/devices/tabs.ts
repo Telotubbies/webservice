@@ -23,4 +23,5 @@ export const VISION_TABS = (t: TFunction): PageTab[] => [
   { to: '/vision/models', label: t('vis.tab') },
   { to: '/vision/rules', label: t('vis.rulesTab') },
   { to: '/vision/events', label: t('vis.eventsTab') },
+  { to: '/vision/quality', label: t('vis.qualityTab') },
 ];
