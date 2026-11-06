@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..alarming.alarms import RULES_NOTIFY_CHANNEL
-from ..alarming.alarms import Rule
+from ..alarming.alarms import Rule, cleared, triggered
 from ..iam.auth import Principal
 from ..db import audit
 from fastapi import Depends
@@ -12,6 +12,7 @@ from fastapi import Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from pydantic import Field
+from datetime import datetime
 from uuid import UUID
 import asyncpg
 from ..deps import (
@@ -80,18 +81,19 @@ def _rule_json(r) -> dict:
             "kind": r["kind"], "threshold": r["threshold"],
             "stale_s": r["stale_s"], "window_s": r["window_s"],
             "deadband": r["deadband"],
-            "severity": r["severity"], "enabled": r["enabled"]}
+            "severity": r["severity"], "enabled": r["enabled"],
+            "approval": r["approval"]}
 
 
 def _row_to_rule(row, org_id: UUID) -> Rule:
     """_RULE_COLS row -> engine Rule (the row carries `enabled`, which the
     engine dataclass does not)."""
-    d = {k: v for k, v in dict(row).items() if k != "enabled"}
+    d = {k: v for k, v in dict(row).items() if k not in ("enabled", "approval")}
     return Rule(org_id=org_id, **d)
 
 
 _RULE_COLS = ("id, tag_id, name, kind, threshold, stale_s, deadband,"
-              " severity, window_s, enabled")
+              " severity, window_s, enabled, approval")
 
 
 async def _rule_or_404(tc, rule_id: str, site_id: UUID):
@@ -109,6 +111,11 @@ async def _rule_or_404(tc, rule_id: str, site_id: UUID):
     return row
 
 
+async def _request_approval(tc, org_id: UUID, rule_id: UUID, user_id: UUID) -> None:
+    await tc.execute("INSERT INTO alarm_rule_approvals(org_id, rule_id, requested_by)"
+                     " VALUES ($1,$2,$3)", org_id, rule_id, user_id)
+
+
 @router.post("/api/v1/orgs/{org}/sites/{site}/alarm-rules", status_code=201)
 async def v2_create_alarm_rule(org: str, site: str, body: AlarmRuleIn,
                                request: Request,
@@ -121,17 +128,20 @@ async def v2_create_alarm_rule(org: str, site: str, body: AlarmRuleIn,
     _validate_rule(body.kind, body.threshold, body.stale_s,
                    body.severity, body.deadband, body.window_s)
     await _mutation_gate(request, p.user_id)
+    crit = body.severity == "critical"   # needs a second person before it can fire
     async with org_tx(request, org_id, p.user_id) as tc:
         try:
             row = await tc.fetchrow(
                 "INSERT INTO alarm_rules(org_id, tag_id, name, kind, threshold,"
-                " stale_s, deadband, severity, window_s, enabled)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING " + _RULE_COLS,
+                " stale_s, deadband, severity, window_s, enabled, approval)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING " + _RULE_COLS,
                 org_id, tag.id, body.name, body.kind, body.threshold,
                 body.stale_s, body.deadband, body.severity, body.window_s,
-                body.enabled)
+                body.enabled and not crit, "pending" if crit else "approved")
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "alarm rule name already exists on this tag")
+        if crit:
+            await _request_approval(tc, org_id, row["id"], p.user_id)
         await audit.append(tc, f"user:{p.user_id}", "alarm_rule.created",
                            {"rule_id": str(row["id"]), "tag_id": str(tag.id)},
                            {"name": body.name, "kind": body.kind})
@@ -163,16 +173,32 @@ async def v2_patch_alarm_rule(org: str, site: str, rule_id: str,
         }
         _validate_rule(merged["kind"], merged["threshold"], merged["stale_s"],
                        merged["severity"], merged["deadband"], merged["window_s"])
+        approval = cur["approval"]
+        repend = False
+        if merged["severity"] != "critical":
+            approval = "approved"
+        elif any(merged[k] != cur[k] for k in
+                 ("kind", "threshold", "stale_s", "window_s", "deadband", "severity")):
+            # a changed critical rule is a new proposal: it must be approved again
+            approval, repend = "pending", True
+            merged["enabled"] = False
+        elif merged["enabled"] and approval != "approved":
+            raise HTTPException(409, "rule_pending_approval")
         try:
             row = await tc.fetchrow(
                 "UPDATE alarm_rules SET name=$2, kind=$3, threshold=$4, stale_s=$5,"
-                " deadband=$6, severity=$7, enabled=$8, window_s=$9 WHERE id=$1"
-                " RETURNING " + _RULE_COLS,
+                " deadband=$6, severity=$7, enabled=$8, window_s=$9, approval=$10"
+                " WHERE id=$1 RETURNING " + _RULE_COLS,
                 cur["id"], merged["name"], merged["kind"], merged["threshold"],
                 merged["stale_s"], merged["deadband"], merged["severity"],
-                merged["enabled"], merged["window_s"])
+                merged["enabled"], merged["window_s"], approval)
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "alarm rule name already exists on this tag")
+        if approval == "approved" or repend:
+            await tc.execute("DELETE FROM alarm_rule_approvals"
+                             " WHERE rule_id=$1 AND decision IS NULL", cur["id"])
+        if repend:
+            await _request_approval(tc, org_id, cur["id"], p.user_id)
         if merged["enabled"] is False:
             # T10-review F6: a disabled rule can never evaluate-clear again —
             # resolve its open alarms now, through the engine's close path.
@@ -206,3 +232,132 @@ async def v2_delete_alarm_rule(org: str, site: str, rule_id: str,
         await tc.execute("SELECT pg_notify($1, $2)",
                          RULES_NOTIFY_CHANNEL, str(org_id))
     return Response(status_code=204)
+
+
+@router.get("/api/v1/orgs/{org}/sites/{site}/alarm-rules/pending")
+async def v2_pending_alarm_rules(org: str, site: str, request: Request,
+                                 p: Principal = Depends(require_user)):
+    """Critical rules waiting for a second person, with who proposed them."""
+    org_id, site_id = _v2_scope(org, site, p)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        rows = await tc.fetch(
+            "SELECT r.id, r.tag_id, r.name, r.kind, r.threshold, r.stale_s,"
+            " r.deadband, r.severity, r.window_s, r.enabled, r.approval,"
+            " a.requested_by, a.requested_at FROM alarm_rules r"
+            " JOIN alarm_rule_approvals a ON a.rule_id = r.id AND a.decision IS NULL"
+            " WHERE r.approval='pending' AND r.tag_id IN"
+            " (SELECT id FROM tags WHERE site_id=$1) ORDER BY a.requested_at", site_id)
+    return {"items": [{**_rule_json(r), "mine": r["requested_by"] == p.user_id,
+                       "requested_at": r["requested_at"].isoformat()} for r in rows],
+            "next_cursor": None}
+
+
+class DecisionIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+async def _decide(org: str, site: str, rule_id: str, body: DecisionIn,
+                  request: Request, p: Principal, approve: bool):
+    org_id, site_id = _v2_scope(org, site, p, need=_CONFIG)
+    await _mutation_gate(request, p.user_id)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        cur = await _rule_or_404(tc, rule_id, site_id)
+        req = await tc.fetchrow(
+            "SELECT id, requested_by FROM alarm_rule_approvals"
+            " WHERE rule_id=$1 AND decision IS NULL FOR UPDATE", cur["id"])
+        if cur["approval"] != "pending" or req is None:
+            raise HTTPException(409, "rule_not_pending")
+        if req["requested_by"] == p.user_id:   # the DB CHECK says the same
+            raise HTTPException(403, "author_cannot_approve")
+        await tc.execute(
+            "UPDATE alarm_rule_approvals SET decision=$2, decided_by=$3,"
+            " decided_at=now(), reason=$4 WHERE id=$1",
+            req["id"], "approved" if approve else "rejected", p.user_id, body.reason)
+        row = await tc.fetchrow(
+            "UPDATE alarm_rules SET approval=$2, enabled=$3 WHERE id=$1"
+            " RETURNING " + _RULE_COLS, cur["id"],
+            "approved" if approve else "rejected", approve)
+        await audit.append(tc, f"user:{p.user_id}",
+                           "alarm_rule.approved" if approve else "alarm_rule.rejected",
+                           {"rule_id": str(cur["id"])},
+                           {"requested_by": str(req["requested_by"]), "reason": body.reason})
+        await tc.execute("SELECT pg_notify($1, $2)", RULES_NOTIFY_CHANNEL, str(org_id))
+    return {"rule": _rule_json(row)}
+
+
+@router.post("/api/v1/orgs/{org}/sites/{site}/alarm-rules/{rule_id}/approve")
+async def v2_approve_alarm_rule(org: str, site: str, rule_id: str,
+                                request: Request, body: DecisionIn | None = None,
+                                p: Principal = Depends(require_user)):
+    return await _decide(org, site, rule_id, body or DecisionIn(), request, p, True)
+
+
+@router.post("/api/v1/orgs/{org}/sites/{site}/alarm-rules/{rule_id}/reject")
+async def v2_reject_alarm_rule(org: str, site: str, rule_id: str,
+                               request: Request, body: DecisionIn | None = None,
+                               p: Principal = Depends(require_user)):
+    return await _decide(org, site, rule_id, body or DecisionIn(), request, p, False)
+
+
+# ── backtest: how often would this rule have fired on stored history ──
+
+BACKTEST_MAX_ROWS = 100_000
+BACKTEST_KINDS = frozenset({"hi", "hihi", "lo", "lolo", "stale"})
+
+
+def backtest(kind: str, threshold, deadband: float, stale_s, rows: list) -> dict:
+    """rows = [(ts, value|None, quality)] oldest first. Uses the live engine's
+    own triggered/cleared, so deadband behaves exactly as in production.
+    shortcut: trend kinds (roc/anomaly/forecast) are not replayed; add a
+    sliding-window replay when someone needs it."""
+    fires: list[datetime] = []
+    if kind == "stale":
+        for (a, _, _), (b, _, _) in zip(rows, rows[1:]):
+            if (b - a).total_seconds() > stale_s:
+                fires.append(b)
+    else:
+        rule = Rule(id=UUID(int=0), org_id=UUID(int=0), tag_id=UUID(int=0),
+                    name="t", kind=kind, threshold=threshold, stale_s=None,
+                    deadband=deadband, severity="info")
+        active = False
+        for ts, v, q in rows:
+            if q != "good" or v is None:
+                continue
+            if not active and triggered(rule, v):
+                active = True
+                fires.append(ts)
+            elif active and cleared(rule, v):
+                active = False
+    return {"count": len(fires), "first": [f.isoformat() for f in fires[:5]],
+            "last": fires[-1].isoformat() if fires else None, "samples": len(rows)}
+
+
+class BacktestIn(BaseModel):
+    tag_id: str
+    kind: str
+    threshold: float | None = None
+    stale_s: int | None = None
+    deadband: float = Field(default=0, ge=0)
+    hours: int = Field(default=168, ge=1, le=720)
+
+
+@router.post("/api/v1/orgs/{org}/sites/{site}/alarm-rules:backtest")
+async def v2_backtest_alarm_rule(org: str, site: str, body: BacktestIn,
+                                 request: Request,
+                                 p: Principal = Depends(require_user)):
+    """Dry run, writes nothing: replay stored history through the rule."""
+    org_id, site_id = _v2_scope(org, site, p)
+    tag = await _v2_tag_or_404(request, org_id, site_id, body.tag_id)
+    if body.kind not in BACKTEST_KINDS:
+        raise HTTPException(422, "backtest_unsupported_kind")
+    _validate_rule(body.kind, body.threshold, body.stale_s, "info", body.deadband,
+                   None)
+    async with org_tx(request, org_id, p.user_id) as tc:
+        rows = await tc.fetch(
+            "SELECT ts, vn, q FROM tag_history WHERE tag_id=$1"
+            " AND ts >= now() - make_interval(hours => $2) ORDER BY ts LIMIT $3",
+            tag.id, body.hours, BACKTEST_MAX_ROWS + 1)
+    truncated = len(rows) > BACKTEST_MAX_ROWS
+    out = backtest(body.kind, body.threshold, body.deadband, body.stale_s,
+                   [(r["ts"], r["vn"], r["q"]) for r in rows[:BACKTEST_MAX_ROWS]])
+    return {**out, "hours": body.hours, "truncated": truncated}
