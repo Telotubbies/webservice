@@ -10,7 +10,7 @@ import {
   autoLayout, deriveGroups, deriveLinks, fillMissing, mappingIssues, moveItem, nudgeItem, partKey,
   resizeItem, setFlag, toggleLink, type BoardLayout,
 } from './boardLayout';
-import { boardApi, DEMO_SHA, type BoardState } from './boardApi';
+import { boardApi, capKey, DEMO_SHA, type BoardState } from './boardApi';
 import { toPartBoxes, type PartCapture } from './boardCapture';
 import { BoardView } from './BoardView';
 import type { SceneSource } from './useSceneSource';
@@ -61,7 +61,7 @@ export function BoardPage({ src }: { src: SceneSource }) {
   const capture = useCallback(async () => {
     const { capturePartImages } = await import('./boardCapture');
     const list = await capturePartImages(src.url, parts);
-    capCache.set(sha, list);
+    capCache.set(capKey(sha), list);
     return list;
   }, [src.url, parts, sha]);
 
@@ -72,7 +72,7 @@ export function BoardPage({ src }: { src: SceneSource }) {
     void (async () => {
       try {
         const [st, stored] = await Promise.all([boardApi.get(sha).catch(() => null), boardApi.captures(sha).catch(() => [])]);
-        let list = stored.length ? stored : capCache.get(sha) ?? [];
+        let list = stored.length ? stored : capCache.get(capKey(sha)) ?? [];
         if (list.length === 0) {
           setPhase('capturing');
           list = await capture();
@@ -128,7 +128,7 @@ export function BoardPage({ src }: { src: SceneSource }) {
   const recapture = async () => {
     setBusy(true); setMsg(t('board.capturing'));
     try {
-      capCache.delete(sha);
+      capCache.delete(capKey(sha));
       const list = await capture();
       await boardApi.saveCaptures(sha, list);
       const bx = toPartBoxes(list);

@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { live, STALE_MS } from '../../lib/live';
 import { useNow } from '../../lib/hooks';
 import { liveName, liveValue, truthy, type PlantPart } from '../../lib/plantModel';
-import { routeBoard, partKey, type BoardLayout, type BoardLink, type BoardPipe } from './boardLayout';
+import { routeBoard, partKey, partVisible, type BoardLayout, type BoardLink, type BoardPipe } from './boardLayout';
 import type { PartCapture } from './boardCapture';
 import { controlHref } from './boardApi';
 import { numRoles, runFlag, useAlarmed, ValueBox } from './HmiView';
@@ -81,8 +81,8 @@ export function BoardView(props: Props) {
         ))}
         {parts.map((p, i) => {
           const key = partKey(p), it = layout.items[key], cap = caps[key];
-          if (!it || !cap || (it.hidden && !showHidden)) return null;
           const alarm = alarmed.get(String(i));
+          if (!it || !cap || !partVisible(it.hidden, showHidden, alarm)) return null;
           const stale = isStale(p, now);
           const running = truthy(liveValue(runFlag(p)));
           const roles = numRoles(p).filter((r) => p.bindings[r]);
@@ -91,7 +91,7 @@ export function BoardView(props: Props) {
             : selected ? 'var(--color-accent)' : 'var(--color-hmi-edge)';
           const body = (
             <g data-part={p.label} data-alarm={alarm ?? ''} data-stale={stale ? '1' : '0'} data-locked={it.locked ? '1' : '0'}
-              data-x={it.x} data-y={it.y} transform={`translate(${it.x} ${it.y})`} opacity={it.hidden ? 0.35 : stale ? 0.55 : 1}
+              data-x={it.x} data-y={it.y} transform={`translate(${it.x} ${it.y})`} opacity={it.hidden && !alarm ? 0.35 : stale ? 0.55 : 1}
               className={alarm ? 'hmi-alarm' : undefined}>
               <rect x={-4} y={-4} width={it.w + 8} height={it.h + 8} rx={3} fill="var(--color-panel)" fillOpacity={0.6}
                 stroke={stroke} strokeWidth={alarm || selected ? 2.5 : 1} />
@@ -116,7 +116,7 @@ export function BoardView(props: Props) {
           }
           return (
             <g key={key} tabIndex={0} role="button" aria-pressed={selected} aria-label={label}
-              className={it.locked ? 'cursor-not-allowed outline-none' : 'cursor-move outline-none'}
+              className={it.locked ? 'cursor-not-allowed outline-none focus-visible:[&_rect]:stroke-[4] focus-visible:[&_rect]:stroke-accent' : 'cursor-move outline-none focus-visible:[&_rect]:stroke-[4] focus-visible:[&_rect]:stroke-accent'}
               onFocus={() => onSelect(key)}
               onPointerDown={(e) => {
                 e.stopPropagation();

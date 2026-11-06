@@ -202,7 +202,8 @@ async def publish(org: str, site: str, body: ShaIn, request: Request, p=Depends(
 
 @router.post(BASE + "/rollback")
 async def rollback(org: str, site: str, body: RollbackIn, request: Request, p=Depends(_user)):
-    """Re-publish an older version as the newest one (history is never rewritten)."""
+    """Re-publish an older version as the newest one (history is never rewritten).
+    An unpublished draft is left alone: it is someone's work."""
     m = _m()
     org_id, site_id = _scope(org, site, p, True)
     await m._mutation_gate(request, p.user_id)
@@ -213,8 +214,6 @@ async def rollback(org: str, site: str, body: RollbackIn, request: Request, p=De
         if old is None:
             raise HTTPException(404, "version not found")
         row = await _next_version(tc, site_id, body.model_sha, "INSERT", old, p.user_id)
-        await tc.execute("DELETE FROM plant_boards WHERE site_id=$1 AND model_sha=$2 AND status='draft'",
-                         site_id, body.model_sha)
         await audit.append(tc, f"user:{p.user_id}", "plant_board.rolled_back",
                            {"model_sha": body.model_sha},
                            {"to_version": body.version, "new_version": row["version"]})

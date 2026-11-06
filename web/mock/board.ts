@@ -1,7 +1,7 @@
 // Mock of backend/app/plant/board.py: the plant board's draft / publish /
 // rollback and part captures, kept in memory per model sha. The version rules
 // are the real ones (publish consumes the draft and takes the next number;
-// rollback copies an old version forward and drops the draft), so the console
+// rollback copies an old version forward and keeps the draft), so the console
 // behaves like it will against the backend.
 
 type Layout = Record<string, unknown> & { items: Record<string, unknown> };
@@ -65,7 +65,7 @@ export function boardRoute(rest: string, method: string, q: (k: string) => strin
     const old = pub(rows).find((r) => r.version === b.version);
     if (!old) return out(404, { detail: 'version not found' });
     const row: Row = { ...old, id: `pb-${++seq}`, version: pub(rows)[0].version! + 1, created_by: c.who, created_at: c.now };
-    boards.set(sha, [...rows.filter((r) => r.status === 'published'), row]);
+    boards.set(sha, [...rows, row]);
     return out(200, { published: row });
   }
   if (sub === '/captures' && method === 'GET') return out(200, { items: [...(captures.get(sha)?.values() ?? [])] });

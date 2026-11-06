@@ -22,6 +22,9 @@ export const controlHref = (p: { label: string }) => `/live?part=${encodeURIComp
 /** sha used for the bundled demo plant, which has no uploaded model row */
 export const DEMO_SHA = 'demo-centrale-beton';
 
+/** capture-cache key: the sha alone would reuse another tenant's pictures after an org switch */
+export const capKey = (sha: string) => { const s = getScope(); return `${s?.orgId}/${s?.siteId}/${sha}`; };
+
 const base = (path: string) => {
   const s = getScope();
   if (!s) throw new ApiError(0, null, 'no active scope');

@@ -321,3 +321,7 @@ export function fillMissing(l: BoardLayout, parts: PlantPart[], boxes: PartBox[]
   for (const [k, r] of Object.entries(out.items)) items[k] ??= r;
   return { ...l, w: Math.max(l.w, out.w), h: Math.max(l.h, out.h), items };
 }
+
+/** A hidden part is not drawn, unless hidden parts are shown or it is in alarm (an unacked alarm must stay visible). */
+export const partVisible = (hidden: boolean | undefined, showHidden: boolean, alarm: string | null | undefined): boolean =>
+  !hidden || showHidden || !!alarm;

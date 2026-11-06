@@ -67,3 +67,9 @@ def test_migration_0058_has_rls_on_both_tables():
     for t in ("plant_boards", "plant_board_captures"):
         assert f"CREATE TABLE {t}" in sql and f"'{t}'" in sql
     assert "FORCE ROW LEVEL SECURITY" in sql and "wds_ctx_org()" in sql
+
+
+def test_rollback_never_deletes_the_draft():
+    import inspect
+    from app.plant import board
+    assert "DELETE FROM plant_boards" not in inspect.getsource(board.rollback)
