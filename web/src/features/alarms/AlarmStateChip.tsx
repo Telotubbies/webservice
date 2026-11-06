@@ -11,7 +11,7 @@ import './i18n';
 export function AlarmStateChip({ state, ackedBy }: { state: string; ackedBy?: string | null }) {
   const { t } = useTranslation();
   if (state !== 'rtn_unack') return <AlarmStateBadge state={state} ackedBy={ackedBy} />;
-  return (
+  return (  // dashed variant for the alarm screens; the shared badge has a plain one
     <span
       className="alarm-state is-rtn inline-flex items-center gap-1 border border-dashed border-[var(--color-caution)] bg-[var(--color-caution-soft)] font-semibold text-ink"
       data-state="rtn_unack"

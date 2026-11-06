@@ -357,7 +357,8 @@ function dispatch(msg: WSEvent): void {
           // journal titles are i18n keys — translated at render
           title: msg.type === 'alarm' ? 'notify.alarmRaised'
             : a.state === 'cleared' ? 'notify.alarmCleared'
-            : a.state === 'acked' ? 'notify.alarmAcked' : 'notify.alarmRaised',
+            : a.state === 'acked' ? 'notify.alarmAcked'
+            : a.state === 'rtn_unack' ? 'notify.alarmReturned' : 'notify.alarmRaised',
           params: a.state ? { state: a.state } : undefined,
           tag: a.tag,
           href: `/alarms?alarm=${encodeURIComponent(String(a.id))}`,

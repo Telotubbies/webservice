@@ -341,7 +341,7 @@ const en = {
   alarms: {
     time: 'Time', alarm: 'Alarm', state: 'State', ackedByCol: 'Acked by', emptyBody: 'No alarms in this window.',
     title: 'Alarms', lede: 'Respond to active alarms first. Cleared alarms stay for the record.',
-    active: 'Active', acked: 'Acknowledged', cleared: 'Cleared', all: 'All',
+    active: 'Active', acked: 'Acknowledged', rtn_unack: 'Returned, needs ack', cleared: 'Cleared', all: 'All',
     severity: 'Severity', allSeverities: 'All severities',
     critical: 'Critical', warning: 'Warning', info: 'Advisory',
     colSeverity: 'Severity', colAlarm: 'Alarm', colRaised: 'Raised',
@@ -853,7 +853,7 @@ const en = {
   },
   notify: {
     title: 'Notifications', empty: 'Nothing yet', markRead: 'Mark all read',
-    alarmRaised: 'Alarm raised', alarmCleared: 'Alarm cleared', alarmAcked: 'Alarm acknowledged',
+    alarmRaised: 'Alarm raised', alarmCleared: 'Alarm cleared', alarmAcked: 'Alarm acknowledged', alarmReturned: 'Alarm returned, needs ack',
     insightOpen: 'New insight', cmdDone: 'Command finished: {{status}}',
     edgeDown: 'Edge gateway not reporting', edgeUp: 'Edge gateway back online',
   },
@@ -1234,7 +1234,7 @@ const th: Dict = {
   alarms: {
     time: 'เวลา', alarm: 'สัญญาณเตือน', state: 'สถานะ', ackedByCol: 'รับทราบโดย', emptyBody: 'ไม่มีสัญญาณเตือนในช่วงเวลานี้',
     title: 'สัญญาณเตือน', lede: 'จัดการสัญญาณเตือนที่เกิดอยู่ก่อน รายการที่หายแล้วจะถูกเก็บไว้เป็นประวัติ',
-    active: 'เกิดอยู่', acked: 'รับทราบแล้ว', cleared: 'หายแล้ว', all: 'ทั้งหมด',
+    active: 'เกิดอยู่', acked: 'รับทราบแล้ว', rtn_unack: 'กลับปกติ รอรับทราบ', cleared: 'หายแล้ว', all: 'ทั้งหมด',
     severity: 'ระดับ', allSeverities: 'ทุกระดับ',
     critical: 'วิกฤต', warning: 'เตือน', info: 'แจ้งให้ทราบ',
     colSeverity: 'ระดับ', colAlarm: 'สัญญาณเตือน', colRaised: 'เกิดเมื่อ',
@@ -1743,7 +1743,7 @@ const th: Dict = {
   },
   notify: {
     title: 'การแจ้งเตือน', empty: 'ยังไม่มีรายการ', markRead: 'ทำเครื่องหมายว่าอ่านแล้ว',
-    alarmRaised: 'สัญญาณเตือนเกิดขึ้น', alarmCleared: 'สัญญาณเตือนหายแล้ว', alarmAcked: 'รับทราบสัญญาณเตือนแล้ว',
+    alarmRaised: 'สัญญาณเตือนเกิดขึ้น', alarmCleared: 'สัญญาณเตือนหายแล้ว', alarmAcked: 'รับทราบสัญญาณเตือนแล้ว', alarmReturned: 'สัญญาณเตือนกลับปกติ รอรับทราบ',
     insightOpen: 'อินไซต์ใหม่', cmdDone: 'คำสั่งเสร็จสิ้น: {{status}}',
     edgeDown: 'เกตเวย์ไม่รายงาน', edgeUp: 'เกตเวย์กลับมาแล้ว',
   },
