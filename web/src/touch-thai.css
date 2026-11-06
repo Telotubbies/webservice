@@ -1,0 +1,37 @@
+/* Touch targets and Thai readability. Imported from index.css.
+
+   Touch targets (WCAG 2.5.8 / 2.5.5, gloved hands): on phones and any coarse
+   pointer, buttons and inputs are at least 44px tall and checkboxes/radios at
+   least 24px. Desktop mouse density is unchanged. */
+@media (max-width: 767px), (pointer: coarse) {
+  .btn, .btn-sm { min-height: 44px; height: 44px; padding-inline: 14px; font-size: 14px; }
+  .btn-icon, .btn-sm.btn-icon { width: 44px; padding: 0; }
+  .input, select.input { min-height: 44px; height: 44px; font-size: 16px; }
+  input[type='checkbox'], input[type='radio'] { width: 24px; height: 24px; accent-color: var(--color-blue); }
+  .seg button { min-height: 44px; }
+  header button, .chrome button { min-height: 44px; min-width: 44px; }
+  /* bare buttons, tabs and selects on the pages themselves (panel tools, range pickers, tab strips) */
+  main button:not(:disabled):not([class*='min-w-6']), main select, main [role='tab'], main nav a { min-height: 44px; }
+  main :is(button, [role='tab']):not(.btn):not(.seg *):not([class*='min-w-6']) { min-width: 44px; }
+}
+
+/* The line controls are the one place a mis-tap moves a machine: 44px on every device. */
+.line-controls .btn, .line-controls .input { min-height: 44px; height: 44px; font-size: 14px; }
+.line-controls .input { font-size: 16px; }
+
+/* Thai: tone marks and stacked vowels lose legibility under 14px, so every
+   small utility size inside the console is raised to 14px, lines get room for
+   the marks, and Thai never renders in the monospace stack. */
+:lang(th) main :is(
+  [class*='text-[9px]'], [class*='text-[9.5px]'], [class*='text-[10px]'], [class*='text-[10.5px]'],
+  [class*='text-[11px]'], [class*='text-[12px]'], [class*='text-[13px]']
+) { font-size: 14px; }
+:lang(th) main :is(th, td, dd, dt, label, p, li, button, a) { line-height: 1.5; }
+:lang(th) :is(.overline, .field-label, .btn-sm) { font-size: 14px; }
+:lang(th) :is(.font-mono, .num, code, kbd) { font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
+:lang(th) .overline, :lang(th) .field-label { letter-spacing: 0; text-transform: none; }
+
+/* Home panels use their own hm-* classes with sizes under 14px; same Thai floor. */
+:lang(th) :is(.hm-btn.sm, .hm-site, .hm-tz, .hm-pill, .hm-shifted, .hm-fl, .hm-updated, .hm-link, .hm-unit, .hm-ph-title,
+  .hm-delta, .hm-per-name, .hm-grip, .hm-ebar .w, .hm-ytick, .hm-xtick, .hm-th span, .hm-smax, .hm-smin, .hm-sstatus,
+  .hm-tr, .hm-tr.th, .hm-top-row, .hm-aglyph, .hm-atag, .hm-aage, .hm-dr-kicker, .hm-fs legend, .hm-field, .hm-hint) { font-size: 14px; }

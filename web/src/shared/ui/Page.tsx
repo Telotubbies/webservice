@@ -92,9 +92,9 @@ export function Card({ title, actions, children, pad = true }: {
   title?: string; actions?: ReactNode; children: ReactNode; pad?: boolean;
 }) {
   return (
-    <section className="rounded-[5px] border border-line bg-paper shadow-card">
+    <section className="min-w-0 rounded-[5px] border border-line bg-paper shadow-card">
       {title && (
-        <header className="flex h-9 items-center gap-2 border-b border-line px-3">
+        <header className="flex min-h-9 flex-wrap items-center gap-x-2 border-b border-line px-3 py-1">
           <h2 className="text-[13px] font-semibold">{title}</h2>
           <div className="flex-1" />
           {actions}
@@ -108,6 +108,7 @@ export function Card({ title, actions, children, pad = true }: {
 /** dd dense table — 36px rows, hairlines, mono numeric option */
 export function Table({ head, children }: { head: ReactNode[]; children: ReactNode }) {
   return (
+    <div className="max-w-full overflow-x-auto">
     <table className="w-full border-collapse text-[13px]">
       <thead>
         <tr className="border-b border-line text-left">
@@ -123,5 +124,6 @@ export function Table({ head, children }: { head: ReactNode[]; children: ReactNo
         {children}
       </tbody>
     </table>
+    </div>
   );
 }
