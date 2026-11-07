@@ -3,15 +3,17 @@
 
 import type { SVGProps } from 'react';
 import { DD_ICONS, type DdIconName } from './ddicons';
+import { Icon, PROCESS_NAMES, type ProcessName } from './Icon';
 
 interface Props extends Omit<SVGProps<SVGSVGElement>, 'name' | 'ref'> {
-  name: DdIconName;
+  name: DdIconName | ProcessName;
   size?: number;
   label?: string;
 }
 
 export function DdIcon({ name, size = 16, label, ...rest }: Props) {
-  const Glyph = DD_ICONS[name];
+  if ((PROCESS_NAMES as readonly string[]).includes(name)) return <Icon name={name as ProcessName} size={size} label={label} {...rest} />;
+  const Glyph = DD_ICONS[name as DdIconName];
   if (!Glyph) return null;
   return (
     <Glyph

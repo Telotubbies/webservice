@@ -19,7 +19,7 @@
   position: relative; min-height: 100svh; overflow: hidden;
   display: flex; flex-direction: column; align-items: center;
   padding: 96px 16px 60px; background: var(--hx-ink);
-  font-family: "IBM Plex Sans", "IBM Plex Sans Thai", ui-sans-serif, sans-serif;
+  font-family: "IBM Plex Sans", "Anuphan", ui-sans-serif, sans-serif;
 }
 .signin-noir .hx-noise { position: fixed; }
 
@@ -68,7 +68,7 @@
 /* headline */
 .signin-title {
   margin: 60px 0 0; position: relative; z-index: 1;
-  font-family: "Space Grotesk", "IBM Plex Sans Thai", sans-serif;
+  font-family: "Space Grotesk", "Anuphan", sans-serif;
   font-size: 38px; font-weight: 700; letter-spacing: -0.02em;
   color: #fff; line-height: 1.16; text-align: center;
 }

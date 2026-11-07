@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@fontsource/ibm-plex-sans/400.css';
 import '@fontsource/ibm-plex-sans/600.css';
-import '@fontsource/ibm-plex-sans-thai/400.css';
+import '@fontsource/anuphan/400.css';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/600.css';
 import i18n from '../../lib/i18n';
