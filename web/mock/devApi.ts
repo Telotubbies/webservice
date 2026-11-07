@@ -989,6 +989,11 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     if (req.method === 'POST') { const b = await body(req); return done(201, { dataset: { id: 'ds-new', created_at: iso(Date.now()), ...b, from_ts: b.from_ts, to_ts: b.to_ts } }); }
     return done(200, { items: [{ id: 'ds-1', name: 'Belt speed vs load', tag_ids: ['a', 'b'], from_ts: iso(Date.now() - DAY), to_ts: iso(Date.now()), bucket_s: 60, train_pct: 70, val_pct: 15, created_at: iso(Date.now() - H) }] });
   }
+  if (/\/ai-arming$/.test(rest)) {
+    if (req.method === 'POST') return done(201, { arming: { id: 'ar-1', armed_by: 'u-1', armed_at: iso(Date.now()), evidence_ref: 'mock review' } });
+    if (req.method === 'DELETE') return done(204, null);
+    return done(200, { armed: false, arming: null });
+  }
   if (rest === '/lifecycle') return done(200, { history_days: 365, policy: [
     { data_class: 'alarms_cleared', default_days: 365, enabled: true }, { data_class: 'downtimes', default_days: 730, enabled: true },
     { data_class: 'edge_logs', default_days: 30, enabled: true }, { data_class: 'outbox_sent', default_days: 30, enabled: true },

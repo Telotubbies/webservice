@@ -118,7 +118,7 @@
     }
   ],
   "sslRequired": "all",
-  "registrationAllowed": true,
+  "registrationAllowed": false,
   "registrationEmailAsUsername": true,
   "verifyEmail": true,
   "resetPasswordAllowed": true,

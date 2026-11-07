@@ -9,6 +9,7 @@ convert function as an argument so the protocol is testable without torch.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -51,6 +52,14 @@ def _write_result(spool: Path, jid: str, doc: dict) -> None:
     os.replace(tmp, spool / f"{jid}.result.json")
 
 
+def sha256_file(p: Path) -> str:
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def process_job(spool: Path, jid: str, convert: Callable[[Path, Path, str], Path | None],
                 timeout_s: int = JOB_TIMEOUT_S) -> None:
     pt, job = spool / f"{jid}.pt", spool / f"{jid}.json"
@@ -58,8 +67,17 @@ def process_job(spool: Path, jid: str, convert: Callable[[Path, Path, str], Path
     try:
         meta = json.loads(job.read_text())
         task = str(meta.get("task_hint") or "detect")
+        pt_sha = sha256_file(pt)
+        # The container sets CONVERTER_REQUIRE_SHA=1, so a job without the backend's hash is refused there.
+        # Left unset (unit tests with fake weights) a job without a hash skips the integrity checks.
+        verify = "sha256" in meta or os.environ.get("CONVERTER_REQUIRE_SHA") == "1"
         if time.time() - float(meta.get("queued_at") or 0) > STALE_S:
             result = {"ok": False, "error": "timeout: job waited too long"}
+        elif verify and meta.get("sha256") != pt_sha:
+            # the file changed between the backend's scan and now: never hand it to the exporter
+            result = {"ok": False, "error": "hash_mismatch: the checkpoint is not the one that was uploaded"}
+        elif verify and (_unsafe := _rescan(pt)) is not None:
+            result = {"ok": False, "error": f"unsafe_checkpoint on rescan: {_unsafe}"}
         else:
             work = Path(tempfile.mkdtemp(prefix="job-"))
             try:
@@ -71,6 +89,8 @@ def process_job(spool: Path, jid: str, convert: Callable[[Path, Path, str], Path
                 else:
                     shutil.copyfile(onnx, spool / f"{jid}.onnx")
                     result = {"ok": True}
+                    if verify:
+                        result.update(pt_sha256=pt_sha, onnx_sha256=sha256_file(spool / f"{jid}.onnx"), rescan="clean")
             finally:
                 shutil.rmtree(work, ignore_errors=True)
     except Exception as exc:  # noqa: BLE001 — any failure becomes a result, never a crash
@@ -86,6 +106,16 @@ def process_job(spool: Path, jid: str, convert: Callable[[Path, Path, str], Path
         except FileNotFoundError:
             pass
     _write_result(spool, jid, result)
+
+
+def _rescan(pt: Path) -> str | None:
+    """Second, independent scan inside the converter (ptscan.py is a copy of backend/app/vision/ptscan.py)."""
+    from ptscan import UnsafeCheckpoint, scan_pt
+    try:
+        scan_pt(pt)
+    except UnsafeCheckpoint as e:
+        return str(getattr(e, "code", e))
+    return None
 
 
 def convert_with_ultralytics(pt: Path, out_dir: Path, task: str) -> Path | None:

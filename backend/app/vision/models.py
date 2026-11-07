@@ -240,12 +240,15 @@ async def upload_version(org: str, model: str, request: Request, filename: str =
                 row = await tc.fetchrow(
                     _INSERT, vid, org_id, model_id, n, "processing", "pt", None, None, None, None, None, None,
                     None, None, None, notes[:500] or None, p.user_id)
+            if ext == "pt":
+                await tc.execute("INSERT INTO model_artifacts(org_id, version_id, kind, sha256, scan_result) VALUES ($1,$2,'pt',$3,'clean')",
+                                 org_id, vid, sha)
             await audit.append(tc, f"user:{p.user_id}", "vision.version.uploaded",
                                {"model_id": str(model_id), "version_id": str(vid)},
                                {"version": n, "format": ext, "size_bytes": size})
         if ext == "pt":
             await objstore.mirror(dest, objstore.key("models-src", org_id, vid, "pt"))
-            spool.enqueue(vid, mo["task"])
+            spool.enqueue(vid, mo["task"], sha)
         else:
             await objstore.mirror(dest, objstore.key("models", org_id, vid, "onnx"))
     except BaseException:
@@ -289,6 +292,11 @@ async def activate(org: str, model: str, version: str, body: AttestIn, request: 
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
         mo = await _model_or_404(tc, model_id)
         from .quality import gate_state
+        src = await tc.fetchval("SELECT source_format FROM vision_model_versions WHERE id=$1", vid)
+        if src == "pt" and not await tc.fetchval(
+                "SELECT 1 FROM model_artifacts o JOIN model_artifacts p ON p.version_id=o.version_id AND p.kind='pt'"
+                " WHERE o.version_id=$1 AND o.kind='onnx' AND o.source_sha256 = p.sha256", vid):
+            raise HTTPException(409, "provenance_mismatch")      # converted model without a matching, scanned source
         g = (await gate_state(tc, model_id, vid))["gate"]
         if g["min_accuracy"] is None or g["min_samples"] is None:
             raise HTTPException(409, "gate_not_set")      # no thresholds, no activation
@@ -446,6 +454,9 @@ async def ingest_once(pools) -> int:
                 continue
             org_id = row["org_id"]
             fields: dict = {"status": "failed", "failure_reason": str(doc.get("error") or "conversion failed")[:500]}
+            if doc.get("ok") is True and not await _provenance_ok(pools, org_id, jid, doc):
+                doc = {"ok": False, "error": "provenance_mismatch: the converter did not report the checkpoint that was uploaded"}
+                fields = {"status": "failed", "failure_reason": doc["error"]}
             if doc.get("ok") is True and spool.onnx_path(jid).exists():
                 dest = storage.model_path(org_id, jid)
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -463,6 +474,11 @@ async def ingest_once(pools) -> int:
                     fields = {"status": "failed", "failure_reason": f"{e.code}: {e.message}"[:500]}
             await _apply(pools, org_id, jid, fields)
             if fields.get("status") == "draft":
+                from ..db.context import tenant_tx as _tx
+                async with _tx(pools.system, org_id) as tc:
+                    await tc.execute("INSERT INTO model_artifacts(org_id, version_id, kind, sha256, source_sha256, scan_result)"
+                                     " VALUES ($1,$2,'onnx',$3,$4,'rescanned_clean') ON CONFLICT (org_id, version_id, kind) DO NOTHING",
+                                     org_id, jid, fields["sha256"], doc.get("pt_sha256"))
                 await objstore.mirror(storage.model_path(org_id, jid), objstore.key("models", org_id, jid, "onnx"))
             spool.cleanup(jid)
             handled += 1
@@ -478,6 +494,14 @@ async def ingest_once(pools) -> int:
                 spool.cleanup(jid)
                 _failures.pop(jid, None)
     return handled
+
+
+async def _provenance_ok(pools, org_id: UUID, jid: UUID, doc: dict) -> bool:
+    """The converter must report the very .pt whose hash we recorded at upload."""
+    from ..db.context import tenant_tx as _tx
+    async with _tx(pools.system, org_id) as tc:
+        want = await tc.fetchval("SELECT sha256 FROM model_artifacts WHERE version_id=$1 AND kind='pt'", jid)
+    return bool(want) and doc.get("pt_sha256") == want and doc.get("rescan") == "clean"
 
 
 def _sha(path) -> str:

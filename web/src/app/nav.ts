@@ -67,6 +67,7 @@ const DATA: NavItem[] = [
   { to: '/integration', key: 'nav.integration', icon: 'database' },
   { to: '/integration/erp', key: 'nav.erpImport', icon: 'database' },
   { to: '/lifecycle', key: 'nav.lifecycle', icon: 'database' },
+  { to: '/security/ai-arming', key: 'nav.aiArming', icon: 'shield' },
   { to: '/traces', key: 'nav.traces', icon: 'service-map', flag: 'traces' },
   { to: '/processes', key: 'nav.processes', icon: 'container', flag: 'processes' },
 ];

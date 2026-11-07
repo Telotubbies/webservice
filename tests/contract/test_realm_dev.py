@@ -8,7 +8,7 @@ _r = json.loads((Path(__file__).resolve().parents[2] / "infra" / "keycloak" / "r
 
 
 def test_dev_realm_allows_registration_without_email_verification():
-    assert _r["registrationAllowed"] is True
+    assert _r["registrationAllowed"] is False  # F21: no open sign-up; people join by invitation or SSO
     assert _r["verifyEmail"] is False
     assert _r["duplicateEmailsAllowed"] is False
 

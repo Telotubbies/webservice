@@ -76,6 +76,7 @@ from .vision.rules import router as vision_rules_router
 from .vision.external import router as vision_external_router
 from .vision.material import router as material_router
 from .vision.quality import router as quality_router
+from .vision.arming import router as arming_router
 from .artifacts import router as artifacts_router
 from .vision.models import router as models_router
 from .vision.relay import FrameRelay
@@ -1752,6 +1753,7 @@ app.include_router(push_router)
 app.include_router(cameras_router)
 app.include_router(material_router)
 app.include_router(quality_router)
+app.include_router(arming_router)
 app.include_router(artifacts_router)
 app.include_router(models_router)
 app.include_router(classes_router)

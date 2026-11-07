@@ -76,6 +76,17 @@ migrate: ## pg_dump backup, then alembic upgrade head (doc 18 §2)
 	mkdir -p backups && $(COMPOSE) exec -T postgres pg_dump -U postgres -Fc wds > backups/pre-migrate-$$(date +%Y%m%d%H%M%S).dump
 	$(COMPOSE) run --rm migrate
 
+secret-scan: ## fail if a tracked file looks like it holds a credential
+	python scripts/security/secret_scan.py
+
+check-pins: ## fail on unpinned requirements or image tags (workflow SHAs: add --strict)
+	python scripts/security/check_pins.py
+
+test-security: secret-scan check-pins ## the security gate that needs no network
+
+security-audit: ## pip-audit / trivy / gitleaks when installed
+	./scripts/security/audit.sh
+
 preflight: ## check secrets, certs and .env exist before a deploy (read-only)
 	./scripts/deploy-preflight.sh
 

@@ -30,12 +30,12 @@ def pt_path(job_id: UUID) -> Path:
     return _dir() / f"{job_id}.pt"
 
 
-def enqueue(job_id: UUID, task_hint: str) -> None:
+def enqueue(job_id: UUID, task_hint: str, sha256: str) -> None:
     """The .pt is already at pt_path(job_id); publish the job file last so a
     converter never sees a half-written upload."""
     fd, tmp = tempfile.mkstemp(dir=_dir(), prefix=".job-")
     with os.fdopen(fd, "w") as f:
-        json.dump({"id": str(job_id), "task_hint": task_hint, "queued_at": time.time()}, f)
+        json.dump({"id": str(job_id), "task_hint": task_hint, "sha256": sha256, "queued_at": time.time()}, f)
     os.replace(tmp, _dir() / f"{job_id}.json")
 
 

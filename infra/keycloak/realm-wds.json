@@ -2,7 +2,7 @@
   "realm": "wds",
   "enabled": true,
   "displayName": "WDS",
-  "registrationAllowed": true,
+  "registrationAllowed": false,
   "registrationEmailAsUsername": true,
   "resetPasswordAllowed": true,
   "loginWithEmailAllowed": true,

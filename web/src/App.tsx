@@ -126,6 +126,7 @@ const SecurityAccessPage = lazy(() => import('./features/security/AccessPage').t
 
 // ── Sessions, metrics & assistant ──
 const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then((m) => ({ default: m.SessionsPage })));
+const AiArmingPage = lazy(() => import('./features/security/AiArmingPage').then((m) => ({ default: m.AiArmingPage })));
 const LifecyclePage = lazy(() => import('./features/lifecycle/LifecyclePage').then((m) => ({ default: m.LifecyclePage })));
 const OdooPage = lazy(() => import('./features/integration/odoo/OdooPage').then((m) => ({ default: m.OdooPage })));
 const IntegrationPage = lazy(() => import('./features/integration/IntegrationPage').then((m) => ({ default: m.IntegrationPage })));
@@ -352,6 +353,7 @@ export default function App() {
         <Route path="integration" element={page(IntegrationPage)} />
         <Route path="integration/erp" element={page(OdooPage)} />
         <Route path="lifecycle" element={page(LifecyclePage)} />
+        <Route path="security/ai-arming" element={page(AiArmingPage)} />
             {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
             {/* production KPIs (Phase 5) */}
             <Route path="production/oee" element={page(OeePage)} />
