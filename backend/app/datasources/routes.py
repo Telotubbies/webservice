@@ -568,12 +568,10 @@ async def test_source(org: str, edge: str, body: SourceTestIn, request: Request,
          "has_secret": secrets is not None})
 
 
-@router.post("/api/v1/orgs/{org}/edges/{edge}/sources/{source}/browse")
-async def browse_source(org: str, edge: str, source: str, body: BrowseIn,
-                        request: Request, p=Depends(_user)):
-    """One-level OPC UA node browse through the edge (stored secrets)."""
+async def _stored_opcua_draft(request: Request, p, org_id: UUID, edge_id: UUID,
+                              sid: UUID, tags: list[dict]) -> dict:
+    """Stored OPC UA source (with its decrypted secrets) as an edge-op draft."""
     m = _m()
-    org_id, edge_id, sid, _ = _ids(org, edge, p, m._CONFIG, source)
     await m._mutation_gate(request, p.user_id)
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
         await _edge_or_404(tc, edge_id, write=True)
@@ -587,13 +585,51 @@ async def browse_source(org: str, edge: str, source: str, body: BrowseIn,
         except Exception:  # noqa: BLE001 - never echo crypto details
             log.exception("source secret could not be opened")
             raise HTTPException(500, "secret_unreadable") from None
-    draft = {"id": str(sid), "protocol": "opcua", "connection": s["connection"],
-             "secrets": secrets, "poll_ms": s["poll_ms"], "enabled": True, "tags": []}
+    return {"id": str(sid), "protocol": "opcua", "connection": s["connection"],
+            "secrets": secrets, "poll_ms": s["poll_ms"], "enabled": True, "tags": tags}
+
+
+@router.post("/api/v1/orgs/{org}/edges/{edge}/sources/{source}/browse")
+async def browse_source(org: str, edge: str, source: str, body: BrowseIn,
+                        request: Request, p=Depends(_user)):
+    """One-level OPC UA node browse through the edge (stored secrets)."""
+    org_id, edge_id, sid, _ = _ids(org, edge, p, _m()._CONFIG, source)
+    draft = await _stored_opcua_draft(request, p, org_id, edge_id, sid, [])
     return await _run_op(
         request, p, org_id, edge_id, "browse",
         {"source": draft, "node_id": body.node_id},
         {"source_id": str(sid), "edge_id": str(edge_id)},
         {"node_id": body.node_id})
+
+
+class ReadNodesIn(BaseModel):
+    node_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+@router.post("/api/v1/orgs/{org}/edges/{edge}/sources/{source}/read-nodes")
+async def read_nodes(org: str, edge: str, source: str, body: ReadNodesIn,
+                     request: Request, p=Depends(_user)):
+    """Live value of up to 50 browsed OPC UA variables (read-only). Returns
+    {items:[{node_id, v, q}]}; a node the server will not read comes back bad."""
+    org_id, edge_id, sid, _ = _ids(org, edge, p, _m()._CONFIG, source)
+    try:
+        tags = [{"id": f"n{i}", "path": f"n{i}", "type": "float",
+                 "address": parse_address("opcua", nid, "float")}
+                for i, nid in enumerate(body.node_ids)]
+    except AddressError as e:
+        return _bad_field(e)
+    draft = await _stored_opcua_draft(request, p, org_id, edge_id, sid, tags)
+    res = await _run_op(
+        request, p, org_id, edge_id, "test_source",
+        {"source": draft, "sample_max": len(tags)},
+        {"source_id": str(sid), "edge_id": str(edge_id)},
+        {"node_count": len(tags), "live_read": True})
+    if isinstance(res, JSONResponse):
+        return res
+    by_path = {s_["path"]: s_ for s_ in res.get("sample") or []}
+    return {"items": [{"node_id": nid, "v": by_path.get(f"n{i}", {}).get("v"),
+                       "q": by_path.get(f"n{i}", {}).get("q", "bad")}
+                      for i, nid in enumerate(body.node_ids)]}
 
 
 # ── Registry NOTIFY listener (spec 5.6) ──

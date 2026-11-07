@@ -76,6 +76,8 @@ from .vision.relay import FrameRelay
 from .vision.stream import router as stream_router
 from .vision.videos import router as videos_router
 from .plant.board import router as board_router
+from .work.routes import router as work_router
+from .decisions.routes import router as decisions_router
 from .plant.hierarchy import router as hierarchy_router
 from .production.formulas import router as formulas_router
 from .alarming.push import router as push_router
@@ -85,6 +87,8 @@ from .db.pool import Pools, create_pools
 from .db.util import finite_or_none, iso_z, parse_ts, utcnow
 from .edge.mqtt_client import MQTTBridge
 from .production.oee import router as oee_router, downtime_sweep
+from .production.handovers import router as handovers_router
+from .production.downtime_context import router as dt_context_router
 from .production.reports import router as reports_router, report_sweep
 from .core.observability import (
     ObservabilityMiddleware,
@@ -1734,6 +1738,8 @@ app.include_router(videos_router)
 app.include_router(plant_router)
 app.include_router(hierarchy_router)
 app.include_router(board_router)
+app.include_router(work_router)
+app.include_router(decisions_router)
 app.include_router(formulas_router)
 app.include_router(push_router)
 app.include_router(cameras_router)
@@ -1749,6 +1755,8 @@ app.include_router(notify.router)
 app.include_router(orgapi.router)
 app.include_router(platform_api.router)
 app.include_router(oee_router)
+app.include_router(handovers_router)
+app.include_router(dt_context_router)
 app.include_router(reports_router)
 app.include_router(consents.router)
 app.include_router(onboarding.router)

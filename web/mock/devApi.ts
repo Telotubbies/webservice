@@ -189,6 +189,7 @@ const v2policies: Record<string, unknown>[] = [
     { after_minutes: 2, channel_ids: ['c-2'], team_ids: [], oncall_team: 'team-maint' },
   ] },
 ];
+const decisions: Record<string, unknown>[] = [];
 const v2downtimes: Record<string, unknown>[] = [
   { id: 'd-1', rule_id: 'r-4', rule: 'Vision feed stale', description: 'Camera lens cleaning', starts_at: iso(T0 - H), ends_at: iso(T0 + 3 * H), recurring: false, mine: true },
   { id: 'd-2', rule_id: null, rule: null, description: 'Weekly preventive maintenance — sorter gearbox', starts_at: iso(T0 + 2 * DAY), ends_at: iso(T0 + 2 * DAY + 4 * H), recurring: true, mine: false },
@@ -327,7 +328,17 @@ const derived = [
 const OPCUA_TREE: Record<string, { node_id: string; name: string; node_class: string; data_type: string | null; writable: boolean }[]> = {
   root: [{ node_id: 'ns=2;s=Batching', name: 'Batching', node_class: 'Object', data_type: null, writable: false }],
   'ns=2;s=Batching': ['Air', 'Plant'].map((n) => ({ node_id: `ns=2;s=Batching.${n}`, name: n, node_class: 'Object', data_type: null, writable: false })),
+  'ns=2;s=Batching.Plant': [['Hopper Level', 'Double', false], ['Mixer Speed SP', 'Double', true], ['Mixer Running', 'Boolean', true], ['Discharge Temp', 'Double', false]]
+    .map(([n, dt, w]) => ({ node_id: `ns=2;s=Batching.Plant.${String(n).replace(/ /g, '')}`, name: String(n), node_class: 'Variable', data_type: String(dt), writable: Boolean(w) })),
 };
+/** Stable fake live value for a browsed node (mock only). */
+const nodeLive = (id: string, t: number) => /Running/.test(id) ? { v: Math.floor(t / 20000) % 2 === 0, q: 'good' } : { v: Math.round((40 + 25 * Math.sin(t / 15000 + id.length)) * 10) / 10, q: 'good' };
+/** Critical-rule approvals: rule id -> who proposed it ('me' = the signed-in mock user). */
+const APPROVALS = new Map<string, { by: 'me' | 'other'; at: string }>();
+// seed: a critical rule a colleague proposed, so the second-person step can be tried
+sim.RULES.push({ id: 'r-pend', tail: 'sort.line1.bin1.level_pct', name: 'Sorter bin level HiHi', kind: 'hihi', threshold: 97, stale_s: null, window_s: null, deadband: 1, severity: 'critical', enabled: false });
+APPROVALS.set('r-pend', { by: 'other', at: new Date(Date.now() - 3600e3).toISOString() });
+const ruleApproval = (id: string) => APPROVALS.has(id) ? 'pending' : 'approved';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -359,8 +370,9 @@ const v2alarm = (a: sim.SimAlarm) => ({
 });
 const adminRule = (r: sim.SimRule) => ({
   id: r.id, tag_id: idOf(r.tail), name: r.name, kind: r.kind, threshold: r.threshold, stale_s: r.stale_s,
-  window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled,
+  window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled, approval: ruleApproval(r.id),
 });
+const reviewedEvents = new Set<string>();
 const alarmEvents: Record<string, { kind: string; author: string; body: string; at: string }[]> = {};
 /** Who shelved an alarm, why and when — the backend keeps this on the alarm row (migration 0057). */
 const shelfMeta = new Map<string, { by: string; reason: string; at: string }>();
@@ -548,7 +560,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   // site-scoped
   const sm = /^\/sites\/([^/]+)(\/.*)$/.exec(rest);
   if (sm) {
-    const r = await site(sm[2], req, url, send, { role, who, operate, config, t });
+    const uid = members.find((m) => m.sub === `demo-${role}`)?.user_id ?? `u-${role}`;
+    const r = await site(sm[2], req, url, send, { role, who, uid, operate, config, t, org: v2[1], site: sm[1] });
     if (r !== undefined) return;
   }
 
@@ -625,6 +638,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     }
     const st = /^\/sources\/([^/]+)\/tags$/.exec(tail);
     if (st && GET) { const items = plant.sourceTags(st[1]); return items ? send(200, { items }) : send(404, { detail: 'unknown source' }); }
+    if (/^\/sources\/([^/]+)\/read-nodes$/.test(tail)) {
+      const b = await body(req);
+      return send(200, { items: ((b.node_ids as string[]) ?? []).map((node_id) => ({ node_id, ...nodeLive(node_id, t) })) });
+    }
     const br = /^\/sources\/([^/]+)\/browse$/.exec(tail);
     if (br) { const b = await body(req); return send(200, { items: OPCUA_TREE[String(b.node_id ?? 'root')] ?? [] }); }
     if (tail === '/cameras' && GET) return send(200, { items: plant.cameras(edge, MATERIAL_SCHEMA.defaults) });
@@ -666,7 +683,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   }
   const vev = /^\/vision\/events\/([^/]+)(\/review)?$/.exec(rest);
   if (vev) {
-    if (vev[2]) return send(200, { ok: true });
+    if (vev[2]) { reviewedEvents.add(vev[1]); return send(200, { ok: true }); }
     const e = plant.visionEvents(200).items.find((x) => x.id === vev[1]);
     return e ? send(200, { event: e }) : send(404, { detail: 'unknown event' });
   }
@@ -892,7 +909,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     // every command transition leaves an audit row carrying the operator's reason
     const cmdAudit = commands.flatMap((c) => [{ from: 'none', to: 'accepted', actor: `user:${c.user}`, reason: null as string | null, at: c.created_at }, ...c.events.map((e) => ({ ...e, reason: e.reason ?? null }))]
       .map((e, i) => ({ seq: 1000 + Number(c.id.replace(/\D/g, '')) * 10 + i, at: e.at, actor: e.actor.startsWith('user:') ? e.actor : `edge:${e.actor}`, action: `command.${CMD_V2[e.to] ?? e.to}`, target: { command_id: c.id, tag: c.tag }, detail: { value: c.value, reason: e.reason, note: c.note ?? 'legacy: no reason recorded' }, hash: `c${c.id}-${i}` })));
-    const all = [...noise, ...auditSeed, ...cmdAudit].sort((a, b) => b.at.localeCompare(a.at));
+    const all = [...noise, ...auditSeed, ...hoAuditRows.filter((r) => r._org === v2[1]).map(({ _org: _o, ...r }) => r), ...cmdAudit].sort((a, b) => String(b.at).localeCompare(String(a.at)));
     const filtered = action ? all.filter((a) => a.action === action) : all;
     return send(200, list(filtered.slice(0, Math.min(500, Number(url.searchParams.get('limit')) || 50))));
   }
@@ -951,8 +968,33 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   return send(200, list([]));
 }
 
-interface Ctx { role: string; who: string; operate: boolean; config: boolean; t: number }
+interface Ctx { role: string; who: string; uid: string; operate: boolean; config: boolean; t: number; org: string; site: string }
 type Send = (code: number, data: unknown) => void;
+
+interface MockHandover {
+  id: string; site_id: string; outgoing_by: string; outgoing_name: string;
+  outgoing_at: string; note: string; snapshot: unknown;
+  incoming_by: string | null; incoming_name: string | null; incoming_at: string | null;
+}
+const handovers = new Map<string, MockHandover[]>();
+let hoSeq = 0;
+const hoFor = (key: string) => handovers.get(key) ?? handovers.set(key, []).get(key)!;
+const hoAuditRows: Record<string, unknown>[] = [];
+function hoAudit(action: string, orgId: string, hid: string, siteId: string, actor: string, at: string) {
+  hoAuditRows.push({ _org: orgId, seq: 900 + hoSeq * 2 + (action.endsWith('received') ? 1 : 0), at, actor, action, target: { handover_id: hid, site_id: siteId }, detail: {}, hash: `ho${hoSeq}` });
+}
+function pendingSnapshot() {
+  const alarms = sim.ALARMS.filter((a) => a.state === 'active' || a.state === 'rtn_unack')
+    .slice(0, 101).map((a) => ({ id: String(a.id), tag: a.tag, rule: a.rule, severity: a.severity, state: a.state, raised_at: a.ts }));
+  const dts = plant.dtEvents(0, Date.now(), true).slice(0, 101);
+  const reviews = plant.visionEvents(60, 'material').items.filter((e) => !reviewedEvents.has(e.id)).slice(0, 101)
+    .map((e) => ({ id: e.id, camera_id: e.camera_id, camera: 'Aggregate CCTV (demo)', fired_at: e.fired_at, detail: e.detail }));
+  return {
+    captured_at: iso(now()),
+    alarms: alarms.slice(0, 100), downtimes: dts.slice(0, 100), reviews: reviews.slice(0, 100),
+    truncated: { alarms: alarms.length > 100, downtimes: dts.length > 100, reviews: reviews.length > 100 },
+  };
+}
 
 /** /api/v1/orgs/:org/sites/:site/... — returns undefined when not handled. */
 async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c: Ctx): Promise<true | undefined> {
@@ -973,6 +1015,20 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     return done(200, { tag: { id: g.id, path: plant.pathOf(g), name: g.tail.split('.').pop(), unit: g.unit ?? null }, from: iso(from), to: iso(to), agg, ...(bucket ? { bucket_s: bucket } : {}), truncated: false, rows });
   }
   if (rest === '/tag-stats') { const { from, to } = range(url, H); return done(200, { from: iso(from), to: iso(to), gap_s: 30, items: plant.tagStats(from, to) }); }
+  if (rest === '/decisions') {
+    if (GET) {
+      const s = q('subject');
+      return done(200, { items: decisions.filter((d) => !s || d.subject === s).slice(0, Number(q('limit')) || 20) });
+    }
+    if (req.method === 'POST') {
+      if (!c.operate) return done(403, { detail: 'operator role required' });
+      const b = await body(req);
+      if (typeof b.reason !== 'string' || b.reason.trim().length < 3 || !['refill_now', 'refill_later', 'switch_source'].includes(b.option_key as string) || !b.subject) return done(422, { detail: 'invalid decision' });
+      const d = { id: `dec-${decisions.length + 1}`, subject: String(b.subject), option_key: b.option_key, reason: b.reason.trim(), snapshot: b.snapshot ?? {}, decided_by: c.who, decided_at: iso(t) };
+      decisions.unshift(d);
+      return done(200, { decision: d });
+    }
+  }
   if (rest === '/hierarchy') return done(200, plant.hierarchy(q('tags') === 'true'));
   if (rest === '/health') return done(200, plant.siteHealth(t));
   if (rest === '/edges' && GET) return done(200, list(plant.edges(t)));
@@ -985,6 +1041,40 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
 
   // alarms + rules — rules are the simulator's, so edits change what raises
   if (rest === '/alarms') return done(200, list(sim.ALARMS.slice(0, Math.min(1000, Number(q('limit')) || 200)).map(v2alarm)));
+  if (rest === '/alarm-rules:backtest' && req.method === 'POST') {
+    const b = await body(req);
+    const g = plant.tagById(String(b.tag_id ?? ''));
+    if (!g) return done(404, { detail: 'tag not found' });
+    const hours = Number(b.hours) || 168;
+    const rows = plant.series(g, t - hours * 3600e3, t, 2000, 'raw') as { ts: string; v: number | boolean }[];
+    const th = Number(b.threshold), db = Number(b.deadband) || 0;
+    const hi = b.kind === 'hi' || b.kind === 'hihi', lo = b.kind === 'lo' || b.kind === 'lolo';
+    if (!hi && !lo && b.kind !== 'stale') return done(422, { detail: 'backtest_unsupported_kind' });
+    const fires: string[] = [];
+    let on = false;
+    for (const r of rows) {
+      const v = Number(r.v);
+      if (hi || lo) {
+        const trip = hi ? v > th : v < th, clear = hi ? v <= th - db : v >= th + db;
+        if (!on && trip) { on = true; fires.push(r.ts); } else if (on && clear) on = false;
+      }
+    }
+    return done(200, { count: fires.length, first: fires.slice(0, 5), last: fires.at(-1) ?? null, samples: rows.length, hours, truncated: false });
+  }
+  if (rest === '/alarm-rules/pending' && GET) {
+    return done(200, list(sim.RULES.filter((r) => APPROVALS.has(r.id)).map((r) => ({ ...adminRule(r), mine: APPROVALS.get(r.id)!.by === 'me', requested_at: APPROVALS.get(r.id)!.at }))));
+  }
+  const dec = /^\/alarm-rules\/([^/]+)\/(approve|reject)$/.exec(rest);
+  if (dec && req.method === 'POST') {
+    if (!c.config) return done(403, { detail: 'admin role required' });
+    const r = sim.RULES.find((x) => x.id === dec[1]);
+    const ap = APPROVALS.get(dec[1]);
+    if (!r || !ap) return done(409, { detail: 'rule_not_pending' });
+    if (ap.by === 'me') return done(403, { detail: 'author_cannot_approve' });
+    APPROVALS.delete(r.id);
+    r.enabled = dec[2] === 'approve';
+    return done(200, { rule: { ...adminRule(r), approval: dec[2] === 'approve' ? 'approved' : 'rejected' } });
+  }
   const rr = /^\/alarm-rules(?:\/([^/]+))?$/.exec(rest);
   if (rr) {
     if (!GET && !c.config) return done(403, { detail: 'admin role required' });
@@ -1010,6 +1100,7 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
         threshold: (b.threshold as number | null) ?? null, stale_s: (b.stale_s as number | null) ?? null, window_s: (b.window_s as number | null) ?? null,
         deadband: Number(b.deadband ?? 0), severity: (b.severity ?? 'info') as sim.SimRule['severity'], enabled: b.enabled !== false,
       };
+      if (r.severity === 'critical') { r.enabled = false; APPROVALS.set(r.id, { by: 'me', at: iso(t) }); }
       sim.RULES.push(r);
       return done(200, { rule: adminRule(r) });
     }
@@ -1056,10 +1147,59 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     if (!m.configured) return done(404, { detail: 'no state map' });
     return done(200, { map: { device_id: m.device_id, state_tag_id: idOf(m.state), count_tag_id: m.device_id === plant.MIXER ? idOf('batch.mix.truck.count') : null, reject_tag_id: null, states: { running: [true], stopped: [false] }, stop_threshold_s: 60, updated_at: iso(T0 - 7 * DAY) } });
   }
+  if (rest === '/my-work' && GET) {
+    const { from, to } = range(url, DAY);
+    const reviews = plant.visionEvents(60, 'material').items.filter((e) => !reviewedEvents.has(e.id)).slice(0, 15)
+      .map((e) => ({ id: e.id, camera_id: e.camera_id, camera: 'Aggregate CCTV (demo)', fired_at: e.fired_at, detail: e.detail }));
+    return done(200, { downtimes: plant.dtEvents(from, to, true), reviews });
+  }
   if (rest === '/downtime-events' && GET) {
     const { from, to } = range(url, DAY);
     const nr = q('needs_reason');
-    return done(200, list(plant.dtEvents(from, to, nr == null ? undefined : nr === 'true')));
+    let rows = plant.dtEvents(from, to, nr == null ? undefined : nr === 'true');
+    const dev = q('device');
+    if (dev) rows = rows.filter((r) => r.device_id === dev);
+    const rid = q('reason_id');
+    if (rid === 'unclassified') rows = rows.filter((r) => !r.reason_id);
+    else if (rid) rows = rows.filter((r) => r.reason_id === rid);
+    const sh = q('shift');
+    if (sh) {
+      const def = plant.SHIFTS.find((s) => s.id === sh && s.enabled);
+      if (!def) return done(404, { detail: 'shift not found' });
+      const [sh0, sm0] = def.start_time.split(':').map(Number);
+      const [eh, em] = def.end_time.split(':').map(Number);
+      const s0 = sh0 * 60 + sm0, e0 = eh * 60 + em;
+      rows = rows.filter((r) => {
+        const local = Date.parse(r.starts_at) + 7 * H;
+        const mins = ((local / 60e3) % 1440 + 1440) % 1440;
+        const dow = ((new Date(local).getUTCDay() + 6) % 7) + 1;
+        if (s0 <= e0) return mins >= s0 && mins < e0 && def.days_of_week.includes(dow);
+        return mins >= s0 ? def.days_of_week.includes(dow) : mins < e0 && def.days_of_week.includes(((dow + 5) % 7) + 1);
+      });
+    }
+    return done(200, list(rows.slice(0, 300)));
+  }
+  const dtCtx = /^\/downtime-events\/([^/]+)\/context$/.exec(rest);
+  if (dtCtx) {
+    if (!GET) return done(405, { detail: 'method_not_allowed' });
+    if (c.org !== plant.ORG || c.site !== plant.SITE_ID) return done(404, { detail: 'downtime not found' });
+    {
+    const d = plant.dtEvents(0, Date.now()).find((x) => x.id === dtCtx[1]);
+    if (!d) return done(404, { detail: 'downtime not found' });
+    const from = Date.parse(d.starts_at), to = d.ends_at ? Date.parse(d.ends_at) : Date.now();
+    const m = plant.MACHINES.find((x) => x.device_id === d.device_id);
+    const g = m?.configured ? sim.tagByTail(m.state) : undefined;
+    const eq = plant.EQUIPMENT.find((e) => e.id === d.device_id);
+    const tagIds = new Set((eq?.tags ?? []).map((x) => x.id));
+    const rel = sim.ALARMS.filter((a) => tagIds.has(a.tag_id) && Date.parse(a.ts) <= to && (!a.cleared_at || Date.parse(a.cleared_at) >= from))
+      .sort((x, y) => Date.parse(y.ts) - Date.parse(x.ts)).slice(0, 101)
+      .map((a) => ({ id: String(a.id), tag: a.tag, rule: a.rule, severity: a.severity, state: a.state, raised_at: a.ts, cleared_at: a.cleared_at }));
+    return done(200, {
+      downtime: d, from: iso(from), to: iso(to),
+      tag: g ? { id: g.id, path: plant.pathOf(g), name: g.tail.split('.').pop(), unit: g.unit ?? null } : null,
+      alarms: rel.slice(0, 100), truncated: rel.length > 100,
+    });
+    }
   }
   const cls = /^\/downtime-events\/([^/]+)\/classify$/.exec(rest);
   if (cls) {
@@ -1067,6 +1207,56 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     const b = await body(req);
     const d = plant.classify(cls[1], (b.reason_id as string | null) ?? null, (b.note as string | null) ?? null);
     return d ? done(200, { downtime: d }) : done(404, { detail: 'unknown downtime' });
+  }
+  if (rest.startsWith('/handovers')) {
+    if (c.org !== plant.ORG || c.site !== plant.SITE_ID) return done(404, { detail: 'handover not found' });
+    const hoKey = `${c.org}/${c.site}`;
+    if (rest === '/handovers/pending') {
+      if (!GET) return done(405, { detail: 'method_not_allowed' });
+      return done(200, { snapshot: pendingSnapshot() });
+    }
+    const hoAccept = /^\/handovers\/([^/]+)\/accept$/.exec(rest);
+    if (hoAccept) {
+      if (req.method !== 'POST') return done(405, { detail: 'method_not_allowed' });
+      if (!c.operate) return done(403, { detail: 'operator role required' });
+      const h = hoFor(hoKey).find((x) => x.id === hoAccept[1]);
+      if (!h) return done(404, { detail: 'handover not found' });
+      if (h.outgoing_by === c.uid) return done(409, { detail: 'the sender cannot accept their own handover' });
+      if (h.incoming_at) return done(409, { detail: 'handover already accepted' });
+      h.incoming_by = c.uid; h.incoming_name = c.who; h.incoming_at = iso(t);
+      hoAudit('shift.handover.received', c.org, h.id, c.site, `user:${c.uid}`, h.incoming_at);
+      return done(200, { handover: h });
+    }
+    const hoOne = /^\/handovers\/([^/]+)$/.exec(rest);
+    if (hoOne) {
+      if (!GET) return done(405, { detail: 'method_not_allowed' });
+      const h = hoFor(hoKey).find((x) => x.id === hoOne[1]);
+      return h ? done(200, { handover: h }) : done(404, { detail: 'handover not found' });
+    }
+    if (rest === '/handovers') {
+      if (req.method === 'POST') {
+        if (!c.operate) return done(403, { detail: 'operator role required' });
+        const b = await body(req);
+        if (b.note !== undefined && b.note !== null && typeof b.note !== 'string') {
+          return done(422, { detail: 'invalid note' });
+        }
+        const note = typeof b.note === 'string' ? b.note : '';
+        if (note.length > 2000) return done(422, { detail: 'note too long' });
+        const h: MockHandover = {
+          id: `ho-${++hoSeq}`, site_id: c.site, outgoing_by: c.uid, outgoing_name: c.who,
+          outgoing_at: iso(t), note, snapshot: JSON.parse(JSON.stringify(pendingSnapshot())),
+          incoming_by: null, incoming_name: null, incoming_at: null,
+        };
+        hoFor(hoKey).unshift(h);
+        hoAudit('shift.handover.sent', c.org, h.id, c.site, `user:${c.uid}`, h.outgoing_at);
+        return done(201, { handover: h });
+      }
+      if (!GET) return done(405, { detail: 'method_not_allowed' });
+      return done(200, {
+        items: hoFor(hoKey).slice(0, 50),
+        can_sign: c.operate, current_user_id: c.uid,
+      });
+    }
   }
   if (rest === '/oee') { const { from, to } = range(url, 8 * H); return done(200, plant.oee(from, to, q('device'))); }
   if (rest === '/oee/pareto') { const { from, to } = range(url, 7 * DAY); return done(200, { items: plant.pareto(from, to) }); }

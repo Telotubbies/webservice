@@ -25,11 +25,12 @@ import { derivedApi, type DerivedTag } from '../../lib/api';
 import { liveName } from '../../lib/plantModel';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import '../derived/i18n';
+import { RuleSection } from './RuleSection';
 
 /** Detail flyout for the selected tag — name with copy button, current
  *  value + unit, quality/age/access, and the sparkline. */
-function TagFlyout({ tag, onClose, derived, canEdit, onEdit, onDelete }: {
-  tag: string; onClose: () => void; derived?: DerivedTag; canEdit?: boolean; onEdit?: () => void; onDelete?: () => void;
+function TagFlyout({ tag, onClose, derived, canEdit, onEdit, onDelete, orgId, siteId }: {
+  orgId?: string; siteId?: string; tag: string; onClose: () => void; derived?: DerivedTag; canEdit?: boolean; onEdit?: () => void; onDelete?: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const now = useNow();
@@ -89,6 +90,7 @@ function TagFlyout({ tag, onClose, derived, canEdit, onEdit, onDelete }: {
           <p className="mb-1 text-[11px] font-semibold uppercase text-ink-46">{t('faceplate.trend')}</p>
           <div className="rounded-dd border border-line p-2"><Sparkline tag={tag} /></div>
         </div>
+        {orgId && siteId && <RuleSection orgId={orgId} siteId={siteId} tag={tag} canEdit={!!canEdit} />}
       </div>
     </aside>
   );
@@ -289,7 +291,7 @@ export function TagsPage() {
 
       {/* right flyout — 400px drawer pinned under the topbar */}
       {selTag && (
-        <TagFlyout tag={selTag} onClose={() => setSelTag(null)} canEdit={canMove}
+        <TagFlyout tag={selTag} onClose={() => setSelTag(null)} canEdit={canMove} orgId={orgId ?? undefined} siteId={site?.id}
           derived={derivedBy.get(selTag)}
           onEdit={() => setFormula({ existing: derivedBy.get(selTag) })} onDelete={() => setDelAsk(derivedBy.get(selTag) ?? null)} />
       )}

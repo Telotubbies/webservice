@@ -24,6 +24,7 @@ export interface TagInput {
   unit?: string | null; writable?: boolean; min?: number | null; max?: number | null; scale?: number | null;
 }
 export interface TestResult { ok: boolean; detail?: string; sample?: unknown }
+export interface NodeLive { node_id: string; v: number | boolean | null; q: string }
 export interface BrowseItem { node_id: string; name: string; node_class: string; data_type: string | null; writable: boolean }
 
 const call = request;
@@ -53,6 +54,8 @@ export const dsApi = {
     call<TestResult>(`${edge(org, e)}/sources:test`, json('POST', b)),
   latest: (org: string, site: string) =>
     call<{ items: { tag_id: string; v: number | boolean | null; q: string; ts: string }[] }>(`/api/v1/orgs/${encodeURIComponent(org)}/sites/${encodeURIComponent(site)}/tags/latest`),
+  readNodes: (org: string, e: string, s: string, nodeIds: string[]) =>
+    call<{ items: NodeLive[] }>(`${edge(org, e)}/sources/${s}/read-nodes`, json('POST', { node_ids: nodeIds })),
   browse: (org: string, e: string, s: string, nodeId: string | null) =>
     call<{ items: BrowseItem[] }>(`${edge(org, e)}/sources/${s}/browse`, json('POST', { node_id: nodeId })),
 };
