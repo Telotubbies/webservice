@@ -111,13 +111,10 @@ def test_t8_container_mode_refuses_a_job_without_the_backend_hash(tmp_path, monk
 # ---------------- T9: WS cap must not punish other users behind the same IP ----------------
 
 @pytest.mark.integration
-@pytest.mark.xfail(strict=True, reason="G9 not implemented: /ws is capped per client IP only (main.py acquire_ip); "
-                                       "the plan's per-user/org cap after auth does not exist, so one user's sockets "
-                                       "exhaust the cap for every colleague behind the same NAT")
 def test_t9_one_users_sockets_do_not_block_another_user_on_the_same_ip(ws_base):
     websockets = pytest.importorskip("websockets")
     from conftest import OPERATOR_TOKEN, VIEWER_TOKEN
-    cap = int(os.environ.get("RATE_WS_PER_IP", "20"))
+    cap = int(os.environ.get("RATE_WS_PER_USER", "20"))
 
     async def connect(token):
         ws = await websockets.connect(f"{ws_base}/ws", open_timeout=10)

@@ -200,6 +200,7 @@ class WSManager:
         self._clients: set[Client] = set()
         self._lock = asyncio.Lock()
         self._by_ip: dict[str, int] = {}
+        self._by_sub: dict[str, int] = {}
         self.total_dropped = 0
 
     async def acquire_ip(self, ip: str, limit: int) -> bool:
@@ -220,6 +221,23 @@ class WSManager:
                 self._by_ip.pop(ip, None)
             else:
                 self._by_ip[ip] = n - 1
+
+    async def acquire_sub(self, sub: str, limit: int) -> bool:
+        """Per-user slot, taken after auth (G9) so colleagues behind one NAT IP
+        don't share a budget. Pair with release_sub."""
+        async with self._lock:
+            if self._by_sub.get(sub, 0) >= limit:
+                return False
+            self._by_sub[sub] = self._by_sub.get(sub, 0) + 1
+            return True
+
+    async def release_sub(self, sub: str) -> None:
+        async with self._lock:
+            n = self._by_sub.get(sub, 0)
+            if n <= 1:
+                self._by_sub.pop(sub, None)
+            else:
+                self._by_sub[sub] = n - 1
 
     def clients(self) -> list[Client]:
         """Snapshot of connected clients (wds_authz eviction iterates this)."""

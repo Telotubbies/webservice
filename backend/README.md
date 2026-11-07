@@ -63,7 +63,7 @@ Dynsec (doc 17): `DYNSEC_ADMIN_USER` (`svc-dynsec-admin`),
 Rate limiting + admission (v4 T4, doc 16 row 7 — in-process token buckets,
 single replica): `RATE_COMMANDS_PER_TAG` (5 per 10 s per user+tag → 429 +
 `Retry-After`), `RATE_MUTATIONS_PER_USER` (60 per 60 s, non-command
-mutations), `RATE_WS_PER_IP` (20 concurrent `/ws` sockets per client IP →
+mutations), `RATE_WS_PER_IP` (100 concurrent `/ws` sockets per client IP →
 close 4403), `RATE_LOGOUT_PER_IP` (10 backchannel POSTs per 60 s per IP).
 
 `ALLOWED_ORIGINS` — comma-separated Origin allowlist. The same policy gates
