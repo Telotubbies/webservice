@@ -89,6 +89,19 @@ async def list_orgs(request: Request, p=Depends(_user)):
 # ---------------------------------------------------------------------------
 # usage vs plan caps (§10 6.2 settings -> plan)
 # ---------------------------------------------------------------------------
+@router.get(_O + "/plans")
+async def list_plans(org: str, request: Request, p=Depends(_user)):
+    """Every plan with its real limits (None = unlimited), for the compare table."""
+    m = _m()
+    org_id = m._v2_org(org, p)
+    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT code, name, trial_days, max_sites, max_edges, max_tags, max_users, max_cameras,"
+            " max_vision_models, retention_days, gpu_hours_monthly, sso, audit_export, sms, assistant,"
+            " api_rate_per_min FROM plans ORDER BY max_tags NULLS LAST, code")
+    return {"items": [dict(r) for r in rows]}
+
+
 @router.get(_O + "/usage")
 async def org_usage(org: str, request: Request, p=Depends(_user)):
     m = _m()

@@ -87,6 +87,7 @@ const ProfilesPage = lazy(() => import('./features/devices/ProfilesPage').then((
 
 // ── Settings & org ──
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const PlanComparePage = lazy(() => import('./features/settings/PlanComparePage').then((m) => ({ default: m.PlanComparePage })));
 const PlanPage = lazy(() => import('./features/platform/PlanPage').then((m) => ({ default: m.PlanPage })));
 const DangerZone = lazy(() => import('./features/platform/DangerZone').then((m) => ({ default: m.DangerZone })));
 
@@ -315,6 +316,7 @@ export default function App() {
             <Route path="connect/profiles" element={page(ProfilesPage)} />
             <Route path="settings" element={page(SettingsPage)} />
             <Route path="settings/plan" element={page(PlanPage)} />
+        <Route path="settings/plans" element={page(PlanComparePage)} />
             <Route path="settings/org" element={page(DangerZone)} />
             <Route path="orgs/new" element={<CreateOrgPage />} />
             <Route path="alarms/quality" element={page(AlarmQualityPage)} />

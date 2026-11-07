@@ -307,7 +307,7 @@ function usage() {
   return {
     plan: 'pro', trial_ends_at: null, suspended: false,
     features: { sso: true, audit_export: true, sms: false, assistant: true, gpu_hours_monthly: 40, retention_days: 90, api_rate_per_min: 600 },
-    usage: { sites: { usage: 1, cap: 5 }, edges: { usage: 3, cap: 10 }, tags: { usage: sim.TAGS.length, cap: 2000 }, members: { usage: members.filter((m) => !m.disabled).length, cap: 25 }, cameras: { usage: 3, cap: 8 }, gpu_hours: { usage: 11.4, cap: 40 }, storage_gb: { usage: 0.4, cap: 50 } },
+    usage: { max_sites: { usage: 1, cap: 5 }, max_edges: { usage: 3, cap: 10 }, max_tags: { usage: sim.TAGS.length, cap: 5000 }, max_users: { usage: members.filter((m) => !m.disabled).length, cap: 50 }, max_cameras: { usage: 3, cap: 20 }, max_vision_models: { usage: 2, cap: 10 }, gpu_hours_monthly: { usage: 11.4, cap: 20 }, sites: { usage: 1, cap: 5 }, edges: { usage: 3, cap: 10 }, tags: { usage: sim.TAGS.length, cap: 2000 }, members: { usage: members.filter((m) => !m.disabled).length, cap: 25 }, cameras: { usage: 3, cap: 8 }, gpu_hours: { usage: 11.4, cap: 40 }, storage_gb: { usage: 0.4, cap: 50 } },
   };
 }
 
@@ -754,6 +754,12 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, security);
   }
   if (rest === '/storage') return send(200, storage());
+  if (rest === '/plans') return send(200, { items: [
+    { code: 'trial', name: 'Trial', trial_days: 14, max_sites: 1, max_edges: 1, max_tags: 100, max_users: 5, max_cameras: 1, max_vision_models: 1, retention_days: 7, gpu_hours_monthly: 2, sso: false, audit_export: false, sms: false, assistant: false, api_rate_per_min: 60 },
+    { code: 'starter', name: 'Starter', trial_days: 0, max_sites: 1, max_edges: 2, max_tags: 500, max_users: 10, max_cameras: 2, max_vision_models: 2, retention_days: 90, gpu_hours_monthly: 0, sso: false, audit_export: false, sms: false, assistant: false, api_rate_per_min: 120 },
+    { code: 'pro', name: 'Pro', trial_days: 0, max_sites: 5, max_edges: 10, max_tags: 5000, max_users: 50, max_cameras: 20, max_vision_models: 10, retention_days: 365, gpu_hours_monthly: 20, sso: true, audit_export: true, sms: false, assistant: false, api_rate_per_min: 600 },
+    { code: 'enterprise', name: 'Enterprise', trial_days: 0, max_sites: null, max_edges: null, max_tags: null, max_users: null, max_cameras: null, max_vision_models: null, retention_days: null, gpu_hours_monthly: 0, sso: true, audit_export: true, sms: true, assistant: true, api_rate_per_min: 2400 },
+  ] });
   if (rest === '/usage') return send(200, usage());
   if (rest === '/webhooks') return send(200, { items: webhooks });
   if (rest === '/webhook-deliveries') {

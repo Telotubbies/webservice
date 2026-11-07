@@ -12,7 +12,8 @@ i18n.addResourceBundle('en', 'translation', {
     lede: 'Three ways to get data into the console. Start with the simulator, rehearse on Factory I/O, then point the same gateway at a real PLC.',
     pathLabel: 'Data source',
     copy: 'Copy', copied: 'Copied',
-    noteSim: 'The demo line runs on the built-in simulator, so nothing you do here can move real equipment.',
+    status_none: 'Waiting for a gateway. Follow the steps above; this line updates by itself.', status_wait: 'Gateway enrolled. Waiting for the first values.', status_live: 'Receiving data. You are connected.',
+  noteSim: 'The demo line runs on the built-in simulator, so nothing you do here can move real equipment.',
     noteSafety: 'Keep tags read-only while commissioning. Writes need the operator role, a value inside the tag range, and an explicit confirm, and every write is audited.',
     sim: {
       tab: 'Simulator',
@@ -48,7 +49,8 @@ i18n.addResourceBundle('th', 'translation', {
     lede: 'นำข้อมูลเข้าคอนโซลได้ 3 แบบ เริ่มจากตัวจำลอง ซ้อมกับ Factory I/O แล้วชี้ gateway ตัวเดิมไปที่ PLC จริง',
     pathLabel: 'แหล่งข้อมูล',
     copy: 'คัดลอก', copied: 'คัดลอกแล้ว',
-    noteSim: 'ไลน์เดโมทำงานบนตัวจำลองในระบบ สิ่งที่ทำในหน้านี้จึงไม่ทำให้เครื่องจักรจริงขยับ',
+    status_none: 'รอเกตเวย์ ทำตามขั้นตอนด้านบน บรรทัดนี้จะอัปเดตเอง', status_wait: 'ลงทะเบียนเกตเวย์แล้ว รอค่าแรก', status_live: 'กำลังรับข้อมูล เชื่อมต่อสำเร็จ',
+  noteSim: 'ไลน์เดโมทำงานบนตัวจำลองในระบบ สิ่งที่ทำในหน้านี้จึงไม่ทำให้เครื่องจักรจริงขยับ',
     noteSafety: 'ระหว่าง commissioning ให้ตั้งแท็กเป็นอ่านอย่างเดียว การเขียนค่าต้องมีบทบาท operator ค่าต้องอยู่ในช่วงของแท็ก และต้องกดยืนยัน ทุกการเขียนถูกบันทึก audit',
     sim: {
       tab: 'ตัวจำลอง',
