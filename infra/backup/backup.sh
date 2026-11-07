@@ -17,17 +17,26 @@ export RCLONE_CONFIG_S3_FORCE_PATH_STYLE=true
 
 run_once() {
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  failed=0
   for db in wds keycloak; do
     f="/tmp/$db-$ts.dump"
-    if pg_dump -Fc -d "$db" -f "$f"; then
-      rclone copyto "$f" "s3:$S3_BUCKET/$db/$db-$ts.dump" && echo "backup ok $db-$ts.dump ($(du -h "$f" | cut -f1))"
+    # a dump only counts once it is non-empty AND uploaded; any miss marks the run failed
+    if pg_dump -Fc -d "$db" -f "$f" && [ -s "$f" ] && rclone copyto "$f" "s3:$S3_BUCKET/$db/$db-$ts.dump"; then
+      echo "backup ok $db-$ts.dump ($(du -h "$f" | cut -f1))"
     else
       echo "backup FAILED for $db" >&2
+      failed=1
     fi
     rm -f "$f"
   done
-  rclone delete --min-age "${KEEP_DAYS}d" "s3:$S3_BUCKET" || echo "retention sweep failed" >&2
+  # Never delete old backups after a failed run: the old ones may be all we have.
+  if [ "$failed" -eq 0 ]; then
+    rclone delete --min-age "${KEEP_DAYS}d" --include "*.dump" "s3:$S3_BUCKET" || echo "retention sweep failed" >&2
+  else
+    echo "retention sweep SKIPPED (this run failed)" >&2
+  fi
+  return "$failed"
 }
 
-[ "${1:-}" = "--once" ] && { run_once; exit 0; }
-while true; do run_once; sleep "$INTERVAL_S"; done
+[ "${1:-}" = "--once" ] && { run_once; exit $?; }
+while true; do run_once || true; sleep "$INTERVAL_S"; done

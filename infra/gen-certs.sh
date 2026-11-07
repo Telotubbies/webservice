@@ -11,7 +11,11 @@ export MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/.."
 
 DIR="${CERTS_DIR:-infra/certs}"
-mkdir -p "$DIR"
+# The CA private key lives OUTSIDE the mounted certs dir, owner-only: nothing but the
+# operator signing certs may read it (containers mount ca.crt only).
+CA_KEY_DIR="${CA_KEY_DIR:-$DIR/../ca-private}"
+mkdir -p "$DIR" "$CA_KEY_DIR"
+chmod 0700 "$CA_KEY_DIR" 2>/dev/null || true
 
 if [ -f "$DIR/ca.crt" ] && [ -f "$DIR/server.crt" ] && [ -f "$DIR/server.key" ] \
    && [ "${1:-}" != "--force" ]; then
@@ -23,7 +27,7 @@ DAYS="${CERT_DAYS:-3650}"
 
 # Dev CA
 openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout "$DIR/ca.key" -out "$DIR/ca.crt" \
+  -keyout "$CA_KEY_DIR/ca.key" -out "$DIR/ca.crt" \
   -days "$DAYS" -subj "/CN=wds-dev-ca" 2>/dev/null
 
 # Server key + CSR
@@ -37,13 +41,15 @@ openssl req -newkey rsa:2048 -nodes \
 printf 'subjectAltName=DNS:localhost,DNS:mosquitto,IP:127.0.0.1%s\n' \
   "${MQTT_PUBLIC_HOST:+,DNS:$MQTT_PUBLIC_HOST}" > "$DIR/san.ext"
 openssl x509 -req -in "$DIR/server.csr" \
-  -CA "$DIR/ca.crt" -CAkey "$DIR/ca.key" -CAcreateserial \
+  -CA "$DIR/ca.crt" -CAkey "$CA_KEY_DIR/ca.key" -CAcreateserial \
   -out "$DIR/server.crt" -days "$DAYS" -extfile "$DIR/san.ext" 2>/dev/null
 
 rm -f "$DIR/server.csr" "$DIR/ca.srl" "$DIR/san.ext"
 
 # The mosquitto container runs as uid 1883 — bind-mounted files must be
 # world-readable for it to load them (dev self-signed material only).
-chmod 0644 "$DIR"/ca.crt "$DIR"/server.crt "$DIR"/server.key "$DIR"/ca.key 2>/dev/null || true
+chmod 0644 "$DIR"/ca.crt "$DIR"/server.crt "$DIR"/server.key 2>/dev/null || true
+chmod 0600 "$CA_KEY_DIR/ca.key" 2>/dev/null || true
+rm -f "$DIR/ca.key"          # a key left by an older run must not stay in the mounted dir
 
 echo "infra/certs generated (ca.crt, server.crt, server.key — SAN localhost/mosquitto)."

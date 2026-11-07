@@ -76,6 +76,12 @@ migrate: ## pg_dump backup, then alembic upgrade head (doc 18 §2)
 	mkdir -p backups && $(COMPOSE) exec -T postgres pg_dump -U postgres -Fc wds > backups/pre-migrate-$$(date +%Y%m%d%H%M%S).dump
 	$(COMPOSE) run --rm migrate
 
+preflight: ## check secrets, certs and .env exist before a deploy (read-only)
+	./scripts/deploy-preflight.sh
+
+restore-drill: ## restore DUMP=... into a throwaway database, count rows, drop it (never touches wds)
+	DUMP=$(DUMP) ./scripts/restore-drill.sh
+
 verify-audit: ## recompute every org's audit hash chain; non-zero exit on a break
 	$(COMPOSE) exec -T backend python -m app.db.audit_cli
 
