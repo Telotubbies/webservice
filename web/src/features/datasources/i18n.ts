@@ -53,6 +53,7 @@ const en = {
   csvImport: 'Add tags', csvErrors: '{{count}} problems found', rowErr: 'Row {{row}}, {{field}}: {{message}}',
   browse: 'Browse server', browseTitle: 'OPC UA server tree', browseStart: 'Load server tree', emptyNode: 'Nothing here',
   expand: 'Expand', collapse: 'Collapse', addSelected: 'Add selected ({{count}})',
+  namesTitle: 'Signal names (edit before adding)', signalFor: 'Signal name for {{name}}',
 };
 
 const th: typeof en = {
@@ -106,6 +107,7 @@ const th: typeof en = {
   csvImport: 'เพิ่มแท็ก', csvErrors: 'พบ {{count}} ปัญหา', rowErr: 'แถว {{row}}, {{field}}: {{message}}',
   browse: 'เรียกดูเซิร์ฟเวอร์', browseTitle: 'โครงสร้างเซิร์ฟเวอร์ OPC UA', browseStart: 'โหลดโครงสร้างเซิร์ฟเวอร์', emptyNode: 'ว่างเปล่า',
   expand: 'ขยาย', collapse: 'ยุบ', addSelected: 'เพิ่มที่เลือก ({{count}})',
+  namesTitle: 'ชื่อสัญญาณ (แก้ก่อนเพิ่มได้)', signalFor: 'ชื่อสัญญาณของ {{name}}',
 };
 
 i18n.addResourceBundle('en', 'translation', { ds: en }, true, true);

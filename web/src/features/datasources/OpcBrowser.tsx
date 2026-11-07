@@ -6,8 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 import { ApiError } from '../../lib/api';
 import { Notice } from '../../shared/ui/Feedback';
-import { dsApi, type BrowseItem } from './api';
-import { browseToDrafts, csvErrorsFromBody, tagsToCsv } from './logic';
+import { dsApi, type BrowseItem, type NodeLive } from './api';
+import { browseToDrafts, csvErrorsFromBody, suggestSignal, tagsToCsv } from './logic';
 import './i18n';
 
 interface Node extends BrowseItem { children?: Node[]; open?: boolean; loading?: boolean }
@@ -15,6 +15,13 @@ interface Node extends BrowseItem { children?: Node[]; open?: boolean; loading?:
 const isVar = (n: BrowseItem) => /variable/i.test(n.node_class);
 /** Line/device inputs only need to contain something name-able. */
 const normOk = (s: string) => /[a-z0-9]/i.test(s);
+
+function LiveValue({ x }: { x?: NodeLive }) {
+  const { t } = useTranslation();
+  if (!x) return null;
+  const ok = x.q === 'good' && x.v !== null;
+  return <span className={`font-mono text-[11px] ${ok ? 'text-ink' : 'text-ink-46'}`} title={x.q}>{ok ? String(x.v) : t('ds.noValue')}</span>;
+}
 
 export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
   orgId: string; edgeId: string; sourceId: string; onAdded: () => void; onClose: () => void;
@@ -26,6 +33,8 @@ export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
   const [device, setDevice] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [live, setLive] = useState<Map<string, NodeLive>>(new Map());
+  const [names, setNames] = useState<Map<string, string>>(new Map());
 
   const explain = (e: unknown) => e instanceof ApiError
     ? (e.status === 504 ? t('ds.errTimeout') : e.status === 502 ? t('ds.errEdge') : t('ds.errGeneric', { reason: e.message }))
@@ -33,9 +42,19 @@ export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
 
   const load = async (nodeId: string | null): Promise<Node[]> => (await dsApi.browse(orgId, edgeId, sourceId, nodeId)).items;
 
+  /** Live values are a nicety: a failed read leaves the tree usable. */
+  const readLive = async (nodes: BrowseItem[]) => {
+    const ids = nodes.filter(isVar).slice(0, 50).map((n) => n.node_id);
+    if (!ids.length) return;
+    try {
+      const r = await dsApi.readNodes(orgId, edgeId, sourceId, ids);
+      setLive((m) => { const c = new Map(m); r.items.forEach((x) => c.set(x.node_id, x)); return c; });
+    } catch { /* values stay blank */ }
+  };
+
   const start = async () => {
     setBusy(true); setErr('');
-    try { setRoots(await load(null)); } catch (e) { setErr(explain(e)); } finally { setBusy(false); }
+    try { const r = await load(null); setRoots(r); void readLive(r); } catch (e) { setErr(explain(e)); } finally { setBusy(false); }
   };
 
   const update = (list: Node[], id: string, fn: (n: Node) => Node): Node[] =>
@@ -47,6 +66,7 @@ export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
     setRoots((r) => r && update(r, n.node_id, (x) => ({ ...x, loading: true })));
     try {
       const kids = await load(n.node_id);
+      void readLive(kids);
       setRoots((r) => r && update(r, n.node_id, (x) => ({ ...x, loading: false, open: true, children: kids })));
     } catch (e) {
       setErr(explain(e));
@@ -59,7 +79,7 @@ export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
   const add = async () => {
     setBusy(true); setErr('');
     try {
-      await dsApi.bulkTags(orgId, edgeId, sourceId, tagsToCsv(browseToDrafts([...picked.values()], line.trim(), device.trim())));
+      await dsApi.bulkTags(orgId, edgeId, sourceId, tagsToCsv(browseToDrafts([...picked.values()], line.trim(), device.trim(), names)));
       onAdded();
     } catch (e) {
       const rows = e instanceof ApiError ? csvErrorsFromBody(e.body) : null;
@@ -77,6 +97,7 @@ export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
                 <input type="checkbox" checked={picked.has(n.node_id)} onChange={() => pick(n)} />
                 <span>{n.name}</span>
                 <span className="font-mono text-[11px] text-ink-46">{n.data_type ?? ''}{n.writable ? ' · rw' : ''}</span>
+                <LiveValue x={live.get(n.node_id)} />
               </label>
             ) : (
               <button type="button" className="flex items-center gap-1 hover:text-blue" onClick={() => void toggle(n)} aria-label={`${n.open ? t('ds.collapse') : t('ds.expand')} ${n.name}`}>
@@ -104,6 +125,20 @@ export function OpcBrowser({ orgId, edgeId, sourceId, onAdded, onClose }: {
       ) : (
         <>
           <div className="max-h-72 overflow-auto rounded border border-line p-2">{roots.length ? render(roots, 0) : <p className="text-[12px] italic text-ink-46">{t('ds.emptyNode')}</p>}</div>
+          {picked.size > 0 && (
+            <div className="mt-2 max-h-40 overflow-auto rounded border border-line p-2" aria-label={t('ds.namesTitle')}>
+              <p className="mb-1 text-[11px] font-semibold uppercase text-ink-46">{t('ds.namesTitle')}</p>
+              {[...picked.values()].map((n) => (
+                <div key={n.node_id} className="flex items-center gap-2 py-0.5 text-[12px]">
+                  <span className="w-40 truncate text-ink-68" title={n.node_id}>{n.name}</span>
+                  <input className="input h-7 w-48 font-mono" aria-label={t('ds.signalFor', { name: n.name })}
+                    value={names.get(n.node_id) ?? suggestSignal(n)}
+                    onChange={(e) => setNames((m) => new Map(m).set(n.node_id, e.target.value))} />
+                  <LiveValue x={live.get(n.node_id)} />
+                </div>
+              ))}
+            </div>
+          )}
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <div>
               <label className="field-label" htmlFor="ob-line">{t('ds.f_line')}</label>

@@ -239,10 +239,13 @@ export function addressInput(text: string): string | Record<string, unknown> {
 export interface BrowseNode { node_id: string; name: string; node_class: string; data_type: string | null; writable: boolean }
 
 /** Selected OPC UA variables -> tag drafts under one line/device. */
-export function browseToDrafts(nodes: BrowseNode[], line: string, device: string): TagDraft[] {
+export function suggestSignal(n: BrowseNode): string { return normName(n.name) ?? 'node'; }
+
+/** `names` holds the operator's edits of the suggested signal names, by node id. */
+export function browseToDrafts(nodes: BrowseNode[], line: string, device: string, names: Map<string, string> = new Map()): TagDraft[] {
   const used = new Set<string>();
   return nodes.map((n) => {
-    let base = normName(n.name) ?? 'node', sig = base, i = 2;
+    let base = normName(names.get(n.node_id) ?? '') ?? suggestSignal(n), sig = base, i = 2;
     while (used.has(sig)) sig = `${base.slice(0, 36)}_${i++}`;
     used.add(sig);
     return {

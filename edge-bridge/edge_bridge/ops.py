@@ -94,7 +94,7 @@ def test_source(payload: dict, deadline: float | None = None) -> dict:
         return {"ok": False, "detail": "no_tags_to_test", "sample": []}
     prefix = "test."
     sample = [{"path": v.name[len(prefix):].replace(".", "/") if v.name.startswith(prefix)
-               else v.name, "v": v.v, "q": v.q.value} for v in values[:SAMPLE_MAX]]
+               else v.name, "v": v.v, "q": v.q.value} for v in values[:min(int(payload.get("sample_max") or SAMPLE_MAX), 200)]]
     good = sum(1 for v in values if v.q is Quality.GOOD)
     if good == 0:
         return {"ok": False, "detail": getattr(ad, "last_error", None) or "all_reads_bad",
