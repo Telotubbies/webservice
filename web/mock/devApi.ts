@@ -975,6 +975,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   // F18-F20 org-level routes are written in site() but are not under /sites/: hand them over
+  if (/^\/integration\//.test(rest) && !config) return send(403, { detail: 'config role required' }); // the API gates all of F18/F19 on admin
   if (/^\/(lifecycle|integration\/)/.test(rest)) {
     const uid = members.find((m) => m.sub === `demo-${role}`)?.user_id ?? `u-${role}`;
     const r = await site(rest, req, url, send, { role, who, uid, operate, config, t, org: v2[1], site: plant.SITE_ID });
