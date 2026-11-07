@@ -81,6 +81,9 @@ const en = {
   trueVsPred: 'True \\ predicted', mat_gravel: 'Gravel', mat_sand: 'Sand', 'mat_no-material': 'No material',
   driftTitle: 'Camera drift', driftNone: 'No material decisions in the window.', drift_ok: 'Stable', drift_drift: 'Drifting', drift_insufficient: 'Not enough data',
   labelTitle: 'Label the true material',
+  gateTitle: 'Release gate and rollback', gateModel: 'Model', gateVersion: 'Active version', gateAcc: 'Minimum accuracy (%)', gateSamples: 'Minimum reviewed samples',
+  gateSave: 'Save gate', gateSaved: 'Gate saved.', gatePass: 'Passing', gateFail: 'Below the gate', errGateAcc: 'Accuracy must be 0 to 100.', errGateNs: 'Samples must be a whole number from 1 to 100000.',
+  rollbackTo: 'Roll cameras back to', rollback: 'Roll back', rollbackTitle: 'Move cameras from {{from}} to {{to}}?', rollbackBody: 'Every camera pinned to the current version switches to the older one. Detections change right away.', rolledBack: '{{count}} cameras rolled back.',
 };
 
 const th = {
@@ -160,6 +163,9 @@ const th = {
   trueVsPred: 'จริง \\ ที่ทำนาย', mat_gravel: 'หิน', mat_sand: 'ทราย', 'mat_no-material': 'ไม่มีวัสดุ',
   driftTitle: 'กล้องเพี้ยน', driftNone: 'ไม่มีผลตัดสินวัสดุในช่วงนี้', drift_ok: 'คงที่', drift_drift: 'เริ่มเพี้ยน', drift_insufficient: 'ข้อมูลไม่พอ',
   labelTitle: 'ติดป้ายวัสดุที่เห็นจริง',
+  gateTitle: 'เกณฑ์เปิดใช้และการย้อนเวอร์ชัน', gateModel: 'โมเดล', gateVersion: 'เวอร์ชันที่ใช้งาน', gateAcc: 'ความแม่นยำขั้นต่ำ (%)', gateSamples: 'จำนวนตัวอย่างที่ตรวจแล้วขั้นต่ำ',
+  gateSave: 'บันทึกเกณฑ์', gateSaved: 'บันทึกเกณฑ์แล้ว', gatePass: 'ผ่านเกณฑ์', gateFail: 'ต่ำกว่าเกณฑ์', errGateAcc: 'ความแม่นยำต้องอยู่ระหว่าง 0 ถึง 100', errGateNs: 'จำนวนตัวอย่างต้องเป็นจำนวนเต็ม 1 ถึง 100000',
+  rollbackTo: 'ย้อนกล้องกลับไปเวอร์ชัน', rollback: 'ย้อนเวอร์ชัน', rollbackTitle: 'ย้ายกล้องจาก {{from}} ไป {{to}} หรือไม่', rollbackBody: 'กล้องทุกตัวที่ใช้เวอร์ชันปัจจุบันจะเปลี่ยนไปใช้เวอร์ชันเก่า ผลตรวจจับเปลี่ยนทันที', rolledBack: 'ย้อนกล้อง {{count}} ตัวแล้ว',
 };
 
 i18n.addResourceBundle('en', 'translation', { vis: en }, true, true);

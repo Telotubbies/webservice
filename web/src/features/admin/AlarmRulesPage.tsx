@@ -10,6 +10,7 @@ import { NavLink } from 'react-router';
 import { DdIcon } from '../../shared/ui/DdIcon';
 import { adminApi, type AdminRule } from '../../lib/api';
 import { notifyApi, type RuleNotify } from '../notify/api';
+import '../tags/i18n';
 import { RuleNotifyEditor, EMPTY_NOTIFY } from './RuleNotifyEditor';
 import { useAdminOrg, useAdminSite, canAdmin } from './admin';
 import { SeverityBadge } from '../../shared/ui/Status';
@@ -146,7 +147,7 @@ export function AlarmRulesPage() {
                   return (
                     <Fragment key={r.id}>
                     <tr>
-                      <td className="font-medium">{r.name}</td>
+                      <td className="font-medium">{r.name}{r.approval === 'pending' && <span className="ml-2 text-[12px] font-normal text-warn">· {t('rl.pending')}</span>}{r.approval === 'approved' && <span className="ml-2 text-[12px] font-normal text-ink-46">· {t('rl.stApproved')}</span>}</td>
                       <td className="max-w-56 truncate font-mono text-[12px] text-ink-68" title={tag?.path ?? r.tag_id}>{tag?.path ?? r.tag_id}</td>
                       <td className="whitespace-nowrap text-[12px]">{t(`admin.kind_${r.kind}`, { defaultValue: r.kind })}</td>
                       <td className="whitespace-nowrap font-mono text-[12px] tabular-nums">

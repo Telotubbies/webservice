@@ -6,7 +6,9 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { request } from '../../../lib/api';
-import { usePrimaryScope } from '../../admin/admin';
+import { usePrimaryScope, useAdminOrg } from '../../admin/admin';
+import { canAdmin } from '../../../app/session';
+import { ErpSettings } from './ErpSettings';
 import { EmptyState, Notice } from '../../../shared/ui/Feedback';
 import { ProductHeader } from '../../../shared/ui/Product';
 import './i18n';
@@ -22,6 +24,7 @@ const ENTITIES: Entity[] = ['product', 'work_center', 'work_order'];
 export function OdooPage() {
   const { t } = useTranslation();
   const { orgId, siteId } = usePrimaryScope();
+  const admin = canAdmin(useAdminOrg().orgRole ?? 'none');
   const qc = useQueryClient();
   const [entity, setEntity] = useState<Entity>('product');
   const [file, setFile] = useState<File | null>(null);
@@ -55,6 +58,7 @@ export function OdooPage() {
       <ProductHeader icon="database" title={t('erp.title')} lede={t('erp.lede')} />
       <div className="flex-1 space-y-5 p-4">
         {msg && <Notice tone="error">{msg}</Notice>}
+        {orgId && <ErpSettings orgId={orgId} admin={admin} />}
         <section className="space-y-2" aria-label={t('erp.import')}>
           <h2 className="text-[13px] font-medium">{t('erp.import')}</h2>
           <div className="flex flex-wrap items-center gap-2 text-[13px]">

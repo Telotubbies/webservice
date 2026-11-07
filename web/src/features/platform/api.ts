@@ -12,6 +12,7 @@ export interface OrgUsage {
     gpu_hours_monthly: number; retention_days: number; api_rate_per_min: number;
   };
   usage: Record<string, UsageEntry>;
+  daily?: { day: string; metric: string; value: number }[];
 }
 export interface ExportRow {
   id: string; status: 'queued' | 'running' | 'done' | 'failed';

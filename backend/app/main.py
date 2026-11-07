@@ -1289,14 +1289,15 @@ async def v2_list_alarm_rules(org: str, site: str, request: Request,
     async with org_tx(request, org_id) as tc:
         rows = await tc.fetch(
             "SELECT id, tag_id, name, kind, threshold, stale_s, deadband,"
-            " severity, window_s, enabled FROM alarm_rules WHERE tag_id IN"
+            " severity, window_s, enabled, approval FROM alarm_rules WHERE tag_id IN"
             " (SELECT id FROM tags WHERE site_id=$1) ORDER BY name", site_id)
     return {"items": [{"id": str(r["id"]), "tag_id": str(r["tag_id"]),
                        "name": r["name"], "kind": r["kind"],
                        "threshold": r["threshold"], "stale_s": r["stale_s"],
                        "window_s": r["window_s"],
                        "deadband": r["deadband"], "severity": r["severity"],
-                       "enabled": r["enabled"]} for r in rows],
+                       "enabled": r["enabled"],
+                       "approval": r["approval"]} for r in rows],
             "next_cursor": None}
 
 

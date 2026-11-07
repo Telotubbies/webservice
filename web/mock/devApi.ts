@@ -309,6 +309,7 @@ function usage() {
     plan: 'pro', trial_ends_at: null, suspended: false,
     features: { sso: true, audit_export: true, sms: false, assistant: true, gpu_hours_monthly: 40, retention_days: 90, api_rate_per_min: 600 },
     usage: { max_sites: { usage: 1, cap: 5 }, max_edges: { usage: 3, cap: 10 }, max_tags: { usage: sim.TAGS.length, cap: 5000 }, max_users: { usage: members.filter((m) => !m.disabled).length, cap: 50 }, max_cameras: { usage: 3, cap: 20 }, max_vision_models: { usage: 2, cap: 10 }, gpu_hours_monthly: { usage: 11.4, cap: 20 }, sites: { usage: 1, cap: 5 }, edges: { usage: 3, cap: 10 }, tags: { usage: sim.TAGS.length, cap: 2000 }, members: { usage: members.filter((m) => !m.disabled).length, cap: 25 }, cameras: { usage: 3, cap: 8 }, gpu_hours: { usage: 11.4, cap: 40 }, storage_gb: { usage: 0.4, cap: 50 } },
+    daily: Array.from({ length: 14 }, (_, i) => ['max_tags', 'max_users'].map((metric) => ({ day: iso(Date.now() - (13 - i) * DAY).slice(0, 10), metric, value: metric === 'max_tags' ? sim.TAGS.length - (13 - i) % 3 : 4 + (i > 7 ? 1 : 0) }))).flat(),
   };
 }
 
@@ -373,6 +374,10 @@ const adminRule = (r: sim.SimRule) => ({
   window_s: r.window_s, deadband: r.deadband, severity: r.severity, enabled: r.enabled, approval: ruleApproval(r.id),
 });
 const reviewedEvents = new Set<string>();
+const erpConns: Record<string, unknown>[] = [{ id: 'cn-1', kind: 'odoo', name: 'Odoo (sandbox)', config: { url: 'https://odoo.demo.plant', db: 'plant', login: 'sync' }, has_secret: true, enabled: true, allow_non_production: false, status: 'ok', last_ok_at: null }];
+const erpMap: { connection_id: string; entity: string; external_id: string; local_id: string; external_ver: string | null; inactive: boolean; synced_at: string }[] = [
+  { connection_id: 'cn-1', entity: 'work_center', external_id: '3', local_id: '00000000-0000-0000-0000-000000000003', external_ver: '2026-10-01', inactive: false, synced_at: new Date().toISOString() },
+];
 const alarmEvents: Record<string, { kind: string; author: string; body: string; at: string }[]> = {};
 /** Who shelved an alarm, why and when — the backend keeps this on the alarm row (migration 0057). */
 const shelfMeta = new Map<string, { by: string; reason: string; at: string }>();
@@ -1052,7 +1057,27 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     { machine: 'Belt conveyor 7', shift_name: 'S1', from_ts: iso(Date.now() - 20 * H), hour_start: iso(Date.now() - 4 * H), version: 2, qty_total: 3890, qty_good: 3880, qty_scrap: 10, run_s: 24800, stop_s: 4000, coverage_pct: 98.7, data_origin: 'production' },
   ] });
   if (/\/integration\/csv-import$/.test(rest) || /\/integration\/connections\/[^/]+\/sync$/.test(rest)) return done(200, { added: 3, updated: 1, skipped: 12, bad: 1, staged: 2, error: null, dry_run: url.searchParams.get('dry_run') !== 'false' });
-  if (/\/integration\/connections$/.test(rest)) return done(200, { items: [{ id: 'cn-1', kind: 'odoo', name: 'Odoo (sandbox)', enabled: true, status: 'ok' }] });
+  if (/\/integration\/connections$/.test(rest)) {
+    if (req.method === 'POST') {
+      if (!c.config) return done(403, { detail: 'admin role required' });
+      const b = await body(req);
+      const id = `cn-${erpConns.length + 1}`;
+      erpConns.push({ id, kind: String(b.kind), name: String(b.name), config: b.config as Record<string, string>, has_secret: !!b.secret, enabled: true, allow_non_production: false, status: 'ok', last_ok_at: null });
+      return done(201, { id });
+    }
+    return done(200, { items: erpConns });
+  }
+  if (/\/integration\/id-map$/.test(rest)) {
+    if (req.method === 'PUT') {
+      if (!c.config) return done(403, { detail: 'admin role required' });
+      const b = await body(req);
+      const row = { connection_id: String(b.connection_id), entity: String(b.entity), external_id: String(b.external_id), local_id: String(b.local_id), external_ver: (b.external_ver as string | null) ?? null, inactive: false, synced_at: iso(Date.now()) };
+      const i = erpMap.findIndex((r) => r.connection_id === row.connection_id && r.entity === row.entity && r.external_id === row.external_id);
+      if (i >= 0) erpMap[i] = row; else erpMap.unshift(row);
+      return done(200, { ok: true });
+    }
+    return done(200, { items: erpMap });
+  }
   if (/\/integration\/staging$/.test(rest)) return done(200, { items: [{ id: 7, connection_id: 'cn-1', entity: 'work_center', external_id: '3', payload: { code: 'WC-03', name: 'Sorting belt' }, reason: 'unmapped work center', created_at: iso(Date.now() - H) }] });
   if (/\/integration\/staging\/\d+\/map$/.test(rest)) return done(200, { ok: true });
   if (/\/integration\/sync-runs$/.test(rest)) return done(200, { items: [{ id: 4, connection_id: 'cn-1', entity: 'product', dry_run: false, started_at: iso(Date.now() - 20 * 60_000), added: 3, updated: 0, skipped: 40, bad: 0, staged: 0, error: null }] });
