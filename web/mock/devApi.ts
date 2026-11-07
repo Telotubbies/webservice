@@ -973,6 +973,13 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, { downtimes: v2downtimes, rules: sim.RULES.map((r) => ({ id: r.id, name: r.name })) });
   }
 
+  // F18-F20 org-level routes are written in site() but are not under /sites/: hand them over
+  if (/^\/(lifecycle|integration\/)/.test(rest)) {
+    const uid = members.find((m) => m.sub === `demo-${role}`)?.user_id ?? `u-${role}`;
+    const r = await site(rest, req, url, send, { role, who, uid, operate, config, t, org: v2[1], site: plant.SITE_ID });
+    if (r !== undefined) return;
+  }
+
   // unknown org route: empty list, flagged so a crawl can list what the mock lacks
   res.setHeader('X-Mock-Fallback', '1');
   return send(200, list([]));
