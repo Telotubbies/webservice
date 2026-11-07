@@ -52,7 +52,7 @@ rm -f "$DIR/server.csr" "$DIR/ca.srl" "$DIR/san.ext"
 # ignores modes) it stays 0644 with a warning: dev material only.
 chmod 0644 "$DIR"/ca.crt "$DIR"/server.crt 2>/dev/null || true
 if chown 1883:1883 "$DIR/server.key" 2>/dev/null || sudo -n chown 1883:1883 "$DIR/server.key" 2>/dev/null; then
-  chmod 0600 "$DIR/server.key"
+  chmod 0600 "$DIR/server.key" 2>/dev/null || sudo -n chmod 0600 "$DIR/server.key"
 else
   chmod 0644 "$DIR/server.key" 2>/dev/null || true
   echo "WARN: could not chown server.key to 1883; left 0644 (dev only)" >&2
