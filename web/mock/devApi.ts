@@ -989,6 +989,17 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     if (req.method === 'POST') { const b = await body(req); return done(201, { dataset: { id: 'ds-new', created_at: iso(Date.now()), ...b, from_ts: b.from_ts, to_ts: b.to_ts } }); }
     return done(200, { items: [{ id: 'ds-1', name: 'Belt speed vs load', tag_ids: ['a', 'b'], from_ts: iso(Date.now() - DAY), to_ts: iso(Date.now()), bucket_s: 60, train_pct: 70, val_pct: 15, created_at: iso(Date.now() - H) }] });
   }
+  if (/\/integration\/outbox$/.test(rest)) return done(200, { counts: { pending: 1, sent: 14, dead: 1 }, items: [
+    { id: 31, connection_id: 'wh-1', event_type: 'shift_summary.closed', status: 'dead', attempts: 3, last_code: 422, last_error: 'http 422', created_at: iso(Date.now() - 5 * H), next_try_at: iso(Date.now()) },
+    { id: 32, connection_id: 'wh-1', event_type: 'hour_summary.closed', status: 'pending', attempts: 0, last_code: null, last_error: null, created_at: iso(Date.now() - 10 * 60_000), next_try_at: iso(Date.now()) },
+    { id: 30, connection_id: 'wh-1', event_type: 'shift_summary.closed', status: 'sent', attempts: 1, last_code: 200, last_error: null, created_at: iso(Date.now() - 9 * H), next_try_at: iso(Date.now()) },
+  ] });
+  if (/\/integration\/outbox\/\d+(\/replay)?$/.test(rest)) return done(rest.endsWith('replay') ? 200 : 204, rest.endsWith('replay') ? { ok: true } : null);
+  if (/\/summaries$/.test(rest)) return done(200, { kind: url.searchParams.get('kind') ?? 'shift', items: [
+    { machine: 'Belt conveyor 3', shift_name: 'S1', from_ts: iso(Date.now() - 20 * H), hour_start: iso(Date.now() - 3 * H), version: 1, qty_total: 4210, qty_good: 4150, qty_scrap: 60, run_s: 25100, stop_s: 3700, coverage_pct: 99.2, data_origin: 'production' },
+    { machine: 'Belt conveyor 7', shift_name: 'S1', from_ts: iso(Date.now() - 20 * H), hour_start: iso(Date.now() - 4 * H), version: 2, qty_total: 3890, qty_good: 3880, qty_scrap: 10, run_s: 24800, stop_s: 4000, coverage_pct: 98.7, data_origin: 'production' },
+  ] });
+  if (/\/data-origin$/.test(rest)) return done(200, { ok: true });
   if (rest === '/tag-stats') { const { from, to } = range(url, H); return done(200, { from: iso(from), to: iso(to), gap_s: 30, items: plant.tagStats(from, to) }); }
   if (rest === '/hierarchy') return done(200, plant.hierarchy(q('tags') === 'true'));
   if (rest === '/health') return done(200, plant.siteHealth(t));

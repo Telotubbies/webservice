@@ -42,7 +42,8 @@ _ORGS = "/api/v1/orgs"
 _O = "/api/v1/orgs/{org}"
 
 WEBHOOK_EVENTS = ("alarm_raised", "alarm_cleared",
-                  "downtime_classified", "incident_opened")
+                  "downtime_classified", "incident_opened",
+                  "shift_summary.closed", "hour_summary.closed", "work_order.progress")
 
 
 def _m():
