@@ -41,7 +41,7 @@ function TagFlyout({ tag, onClose, derived, canEdit, onEdit, onDelete, orgId, si
   const tv = live.latest.get(tag);
   const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
   return (
-    <aside className="fixed bottom-0 right-0 top-9 z-20 w-[400px] border-l border-line bg-paper shadow-flyout" role="dialog" aria-label={tag}>
+    <aside className="fixed bottom-0 right-0 top-9 z-20 w-full max-w-[400px] border-l border-line bg-paper shadow-flyout" role="dialog" aria-label={tag}>
       <div className="flex h-11 items-center gap-2 border-b border-line px-4">
         <span className="min-w-0 flex-1 truncate font-mono text-[13px] font-semibold">{tag}</span>
         <button
@@ -195,9 +195,9 @@ export function TagsPage() {
         </div>
       </div>
 
-      <div className="flex p-4">
+      <div className="flex flex-col p-4 md:flex-row">
         {/* left preset panel — presets first, then prefix groups with counts */}
-        <aside className="w-48 shrink-0 pr-3">
+        <aside className="mb-3 w-full shrink-0 md:mb-0 md:w-48 md:pr-3">
           <div className="relative mb-2">
             <Icon name="search" size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-35" />
             <input
