@@ -481,6 +481,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   if (p === '/api/v1/orgs' && req.method === 'GET') {
     return send(200, { items: [{ org_id: plant.ORG, name: 'Demo Plant', slug: 'demo-plant', plan: 'pro', role, suspended: false, deleted: false }] });
   }
+  if (p.startsWith('/api/v1/platform/') && !config) return send(403, { detail: 'platform admin required' }); // staff only, like the API
   if (p.startsWith('/api/v1/platform/')) return platform(p.slice('/api/v1/platform'.length), send);
 
   // ── v1: tags, alarms, rules, commands ──
@@ -978,6 +979,14 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, { downtimes: v2downtimes, rules: sim.RULES.map((r) => ({ id: r.id, name: r.name })) });
   }
 
+  // F18-F20 org-level routes are written in site() but are not under /sites/: hand them over
+  if (/^\/integration\//.test(rest) && !config) return send(403, { detail: 'config role required' }); // the API gates all of F18/F19 on admin
+  if (/^\/(lifecycle|integration\/)/.test(rest)) {
+    const uid = members.find((m) => m.sub === `demo-${role}`)?.user_id ?? `u-${role}`;
+    const r = await site(rest, req, url, send, { role, who, uid, operate, config, t, org: v2[1], site: plant.SITE_ID });
+    if (r !== undefined) return;
+  }
+
   // unknown org route: empty list, flagged so a crawl can list what the mock lacks
   res.setHeader('X-Mock-Fallback', '1');
   return send(200, list([]));
@@ -1010,6 +1019,8 @@ function pendingSnapshot() {
     truncated: { alarms: alarms.length > 100, downtimes: dts.length > 100, reviews: reviews.length > 100 },
   };
 }
+
+const newEdges: { id: string; name: string; at: number }[] = [];
 
 /** /api/v1/orgs/:org/sites/:site/... — returns undefined when not handled. */
 async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c: Ctx): Promise<true | undefined> {
@@ -1099,7 +1110,17 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
   }
   if (rest === '/hierarchy') return done(200, plant.hierarchy(q('tags') === 'true'));
   if (rest === '/health') return done(200, plant.siteHealth(t));
-  if (rest === '/edges' && GET) return done(200, list(plant.edges(t)));
+  // F16: a device created in the wizard gets a one-time code and its first heartbeat 5 s later (derived from the clock)
+  if (rest === '/edges' && req.method === 'POST') {
+    const b = await body(req);
+    const e = { id: `e-new-${newEdges.length + 1}`, name: String(b.name ?? 'new-device'), at: Date.now() };
+    newEdges.push(e);
+    return done(201, { edge: { id: e.id, name: e.name, org_id: c.org, site_id: c.site, status: 'active' }, enroll_code: 'ABCD-2345', enroll_expires_at: iso(e.at + 30 * 60_000) });
+  }
+  if (rest === '/edges' && GET) return done(200, list([...plant.edges(t), ...newEdges.map((e) => ({
+    id: e.id, org_id: c.org, site_id: c.site, name: e.name, status: 'active', mqtt_username: e.name, credential_version: 1,
+    last_hb_at: Date.now() - e.at > 5000 ? iso(Date.now()) : null, clock_ok: Date.now() - e.at > 5000 ? true : null, adapter: null,
+    needs_rotation: false, config_version: 1, config_applied: null, config_error: null }))]));
   if (rest === '/commands') return done(200, list(commands.slice(0, Number(q('limit')) || 50).map(cmdV2)));
   const sc = /^\/commands\/([^/]+)$/.exec(rest);
   if (sc) {
