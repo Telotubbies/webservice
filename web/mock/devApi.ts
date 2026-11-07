@@ -1014,6 +1014,8 @@ function pendingSnapshot() {
   };
 }
 
+const newEdges: { id: string; name: string; at: number }[] = [];
+
 /** /api/v1/orgs/:org/sites/:site/... — returns undefined when not handled. */
 async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c: Ctx): Promise<true | undefined> {
   const GET = req.method === 'GET';
@@ -1082,7 +1084,17 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
   }
   if (rest === '/hierarchy') return done(200, plant.hierarchy(q('tags') === 'true'));
   if (rest === '/health') return done(200, plant.siteHealth(t));
-  if (rest === '/edges' && GET) return done(200, list(plant.edges(t)));
+  // F16: a device created in the wizard gets a one-time code and its first heartbeat 5 s later (derived from the clock)
+  if (rest === '/edges' && req.method === 'POST') {
+    const b = await body(req);
+    const e = { id: `e-new-${newEdges.length + 1}`, name: String(b.name ?? 'new-device'), at: Date.now() };
+    newEdges.push(e);
+    return done(201, { edge: { id: e.id, name: e.name, org_id: c.org, site_id: c.site, status: 'active' }, enroll_code: 'ABCD-2345', enroll_expires_at: iso(e.at + 30 * 60_000) });
+  }
+  if (rest === '/edges' && GET) return done(200, list([...plant.edges(t), ...newEdges.map((e) => ({
+    id: e.id, org_id: c.org, site_id: c.site, name: e.name, status: 'active', mqtt_username: e.name, credential_version: 1,
+    last_hb_at: Date.now() - e.at > 5000 ? iso(Date.now()) : null, clock_ok: Date.now() - e.at > 5000 ? true : null, adapter: null,
+    needs_rotation: false, config_version: 1, config_applied: null, config_error: null }))]));
   if (rest === '/commands') return done(200, list(commands.slice(0, Number(q('limit')) || 50).map(cmdV2)));
   const sc = /^\/commands\/([^/]+)$/.exec(rest);
   if (sc) {
