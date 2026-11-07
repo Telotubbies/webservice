@@ -1099,7 +1099,8 @@ function platform(rest: string, send: Send): void {
   if (rest.startsWith('/orgs/')) return send(200, { org: orgRow, usage: usage(), members });
   if (rest === '/health') {
     return send(200, { counters: { ws_clients: clients.size, tag_msgs_1m: sim.TAGS.length * 120 }, jobs: { pending: 0, running: 1, dead: 0, done_last_hour: 42 },
-      notification_deliveries_1h: { sent: 9, failed: 0, retrying: 0, suppressed: 2 }, orgs: { total: 3, suspended: 0, deleted: 0 }, support_sessions_active: 0, mqtt_connected: true });
+      notification_deliveries_1h: { sent: 9, failed: 0, retrying: 0, suppressed: 2 }, orgs: { total: 3, suspended: 0, deleted: 0 }, support_sessions_active: 0, mqtt_connected: true,
+      ingest: { samples: 48210, throttled: 12, lag_avg_s: 0.42, orgs: { 'org-1': { samples: 48210, throttled: 12, rate_per_min: 2400, lag_avg_s: 0.42, lag_max_s: 3.1 } } }, db_pool: { size: 10, idle: 7 } });
   }
   return send(200, { items: [] });
 }

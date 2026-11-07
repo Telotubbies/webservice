@@ -61,7 +61,7 @@ SELECT o.plan, o.trial_ends_at, o.suspended_at, o.suspended_reason,
        o.plan_limits, p.trial_days, p.max_sites, p.max_edges, p.max_tags,
        p.max_users, p.max_cameras, p.max_vision_models, p.retention_days,
        p.gpu_hours_monthly, p.sso, p.audit_export, p.sms, p.assistant,
-       p.api_rate_per_min
+       p.api_rate_per_min, p.ingest_msgs_per_min
   FROM organizations o LEFT JOIN plans p ON p.code = o.plan
  WHERE o.id = $1
 """
@@ -105,6 +105,8 @@ def features(plan_row) -> dict:
                           or plan_row["retention_days"] or 365,
         "api_rate_per_min": _to_int(overrides.get("api_rate_per_min"))
                             or plan_row["api_rate_per_min"] or 120,
+        "ingest_msgs_per_min": _to_int(overrides.get("ingest_msgs_per_min"))
+                               or plan_row["ingest_msgs_per_min"] or config.INGEST_ORG_RATE_PER_MIN,
     }
 
 

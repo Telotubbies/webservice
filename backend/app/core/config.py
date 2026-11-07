@@ -216,6 +216,7 @@ HISTORY_MAX_AGE_S = 8 * 3600
 FUTURE_SKEW_S = 5.0
 HISTORY_FLUSH_S = 1.0
 HISTORY_FLUSH_ROWS = 500
+INGEST_ORG_RATE_PER_MIN = int(os.environ.get("INGEST_ORG_RATE_PER_MIN", "60000"))  # default per-org sample budget (plans.ingest_msgs_per_min overrides)
 HISTORY_PRUNE_S = float(os.environ.get("HISTORY_PRUNE_S", "300"))      # G3 retention job
 HISTORY_PRUNE_BATCH = int(os.environ.get("HISTORY_PRUNE_BATCH", "10000"))
 ROLLUP_REFRESH_S = float(os.environ.get("ROLLUP_REFRESH_S", "60"))  # 1m/1h rollup refresh

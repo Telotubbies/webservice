@@ -30,6 +30,8 @@ from ..db.util import iso_z, utcnow
 from ..iam.security import ForbiddenError
 
 log = logging.getLogger("wds.platform")
+from ..core import observability
+
 router = APIRouter()
 
 _P = "/api/v1/platform"
@@ -493,7 +495,9 @@ async def platform_health(request: Request, _p=Depends(_admin)):
     """Ops health (§7.3): ingest counters, notification delivery rates
     (notification_deliveries when present), job queue depth + dead jobs."""
     s = _m().st(request)
-    out: dict = {"counters": dict(s.counters)}
+    out: dict = {"counters": dict(s.counters), "ingest": observability.ingest_snapshot(),
+                 "db_pool": {"size": getattr(s.pools.app, "get_size", lambda: None)(),
+                             "idle": getattr(s.pools.app, "get_idle_size", lambda: None)()}}
     async with global_tx(s.pools.system) as conn:
         jobs_row = await conn.fetchrow(
             "SELECT count(*) FILTER (WHERE status='pending') AS pending,"
