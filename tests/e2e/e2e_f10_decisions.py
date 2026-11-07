@@ -29,6 +29,7 @@ def flow(page, tag, shot):
     page.wait_for_timeout(300)
     check(f"f10 {tag}: reason is required", page.get_by_text("Write a reason of at least 3 characters").count() == 1)
     rv.locator("textarea").fill(f"Tanker is booked ({tag})")
+    check(f"f10 {tag}: reason error clears once a valid reason is typed", page.get_by_text("Write a reason of at least 3 characters").count() == 0)
     c.shot(page, "f10", f"{tag}-review")
     rv.get_by_role("button", name="Record decision").click()
     page.wait_for_timeout(1500)
