@@ -36,7 +36,7 @@ def test_prod_realm_requires_pkce():
 def test_prod_realm_requires_verified_email_and_https():
     assert _r["verifyEmail"] is True
     assert _r["sslRequired"] == "all"
-    assert _r["registrationAllowed"] is True  # self-serve sign-up, Phase 1.1
+    assert _r["registrationAllowed"] is False  # F21: no open sign-up; people join by invitation or SSO
     assert _r["duplicateEmailsAllowed"] is False
 
 

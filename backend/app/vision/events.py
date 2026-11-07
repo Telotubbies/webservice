@@ -330,6 +330,54 @@ async def list_events(org: str, request: Request,
     return {"items": items, "next_cursor": items[-1]["id"] if len(items) == limit else None}
 
 
+@router.get(_E + "/export.zip")
+async def export_wrong(org: str, request: Request, camera: str | None = None,
+                       p=Depends(_user)):
+    """YOLO dataset ZIP of 'wrong'-reviewed events (9.8): images/*.jpg,
+    labels/*.txt (class cx cy w h normalized) + classes.txt + data.yaml."""
+    m = _m()
+    org_id = m._v2_org(org, p, m._READ)
+    cam_id = m._uuid_or_404(camera, "camera") if camera else None
+    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
+        rows = await tc.fetch(
+            "SELECT e.id, e.class_id, e.bbox, e.thumb, rv.corrected_class_id,"
+            " cm.class_config FROM vision_events e"
+            " JOIN vision_event_reviews rv ON rv.event_id=e.id AND rv.verdict='wrong'"
+            " LEFT JOIN camera_models cm ON cm.camera_id=e.camera_id"
+            " WHERE e.thumb IS NOT NULL AND e.kind <> 'material' AND ($2::uuid IS NULL OR e.camera_id=$2)"
+            " ORDER BY e.fired_at DESC LIMIT $1", MAX_EXPORT_EVENTS, cam_id)
+    if not rows:
+        raise HTTPException(404, "no reviewed-wrong events with thumbnails")
+    # the corrected label set = every class id that appears, mapped densely 0..n-1
+    class_ids = sorted({r["corrected_class_id"] if r["corrected_class_id"] is not None else r["class_id"]
+                        for r in rows} - {None})
+    remap = {c: i for i, c in enumerate(class_ids)}
+    names = {}
+    for r in rows:
+        for i, ent in ((r["class_config"] or {}).items() if isinstance(r["class_config"], dict) else []):
+            try:
+                names.setdefault(int(i), (ent.get("names") or {}).get("en") or f"class_{i}")
+            except (ValueError, AttributeError):
+                continue
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("classes.txt", "\n".join(names.get(c, f"class_{c}") for c in class_ids) + "\n")
+        for r in rows:
+            name = r["id"].hex
+            z.writestr(f"images/{name}.jpg", bytes(r["thumb"]))
+            label = r["corrected_class_id"] if r["corrected_class_id"] is not None else r["class_id"]
+            bb = r["bbox"]
+            if isinstance(bb, (list, tuple)) and len(bb) == 4 and label is not None:
+                x, y, w, h = (float(v) for v in bb)
+                z.writestr(f"labels/{name}.txt",
+                           f"{remap[label]} {x + w / 2:.6f} {y + h / 2:.6f} {w:.6f} {h:.6f}\n")
+        z.writestr("data.yaml", "nc: %d\nnames: [%s]\n" % (
+            len(class_ids), ", ".join(names.get(c, f"class_{c}") for c in class_ids)))
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/zip", headers={
+        "Content-Disposition": 'attachment; filename="vision-review-export.zip"'})
+
+
 @router.get(_E + "/{event}")
 async def get_event(org: str, event: str, request: Request, p=Depends(_user)):
     m = _m()
@@ -407,53 +455,6 @@ async def bulk_review(org: str, body: BulkReviewIn, request: Request, p=Depends(
         await audit.append(tc, f"user:{p.user_id}", "vision.event.bulk_reviewed",
                            {}, {"verdict": body.verdict, "count": len(body.event_ids)})
     return {"ok": True, "updated": int(res.split()[-1])}
-
-
-@router.get(_E + "/export.zip")
-async def export_wrong(org: str, request: Request, camera: str | None = None,
-                       p=Depends(_user)):
-    """YOLO dataset ZIP of 'wrong'-reviewed events (9.8): images/*.jpg,
-    labels/*.txt (class cx cy w h normalized) + classes.txt + data.yaml."""
-    m = _m()
-    org_id = m._v2_org(org, p, m._READ)
-    cam_id = m._uuid_or_404(camera, "camera") if camera else None
-    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
-        rows = await tc.fetch(
-            "SELECT e.id, e.class_id, e.bbox, e.thumb, rv.corrected_class_id,"
-            " cm.class_config FROM vision_events e"
-            " JOIN vision_event_reviews rv ON rv.event_id=e.id AND rv.verdict='wrong'"
-            " LEFT JOIN camera_models cm ON cm.camera_id=e.camera_id"
-            " WHERE e.thumb IS NOT NULL AND ($2::uuid IS NULL OR e.camera_id=$2)"
-            " ORDER BY e.fired_at DESC LIMIT $1", MAX_EXPORT_EVENTS, cam_id)
-    if not rows:
-        raise HTTPException(404, "no reviewed-wrong events with thumbnails")
-    # the corrected label set = every class id that appears, mapped densely 0..n-1
-    class_ids = sorted({r["corrected_class_id"] for r in rows} | {r["class_id"] for r in rows})
-    remap = {c: i for i, c in enumerate(class_ids)}
-    names = {}
-    for r in rows:
-        for i, ent in ((r["class_config"] or {}).items() if isinstance(r["class_config"], dict) else []):
-            try:
-                names.setdefault(int(i), (ent.get("names") or {}).get("en") or f"class_{i}")
-            except (ValueError, AttributeError):
-                continue
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("classes.txt", "\n".join(names.get(c, f"class_{c}") for c in class_ids) + "\n")
-        for r in rows:
-            name = r["id"].hex
-            z.writestr(f"images/{name}.jpg", bytes(r["thumb"]))
-            label = r["corrected_class_id"] if r["corrected_class_id"] is not None else r["class_id"]
-            bb = r["bbox"]
-            if isinstance(bb, (list, tuple)) and len(bb) == 4 and label is not None:
-                x, y, w, h = (float(v) for v in bb)
-                z.writestr(f"labels/{name}.txt",
-                           f"{remap[label]} {x + w / 2:.6f} {y + h / 2:.6f} {w:.6f} {h:.6f}\n")
-        z.writestr("data.yaml", "nc: %d\nnames: [%s]\n" % (
-            len(class_ids), ", ".join(names.get(c, f"class_{c}") for c in class_ids)))
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="application/zip", headers={
-        "Content-Disposition": 'attachment; filename="vision-review-export.zip"'})
 
 
 # ── Cloud inference path ──

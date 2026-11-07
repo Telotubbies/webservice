@@ -28,6 +28,7 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from ..core import config
+from ..lifecycle import archive
 from ..production import rollup
 from ..db.context import tenant_tx
 
@@ -61,7 +62,7 @@ SELECT o.plan, o.trial_ends_at, o.suspended_at, o.suspended_reason,
        o.plan_limits, p.trial_days, p.max_sites, p.max_edges, p.max_tags,
        p.max_users, p.max_cameras, p.max_vision_models, p.retention_days,
        p.gpu_hours_monthly, p.sso, p.audit_export, p.sms, p.assistant,
-       p.api_rate_per_min
+       p.api_rate_per_min, p.ingest_msgs_per_min
   FROM organizations o LEFT JOIN plans p ON p.code = o.plan
  WHERE o.id = $1
 """
@@ -91,6 +92,14 @@ def _to_int(v) -> int | None:
         return None
 
 
+def _col(row, key):
+    """Optional plan column (absent before migration 0065 or in thin test rows)."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
 def features(plan_row) -> dict:
     """Non-quota plan flags + metering for the plan/usage page."""
     overrides = plan_row["plan_limits"] or {}
@@ -105,6 +114,8 @@ def features(plan_row) -> dict:
                           or plan_row["retention_days"] or 365,
         "api_rate_per_min": _to_int(overrides.get("api_rate_per_min"))
                             or plan_row["api_rate_per_min"] or 120,
+        "ingest_msgs_per_min": _to_int(overrides.get("ingest_msgs_per_min"))
+                               or _col(plan_row, "ingest_msgs_per_min") or config.INGEST_ORG_RATE_PER_MIN,
     }
 
 
@@ -200,6 +211,10 @@ async def retention_prune(pools, batch: int | None = None) -> int:
         longest = max(longest, retention_days(row))
     if total:
         log.info("tag_history pruned by plan retention", extra={"rows": total})
-    if longest:  # whole months past every plan's window are dropped outright
-        await rollup.drop_expired_partitions(pools, longest)
+    if longest:  # whole months past every plan's window are dropped outright - but only once archived and verified
+        cutoff = datetime.now(timezone.utc) - timedelta(days=longest)
+        if await archive.archive_before_drop(pools, cutoff):
+            await rollup.drop_expired_partitions(pools, longest)
+        else:
+            log.error("partition drop skipped: an org-month could not be archived and verified")
     return total

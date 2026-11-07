@@ -308,7 +308,7 @@ function usage() {
   return {
     plan: 'pro', trial_ends_at: null, suspended: false,
     features: { sso: true, audit_export: true, sms: false, assistant: true, gpu_hours_monthly: 40, retention_days: 90, api_rate_per_min: 600 },
-    usage: { sites: { usage: 1, cap: 5 }, edges: { usage: 3, cap: 10 }, tags: { usage: sim.TAGS.length, cap: 2000 }, members: { usage: members.filter((m) => !m.disabled).length, cap: 25 }, cameras: { usage: 3, cap: 8 }, gpu_hours: { usage: 11.4, cap: 40 }, storage_gb: { usage: 0.4, cap: 50 } },
+    usage: { max_sites: { usage: 1, cap: 5 }, max_edges: { usage: 3, cap: 10 }, max_tags: { usage: sim.TAGS.length, cap: 5000 }, max_users: { usage: members.filter((m) => !m.disabled).length, cap: 50 }, max_cameras: { usage: 3, cap: 20 }, max_vision_models: { usage: 2, cap: 10 }, gpu_hours_monthly: { usage: 11.4, cap: 20 }, sites: { usage: 1, cap: 5 }, edges: { usage: 3, cap: 10 }, tags: { usage: sim.TAGS.length, cap: 2000 }, members: { usage: members.filter((m) => !m.disabled).length, cap: 25 }, cameras: { usage: 3, cap: 8 }, gpu_hours: { usage: 11.4, cap: 40 }, storage_gb: { usage: 0.4, cap: 50 } },
   };
 }
 
@@ -688,6 +688,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return e ? send(200, { event: e }) : send(404, { detail: 'unknown event' });
   }
   if (rest === '/vision/events/bulk-review') { const b = await body(req); return send(200, { updated: (b.event_ids as unknown[] | undefined)?.length ?? 0 }); }
+  if (rest === '/vision/material/confusion') return send(200, { labels: ['gravel', 'sand', 'no-material'], n: 40, accuracy: 0.9, cells: { gravel: { gravel: 18, sand: 2, 'no-material': 0 }, sand: { gravel: 1, sand: 17, 'no-material': 0 }, 'no-material': { gravel: 0, sand: 1, 'no-material': 1 } } });
+  if (rest === '/vision/material/drift') return send(200, { hours: 24, items: [{ camera_id: 'cam-1', n_recent: 31, n_base: 210, status: 'ok', shift: 0.03 }, { camera_id: 'cam-2', n_recent: 12, n_base: 90, status: 'drift', shift: -0.21 }] });
+  if (/^\/vision\/events\/[^/]+\/true-material$/.test(rest) && req.method === 'PUT') return send(200, { ok: true, verdict: 'correct' });
+  if (/^\/vision\/models\/[^/]+\/(gate|versions\/[^/]+\/(quality|rollback))$/.test(rest)) return send(200, { ok: true, cameras: 1, gate: { min_accuracy: 0.9, min_samples: 30, passed: true } });
   if (rest === '/vision/material/cameras') return send(200, { items: plant.materialCameras(MATERIAL_SCHEMA.defaults) });
   if (rest === '/vision/material/summary') return send(200, plant.materialSummary(Number(url.searchParams.get('minutes')) || 60));
   if (rest === '/vision/metrics') return send(200, plant.visionMetrics(Number(url.searchParams.get('minutes')) || 60));
@@ -767,6 +771,12 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return send(200, security);
   }
   if (rest === '/storage') return send(200, storage());
+  if (rest === '/plans') return send(200, { items: [
+    { code: 'trial', name: 'Trial', trial_days: 14, max_sites: 1, max_edges: 1, max_tags: 100, max_users: 5, max_cameras: 1, max_vision_models: 1, retention_days: 7, gpu_hours_monthly: 2, sso: false, audit_export: false, sms: false, assistant: false, api_rate_per_min: 60 },
+    { code: 'starter', name: 'Starter', trial_days: 0, max_sites: 1, max_edges: 2, max_tags: 500, max_users: 10, max_cameras: 2, max_vision_models: 2, retention_days: 90, gpu_hours_monthly: 0, sso: false, audit_export: false, sms: false, assistant: false, api_rate_per_min: 120 },
+    { code: 'pro', name: 'Pro', trial_days: 0, max_sites: 5, max_edges: 10, max_tags: 5000, max_users: 50, max_cameras: 20, max_vision_models: 10, retention_days: 365, gpu_hours_monthly: 20, sso: true, audit_export: true, sms: false, assistant: false, api_rate_per_min: 600 },
+    { code: 'enterprise', name: 'Enterprise', trial_days: 0, max_sites: null, max_edges: null, max_tags: null, max_users: null, max_cameras: null, max_vision_models: null, retention_days: null, gpu_hours_monthly: 0, sso: true, audit_export: true, sms: true, assistant: true, api_rate_per_min: 2400 },
+  ] });
   if (rest === '/usage') return send(200, usage());
   if (rest === '/webhooks') return send(200, { items: webhooks });
   if (rest === '/webhook-deliveries') {
@@ -1014,6 +1024,39 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     const rows = plant.series(g, from, to, Math.min(5000, Number(q('limit')) || 2000), agg, bucket);
     return done(200, { tag: { id: g.id, path: plant.pathOf(g), name: g.tail.split('.').pop(), unit: g.unit ?? null }, from: iso(from), to: iso(to), agg, ...(bucket ? { bucket_s: bucket } : {}), truncated: false, rows });
   }
+  if (/\/explore\/lag$/.test(rest)) return done(200, { bucket_s: 60, items: Array.from({ length: 21 }, (_, i) => ({ lag: i - 10, r: +Math.exp(-((i - 13) ** 2) / 8).toFixed(3), n: 40 })), best: { lag: 3, r: 1 } });
+  if (/\/datasets\/[^/]+\/export\.csv$/.test(rest)) return done(200, 'ts,split,sort/line1/belt1/speed\n');
+  if (/\/datasets\/[^/]+$/.test(rest) && req.method === 'DELETE') return done(204, null);
+  if (/\/datasets$/.test(rest)) {
+    if (req.method === 'POST') { const b = await body(req); return done(201, { dataset: { id: 'ds-new', created_at: iso(Date.now()), ...b, from_ts: b.from_ts, to_ts: b.to_ts } }); }
+    return done(200, { items: [{ id: 'ds-1', name: 'Belt speed vs load', tag_ids: ['a', 'b'], from_ts: iso(Date.now() - DAY), to_ts: iso(Date.now()), bucket_s: 60, train_pct: 70, val_pct: 15, created_at: iso(Date.now() - H) }] });
+  }
+  if (/\/ai-arming$/.test(rest)) {
+    if (req.method === 'POST') return done(201, { arming: { id: 'ar-1', armed_by: 'u-1', armed_at: iso(Date.now()), evidence_ref: 'mock review' } });
+    if (req.method === 'DELETE') return done(204, null);
+    return done(200, { armed: false, arming: null });
+  }
+  if (rest === '/lifecycle') return done(200, { history_days: 365, policy: [
+    { data_class: 'alarms_cleared', default_days: 365, enabled: true }, { data_class: 'downtimes', default_days: 730, enabled: true },
+    { data_class: 'edge_logs', default_days: 30, enabled: true }, { data_class: 'outbox_sent', default_days: 30, enabled: true },
+    { data_class: 'vision_events', default_days: 90, enabled: true } ],
+    archives: [{ month: '2026-08-01', rows: 1843201, sha256: 'a'.repeat(64), verified_at: iso(Date.now() - 20 * DAY) }] });
+  if (/\/integration\/outbox$/.test(rest)) return done(200, { counts: { pending: 1, sent: 14, dead: 1 }, items: [
+    { id: 31, connection_id: 'wh-1', event_type: 'shift_summary.closed', status: 'dead', attempts: 3, last_code: 422, last_error: 'http 422', created_at: iso(Date.now() - 5 * H), next_try_at: iso(Date.now()) },
+    { id: 32, connection_id: 'wh-1', event_type: 'hour_summary.closed', status: 'pending', attempts: 0, last_code: null, last_error: null, created_at: iso(Date.now() - 10 * 60_000), next_try_at: iso(Date.now()) },
+    { id: 30, connection_id: 'wh-1', event_type: 'shift_summary.closed', status: 'sent', attempts: 1, last_code: 200, last_error: null, created_at: iso(Date.now() - 9 * H), next_try_at: iso(Date.now()) },
+  ] });
+  if (/\/integration\/outbox\/\d+(\/replay)?$/.test(rest)) return done(rest.endsWith('replay') ? 200 : 204, rest.endsWith('replay') ? { ok: true } : null);
+  if (/\/summaries$/.test(rest)) return done(200, { kind: url.searchParams.get('kind') ?? 'shift', items: [
+    { machine: 'Belt conveyor 3', shift_name: 'S1', from_ts: iso(Date.now() - 20 * H), hour_start: iso(Date.now() - 3 * H), version: 1, qty_total: 4210, qty_good: 4150, qty_scrap: 60, run_s: 25100, stop_s: 3700, coverage_pct: 99.2, data_origin: 'production' },
+    { machine: 'Belt conveyor 7', shift_name: 'S1', from_ts: iso(Date.now() - 20 * H), hour_start: iso(Date.now() - 4 * H), version: 2, qty_total: 3890, qty_good: 3880, qty_scrap: 10, run_s: 24800, stop_s: 4000, coverage_pct: 98.7, data_origin: 'production' },
+  ] });
+  if (/\/integration\/csv-import$/.test(rest) || /\/integration\/connections\/[^/]+\/sync$/.test(rest)) return done(200, { added: 3, updated: 1, skipped: 12, bad: 1, staged: 2, error: null, dry_run: url.searchParams.get('dry_run') !== 'false' });
+  if (/\/integration\/connections$/.test(rest)) return done(200, { items: [{ id: 'cn-1', kind: 'odoo', name: 'Odoo (sandbox)', enabled: true, status: 'ok' }] });
+  if (/\/integration\/staging$/.test(rest)) return done(200, { items: [{ id: 7, connection_id: 'cn-1', entity: 'work_center', external_id: '3', payload: { code: 'WC-03', name: 'Sorting belt' }, reason: 'unmapped work center', created_at: iso(Date.now() - H) }] });
+  if (/\/integration\/staging\/\d+\/map$/.test(rest)) return done(200, { ok: true });
+  if (/\/integration\/sync-runs$/.test(rest)) return done(200, { items: [{ id: 4, connection_id: 'cn-1', entity: 'product', dry_run: false, started_at: iso(Date.now() - 20 * 60_000), added: 3, updated: 0, skipped: 40, bad: 0, staged: 0, error: null }] });
+  if (/\/data-origin$/.test(rest)) return done(200, { ok: true });
   if (rest === '/tag-stats') { const { from, to } = range(url, H); return done(200, { from: iso(from), to: iso(to), gap_s: 30, items: plant.tagStats(from, to) }); }
   if (rest === '/decisions') {
     if (GET) {
@@ -1278,7 +1321,8 @@ function platform(rest: string, send: Send): void {
   if (rest.startsWith('/orgs/')) return send(200, { org: orgRow, usage: usage(), members });
   if (rest === '/health') {
     return send(200, { counters: { ws_clients: clients.size, tag_msgs_1m: sim.TAGS.length * 120 }, jobs: { pending: 0, running: 1, dead: 0, done_last_hour: 42 },
-      notification_deliveries_1h: { sent: 9, failed: 0, retrying: 0, suppressed: 2 }, orgs: { total: 3, suspended: 0, deleted: 0 }, support_sessions_active: 0, mqtt_connected: true });
+      notification_deliveries_1h: { sent: 9, failed: 0, retrying: 0, suppressed: 2 }, orgs: { total: 3, suspended: 0, deleted: 0 }, support_sessions_active: 0, mqtt_connected: true,
+      ingest: { samples: 48210, throttled: 12, lag_avg_s: 0.42, orgs: { 'org-1': { samples: 48210, throttled: 12, rate_per_min: 2400, lag_avg_s: 0.42, lag_max_s: 3.1 } } }, db_pool: { size: 10, idle: 7 } });
   }
   return send(200, { items: [] });
 }

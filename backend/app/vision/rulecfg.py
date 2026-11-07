@@ -203,6 +203,8 @@ async def gate_for_cfg(tc, site_id: UUID, org_id: UUID) -> dict:
     access is opt-in) and the org offline write window."""
     row = await tc.fetchrow("SELECT control_enabled FROM sites WHERE id=$1", site_id)
     plan = await tc.fetchval("SELECT plan_limits FROM organizations WHERE id=$1", org_id)
+    # F21: the plan flag says AI MAY write; a person must also have armed THIS site
+    armed = await tc.fetchval("SELECT EXISTS(SELECT 1 FROM site_ai_arming WHERE site_id=$1 AND revoked_at IS NULL)", site_id)
     return {"control_enabled": bool(row["control_enabled"]) if row else False,
-            "ai_plc_write": _plan_flag(plan, "ai_plc_write", False),
+            "ai_plc_write": _plan_flag(plan, "ai_plc_write", False) and bool(armed),
             "offline_write_window_s": _plan_window(plan)}

@@ -76,6 +76,11 @@ const en = {
   correctedTo: 'Corrected to {{cls}}', pickWrong: 'Correct class', noThumb: 'No image',
   eventsSelected: '{{count}} selected', clearSel: 'Clear selection', moreEvents: 'Load more',
   evRule: 'Rule', evResult: 'Result', evDetail: 'Detail',
+  qualityTab: 'Quality', qualityLede: 'How often the material decision matched what a person saw, and whether a camera has drifted.',
+  confusion: 'Confusion matrix', accuracy: 'accuracy', noLabelled: 'No labelled decisions yet. Label a few below.',
+  trueVsPred: 'True \\ predicted', mat_gravel: 'Gravel', mat_sand: 'Sand', 'mat_no-material': 'No material',
+  driftTitle: 'Camera drift', driftNone: 'No material decisions in the window.', drift_ok: 'Stable', drift_drift: 'Drifting', drift_insufficient: 'Not enough data',
+  labelTitle: 'Label the true material',
 };
 
 const th = {
@@ -150,6 +155,11 @@ const th = {
   correctedTo: 'แก้เป็น {{cls}}', pickWrong: 'คลาสที่ถูกต้อง', noThumb: 'ไม่มีภาพ',
   eventsSelected: 'เลือก {{count}} รายการ', clearSel: 'ล้างการเลือก', moreEvents: 'โหลดเพิ่ม',
   evRule: 'กฎ', evResult: 'ผลลัพธ์', evDetail: 'รายละเอียด',
+  qualityTab: 'คุณภาพ', qualityLede: 'การตัดสินวัสดุตรงกับที่คนเห็นบ่อยแค่ไหน และกล้องเริ่มเพี้ยนหรือยัง',
+  confusion: 'ตาราง confusion', accuracy: 'ความแม่นยำ', noLabelled: 'ยังไม่มีผลที่ติดป้ายไว้ ลองติดป้ายด้านล่าง',
+  trueVsPred: 'จริง \\ ที่ทำนาย', mat_gravel: 'หิน', mat_sand: 'ทราย', 'mat_no-material': 'ไม่มีวัสดุ',
+  driftTitle: 'กล้องเพี้ยน', driftNone: 'ไม่มีผลตัดสินวัสดุในช่วงนี้', drift_ok: 'คงที่', drift_drift: 'เริ่มเพี้ยน', drift_insufficient: 'ข้อมูลไม่พอ',
+  labelTitle: 'ติดป้ายวัสดุที่เห็นจริง',
 };
 
 i18n.addResourceBundle('en', 'translation', { vis: en }, true, true);

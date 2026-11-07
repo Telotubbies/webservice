@@ -14,6 +14,7 @@ import { signOut } from '../../app/session';
 import { RoleBadge } from '../admin/access';
 import { roleDesc } from '../admin/access-util';
 import { MobileSettings } from '../mobile/MobileSettings';
+import './planI18n';
 import '../platform/i18n'; // registers the `plat` bundle for the links below
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -103,6 +104,9 @@ export function SettingsPage() {
                       feature wiring (App.tsx is frozen this change) */}
                   <Link to="/settings/plan" className="text-[12px] font-semibold text-blue hover:underline">
                     {t('plat.planTitle')}
+                  </Link>
+                  <Link to="/settings/plans" className="text-[12px] font-semibold text-blue hover:underline">
+                    {t('plc.title')}
                   </Link>
                   <Link to="/settings/org" className="text-[12px] font-semibold text-blue hover:underline">
                     {t('plat.dangerTitle')}

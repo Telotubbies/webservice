@@ -758,3 +758,13 @@
   .cs-foot-bottom { flex-direction: column; align-items: flex-start; }
   .cs-foot-bottom div { flex-wrap: wrap; }
 }
+
+/* Motion off for anyone who asks the OS for it: no animation, no transition, no smooth scroll. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

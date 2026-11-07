@@ -53,6 +53,50 @@ HTTP_LATENCY = Histogram(
     ["method", "route"])
 
 
+INGEST_LAG = Histogram(
+    "wds_ingest_lag_seconds", "Seconds between a sample's timestamp and its arrival at the backend",
+    buckets=(0.1, 0.5, 1, 2, 5, 15, 60, 300, 3600))
+INGEST_THROTTLED = Counter("wds_ingest_throttled_total", "Samples dropped by the per-org ingest rate limit")
+
+_ORG_INGEST: dict[str, dict] = {}       # org id -> measured ingest, bounded
+_ORG_INGEST_MAX = 2000
+_RATE_WINDOW_S = 60.0
+
+
+def note_ingest(org_id, lag_s: float, throttled: bool = False, now: float | None = None) -> None:
+    """Measure one arriving sample for the platform health page (cheap, in-process)."""
+    now = time.monotonic() if now is None else now
+    k = str(org_id)
+    d = _ORG_INGEST.get(k)
+    if d is None:
+        if len(_ORG_INGEST) >= _ORG_INGEST_MAX:
+            return
+        d = _ORG_INGEST[k] = {"n": 0, "throttled": 0, "lag_sum": 0.0, "lag_max": 0.0, "win_start": now, "win_n": 0, "rate_per_min": 0.0}
+    if now - d["win_start"] >= _RATE_WINDOW_S:
+        d["rate_per_min"] = d["win_n"] * 60.0 / (now - d["win_start"])
+        d["win_start"], d["win_n"] = now, 0
+    if throttled:
+        d["throttled"] += 1
+        INGEST_THROTTLED.inc()
+        return
+    lag = max(0.0, lag_s)
+    d["n"] += 1
+    d["win_n"] += 1
+    d["lag_sum"] += lag
+    d["lag_max"] = max(d["lag_max"], lag)
+    INGEST_LAG.observe(lag)
+
+
+def ingest_snapshot() -> dict:
+    """Measured ingest per org + totals, for GET /platform/health."""
+    orgs = {k: {"samples": d["n"], "throttled": d["throttled"], "rate_per_min": round(d["rate_per_min"], 1),
+                "lag_avg_s": round(d["lag_sum"] / d["n"], 3) if d["n"] else None, "lag_max_s": round(d["lag_max"], 3)}
+            for k, d in _ORG_INGEST.items()}
+    n = sum(d["n"] for d in _ORG_INGEST.values())
+    return {"samples": n, "throttled": sum(d["throttled"] for d in _ORG_INGEST.values()),
+            "lag_avg_s": round(sum(d["lag_sum"] for d in _ORG_INGEST.values()) / n, 3) if n else None, "orgs": orgs}
+
+
 def _label(k: str) -> str:
     """Counter-dict keys (``mqtt.orphan_client`` style) → tidy label values."""
     return re.sub(r"[^a-zA-Z0-9_]", "_", k)

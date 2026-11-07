@@ -93,7 +93,7 @@ const ROW_IMG = { overview: '/ours/overview.png', alarms: '/ours/alarms.png', in
 
 const EN: Copy = {
   ticker: [
-    { b: 'Aggregate AI:', t: 'per-truck gravel / sand calls from CCTV, written to the PLC through the gated rule path' },
+    { b: 'Aggregate AI:', t: 'per-truck gravel / sand calls from CCTV, written to the PLC only through the gated rule path (dry-run until you switch it on)' },
     { b: 'Factory I/O ready:', t: 'one-click Modbus template for the sorting scene — tags, dashboard and alarm rules' },
     { b: 'Derived tags:', t: 'safe formula language for computed signals, evaluated on the server' },
     { b: 'Zero-trust edge:', t: 'MQTT over TLS with per-device identities and broker ACLs' },
@@ -103,7 +103,7 @@ const EN: Copy = {
       id: 'platform', label: 'Platform',
       items: [
         { t: 'Live overview', d: 'KPI tiles, run state and active alarms for the line', href: '#features' },
-        { t: 'Alarms & incidents', d: 'ISA-18.2 style states: triggered, acked, resolved', href: '#features' },
+        { t: 'Alarms & incidents', d: 'Explicit states: triggered, acknowledged, resolved', href: '#features' },
         { t: 'Vision AI', d: 'Camera models that classify material on the belt', href: '#features' },
         { t: 'Supervised commands', d: 'Writes to the PLC with confirm, range check and audit', href: '#features' },
       ],
@@ -165,7 +165,7 @@ const EN: Copy = {
     },
     {
       id: 'commands', icon: 'bolt', title: 'Commands with a safety catch',
-      body: 'Setpoints and start/stop go through role checks, range limits, rate limits and an explicit confirm, then land in a signed audit trail.',
+      body: 'Setpoints and start/stop go through role checks, range limits, rate limits and an explicit confirm, then land in a hash-chained audit trail.',
       points: ['Per-area command rights', 'One write in flight per tag', 'Every write audited with who, what and why'],
       img: ROW_IMG.commands, alt: 'Command page with a confirm dialog for a setpoint change',
     },
@@ -187,7 +187,7 @@ const EN: Copy = {
   connectH: 'Connect your plant', connectEm: 'in four steps',
   connectP: 'Start with the simulator, rehearse on Factory I/O, then point the same gateway at a real PLC. The console walks you through it after sign-in.',
   steps: [
-    { n: '01', t: 'Sign in and pick a site', d: 'Use your company SSO, Google, or an account an admin created for you. The demo site already has a simulated line running.', where: '/signin' },
+    { n: '01', t: 'Sign in and pick a site', d: 'Use your company SSO, Google, or an account an administrator created for you; there is no open sign-up. The demo site already has a simulated line running.', where: '/signin' },
     { n: '02', t: 'Add an edge gateway', d: 'Infrastructure → Add device gives a one-time enrolment code. Start the edge-bridge container next to the PLC with that code.', where: 'Infrastructure → Add device' },
     { n: '03', t: 'Add a data source and tags', d: 'Choose Modbus TCP, Siemens S7 or OPC UA. For Factory I/O, apply the "Factory I/O - Sorting" template: tags, dashboard and alarm rules in one click.', where: 'Infrastructure → Data sources' },
     { n: '04', t: 'Watch, alarm, act', d: 'Values appear on the overview within a second. Add alarm rules, invite your team, and enable commands when you are ready.', where: 'Overview' },
@@ -213,14 +213,14 @@ const EN: Copy = {
     { q: 'How do I use it with Factory I/O?', a: 'In Factory I/O choose the Modbus TCP/IP Server driver and note its port (502). In the console, add a gateway, add a Modbus data source pointing at the Factory I/O machine, and apply the "Factory I/O - Sorting" template.' },
     { q: 'Can the console write to my PLC?', a: 'Only through supervised commands: the tag must be writable, your role must allow it, the value must be inside its range, and you confirm the write. AI-initiated writes are a separate switch that is off by default.' },
     { q: 'Where is my data stored?', a: 'In your own PostgreSQL. The whole stack is self-hosted with Docker Compose; nothing is sent to a third party unless you configure it (for example a model server).' },
-    { q: 'How do people sign in?', a: 'Through Keycloak: email and password, company SSO, or Google when an admin enables it. Organisations can require MFA.' },
+    { q: 'How do people sign in?', a: 'Through Keycloak: email and password, company SSO, or Google when an admin enables it. An organisation admin can require MFA.' },
   ],
   faqMore: 'Still have a question?', faqMoreLink: 'Read the connection guide.',
   foot: [
     { h: 'Platform', links: [{ t: 'Overview', href: '#features' }, { t: 'Alarms', href: '#features' }, { t: 'Vision AI', href: '#features' }, { t: 'Commands', href: '#features' }] },
     { h: 'Connect', links: [{ t: 'Simulator', href: '#connect' }, { t: 'Factory I/O', href: '#connect' }, { t: 'Modbus / S7 / OPC UA', href: '#connect' }] },
     { h: 'Resources', links: [{ t: 'Use cases', href: '#use-cases' }, { t: 'FAQ', href: '#faq' }, { t: 'Status', href: '/status' }] },
-    { h: 'Account', links: [{ t: 'Log in', href: '/signin' }, { t: 'Create an account', href: '/signin' }] },
+    { h: 'Account', links: [{ t: 'Log in', href: '/signin' }, { t: 'Request access', href: '/signin' }] },
   ],
   made: 'Built for plant floors in Thailand', rights: 'vissointan · thesis project', tz: 'Bangkok time',
 };
@@ -228,7 +228,7 @@ const EN: Copy = {
 const TH: Copy = {
   ...EN,
   ticker: [
-    { b: 'Aggregate AI:', t: 'แยกกรวด/ทรายรายคันรถจากกล้อง CCTV แล้วสั่ง PLC ผ่านเส้นทางที่มีการตรวจสอบ' },
+    { b: 'Aggregate AI:', t: 'แยกกรวด/ทรายรายคันรถจากกล้อง CCTV แล้วสั่ง PLC ผ่านเส้นทางที่มีการตรวจสอบเท่านั้น (ทดลองก่อนเขียนจริงจนกว่าคุณจะเปิด)' },
     { b: 'รองรับ Factory I/O:', t: 'เทมเพลต Modbus คลิกเดียว ได้ทั้งแท็ก แดชบอร์ด และกฎแจ้งเตือน' },
     { b: 'Derived tags:', t: 'สร้างสัญญาณคำนวณด้วยสูตรที่ปลอดภัย ประมวลผลฝั่งเซิร์ฟเวอร์' },
     { b: 'Zero-trust edge:', t: 'MQTT ผ่าน TLS ตัวตนแยกรายอุปกรณ์ พร้อม ACL บนโบรกเกอร์' },
@@ -238,7 +238,7 @@ const TH: Copy = {
       id: 'platform', label: 'แพลตฟอร์ม',
       items: [
         { t: 'ภาพรวมแบบสด', d: 'KPI สถานะการเดินเครื่อง และการแจ้งเตือนของไลน์', href: '#features' },
-        { t: 'แจ้งเตือนและเหตุการณ์', d: 'สถานะตามแนว ISA-18.2: เกิด รับทราบ แก้ไขแล้ว', href: '#features' },
+        { t: 'แจ้งเตือนและเหตุการณ์', d: 'สถานะชัดเจน: เกิดขึ้น รับทราบ แก้ไขแล้ว', href: '#features' },
         { t: 'Vision AI', d: 'โมเดลกล้องจำแนกวัสดุบนสายพาน', href: '#features' },
         { t: 'สั่งงานแบบมีผู้ควบคุม', d: 'เขียนค่าไป PLC พร้อมยืนยัน ตรวจช่วงค่า และบันทึก audit', href: '#features' },
       ],
@@ -278,7 +278,7 @@ const TH: Copy = {
     { ...EN.rows[1], title: 'การแจ้งเตือนที่เชื่อถือได้', body: 'กฎแบบ threshold, rate และ derived tag สร้างการแจ้งเตือนที่มีสถานะชัดเจน รายการวิกฤตจะค้างอยู่ด้านบนจนกว่าจะมีคนรับทราบ', points: ['ระดับความรุนแรงบอกทั้งสี ไอคอน และข้อความ', 'Shelving, downtime และรายงานคุณภาพการแจ้งเตือน', 'แจ้งเตือนเข้ามือถือด้วย Web Push'] },
     { ...EN.rows[2], title: 'AI เสนอ ผู้ควบคุมอนุมัติ', body: 'ตัวตรวจจับความผิดปกติและการ drift สร้าง insight พร้อมหลักฐาน โมเดล vision จำแนกวัสดุบนสายพาน ไม่มีคำสั่งใดถึง PLC โดยไม่ผ่านเส้นทางเขียนค่าที่มีการตรวจสอบ', points: ['ทุก insight มีหลักฐานและคะแนน', 'ตัดสินกรวด/ทรายรายคันรถ', 'ต่อ model server ของคุณเองได้'] },
     { ...EN.rows[3], title: 'ประวัติข้อมูลที่ query ได้จริง', body: 'Historian บน PostgreSQL แบ่งพาร์ทิชันรายเดือน และสรุปราย 1 นาที / 1 ชั่วโมง หน้า trend, notebook และ query อ่านจากตารางเดียวกัน', points: ['กราฟซูมได้พร้อมแถบแจ้งเตือน', 'ส่งออกเป็น CSV', 'คำนวณ SLO และ OEE จากข้อมูลชุดเดียวกัน'] },
-    { ...EN.rows[4], title: 'สั่งงานพร้อมระบบกันพลาด', body: 'การตั้งค่า setpoint และสั่งเดิน/หยุด ต้องผ่านการตรวจสิทธิ์ ช่วงค่า อัตราการสั่ง และการยืนยัน แล้วถูกบันทึกใน audit trail ที่ลงลายมือชื่อ', points: ['สิทธิ์สั่งงานแยกตามพื้นที่', 'เขียนค่าได้ทีละคำสั่งต่อแท็ก', 'ทุกคำสั่งบันทึกว่าใคร ทำอะไร เพราะอะไร'] },
+    { ...EN.rows[4], title: 'สั่งงานพร้อมระบบกันพลาด', body: 'การตั้งค่า setpoint และสั่งเดิน/หยุด ต้องผ่านการตรวจสิทธิ์ ช่วงค่า อัตราการสั่ง และการยืนยัน แล้วถูกบันทึกใน audit trail แบบโซ่แฮช', points: ['สิทธิ์สั่งงานแยกตามพื้นที่', 'เขียนค่าได้ทีละคำสั่งต่อแท็ก', 'ทุกคำสั่งบันทึกว่าใคร ทำอะไร เพราะอะไร'] },
   ],
   ethos: [
     { ...EN.ethos[0], tag: 'เปิดตั้งแต่การออกแบบ', h: 'โปรโตคอลมาตรฐาน ข้อมูลเป็นของคุณ ไม่ผูกขาด', p: 'แท็กมาจากโปรโตคอลที่ PLC ใช้อยู่แล้ว ประวัติเก็บใน PostgreSQL ธรรมดา และทุกหน้ามี API รองรับ', list: ['Modbus TCP, Siemens S7 และ OPC UA ผ่าน edge gateway ตัวเดียว', 'ติดตั้งเองด้วย Docker Compose', 'REST API พร้อม API key แบบจำกัดสิทธิ์'] },
@@ -287,7 +287,7 @@ const TH: Copy = {
   connectH: 'เชื่อมต่อโรงงานของคุณ', connectEm: 'ใน 4 ขั้นตอน',
   connectP: 'เริ่มจากตัวจำลอง ซ้อมกับ Factory I/O แล้วชี้ gateway ตัวเดิมไปที่ PLC จริง หลังเข้าสู่ระบบ คอนโซลจะพาทำทีละขั้น',
   steps: [
-    { n: '01', t: 'เข้าสู่ระบบและเลือกไซต์', d: 'ใช้ SSO ของบริษัท, Google หรือบัญชีที่แอดมินสร้างให้ ไซต์เดโมมีไลน์จำลองทำงานอยู่แล้ว', where: '/signin' },
+    { n: '01', t: 'เข้าสู่ระบบและเลือกไซต์', d: 'ใช้ SSO ของบริษัท, Google หรือบัญชีที่ผู้ดูแลสร้างให้ (ไม่มีการสมัครเอง) ไซต์เดโมมีไลน์จำลองทำงานอยู่แล้ว', where: '/signin' },
     { n: '02', t: 'เพิ่ม edge gateway', d: 'เมนู Infrastructure → Add device จะให้รหัส enrol แบบใช้ครั้งเดียว นำไปเปิดคอนเทนเนอร์ edge-bridge ข้าง PLC', where: 'Infrastructure → Add device' },
     { n: '03', t: 'เพิ่มแหล่งข้อมูลและแท็ก', d: 'เลือก Modbus TCP, Siemens S7 หรือ OPC UA ถ้าใช้ Factory I/O ให้กดเทมเพลต "Factory I/O - Sorting" ได้แท็ก แดชบอร์ด และกฎแจ้งเตือนในคลิกเดียว', where: 'Infrastructure → Data sources' },
     { n: '04', t: 'ดู แจ้งเตือน สั่งงาน', d: 'ค่าจะขึ้นในหน้าภาพรวมภายในหนึ่งวินาที เพิ่มกฎแจ้งเตือน เชิญทีม และเปิดการสั่งงานเมื่อพร้อม', where: 'Overview' },
@@ -319,7 +319,7 @@ const TH: Copy = {
     { h: 'แพลตฟอร์ม', links: [{ t: 'ภาพรวม', href: '#features' }, { t: 'การแจ้งเตือน', href: '#features' }, { t: 'Vision AI', href: '#features' }, { t: 'การสั่งงาน', href: '#features' }] },
     { h: 'การเชื่อมต่อ', links: [{ t: 'ตัวจำลอง', href: '#connect' }, { t: 'Factory I/O', href: '#connect' }, { t: 'Modbus / S7 / OPC UA', href: '#connect' }] },
     { h: 'แหล่งข้อมูล', links: [{ t: 'กรณีใช้งาน', href: '#use-cases' }, { t: 'คำถามที่พบบ่อย', href: '#faq' }, { t: 'สถานะระบบ', href: '/status' }] },
-    { h: 'บัญชี', links: [{ t: 'เข้าสู่ระบบ', href: '/signin' }, { t: 'สร้างบัญชี', href: '/signin' }] },
+    { h: 'บัญชี', links: [{ t: 'เข้าสู่ระบบ', href: '/signin' }, { t: 'ขอสิทธิ์เข้าใช้', href: '/signin' }] },
   ],
   made: 'สร้างเพื่อโรงงานในประเทศไทย', rights: 'vissointan · โปรเจกต์วิทยานิพนธ์', tz: 'เวลากรุงเทพฯ',
 };

@@ -47,6 +47,8 @@ def viewer_api(base_url):
 
 
 def _active_version(c, model_id, names="{0: 'person', 1: 'bicycle', 2: 'car'}"):
+    # F12: activation needs the model's quality gate set first
+    assert c.put(f"{VM}/{model_id}/gate", json={"min_accuracy": 0.5, "min_samples": 1}).status_code == 200
     v = c.post(f"{VM}/{model_id}/versions", params={"filename": "m.onnx"}, content=detect_onnx(names)).json()["version"]
     assert c.post(f"{VM}/{model_id}/versions/{v['id']}/activate", json={"attest": True}).status_code == 200
     return v

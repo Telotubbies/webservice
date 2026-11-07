@@ -97,6 +97,9 @@ export interface PlatformHealth {
   orgs: { total: number; suspended: number; deleted: number };
   support_sessions_active: number;
   mqtt_connected: boolean;
+  ingest?: { samples: number; throttled: number; lag_avg_s: number | null;
+    orgs: Record<string, { samples: number; throttled: number; rate_per_min: number; lag_avg_s: number | null; lag_max_s: number }> };
+  db_pool?: { size: number | null; idle: number | null };
 }
 
 const P = '/api/v1/platform';

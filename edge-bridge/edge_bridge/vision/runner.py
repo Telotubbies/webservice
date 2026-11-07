@@ -120,11 +120,12 @@ class _Worker(threading.Thread):
                         log.warning("detector failed on %s: %s", self.cam.get("name"), exc)
                         self._detector.state, self._detector.detail = "error", _clean(str(exc))
                     if mat_on and self._detector.state == "ready":
-                        pkg = self._mat.feed(dets)
+                        pkg = self._mat.feed(dets, frame=frame)
                         out = draw_hud(out if out is not frame else frame.copy(), self._mat.status(), self._mat.cfg["dry_run"])
                         if pkg is not None and self.r.on_material is not None:
                             try:
-                                self.r.on_material(cfgc, pkg, frame, detector=self._detector)
+                                self.r.on_material(cfgc, pkg, self._mat.best_frame if self._mat.best_frame is not None else frame,
+                                               detector=self._detector)
                             except Exception:  # noqa: BLE001
                                 log.exception("on_material failed")
                     if self.r.on_detections is not None:
