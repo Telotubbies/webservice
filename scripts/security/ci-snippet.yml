@@ -1,0 +1,12 @@
+# Paste into .github/workflows/ci.yml (the coordinator owns that file). Pin each action to a commit SHA.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4      # pin to a SHA
+      - uses: actions/setup-python@v5  # pin to a SHA
+        with: { python-version: "3.12" }
+      - run: python scripts/security/secret_scan.py
+      - run: python scripts/security/check_pins.py --strict
+      - run: pip install pip-audit && pip-audit -r backend/requirements.txt && pip-audit -r model-converter/requirements.txt
+      - uses: aquasecurity/trivy-action@master   # pin to a SHA; scan: fs, severity HIGH,CRITICAL
+        with: { scan-type: fs, severity: "HIGH,CRITICAL", exit-code: "1" }

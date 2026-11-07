@@ -122,7 +122,7 @@ async def seed(pools: Pools) -> None:
         # limits (plans, 0032) - plan-limit behaviour is tested on its own orgs.
         await tc.execute("INSERT INTO organizations(id, name, plan) VALUES ($1,$2,'enterprise')"
                          " ON CONFLICT (id) DO UPDATE SET plan = 'enterprise'", org, org_name)
-        await tc.execute("INSERT INTO sites(id, org_id, name, code) VALUES ($1,$2,$3,$4)"
+        await tc.execute("INSERT INTO sites(id, org_id, name, code, data_origin) VALUES ($1,$2,$3,$4,'demo')"
                          " ON CONFLICT (id) DO NOTHING", site, org, site_name, config.V1_SITE_CODE)
         await _seed_site(tc, org, site, edge)
     log.info("dev seed applied", extra={"org_id": str(org), "site_id": str(site), "profile": PROFILE})

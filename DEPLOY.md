@@ -18,10 +18,13 @@ cp .env.prod.example .env      # fill every <...>; PUBLIC_URL=https://console.<d
 PROD=1 SECRETS_DIR=../files/secrets ./infra/gen-secrets.sh
 MQTT_PUBLIC_HOST=mqtt.<domain> CERTS_DIR=../files/certs ./infra/gen-certs.sh
 SECRETS_DIR=../files/secrets make secrets-check   # must pass: no dev defaults left
+SECRETS_DIR=../files/secrets CERTS_DIR=../files/certs make preflight   # every secret, cert and .env value present
 ```
 
 Secrets are files mounted at `/run/secrets/*`, never environment variables.
-Keep `SECRETS_DIR` and `CERTS_DIR` outside the git checkout.
+Keep `SECRETS_DIR` and `CERTS_DIR` outside the git checkout. The CA private key is written
+to `CA_KEY_DIR` (default `<CERTS_DIR>/../ca-private`, mode 0600), never into the mounted
+certs directory; backend and gateway containers mount `ca.crt` only. Keep `ca.key` offline.
 
 ## 3. Deploy
 
@@ -55,7 +58,14 @@ RESTORE_CONFIRM=1 make restore DUMP=backups/wds-<ts>.dump
 make verify-audit                                        # always run after a restore
 ```
 
-Practise a restore into a scratch environment before the first customer.
+A failed dump never triggers the retention sweep, so old backups are kept until a run succeeds.
+Prove a dump is usable without touching live data:
+
+```bash
+make restore-drill DUMP=backups/wds-<ts>.dump   # restores into a throwaway DB, counts rows, drops it
+```
+
+Practise a full restore into a scratch environment before the first customer.
 
 ## 6. Upgrade and rollback
 

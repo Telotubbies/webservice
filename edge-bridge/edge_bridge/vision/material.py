@@ -109,8 +109,8 @@ def _det_area(d: dict) -> float:
     poly = d.get("polygon")
     if poly and len(poly) >= 3:
         return _poly_area(poly)
-    b = d.get("bbox") or [0, 0, 0, 0]
-    return max(0.0, (b[2] - b[0]) * (b[3] - b[1])) * 0.7      # no mask: a box over-states the pile
+    b = d.get("bbox") or [0, 0, 0, 0]          # normalized x, y, w, h (detector.py)
+    return max(0.0, b[2]) * max(0.0, b[3]) * 0.7      # no mask: a box over-states the pile
 
 
 class MaterialDecider:
@@ -128,6 +128,8 @@ class MaterialDecider:
         self.sand_frac: float | None = None
         self.coverage = 0.0
         self._cfg_raw = None
+        self.best_frame = None           # the frame of this visit that shows the most material (the evidence)
+        self._best_cover = -1.0
 
     def configure(self, raw) -> bool:
         """Apply a cfg block; returns whether the decision is on."""
@@ -159,7 +161,7 @@ class MaterialDecider:
             cover += a
         return g, s, min(cover, 1.0)
 
-    def feed(self, dets: list, t: float | None = None) -> dict | None:
+    def feed(self, dets: list, t: float | None = None, frame=None) -> dict | None:
         """One sampled frame. Returns a decision package when a visit closes."""
         c = self.cfg
         if c is None:
@@ -174,7 +176,10 @@ class MaterialDecider:
             self._enter = self._enter + 1 if occupied else 0
             if self._enter >= c["k_enter"]:
                 self.state, self._votes, self._cover, self._t0, self._leave = "present", [], [], t, 0
+                self.best_frame, self._best_cover = None, -1.0
         else:
+            if frame is not None and cover > self._best_cover:
+                self.best_frame, self._best_cover = frame, cover
             self._votes.append((g, s))
             self._cover.append(cover)
             self._leave = self._leave + 1 if not occupied else 0

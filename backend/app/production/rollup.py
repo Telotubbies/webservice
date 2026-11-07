@@ -54,29 +54,31 @@ def floor_to(ts: datetime, seconds: int) -> datetime:
 
 
 _SQL_1M = """
-INSERT INTO tag_rollup_1m (org_id, tag_id, bucket, mn, mx, sm, nn, n, lv, lts)
+INSERT INTO tag_rollup_1m (org_id, tag_id, bucket, mn, mx, sm, nn, n, lv, lts, n_bad)
 SELECT org_id, tag_id, date_bin('1 minute', ts, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS b,
-       min(vn), max(vn), sum(vn), count(vn)::int, count(*)::int,
-       (array_agg(vn ORDER BY ts DESC) FILTER (WHERE vn IS NOT NULL))[1],
-       max(ts) FILTER (WHERE vn IS NOT NULL)
+       min(vn) FILTER (WHERE q = 'good'), max(vn) FILTER (WHERE q = 'good'), sum(vn) FILTER (WHERE q = 'good'),
+       (count(vn) FILTER (WHERE q = 'good'))::int, count(*)::int,
+       (array_agg(vn ORDER BY ts DESC) FILTER (WHERE vn IS NOT NULL AND q = 'good'))[1],
+       max(ts) FILTER (WHERE vn IS NOT NULL AND q = 'good'),
+       (count(*) FILTER (WHERE q <> 'good'))::int
   FROM tag_history WHERE ts >= $1 AND ts < $2
  GROUP BY org_id, tag_id, b
 ON CONFLICT (tag_id, bucket) DO UPDATE
    SET mn = EXCLUDED.mn, mx = EXCLUDED.mx, sm = EXCLUDED.sm, nn = EXCLUDED.nn,
-       n = EXCLUDED.n, lv = EXCLUDED.lv, lts = EXCLUDED.lts
+       n = EXCLUDED.n, lv = EXCLUDED.lv, lts = EXCLUDED.lts, n_bad = EXCLUDED.n_bad
 """
 
 _SQL_1H = """
-INSERT INTO tag_rollup_1h (org_id, tag_id, bucket, mn, mx, sm, nn, n, lv, lts)
+INSERT INTO tag_rollup_1h (org_id, tag_id, bucket, mn, mx, sm, nn, n, lv, lts, n_bad)
 SELECT org_id, tag_id, date_bin('1 hour', bucket, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS b,
        min(mn), max(mx), sum(sm), sum(nn)::int, sum(n)::int,
        (array_agg(lv ORDER BY lts DESC) FILTER (WHERE lv IS NOT NULL))[1],
-       max(lts)
+       max(lts), sum(n_bad)::int
   FROM tag_rollup_1m WHERE bucket >= $1 AND bucket < $2
  GROUP BY org_id, tag_id, b
 ON CONFLICT (tag_id, bucket) DO UPDATE
    SET mn = EXCLUDED.mn, mx = EXCLUDED.mx, sm = EXCLUDED.sm, nn = EXCLUDED.nn,
-       n = EXCLUDED.n, lv = EXCLUDED.lv, lts = EXCLUDED.lts
+       n = EXCLUDED.n, lv = EXCLUDED.lv, lts = EXCLUDED.lts, n_bad = EXCLUDED.n_bad
 """
 
 

@@ -8,6 +8,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
+import { onboardingApi } from '../../lib/api';
+import { useAdminOrg } from '../admin/admin';
 import { Card } from '../../shared/ui/Page';
 import { Icon } from '../../shared/ui/Icon';
 import { Segmented } from '../../shared/ui/Segmented';
@@ -59,6 +62,22 @@ function CopyCode({ code }: { code: string }) {
       </div>
       <pre className="overflow-x-auto p-2 font-mono text-[12px] leading-relaxed text-ink">{code}</pre>
     </div>
+  );
+}
+
+/** Where the first connection stands, read from real rows (gateway enrolled, data arriving). */
+function ConnectStatus() {
+  const { t } = useTranslation();
+  const { orgId } = useAdminOrg();
+  const q = useQuery({ queryKey: ['onboarding', orgId], queryFn: () => onboardingApi.get(orgId!), enabled: !!orgId, refetchInterval: 5_000 });
+  if (!q.data) return null;
+  const done = (k: string) => q.data.steps.some((s) => s.id === k && s.done);
+  const state = done('data') ? 'live' : done('gateway') ? 'wait' : 'none';
+  return (
+    <p role="status" className="border-t border-line px-3 py-2 text-[13px] text-ink">
+      <span className={`mr-2 inline-block h-2 w-2 rounded-full ${state === 'live' ? 'bg-[var(--color-ok)]' : state === 'wait' ? 'bg-[var(--color-warn)]' : 'bg-ink-46'}`} aria-hidden />
+      {t(`guide.status_${state}`)}
+    </p>
   );
 }
 
@@ -115,6 +134,7 @@ export function ConnectGuide({ onClose }: { onClose: () => void }) {
         ))}
       </ol>
 
+      <ConnectStatus />
       <p className="flex items-start gap-2 border-t border-line px-3 py-2.5 text-[12px] text-ink-46">
         <Icon name="shield" size={14} />
         <span>{t(path === 'sim' ? 'guide.noteSim' : 'guide.noteSafety')}</span>

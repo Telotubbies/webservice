@@ -81,6 +81,7 @@ const GatewayPage = lazy(() => import('./features/datasources/GatewayPage').then
 const CamerasPage = lazy(() => import('./features/cameras/CamerasPage').then((m) => ({ default: m.CamerasPage })));
 const ModelsPage = lazy(() => import('./features/vision/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const VisionRulesPage = lazy(() => import('./features/vision/RulesPage').then((m) => ({ default: m.RulesPage })));
+const VisionQualityPage = lazy(() => import('./features/vision/QualityPage').then((m) => ({ default: m.QualityPage })));
 const VisionEventsPage = lazy(() => import('./features/vision/EventsPage').then((m) => ({ default: m.EventsPage })));
 const AddDeviceWizard = lazy(() => import('./features/devices/AddDeviceWizard').then((m) => ({ default: m.AddDeviceWizard })));
 const NetworkMapPage = lazy(() => import('./features/devices/NetworkMapPage').then((m) => ({ default: m.NetworkMapPage })));
@@ -88,6 +89,7 @@ const ProfilesPage = lazy(() => import('./features/devices/ProfilesPage').then((
 
 // ── Settings & org ──
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const PlanComparePage = lazy(() => import('./features/settings/PlanComparePage').then((m) => ({ default: m.PlanComparePage })));
 const PlanPage = lazy(() => import('./features/platform/PlanPage').then((m) => ({ default: m.PlanPage })));
 const DangerZone = lazy(() => import('./features/platform/DangerZone').then((m) => ({ default: m.DangerZone })));
 
@@ -126,6 +128,11 @@ const SecurityAccessPage = lazy(() => import('./features/security/AccessPage').t
 
 // ── Sessions, metrics & assistant ──
 const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then((m) => ({ default: m.SessionsPage })));
+const AiArmingPage = lazy(() => import('./features/security/AiArmingPage').then((m) => ({ default: m.AiArmingPage })));
+const LifecyclePage = lazy(() => import('./features/lifecycle/LifecyclePage').then((m) => ({ default: m.LifecyclePage })));
+const OdooPage = lazy(() => import('./features/integration/odoo/OdooPage').then((m) => ({ default: m.OdooPage })));
+const IntegrationPage = lazy(() => import('./features/integration/IntegrationPage').then((m) => ({ default: m.IntegrationPage })));
+const ExplorePage = lazy(() => import('./features/explore/ExplorePage').then((m) => ({ default: m.ExplorePage })));
 const MetricsSummaryPage = lazy(() => import('./features/metrics/MetricsSummaryPage').then((m) => ({ default: m.MetricsSummaryPage })));
 const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })));
 
@@ -312,11 +319,13 @@ export default function App() {
             <Route path="vision/models" element={page(ModelsPage)} />
             <Route path="vision/rules" element={page(VisionRulesPage)} />
             <Route path="vision/events" element={page(VisionEventsPage)} />
+        <Route path="vision/quality" element={page(VisionQualityPage)} />
             <Route path="connect/add" element={page(AddDeviceWizard)} />
             <Route path="connect" element={page(NetworkMapPage)} />
             <Route path="connect/profiles" element={page(ProfilesPage)} />
             <Route path="settings" element={page(SettingsPage)} />
             <Route path="settings/plan" element={page(PlanPage)} />
+        <Route path="settings/plans" element={page(PlanComparePage)} />
             <Route path="settings/org" element={page(DangerZone)} />
             <Route path="orgs/new" element={<CreateOrgPage />} />
             <Route path="alarms/quality" element={page(AlarmQualityPage)} />
@@ -345,6 +354,11 @@ export default function App() {
             <Route path="security/access" element={page(SecurityAccessPage)} />
             {enabled('sessions') && <Route path="sessions" element={page(SessionsPage)} />}
             <Route path="metrics" element={page(MetricsSummaryPage)} />
+        <Route path="explore" element={page(ExplorePage)} />
+        <Route path="integration" element={page(IntegrationPage)} />
+        <Route path="integration/erp" element={page(OdooPage)} />
+        <Route path="lifecycle" element={page(LifecyclePage)} />
+        <Route path="security/ai-arming" element={page(AiArmingPage)} />
             {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
             {/* production KPIs (Phase 5) */}
             <Route path="production/oee" element={page(OeePage)} />

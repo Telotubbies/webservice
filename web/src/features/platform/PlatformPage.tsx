@@ -35,6 +35,10 @@ function Health() {
         {h.notification_deliveries_1h && cell(t('plat.notifSent'), h.notification_deliveries_1h.sent)}
         {h.notification_deliveries_1h && cell(t('plat.notifFailed'), h.notification_deliveries_1h.failed)}
         {cell(t('plat.supportSessions'), h.support_sessions_active)}
+        {h.ingest && cell(t('plat.ingestSamples'), h.ingest.samples)}
+        {h.ingest && cell(t('plat.ingestThrottled'), h.ingest.throttled)}
+        {h.ingest && cell(t('plat.ingestLag'), h.ingest.lag_avg_s == null ? '—' : `${h.ingest.lag_avg_s}s`)}
+        {h.db_pool?.size != null && cell(t('plat.dbPool'), `${(h.db_pool.size ?? 0) - (h.db_pool.idle ?? 0)}/${h.db_pool.size}`)}
       </div>
     </Card>
   );
@@ -44,6 +48,8 @@ export function PlatformPage() {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ['platform-orgs'], queryFn: platformApi.orgs, refetchInterval: 60_000 });
   const denied = q.isError && isPlatformDenied(q.error);
+  const health = useQuery({ queryKey: ['platform-health'], queryFn: platformApi.health, refetchInterval: 30_000 });
+  const ing = (id: string) => health.data?.ingest?.orgs[id];
   return (
     <>
       <PageBar title={t('plat.platformTitle')} lede={t('plat.platformLede')}
@@ -61,7 +67,7 @@ export function PlatformPage() {
             <Health />
             <Card title={t('plat.tenants')} pad={false}>
               <Table head={[t('plat.name'), t('plat.planCol'), t('plat.edgesCol'),
-                            t('plat.lastActivity'), t('plat.actions')]}>
+                            t('plat.ingestRate'), t('plat.lastActivity'), t('plat.actions')]}>
                 {(q.data?.items ?? []).map((o) => (
                   <tr key={o.id}>
                     <td>
@@ -72,6 +78,7 @@ export function PlatformPage() {
                     <td>{o.plan}{o.suspended && <span className="ml-1 text-[11px] text-[var(--color-danger)]">{t('plat.suspended')}</span>}
                         {o.deleted && <span className="ml-1 text-[11px] text-ink-46">deleted</span>}</td>
                     <td>{o.edge_health ? `${o.edge_health.online}/${o.edge_health.active}` : '—'}</td>
+                    <td className="text-[12px] tabular-nums">{ing(o.id) ? `${ing(o.id)!.rate_per_min}/min · ${ing(o.id)!.lag_avg_s ?? '—'}s${ing(o.id)!.throttled ? ` · ${ing(o.id)!.throttled} ${t('plat.ingestThrottledShort')}` : ''}` : '—'}</td>
                     <td className="text-[12px]">{fmt(o.last_activity_at)}</td>
                     <td><Link className="text-[12px] font-semibold text-blue hover:underline"
                               to={`/platform/orgs/${o.id}`}>{t('plat.detail')}</Link></td>

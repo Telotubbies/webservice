@@ -53,3 +53,6 @@ docker-compose.override.yml
 web/.impeccable/
 web/.deadcode-quarantine/
 /nul
+
+# CA private key (kept out of the mounted certs dir)
+infra/ca-private/
