@@ -64,5 +64,5 @@ The operator's process mimic comes from the plant's own 3D model (.glb). Equipme
 
 - WCAG 2.1 AA; status never by colour alone (colour + shape + text).
 - Readable from control-room distance; tabular figures for live values.
-- Thai typography: no uppercase or letter-spacing on text that can be Thai; Plex Sans Thai fallback.
+- Thai typography: no uppercase or letter-spacing on text that can be Thai; Anuphan fallback.
 - Reduced motion honoured everywhere, including mimic animations.

@@ -36,7 +36,7 @@
   min-height: 100svh;
   background: var(--hx-ink);
   color: var(--hx-txt);
-  font-family: "IBM Plex Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
+  font-family: "IBM Plex Sans", "Anuphan", system-ui, sans-serif;
   overflow-x: clip;
 }
 /* NIGHT = ink canvas — the dark palette */

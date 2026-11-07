@@ -10,6 +10,7 @@ import { NAV } from './nav';
 import { live } from '../lib/live';
 import { DdIcon } from '../shared/ui/DdIcon';
 import type { DdIconName } from '../shared/ui/ddicons';
+import type { ProcessName } from '../shared/ui/Icon';
 import { useOperateAnyOrg } from '../features/admin/admin';
 import { useRole } from './session';
 import { useAlarms } from '../features/alarms/alarms';
@@ -19,7 +20,7 @@ import { applyTheme, writeThemePref } from '../theme/theme';
 import { toast } from '../ui/Toaster';
 import { paletteCommands } from './paletteCommands';
 
-interface Entry { key: string; label: string; item: string; icon: DdIconName; group: string; hint?: string; run: () => void; enabled: boolean }
+interface Entry { key: string; label: string; item: string; icon: DdIconName | ProcessName; group: string; hint?: string; run: () => void; enabled: boolean }
 
 const MAX = 40; // Cap on rendered results.
 

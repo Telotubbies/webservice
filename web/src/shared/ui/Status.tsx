@@ -26,18 +26,36 @@ export function StatePill({ state }: { state: RunState }) {
 
 // normSeverity lives in ./severity (pure, importable without React/i18n).
 export { normSeverity, type Severity } from './severity';
-import { normSeverity } from './severity';
+import { normSeverity, type Severity } from './severity';
+
+/* Alarm priority coding: OUR PROPOSAL, NOT A STANDARD (no ISA-18.2 / ISA-101
+   clause text was read). Four priorities, each a different shape plus its
+   number plus a colour token, so it survives greyscale:
+   P1 critical octagon, P2 high triangle, P3 medium diamond, P4 low circle. */
+export type Priority = 1 | 2 | 3 | 4;
+const PRIORITY_SHAPE: Record<Priority, { cls: string; d: string }> = {
+  1: { cls: 'sev-critical', d: 'M8.5 2h7L22 8.5v7L15.5 22h-7L2 15.5v-7z' },
+  2: { cls: 'sev-high', d: 'M12 2.5L22 20H2z' },
+  3: { cls: 'sev-warning', d: 'M12 2l10 10-10 10L2 12z' },
+  4: { cls: 'sev-info', d: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10z' },
+};
+
+export function PriorityBadge({ priority, label }: { priority: Priority; label: string }) {
+  const { cls, d } = PRIORITY_SHAPE[priority];
+  return (
+    <span className={`sev ${cls}`} data-priority={priority}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" aria-hidden focusable={false}><path d={d} /></svg>
+      <span className="tabular-nums">P{priority}</span> {label}
+    </span>
+  );
+}
+
+const SEV_PRIORITY: Record<Severity, Priority> = { critical: 1, warning: 3, info: 4 };
 
 export function SeverityBadge({ severity }: { severity: string }) {
   const { t } = useTranslation();
   const s = normSeverity(severity);
-  // Shape glyph (▲/◆/●) comes from the .sev-*::before rules in index.css —
-  // colour + shape + text, never colour alone (ISA-101).
-  return (
-    <span className={`sev sev-${s}`} data-severity={s}>
-      {t(`alarms.${s}`)}
-    </span>
-  );
+  return <PriorityBadge priority={SEV_PRIORITY[s]} label={t(`alarms.${s}`)} />;
 }
 
 /** Alarm lifecycle state — Triggered → Acked → Cleared (ISA-18.2).

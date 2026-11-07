@@ -14,8 +14,8 @@
 /* weights main.tsx doesn't load: 500 (.btn, font-medium) and Thai 500/700
    (font-bold rail/brand) — without them the browser fakes or drops weight */
 @import "@fontsource/ibm-plex-sans/500.css";
-@import "@fontsource/ibm-plex-sans-thai/500.css";
-@import "@fontsource/ibm-plex-sans-thai/700.css";
+@import "@fontsource/anuphan/500.css";
+@import "@fontsource/anuphan/700.css";
 
 body {
   margin: 0;
@@ -111,13 +111,11 @@ body {
   height: 20px; padding: 0 8px; border-radius: 4px;
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-/* Priority owns colour + the ▲◆● shapes (ISA-101). */
+/* Priority owns colour; the shape (octagon/triangle/diamond/circle) is the inline SVG in PriorityBadge. */
 .sev-critical { background: var(--color-danger-soft); color: var(--color-danger); }
 .sev-warning  { background: var(--color-caution-soft); color: var(--color-caution-ink); }
+.sev-high     { background: var(--color-caution-soft); color: var(--color-danger); }
 .sev-info     { background: var(--color-neutral-soft); color: var(--color-ink-muted); }
-.sev-critical::before { content: '▲'; font-size: 9px; }
-.sev-warning::before  { content: '◆'; font-size: 9px; }
-.sev-info::before     { content: '●'; font-size: 9px; }
 /* Lifecycle (unacked → acked → cleared) is coded by emphasis and its own
    ○ ◐ ✓ glyphs, never by the priority colours — an active warning must not
    read as critical. Same scheme as the incident status pill. */

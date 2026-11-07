@@ -6,13 +6,14 @@ import type { NavGroup } from './nav';
 import type { Alarm } from '../types';
 import type { ThemePref } from '../theme/theme';
 import type { DdIconName } from '../shared/ui/ddicons';
+import type { ProcessName } from '../shared/ui/Icon';
 
 export interface PaletteCommand {
   id: string;
   group: 'navigate' | 'action' | 'equipment';
   label: string;
   hint?: string;
-  icon: DdIconName;
+  icon: DdIconName | ProcessName;
   run: () => void;
   enabled: boolean;
 }

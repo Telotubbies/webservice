@@ -17,7 +17,7 @@ import { matchAlarmQuery, useAlarms, needsAck, alarmStateKey, bucketAlarms, GROU
 import { AlarmDensity, type Bucket } from './AlarmDensity';
 import { ackMany, errText } from './ackAlarm';
 import './i18n';
-import { SeverityBadge, QualityMark, normSeverity } from '../../shared/ui/Status';
+import { SeverityBadge, PriorityBadge, QualityMark, normSeverity } from '../../shared/ui/Status';
 import { Card, Table } from '../../shared/ui/Page';
 import { Notice } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
@@ -225,7 +225,7 @@ export function AlarmsPage() {
             {unacked.length > 0 ? (
               <>
                 <span className="truncate font-semibold text-ink">{t('alx.summaryUnacked', { count: unacked.length })}</span>
-                {unackedCrit > 0 && <span className="sev sev-critical" data-severity="critical">{t('alx.summaryCritical', { count: unackedCrit })}</span>}
+                {unackedCrit > 0 && <PriorityBadge priority={1} label={t('alx.summaryCritical', { count: unackedCrit })} />}
               </>
             ) : seeded ? <span className="truncate text-ink-46">{t('alx.summaryQuiet')}</span> : null}
           </span>

@@ -12,7 +12,7 @@ import { liveName, truthy, type KindSpec, type PlantPart } from '../../lib/plant
 import { useControlGate, gateReasonKey } from '../../app/session';
 import { CommandSheet, type Pending } from '../line/CommandSheet';
 import { QualityMark } from '../../shared/ui/Status';
-import { Icon } from '../../shared/ui/Icon';
+import { Icon, ProcessIcon, KIND_SYMBOL } from '../../shared/ui/Icon';
 
 function unitFor(name: string): string | undefined {
   return live.tags.find((t) => t.name === name)?.unit;
@@ -59,7 +59,11 @@ export function PartPanel({ part, kind }: { part: PlantPart; kind: KindSpec | un
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[11px] text-ink-46">{kind?.label ?? part.kind}</p>
+      <p className="text-[11px] text-ink-46">
+        {KIND_SYMBOL[part.kind]
+          ? <ProcessIcon name={KIND_SYMBOL[part.kind]} label={kind?.label ?? part.kind} size={18} />
+          : (kind?.label ?? part.kind)}
+      </p>
       {roles.length === 0 && <p className="text-[12px] text-ink-46">{t('plant.noBindings')}</p>}
       <ul className="flex flex-col gap-1.5">
         {roles.map(([role, path]) => {
