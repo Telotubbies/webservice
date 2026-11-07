@@ -40,6 +40,8 @@ def model(admin_api):
     r = admin_api.post(BASE, json={"name": f"pytest-{uuid.uuid4().hex[:8]}", "task": "detect"})
     assert r.status_code == 201, r.text
     m = r.json()["model"]
+    # F12: activation needs the model's quality gate set first
+    assert admin_api.put(f"{BASE}/{m['id']}/gate", json={"min_accuracy": 0.5, "min_samples": 1}).status_code == 200
     yield m
     for v in admin_api.get(f"{BASE}/{m['id']}/versions").json()["items"]:
         admin_api.post(f"{BASE}/{m['id']}/versions/{v['id']}/archive")
