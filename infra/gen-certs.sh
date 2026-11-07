@@ -47,8 +47,8 @@ openssl x509 -req -in "$DIR/server.csr" \
 rm -f "$DIR/server.csr" "$DIR/ca.srl" "$DIR/san.ext"
 
 # The mosquitto container runs as uid 1883 — bind-mounted files must be
-# world-readable for it to load them (dev self-signed material only).
-chmod 0644 "$DIR"/ca.crt "$DIR"/server.crt "$DIR"/server.key 2>/dev/null || true
+# readable by it; the key stays 0640 (mosquitto loads it as root before dropping privileges).
+chmod 0644 "$DIR"/ca.crt "$DIR"/server.crt; chmod 0640 "$DIR"/server.key 2>/dev/null || true
 chmod 0600 "$CA_KEY_DIR/ca.key" 2>/dev/null || true
 rm -f "$DIR/ca.key"          # a key left by an older run must not stay in the mounted dir
 
