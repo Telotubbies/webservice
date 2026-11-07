@@ -11,8 +11,8 @@ create or update that IdP; unset -> delete it, so social sign-in is OFF by
 default and the realm JSON never carries a secret. Idempotent.
 
 Keycloak brokers the provider and issues OUR realm tokens, so JWT
-verification is unchanged. A first social login creates a realm user
-(email/name imported by the built-in mapper); authorization still requires
+verification is unchanged. A first social login only links an existing or invited user (flow wds-link-only, F21); it never creates one
+authorization still requires
 a `memberships` row — no roles are granted here.
 """
 
@@ -35,7 +35,7 @@ def idp_representation(alias: str, client_id: str, client_secret: str) -> dict:
         # Google/Microsoft return verified addresses; without this Keycloak
         # would demand an email verification step and we ship no SMTP.
         "trustEmail": True,
-        "firstBrokerLoginFlowAlias": "first broker login",
+        "firstBrokerLoginFlowAlias": "wds-link-only",
         "config": {
             "clientId": client_id,
             "clientSecret": client_secret,

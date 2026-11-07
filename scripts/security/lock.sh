@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Hash-pinned lock files (F21): requirements.txt stays the human list; the .lock carries every
 # transitive dependency with sha256 hashes, and installs use `pip install --require-hashes -r ....lock`.
 # Needs network + pip-tools; run it deliberately and commit the result.
