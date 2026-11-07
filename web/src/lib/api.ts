@@ -194,7 +194,7 @@ export interface AdminTag { id: string; path: string; name: string; type: string
 export interface AdminRule {
   id: string; tag_id: string; name: string; kind: string;
   threshold: number | null; stale_s: number | null; window_s?: number | null; deadband: number;
-  severity: string; enabled: boolean;
+  severity: string; enabled: boolean; approval?: 'pending' | 'approved' | 'rejected';
 }
 export interface ApiKey {
   id: string; name: string; prefix: string; role: string; created_at: string;

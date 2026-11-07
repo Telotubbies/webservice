@@ -18,7 +18,8 @@ const PRESETS = ['reasonPlan', 'reasonAlarm', 'reasonMaint'] as const;
 const OTHER = '__other';
 const CHECK_IDS = ['reason', 'area', 'writable', 'type', 'range', 'permissive', 'in_flight', 'edge'];
 
-export function CommandSheet({ pending, onClose }: { pending: Pending; onClose: () => void }) {
+/** `title` and `expect` replace the conveyor wording for other equipment (e.g. a silo screw). */
+export function CommandSheet({ pending, onClose, title: titleOverride, expect: expectOverride }: { pending: Pending; onClose: () => void; title?: string; expect?: string }) {
   const { t, i18n } = useTranslation();
   const { send, dryRun, tracked, error, busy } = useCommand();
   const [choice, setChoice] = useState('');
@@ -32,8 +33,8 @@ export function CommandSheet({ pending, onClose }: { pending: Pending; onClose: 
 
   const reason = choice === OTHER ? other.trim() : choice ? t(`f05.${choice}`) : '';
   const v = String(pending.value);
-  const title = pending.kind === 'start' ? t('f05.titleStart') : pending.kind === 'stop' ? t('f05.titleStop') : t('f05.titleSetpoint', { v });
-  const expect = pending.kind === 'start' ? t('f05.expectStart') : pending.kind === 'stop' ? t('f05.expectStop') : t('f05.expectSetpoint', { v });
+  const title = titleOverride ?? (pending.kind === 'start' ? t('f05.titleStart') : pending.kind === 'stop' ? t('f05.titleStop') : t('f05.titleSetpoint', { v }));
+  const expect = expectOverride ?? (pending.kind === 'start' ? t('f05.expectStart') : pending.kind === 'stop' ? t('f05.expectStop') : t('f05.expectSetpoint', { v }));
   const sent = tracked != null;
 
   const test = async () => {
