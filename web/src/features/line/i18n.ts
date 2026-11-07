@@ -69,3 +69,27 @@ i18n.addResourceBundle('th', 'translation', {
     colReason: 'เหตุผล', colResult: 'ผลลัพธ์', noReason: 'ไม่มีเหตุผลบันทึกไว้', auditLink: 'บันทึกตรวจสอบ',
   },
 }, true, true);
+
+// Side view (process-flow elevation of the plant parts) — namespaced `side`.
+i18n.addResourceBundle('en', 'translation', {
+  side: {
+    tab: 'Side view', schematic: 'Schematic', view: 'View',
+    title: 'Plant side view', hint: 'Parts are drawn at one scale, in process order from left to right. Select a part to open its panel.',
+    scroll: 'Swipe sideways to see the whole plant.', parts: 'Parts', loading: 'Loading the plant…', empty: 'Select a part to see its signals.',
+    run: 'Running', stop: 'Stopped', alarm: 'Alarm', stale: 'No data', live: 'Live data', none: 'Not monitored',
+    g_agg: 'Aggregate bins', g_belts: 'Belts', g_hoist: 'Skip hoist', g_mix: 'Mixing',
+    g_liq: 'Water and admixture', g_cem: 'Cement silos', g_air: 'Air and dust',
+    part: '{{name}}, {{state}}', bucket: 'bucket at {{pct}}%',
+  },
+}, true, true);
+i18n.addResourceBundle('th', 'translation', {
+  side: {
+    tab: 'ผังด้านข้าง', schematic: 'ผังไลน์', view: 'มุมมอง',
+    title: 'ผังด้านข้างของโรงงาน', hint: 'ชิ้นส่วนวาดในมาตราส่วนเดียวกัน เรียงตามลำดับกระบวนการจากซ้ายไปขวา เลือกชิ้นส่วนเพื่อเปิดแผงรายละเอียด',
+    scroll: 'เลื่อนไปด้านข้างเพื่อดูทั้งโรงงาน', parts: 'ชิ้นส่วน', loading: 'กำลังโหลดโรงงาน…', empty: 'เลือกชิ้นส่วนเพื่อดูสัญญาณ',
+    run: 'กำลังเดิน', stop: 'หยุด', alarm: 'สัญญาณเตือน', stale: 'ไม่มีข้อมูล', live: 'มีข้อมูลสด', none: 'ไม่ได้เฝ้าติดตาม',
+    g_agg: 'ถังวัสดุมวลรวม', g_belts: 'สายพาน', g_hoist: 'ลิฟต์สกิป', g_mix: 'ผสม',
+    g_liq: 'น้ำและน้ำยา', g_cem: 'ไซโลซีเมนต์', g_air: 'ลมและฝุ่น',
+    part: '{{name}} {{state}}', bucket: 'กระบะอยู่ที่ {{pct}}%',
+  },
+}, true, true);
