@@ -289,7 +289,10 @@ async def activate(org: str, model: str, version: str, body: AttestIn, request: 
     async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
         mo = await _model_or_404(tc, model_id)
         from .quality import gate_state
-        if (await gate_state(tc, model_id, vid))["gate"]["passed"] is False:
+        g = (await gate_state(tc, model_id, vid))["gate"]
+        if g["min_accuracy"] is None or g["min_samples"] is None:
+            raise HTTPException(409, "gate_not_set")      # no thresholds, no activation
+        if g["passed"] is False:
             raise HTTPException(409, "quality_gate")      # reviewed accuracy is under the model's gate
         row = await tc.fetchrow(
             "UPDATE vision_model_versions SET status='active', license_attested_by=$3, license_attested_at=now()"
