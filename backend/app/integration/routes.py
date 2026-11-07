@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from ..core import egress
 from ..datasources import secretbox
+from . import connector as core
+from .connectors import csv_connector
+from .connectors.odoo import OdooConnector
 from ..db import audit
 from ..db.context import tenant_tx
 from ..db.util import iso_z
@@ -211,3 +215,121 @@ async def set_origin(org: str, site: str, body: OriginIn, request: Request, p=De
             raise HTTPException(404, "site not found")
         await audit.append(tc, f"user:{p.user_id}", "site.data_origin", {"site_id": str(site_id)}, {"data_origin": body.data_origin})
     return {"ok": True}
+
+
+# ── inbound sync (F19) ──
+async def odoo_for(row) -> OdooConnector:
+    cfg = row["config"] if isinstance(row["config"], dict) else {}
+    if not (cfg.get("url") and cfg.get("db") and cfg.get("login") and row["secret_enc"]):
+        raise HTTPException(422, "connection needs url, db, login and a secret")
+    key = secretbox.open_(bytes(row["secret_enc"]))["secret"]
+    try:
+        return OdooConnector(cfg["url"], cfg["db"], cfg["login"], key)
+    except egress.EgressError as exc:
+        raise HTTPException(422, f"url refused: {exc}") from None
+
+
+@router.post(_O + "/connections/{cid}/sync")
+async def sync_connection(org: str, cid: str, request: Request, entity: Literal["product", "work_center", "work_order"],
+                          dry_run: bool = False, p=Depends(_user)):
+    m = _m()
+    org_id = m._v2_org(org, p, m._CONFIG)
+    conn_id = m._uuid_or_404(cid, "connection")
+    await m._mutation_gate(request, p.user_id)
+    async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
+        row = await tc.fetchrow("SELECT * FROM erp_connections WHERE id=$1 AND enabled", conn_id)
+        if row is None or row["kind"] != "odoo":
+            raise HTTPException(404, "no enabled odoo connection with that id")
+        res = await core.sync_entity(tc, conn_id, await odoo_for(row), entity, dry_run=dry_run)
+        await audit.append(tc, f"user:{p.user_id}", "integration.sync", {"connection_id": cid},
+                           {"entity": entity, "dry_run": dry_run, **{k: v for k, v in res.items() if k != "error"}})
+    return res
+
+
+@router.post(_O + "/csv-import")
+async def csv_import(org: str, request: Request, entity: Literal["product", "work_center", "work_order"],
+                     dry_run: bool = True, p=Depends(_user)):
+    """Raw CSV body (UTF-8). Dry-run by default: shows what would be added / changed / skipped / rejected."""
+    m = _m()
+    org_id = m._v2_org(org, p, m._CONFIG)
+    await m._mutation_gate(request, p.user_id)
+    raw = await request.body()
+    if len(raw) > csv_connector.MAX_BYTES:
+        raise HTTPException(413, "file too large")
+    try:
+        recs = csv_connector.parse(entity, raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(422, str(exc)) from None
+    async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
+        cid = await tc.fetchval("SELECT id FROM erp_connections WHERE kind='csv' ORDER BY created_at LIMIT 1")
+        if cid is None:
+            cid = await tc.fetchval("INSERT INTO erp_connections(org_id, kind, name) VALUES ($1,'csv','CSV import') RETURNING id", org_id)
+        res = await core.sync_entity(tc, cid, csv_connector.CsvConnector(recs), entity, dry_run=dry_run)
+        await audit.append(tc, f"user:{p.user_id}", "integration.csv_import", {"connection_id": str(cid)},
+                           {"entity": entity, "dry_run": dry_run, "rows": len(recs)})
+    return res
+
+
+@router.get(_O + "/staging")
+async def list_staging(org: str, request: Request, p=Depends(_user)):
+    m = _m()
+    org_id = m._v2_org(org, p, m._CONFIG)
+    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
+        rows = await tc.fetch("SELECT id, connection_id, entity, external_id, payload, reason, created_at FROM erp_staging ORDER BY id DESC LIMIT 500")
+    return {"items": [{**dict(r), "connection_id": str(r["connection_id"]), "created_at": iso_z(r["created_at"])} for r in rows]}
+
+
+class StageMap(BaseModel):
+    device_id: str
+
+
+@router.put(_O + "/staging/{sid}/map")
+async def map_staging(org: str, sid: int, body: StageMap, request: Request, p=Depends(_user)):
+    """Pick the machine for a staged work center; the next sync then carries its work orders."""
+    m = _m()
+    org_id = m._v2_org(org, p, m._CONFIG)
+    dev = m._uuid_or_404(body.device_id, "device")
+    await m._mutation_gate(request, p.user_id)
+    async with tenant_tx(m.st(request).pools.app, org_id, p.user_id) as tc:
+        if await tc.fetchval("SELECT 1 FROM devices WHERE id=$1", dev) is None:
+            raise HTTPException(404, "device not found")
+        row = await tc.fetchrow("DELETE FROM erp_staging WHERE id=$1 AND entity='work_center' RETURNING connection_id, external_id", sid)
+        if row is None:
+            raise HTTPException(404, "staged work center not found")
+        await tc.execute(
+            "INSERT INTO erp_id_map(org_id, connection_id, entity, external_id, local_id) VALUES ($1,$2,'work_center',$3,$4)"
+            " ON CONFLICT (org_id, connection_id, entity, external_id) DO UPDATE SET local_id=EXCLUDED.local_id, inactive=false",
+            org_id, row["connection_id"], row["external_id"], dev)
+        await audit.append(tc, f"user:{p.user_id}", "integration.workcenter.mapped", {"external_id": row["external_id"]}, {"device_id": body.device_id})
+    return {"ok": True}
+
+
+@router.get(_O + "/sync-runs")
+async def sync_runs(org: str, request: Request, p=Depends(_user)):
+    m = _m()
+    org_id = m._v2_org(org, p, m._CONFIG)
+    async with tenant_tx(m.st(request).pools.app, org_id) as tc:
+        rows = await tc.fetch("SELECT * FROM erp_sync_run ORDER BY id DESC LIMIT 50")
+    return {"items": [{**dict(r), "org_id": None, "connection_id": str(r["connection_id"]),
+                       "started_at": iso_z(r["started_at"]), "finished_at": iso_z(r["finished_at"]) if r["finished_at"] else None} for r in rows]}
+
+
+async def sync_odoo_all(pools) -> int:
+    """Scheduled pull (read-only) for every enabled Odoo connection, org by org."""
+    import logging
+    from ..db.context import active_org_ids
+    n = 0
+    for org_id in await active_org_ids(pools.system):
+        try:
+            async with tenant_tx(pools.system, org_id) as tc:
+                for row in await tc.fetch("SELECT * FROM erp_connections WHERE kind='odoo' AND enabled"):
+                    try:
+                        conn = await odoo_for(row)
+                    except HTTPException:
+                        continue
+                    for ent in ("product", "work_center", "work_order"):
+                        await core.sync_entity(tc, row["id"], conn, ent)
+                        n += 1
+        except Exception:  # noqa: BLE001 - one org must not stop the sweep
+            logging.getLogger("wds.integration").exception("odoo sync failed", extra={"org_id": str(org_id)})
+    return n

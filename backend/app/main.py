@@ -41,7 +41,7 @@ from .iam import consents, orgguard
 from .edge import credpush, edgelogs, enroll_codes
 from .datasets.routes import router as datasets_router
 from .integration import dispatcher as integration_dispatcher, summary as integration_summary
-from .integration.routes import router as integration_router
+from .integration.routes import router as integration_router, sync_odoo_all
 from .production import eventsfeed, rollup, statuspage, tagquery
 from .production.derived import DerivedEngine
 from .production.ingest import flush_history as _flush_history, record_sample
@@ -548,6 +548,7 @@ async def lifespan(app: FastAPI):
                                    lambda: integration_summary.close_periods(st.pools), "integration summaries")),
         asyncio.create_task(_every(config.INTEGRATION_DISPATCH_S,
                                    lambda: integration_dispatcher.dispatch_due(st.pools), "integration dispatch")),
+        asyncio.create_task(_every(config.ODOO_SYNC_S, lambda: sync_odoo_all(st.pools), "odoo sync")),
         # historian: rollups every minute, next months' partitions daily
         asyncio.create_task(_every(config.ROLLUP_REFRESH_S,
                                    lambda: rollup.refresh_all(st.pools), "rollup refresh")),

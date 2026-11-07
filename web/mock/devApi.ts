@@ -999,6 +999,11 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     { machine: 'Belt conveyor 3', shift_name: 'S1', from_ts: iso(Date.now() - 20 * H), hour_start: iso(Date.now() - 3 * H), version: 1, qty_total: 4210, qty_good: 4150, qty_scrap: 60, run_s: 25100, stop_s: 3700, coverage_pct: 99.2, data_origin: 'production' },
     { machine: 'Belt conveyor 7', shift_name: 'S1', from_ts: iso(Date.now() - 20 * H), hour_start: iso(Date.now() - 4 * H), version: 2, qty_total: 3890, qty_good: 3880, qty_scrap: 10, run_s: 24800, stop_s: 4000, coverage_pct: 98.7, data_origin: 'production' },
   ] });
+  if (/\/integration\/csv-import$/.test(rest) || /\/integration\/connections\/[^/]+\/sync$/.test(rest)) return done(200, { added: 3, updated: 1, skipped: 12, bad: 1, staged: 2, error: null, dry_run: url.searchParams.get('dry_run') !== 'false' });
+  if (/\/integration\/connections$/.test(rest)) return done(200, { items: [{ id: 'cn-1', kind: 'odoo', name: 'Odoo (sandbox)', enabled: true, status: 'ok' }] });
+  if (/\/integration\/staging$/.test(rest)) return done(200, { items: [{ id: 7, connection_id: 'cn-1', entity: 'work_center', external_id: '3', payload: { code: 'WC-03', name: 'Sorting belt' }, reason: 'unmapped work center', created_at: iso(Date.now() - H) }] });
+  if (/\/integration\/staging\/\d+\/map$/.test(rest)) return done(200, { ok: true });
+  if (/\/integration\/sync-runs$/.test(rest)) return done(200, { items: [{ id: 4, connection_id: 'cn-1', entity: 'product', dry_run: false, started_at: iso(Date.now() - 20 * 60_000), added: 3, updated: 0, skipped: 40, bad: 0, staged: 0, error: null }] });
   if (/\/data-origin$/.test(rest)) return done(200, { ok: true });
   if (rest === '/tag-stats') { const { from, to } = range(url, H); return done(200, { from: iso(from), to: iso(to), gap_s: 30, items: plant.tagStats(from, to) }); }
   if (rest === '/hierarchy') return done(200, plant.hierarchy(q('tags') === 'true'));
