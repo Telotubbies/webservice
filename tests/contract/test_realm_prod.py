@@ -42,3 +42,11 @@ def test_prod_realm_requires_verified_email_and_https():
 
 def test_prod_realm_has_no_seeded_users():
     assert not _r.get("users")
+
+
+def test_prod_realm_social_login_only_links_existing_users():
+    flows = {f["alias"]: f for f in _r["authenticationFlows"]}
+    assert _r["firstBrokerLoginFlow"] == "wds-link-only"
+    used = {e.get("authenticator") for f in flows.values() if f["alias"].startswith("wds-link-only")
+            for e in f["authenticationExecutions"]}
+    assert "idp-create-user-if-unique" not in used and "idp-detect-existing-broker-user" in used

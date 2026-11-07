@@ -36,6 +36,7 @@ const StatusPage = lazy(() => import('./features/status/StatusPage').then((m) =>
 const LinePage = lazy(() => import('./features/line/LinePage').then((m) => ({ default: m.LinePage })));
 // dev-only gallery: DEV is a compile-time false in production, so the chunk is never built
 const DevUiPage = import.meta.env.DEV ? lazy(() => import('./features/devui/DevUiPage').then((m) => ({ default: m.DevUiPage }))) : null;
+const IconsPage = import.meta.env.DEV ? lazy(() => import('./features/devui/IconsPage').then((m) => ({ default: m.IconsPage }))) : null;
 const Line3DPage = lazy(() => import('./features/line3d/Line3DPage').then((m) => ({ default: m.Line3DPage })));
 const MapEditor = lazy(() => import('./features/line3d/MapEditor').then((m) => ({ default: m.MapEditor })));
 
@@ -292,6 +293,7 @@ export default function App() {
             <Route path="trends" element={page(TrendsPage)} />
             {LEGACY.map(([from]) => <Route key={from} path={from.slice(1)} element={<LegacyRedirect />} />)}
             {DevUiPage && <Route path="dev/ui" element={page(DevUiPage)} />}
+            {IconsPage && <Route path="dev/icons" element={page(IconsPage)} />}
             <Route path="insights" element={page(InsightsPage)} />
             <Route path="setup/tags" element={page(TagsPage)} />
             <Route path="commands" element={page(CommandsPage)} />

@@ -47,3 +47,10 @@ def test_web_client_gains_public_origin_idempotently():
     env = dict(os.environ, PYTHONPATH=str(BACKEND), APP_ENV="dev")
     r = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=30)
     assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
+
+
+def test_idp_first_login_flow_never_creates_users():
+    code = ("from app.ops.provision_idp import idp_representation as f;"
+            "assert f('google','i','s')['firstBrokerLoginFlowAlias']=='wds-link-only';print('ok')")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=str(BACKEND), APP_ENV="dev"))
+    assert r.returncode == 0 and "ok" in r.stdout, r.stderr

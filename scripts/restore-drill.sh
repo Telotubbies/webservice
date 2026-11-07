@@ -1,42 +1,102 @@
-#!/bin/sh
-# Daily pg_dump -Fc of the wds AND keycloak databases → S3 (Garage), with
-# retention. Same dump format as `make backup`, so `make restore` reads it.
-# S3 credentials come from mounted secret files (never env → docker inspect).
-set -eu
+#!/usr/bin/env bash
+# Restore the latest (or given) backup into a THROWAWAY postgres container
+# with its own volume, run alembic current + row counts, then tear it down.
+# Never touches the real database or the compose project volumes.
+# Requires --yes to actually run; otherwise prints what it would do.
+set -euo pipefail
 
-: "${S3_ENDPOINT:?}" "${S3_BUCKET:?}" "${S3_ACCESS_KEY_FILE:?}" "${S3_SECRET_KEY_FILE:?}"
-INTERVAL_S="${BACKUP_INTERVAL_S:-86400}"
-KEEP_DAYS="${BACKUP_KEEP_DAYS:-30}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 
-export PGHOST=postgres PGUSER=postgres PGPASSWORD="$(cat /run/secrets/pg_super_pw)"
-export RCLONE_CONFIG_S3_TYPE=s3 RCLONE_CONFIG_S3_PROVIDER=Other
-export RCLONE_CONFIG_S3_ENDPOINT="$S3_ENDPOINT" RCLONE_CONFIG_S3_REGION="${S3_REGION:-garage}"
-export RCLONE_CONFIG_S3_ACCESS_KEY_ID="$(cat "$S3_ACCESS_KEY_FILE")"
-export RCLONE_CONFIG_S3_SECRET_ACCESS_KEY="$(cat "$S3_SECRET_KEY_FILE")"
-export RCLONE_CONFIG_S3_FORCE_PATH_STYLE=true
+YES=0
+DUMP="${DUMP:-}"
+POSITIONAL=()
+for arg in "$@"; do
+  case "$arg" in
+    --yes) YES=1 ;;
+    --help|-h) echo "usage: DUMP=backups/wds-<ts>.dump $0 [--yes]"; exit 0 ;;
+    *) POSITIONAL+=("$arg") ;;
+  esac
+done
+if (( ${#POSITIONAL[@]} > 0 )); then DUMP="${POSITIONAL[0]}"; fi
 
-run_once() {
-  ts="$(date -u +%Y%m%dT%H%M%SZ)"
-  failed=0
-  for db in wds keycloak; do
-    f="/tmp/$db-$ts.dump"
-    # a dump only counts once it is non-empty AND uploaded; any miss marks the run failed
-    if pg_dump -Fc -d "$db" -f "$f" && [ -s "$f" ] && rclone copyto "$f" "s3:$S3_BUCKET/$db/$db-$ts.dump"; then
-      echo "backup ok $db-$ts.dump ($(du -h "$f" | cut -f1))"
-    else
-      echo "backup FAILED for $db" >&2
-      failed=1
-    fi
-    rm -f "$f"
-  done
-  # Never delete old backups after a failed run: the old ones may be all we have.
-  if [ "$failed" -eq 0 ]; then
-    rclone delete --min-age "${KEEP_DAYS}d" --include "*.dump" "s3:$S3_BUCKET" || echo "retention sweep failed" >&2
-  else
-    echo "retention sweep SKIPPED (this run failed)" >&2
-  fi
-  return "$failed"
+if [[ -z "$DUMP" ]]; then
+  echo "usage: DUMP=backups/wds-<ts>.dump $0 [--yes]" >&2
+  exit 2
+fi
+[[ "$DUMP" = /* ]] || DUMP="$ROOT/$DUMP"
+
+if (( YES != 1 )); then
+  cat <<EOF
+restore-drill (dry run - pass --yes to execute)
+  dump:       $DUMP
+  container:  wds-restore-drill-<unique>
+  volume:     wds-restore-drill-<unique> (newly created; not a compose project volume)
+  network:    wds-restore-drill-<unique> (isolated bridge)
+  actions:    create postgres container -> restore dump -> alembic current -> row counts -> drop container/volume/network
+  safety:     never touches the real wds database or compose project volumes
+EOF
+  exit 0
+fi
+
+[[ -f "$DUMP" ]] || { echo "dump not found: $DUMP" >&2; exit 1; }
+[[ -s "$DUMP" ]] || { echo "dump is empty: $DUMP" >&2; exit 1; }
+command -v docker >/dev/null 2>&1 || { echo "docker CLI not found" >&2; exit 1; }
+
+drill_id="drill-$(date +%Y%m%d%H%M%S)-$$-${RANDOM}"
+container="wds-restore-drill-${drill_id}"
+volume="wds-restore-drill-${drill_id}"
+network="wds-restore-drill-${drill_id}"
+pg_pw="restore-drill-pw"
+port="${DRILL_PORT:-55432}"
+
+cleanup() {
+  docker rm -f "$container" >/dev/null 2>&1 || true
+  docker network rm "$network" >/dev/null 2>&1 || true
+  docker volume rm "$volume" >/dev/null 2>&1 || true
 }
+trap cleanup EXIT INT TERM
 
-[ "${1:-}" = "--once" ] && { run_once; exit $?; }
-while true; do run_once || true; sleep "$INTERVAL_S"; done
+echo "== creating throwaway postgres container: $container"
+docker network create "$network" >/dev/null
+docker volume create "$volume" >/dev/null
+docker run -d --name "$container" --network "$network" \
+  -p "127.0.0.1:${port}:5432" \
+  -e POSTGRES_PASSWORD="$pg_pw" \
+  -v "$volume:/var/lib/postgresql/data" \
+  postgres:16-alpine >/dev/null
+
+echo "== waiting for postgres readiness"
+ready=0
+for _ in $(seq 1 60); do
+  if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then ready=1; break; fi
+  sleep 1
+done
+if (( ready != 1 )); then
+  echo "postgres did not become ready" >&2
+  exit 1
+fi
+
+echo "== creating wds database"
+docker exec "$container" psql -U postgres -c "CREATE DATABASE wds;" >/dev/null
+
+echo "== restoring dump: $DUMP"
+docker exec -i "$container" pg_restore -U postgres -d wds --no-owner --exit-on-error < "$DUMP"
+
+echo "== alembic current"
+if command -v alembic >/dev/null 2>&1; then
+  ( cd "$ROOT/backend" && WDS_MIGRATE_DSN="postgresql+psycopg://postgres:${pg_pw}@127.0.0.1:${port}/wds" \
+      alembic -c alembic.ini current ) || echo "alembic current failed" >&2
+else
+  echo "alembic CLI not on PATH; reporting alembic_version table instead:"
+  docker exec "$container" psql -U postgres -d wds -c "SELECT version_num FROM alembic_version;" || true
+fi
+
+echo "== row counts"
+for t in organizations users sites tags tag_history alarm_events; do
+  n=$(docker exec "$container" psql -U postgres -d wds -tAc "SELECT count(*) FROM $t;" 2>/dev/null | tr -d '[:space:]' || true)
+  if [[ -z "$n" ]]; then n="n/a"; fi
+  printf '  %-18s %s\n' "$t" "$n"
+done
+
+echo "== restore drill complete: OK"

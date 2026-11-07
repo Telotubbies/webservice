@@ -103,7 +103,7 @@ export function DecisionsPage() {
                 />
               )}
               {sheet && review === 'switch_source' && switchTo != null && (
-                <CommandSheet pending={{ tag: screwPath(switchTo), value: true, kind: 'start' }} onClose={() => setSheet(false)} />
+                <CommandSheet pending={{ tag: screwPath(switchTo), value: true, kind: 'start' }} title={t('f10.screwTitle', { n: switchTo })} expect={t('f10.screwExpect', { n: switchTo })} onClose={() => setSheet(false)} />
               )}
               <History org={orgId} site={siteId!} silo={target.id} />
             </>

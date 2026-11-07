@@ -40,6 +40,28 @@ function UsageBar({ label, usage, cap, warn }: {
   );
 }
 
+/** Last 30 days of each metered resource (daily peak), as a small table of first and latest value. */
+function DailyUsage({ rows }: { rows: { day: string; metric: string; value: number }[] }) {
+  const { t } = useTranslation();
+  const by = new Map<string, { day: string; value: number }[]>();
+  for (const r of rows) by.set(r.metric, [...(by.get(r.metric) ?? []), r]);
+  if (by.size === 0) return <p className="text-[13px] text-ink-68">{t('plat.dailyNone')}</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-[13px]">
+        <thead><tr>{['dailyMetric', 'dailyFrom', 'dailyNow', 'dailyPeak'].map((k) => <th key={k} scope="col" className="px-2 py-1 text-[11px] font-semibold text-ink-68">{t(`plat.${k}`)}</th>)}</tr></thead>
+        <tbody>{[...by.entries()].map(([k, v]) => (
+          <tr key={k} className="border-t border-line">
+            <td className="px-2 py-1">{t(`plat.${capLabelKey(k)}`)}</td>
+            <td className="px-2 py-1 tabular-nums">{v[0].value} <span className="text-ink-46">({v[0].day})</span></td>
+            <td className="px-2 py-1 tabular-nums">{v[v.length - 1].value}</td>
+            <td className="px-2 py-1 tabular-nums">{Math.max(...v.map((x) => x.value))}</td>
+          </tr>))}</tbody>
+      </table>
+    </div>
+  );
+}
+
 // Set VITE_SUPPORT_EMAIL at build time; without it the upgrade link is hidden
 // rather than pointing at a placeholder address.
 const SUPPORT_EMAIL = (import.meta.env.VITE_SUPPORT_EMAIL as string | undefined) ?? '';
@@ -74,6 +96,9 @@ export function PlanPage() {
                           usage={u.usage} cap={u.cap}
                           warn={() => t('plat.nearLimit')} />
               ))}
+            </Card>
+            <Card title={t('plat.dailyTitle')}>
+              <DailyUsage rows={d.daily ?? []} />
             </Card>
             <Card title={t('plat.upgradeTitle')}>
               <p className="mb-2 text-[13px] text-ink-68">{t('plat.upgradeBody')}</p>

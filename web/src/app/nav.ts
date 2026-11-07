@@ -9,12 +9,15 @@
 // unchanged — only the grouping moved.
 
 import type { DdIconName } from '../shared/ui/ddicons';
+import type { ProcessName } from '../shared/ui/Icon';
+
+type NavIcon = DdIconName | ProcessName;
 
 import { enabled } from '../lib/features';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export interface NavItem { to: string; key: string; icon: DdIconName; badge?: 'new'; flag?: string }
+export interface NavItem { to: string; key: string; icon: NavIcon; badge?: 'new'; flag?: string }
 
 /** Flyout sub-section: a bold title (with optional NEW badge), a left column
  *  of items, an optional right column of secondary links, and a blue
@@ -32,7 +35,7 @@ export type Cluster = 'plant' | 'engineering' | 'platform' | 'admin';
 export interface NavGroup {
   /** Rail cluster — the sidebar draws a label or divider where this changes. */
   cluster: Cluster;
-  group: string; icon: DdIconName; items: NavItem[]; gated?: boolean;
+  group: string; icon: NavIcon; items: NavItem[]; gated?: boolean;
   /** Flyout anatomy; falls back to one anonymous section holding `items`. */
   sections?: NavSection[];
   action?: { to: string; key: string };
@@ -91,14 +94,14 @@ const INTELLIGENCE: NavItem[] = [
 
 const ALL_NAV: NavGroup[] = [
   // ── Cluster 1 — Plant: what the operator watches and acts on all shift.
-  { cluster: 'plant', group: 'nav.plantTwin', icon: 'building-block', items: [
-    { to: '/', key: 'nav.plantTwin', icon: 'building-block' },
+  { cluster: 'plant', group: 'nav.plantTwin', icon: 'silo', items: [
+    { to: '/', key: 'nav.plantTwin', icon: 'silo' },
   ] },
   { cluster: 'plant', group: 'nav.overview', icon: 'home', items: [
     { to: '/overview', key: 'nav.overview', icon: 'home' },
   ] },
-  { cluster: 'plant', group: 'nav.live', icon: 'datastreams-monitoring', href: '/live', items: [
-    { to: '/live', key: 'nav.line', icon: 'datastreams-monitoring' },
+  { cluster: 'plant', group: 'nav.live', icon: 'beltConveyor', href: '/live', items: [
+    { to: '/live', key: 'nav.line', icon: 'beltConveyor' },
     { to: '/wall', key: 'nav.wall', icon: 'resize-expand' },
     { to: '/commands', key: 'nav.commands', icon: 'prompt' },
     { to: '/decisions', key: 'nav.decisions', icon: 'bell-curve' },
@@ -138,15 +141,15 @@ const ALL_NAV: NavGroup[] = [
     { to: '/notifications/channels', key: 'nav.notifyChannels', icon: 'bell' },
     { to: '/alarms/settings', key: 'nav.alarmSettings', icon: 'cog', flag: 'alarmsettings' },
   ], action: { to: '/setup/rules/new', key: 'nav.actionNewRule' } },
-  { cluster: 'engineering', group: 'nav.connectivity', icon: 'server', href: '/connect/gateways', items: [
-    { to: '/connect/gateways', key: 'nav.devices', icon: 'server' },
+  { cluster: 'engineering', group: 'nav.connectivity', icon: 'edgeGateway', href: '/connect/gateways', items: [
+    { to: '/connect/gateways', key: 'nav.devices', icon: 'edgeGateway' },
     { to: '/connect/sources', key: 'nav.dataSources', icon: 'database' },
     { to: '/connect', key: 'nav.infraMap', icon: 'service-map' },
     { to: '/connect/profiles', key: 'nav.infraProfiles', icon: 'assert-list' },
     { to: '/connect/health', key: 'nav.health', icon: 'heartbeat' },
   ], action: { to: '/connect/add', key: 'nav.addDevice' } },
-  { cluster: 'engineering', group: 'nav.vision', icon: 'eye', href: '/vision/cameras', items: [
-    { to: '/vision/cameras', key: 'nav.cameras', icon: 'eye' },
+  { cluster: 'engineering', group: 'nav.vision', icon: 'camera', href: '/vision/cameras', items: [
+    { to: '/vision/cameras', key: 'nav.cameras', icon: 'camera' },
     { to: '/vision/models', key: 'nav.visionModels', icon: 'ai-search' },
     { to: '/vision/rules', key: 'nav.visionRules', icon: 'assert-list' },
     { to: '/vision/events', key: 'nav.visionEvents', icon: 'events' },

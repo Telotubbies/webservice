@@ -14,11 +14,14 @@ import { live, STALE_MS } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
 import { LINE_EQUIPMENT as EQUIPMENT, T, formatSignal, unitOf, type LineEquipmentId as EquipmentId } from '../../lib/plant';
 import type { AlarmRule } from '../../types';
+import { Icon, type ProcessName } from '../../shared/ui/Icon';
 
 /** ISA-5.1 equipment numbers and value-box letters for this line. */
 export const ISA_TAG: Record<EquipmentId, string> = { motor: 'M-101', conveyor: 'CV-101', camera: 'AT-101', bin: 'B-101' };
 const LETTERS: Record<string, string> = { [T.speedSp]: 'SC', [T.beltSpeed]: 'SI', [T.beltTemp]: 'TI', [T.binLevel]: 'LI', [T.gravel]: 'AI' };
 const ABBR: Record<string, string> = { hihi: 'HH', hi: 'H', lo: 'L', lolo: 'LL' };
+
+const SYMBOL: Record<EquipmentId, ProcessName> = { motor: 'motor', conveyor: 'beltConveyor', camera: 'camera', bin: 'aggregateBin' };
 
 const C = {
   equip: 'var(--color-hmi-equip)', run: 'var(--color-hmi-equip-run)', level: 'var(--color-hmi-level)',
@@ -113,10 +116,13 @@ function AnalogBar({ tag, x, y, w, range, limits }: { tag: string; x: number; y:
 function Caption({ x, y, id, anchor = 'start' }: { x: number; y: number; id: EquipmentId; anchor?: 'start' | 'middle' | 'end' }) {
   const { t } = useTranslation();
   return (
-    <text x={x} y={y} textAnchor={anchor} fontSize="12" style={{ fill: C.muted }}>
-      <tspan fontWeight="700" style={{ fill: C.text }}>{ISA_TAG[id]}</tspan>
-      <tspan dx="6">{t(EQUIPMENT.find((e) => e.id === id)!.labelKey)}</tspan>
-    </text>
+    <>
+      <Icon name={SYMBOL[id]} size={16} x={x} y={y - 14} style={{ color: C.muted }} />
+      <text x={x + 21} y={y} textAnchor={anchor} fontSize="12" style={{ fill: C.muted }}>
+        <tspan fontWeight="700" style={{ fill: C.text }}>{ISA_TAG[id]}</tspan>
+        <tspan dx="6">{t(EQUIPMENT.find((e) => e.id === id)!.labelKey)}</tspan>
+      </text>
+    </>
   );
 }
 

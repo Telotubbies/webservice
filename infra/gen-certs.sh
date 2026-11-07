@@ -30,7 +30,8 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "$CA_KEY_DIR/ca.key" -out "$DIR/ca.crt" \
   -days "$DAYS" -subj "/CN=wds-dev-ca" 2>/dev/null
 
-# Server key + CSR
+# Server key + CSR (rm: a previous run left it owned by uid 1883)
+rm -f "$DIR/server.key"
 openssl req -newkey rsa:2048 -nodes \
   -keyout "$DIR/server.key" -out "$DIR/server.csr" \
   -subj "/CN=mosquitto" 2>/dev/null
@@ -46,9 +47,16 @@ openssl x509 -req -in "$DIR/server.csr" \
 
 rm -f "$DIR/server.csr" "$DIR/ca.srl" "$DIR/san.ext"
 
-# The mosquitto container runs as uid 1883 — bind-mounted files must be
-# world-readable for it to load them (dev self-signed material only).
-chmod 0644 "$DIR"/ca.crt "$DIR"/server.crt "$DIR"/server.key 2>/dev/null || true
+# The mosquitto container reads these as uid 1883. server.key is handed to that uid and made
+# owner-only (0600); if we cannot chown (no root/sudo, or a Windows/Docker Desktop bind mount that
+# ignores modes) it stays 0644 with a warning: dev material only.
+chmod 0644 "$DIR"/ca.crt "$DIR"/server.crt 2>/dev/null || true
+if chown 1883:1883 "$DIR/server.key" 2>/dev/null || sudo -n chown 1883:1883 "$DIR/server.key" 2>/dev/null; then
+  chmod 0600 "$DIR/server.key" 2>/dev/null || sudo -n chmod 0600 "$DIR/server.key"
+else
+  chmod 0644 "$DIR/server.key" 2>/dev/null || true
+  echo "WARN: could not chown server.key to 1883; left 0644 (dev only)" >&2
+fi
 chmod 0600 "$CA_KEY_DIR/ca.key" 2>/dev/null || true
 rm -f "$DIR/ca.key"          # a key left by an older run must not stay in the mounted dir
 

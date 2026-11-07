@@ -16,3 +16,11 @@ def test_dev_realm_allows_registration_without_email_verification():
 def test_dev_realm_still_allows_direct_grants_for_the_test_harness():
     web = next(c for c in _r["clients"] if c["clientId"] == "wds-web")
     assert web["directAccessGrantsEnabled"] is True
+
+
+def test_dev_realm_social_login_only_links_existing_users():
+    r = _r
+    assert r["firstBrokerLoginFlow"] == "wds-link-only"
+    used = {e.get("authenticator") for f in r["authenticationFlows"] if f["alias"].startswith("wds-link-only")
+            for e in f["authenticationExecutions"]}
+    assert "idp-create-user-if-unique" not in used and "idp-detect-existing-broker-user" in used

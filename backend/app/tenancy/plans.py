@@ -159,12 +159,21 @@ async def usage_summary(tc, org_id: UUID) -> dict:
     usage["gpu_hours_monthly"] = {
         "usage": round(float(gpu or 0), 2),
         "cap": _to_int(features(row)["gpu_hours_monthly"])}
+    # F16: keep today's peak per metric, return the last 30 days for the trend
+    for k, u in usage.items():
+        await tc.execute(
+            "INSERT INTO usage_daily(org_id, day, metric, value) VALUES ($1, current_date, $2, $3)"
+            " ON CONFLICT (org_id, day, metric) DO UPDATE SET value = GREATEST(usage_daily.value, EXCLUDED.value)",
+            org_id, k, float(u["usage"]))
+    daily = await tc.fetch(
+        "SELECT day, metric, value FROM usage_daily WHERE day >= current_date - 29 ORDER BY day")
     return {
         "plan": row["plan"],
         "trial_ends_at": row["trial_ends_at"],
         "suspended": row["suspended_at"] is not None,
         "features": features(row),
         "usage": usage,
+        "daily": [{"day": r["day"].isoformat(), "metric": r["metric"], "value": r["value"]} for r in daily],
     }
 
 

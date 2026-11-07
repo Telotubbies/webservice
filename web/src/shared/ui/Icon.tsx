@@ -59,6 +59,35 @@ const PATHS = {
   copy: 'M8 8h12v12H8zM4 16V4h12',
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
   eye: 'M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z',
+  /* process symbols: in-house, informed by ISA-5.1 / ISO 14617-2 (not conformant) */
+  silo: 'M6 5a6 2 0 1 0 12 0a6 2 0 1 0 -12 0M6 5v11l4 5h4l4-5V5',
+  hopper: 'M3 4h18l-6 10v6H9v-6z',
+  screw: 'M3 8h18a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM7 8l2 8M12 8l2 8M17 8l2 8M5 4v4M19 16v4',
+  beltConveyor: 'M5 9h14M5 15h14M2 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M16 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M12 15v5M8 20h8',
+  bucketElevator: 'M7 2h10a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM12 5v14M12 7h3M12 12h3M12 17h3M9 9.5h3M9 14.5h3',
+  skipHoist: 'M2 21L21 4M8 15.6L15 9.4L11 4.9L4 11.1zM8 15.6h.01M15 9.4h.01',
+  mixer: 'M3 9h18v5a6 6 0 0 1-6 6H9a6 6 0 0 1-6-6zM12 3v9M8 12h8M9 16h6',
+  cementSilo: 'M7 7l5-3 5 3v9l-3 3h-4l-3-3zM12 4V2M8 19v3M16 19v3',
+  aggregateBin: 'M4 4h16v8l-4 6H8l-4-6zM12 4v14',
+  weighHopper: 'M5 3h14l-4 9H9zM9 12v3M15 12v3M6 15h12M12 15l-3 6h6z',
+  waterTank: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM4 12c2-1.5 3-1.5 4 0s3 1.5 4 0 3-1.5 4 0 3 1.5 4 0',
+  admixtureTank: 'M6 9h12v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2zM12 2.5c1.5 2 2 3 0 4-2-1-1.5-2 0-4zM9 15h6',
+  pump: 'M4 13a7 7 0 1 0 14 0a7 7 0 1 0 -14 0M8 10l6 3-6 3zM11 6h10M2 13h2',
+  valveOpen: 'M3 8l9 5-9 5zM21 8l-9 5 9 5zM12 13V5M9 5h6',
+  valveClosed: 'M3 8l9 5-9 5zM21 8l-9 5 9 5zM12 13V5M9 5h6M12 8v10',
+  motor: 'M3 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0M7.5 15.5v-7l3.5 4 3.5-4v7M19 12h3',
+  fan: 'M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 12V5a4 4 0 0 1 3.5 6zM12 12l6.06 3.5a4 4 0 0 1-6.94.03zM12 12l-6.06 3.5a4 4 0 0 1 3.44-6.03z',
+  compressor: 'M3 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0M5.5 6.5L19 10.5M5.5 17.5L19 13.5',
+  truckMixer: 'M3 13l2.5-6 6.5 2.5 1 5.5zM6 8.5l6 3M17 17v-5h3l2 3v2h-1M2 17h2M8 17h7M4 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M15 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0',
+  truck: 'M2 6h12v11H2zM14 10h4l4 3v4h-2M4 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M15 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0',
+  gate: 'M4 21V5M20 21V5M4 9h16M4 15h16M4 15l16-6',
+  camera: 'M4.5 6h11A1.5 1.5 0 0 1 17 7.5v5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 12.5v-5A1.5 1.5 0 0 1 4.5 6zM17 8l4-1.5v7L17 12M10 14v4M7 18h6',
+  plc: 'M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM9 5v14M15 5v14M6 9h.01M6 12h.01M12 9h.01M12 12h.01M18 9h.01M18 12h.01',
+  edgeGateway: 'M6 13h12a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2zM8 16.5h.01M12 16.5h.01M8.5 9.5a5 5 0 0 1 7 0M5.5 6.5a9 9 0 0 1 13 0',
+  levelSensor: 'M7 3h10v18H7zM7 13c1.5-1 3-1 5 0s3.5 1 5 0M2 11l3 2-3 2',
+  temperature: 'M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0zM17 7h3M17 11h2',
+  pressure: 'M4 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0M12 11l3.5-4M5 11h1.5M12 4v1.5M19 11h-1.5M12 19v3',
+  flow: 'M2 7h20M2 17h20M7 12h10M14 9l3 3-3 3',
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -79,5 +108,24 @@ export function Icon({ name, size = 20, label, ...rest }: Props) {
     >
       <path d={PATHS[name]} />
     </svg>
+  );
+}
+
+export const PROCESS_NAMES = ['silo', 'hopper', 'screw', 'beltConveyor', 'bucketElevator', 'skipHoist', 'mixer', 'cementSilo', 'aggregateBin', 'weighHopper', 'waterTank', 'admixtureTank', 'pump', 'valveOpen', 'valveClosed', 'motor', 'fan', 'compressor', 'truckMixer', 'truck', 'gate', 'camera', 'plc', 'edgeGateway', 'levelSensor', 'temperature', 'pressure', 'flow'] as const;
+export type ProcessName = (typeof PROCESS_NAMES)[number];
+
+/** Plant-model equipment kind (backend/app/plant/kinds.py) to its symbol. */
+export const KIND_SYMBOL: Record<string, ProcessName> = {
+  motor: 'motor', conveyor: 'beltConveyor', vessel: 'hopper', valve: 'valveOpen',
+  pump: 'pump', mixer: 'mixer', slider: 'skipHoist', indicator: 'levelSensor',
+};
+
+/** A process symbol is never shown alone: it always carries its text label. */
+export function ProcessIcon({ name, label, size = 20, className = '' }: { name: ProcessName; label: string; size?: number; className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${className}`}>
+      <Icon name={name} size={size} />
+      <span>{label}</span>
+    </span>
   );
 }

@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { request } from '../../lib/api';
 import { useAdminOrg } from '../admin/admin';
+import { canAdmin } from '../../app/session';
+import { ModelGate } from './ModelGate';
 import { EmptyState, ErrorState, Notice, SkeletonRows } from '../../shared/ui/Feedback';
 import { ProductHeader } from '../../shared/ui/Product';
 import { VISION_TABS } from '../devices/tabs';
@@ -21,7 +23,7 @@ const base = (o: string) => `/api/v1/orgs/${encodeURIComponent(o)}/vision`;
 
 export function QualityPage() {
   const { t } = useTranslation();
-  const { orgId } = useAdminOrg();
+  const { orgId, orgRole } = useAdminOrg();
   const qc = useQueryClient();
   const [msg, setMsg] = useState<string | null>(null);
   const conf = useQuery({ queryKey: ['vq-conf', orgId], enabled: !!orgId, queryFn: () => request<Confusion>(`${base(orgId!)}/material/confusion`) });
@@ -60,6 +62,7 @@ export function QualityPage() {
                 </tr>))}</tbody>
             </table>)}
         </section>
+        {orgId && <ModelGate orgId={orgId} admin={canAdmin(orgRole ?? 'none')} />}
         <section aria-label={t('vis.driftTitle')}>
           <h2 className="mb-2 text-[13px] font-medium">{t('vis.driftTitle')}</h2>
           {drift.data?.items.length ? (
