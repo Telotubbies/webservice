@@ -476,6 +476,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   if (p === '/api/v1/orgs' && req.method === 'GET') {
     return send(200, { items: [{ org_id: plant.ORG, name: 'Demo Plant', slug: 'demo-plant', plan: 'pro', role, suspended: false, deleted: false }] });
   }
+  if (p.startsWith('/api/v1/platform/') && !config) return send(403, { detail: 'platform admin required' }); // staff only, like the API
   if (p.startsWith('/api/v1/platform/')) return platform(p.slice('/api/v1/platform'.length), send);
 
   // ── v1: tags, alarms, rules, commands ──
