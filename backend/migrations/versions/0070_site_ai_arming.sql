@@ -1,4 +1,4 @@
-﻿-- 0070 - per-site AI approval (F21). The org plan flag ai_plc_write only says AI MAY write;
+-- 0070 - per-site AI approval (F21). The org plan flag ai_plc_write only says AI MAY write;
 -- a site writes only while it has an unrevoked arming record signed by a person.
 CREATE TABLE site_ai_arming (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,4 +1,4 @@
-﻿-- 0063 - model quality (F12): the true material a reviewer saw on a material
+-- 0063 - model quality (F12): the true material a reviewer saw on a material
 -- event (confusion matrix source), and a per-model accuracy gate for activation.
 ALTER TABLE vision_event_reviews
   ADD COLUMN true_material text CHECK (true_material IS NULL OR true_material IN ('gravel', 'sand', 'no-material'));

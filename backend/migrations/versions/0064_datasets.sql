@@ -1,4 +1,4 @@
-﻿-- 0064 - saved datasets (F13): a named, time-bucketed selection of tags that
+-- 0064 - saved datasets (F13): a named, time-bucketed selection of tags that
 -- can be exported as CSV. Definition only; the data stays in tag_history.
 CREATE TABLE datasets (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,4 +1,4 @@
-﻿-- 0068 - inbound ERP sync (F19): products, per-entity cursors, sync runs, and a staging
+-- 0068 - inbound ERP sync (F19): products, per-entity cursors, sync runs, and a staging
 -- area for rows that cannot be mapped yet (e.g. a work center with no machine chosen).
 CREATE TABLE erp_product (
   org_id uuid NOT NULL,

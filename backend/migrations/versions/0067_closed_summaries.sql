@@ -1,4 +1,4 @@
-﻿-- 0067 - closed shift/hour totals (F18) + webhook endpoints may subscribe to them.
+-- 0067 - closed shift/hour totals (F18) + webhook endpoints may subscribe to them.
 -- A closed row is immutable: a changed total is a NEW version, never an update.
 
 CREATE TABLE shift_summary (

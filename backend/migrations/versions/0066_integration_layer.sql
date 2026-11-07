@@ -1,4 +1,4 @@
-﻿-- 0066 - integration layer (F18): ERP connections, id map, work-order reference,
+-- 0066 - integration layer (F18): ERP connections, id map, work-order reference,
 -- the transactional outbox, scoped API keys, and sites.data_origin so demo or
 -- simulated data can never reach an ERP or an export by accident.
 -- Applied by 0066_integration_layer.py as wds_owner in one transaction.

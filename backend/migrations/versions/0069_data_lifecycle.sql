@@ -1,4 +1,4 @@
-﻿-- 0069 - data lifecycle (F20): retention per data class, archive manifest, quality-aware
+-- 0069 - data lifecycle (F20): retention per data class, archive manifest, quality-aware
 -- rollups (n_bad), and the deletion certificate written when a tenant is purged.
 -- (sites.data_origin already landed in 0066.)
 
@@ -47,3 +47,11 @@ CREATE TABLE org_deletion_certificate (
   sha256      text NOT NULL CHECK (length(sha256) = 64)
 );
 GRANT SELECT, INSERT ON org_deletion_certificate TO wds_system;
+-- org_id table, so RLS is forced; the purge writes it as wds_system outside any org context.
+ALTER TABLE org_deletion_certificate ENABLE ROW LEVEL SECURITY;
+ALTER TABLE org_deletion_certificate FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON org_deletion_certificate
+  USING (org_id = wds_ctx_org()) WITH CHECK (org_id = wds_ctx_org());
+CREATE POLICY system_all ON org_deletion_certificate FOR ALL TO wds_system
+  USING (wds_ctx_org() IS NULL OR org_id = wds_ctx_org())
+  WITH CHECK (wds_ctx_org() IS NULL OR org_id = wds_ctx_org());

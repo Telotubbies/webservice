@@ -1,4 +1,4 @@
-﻿-- 0071 - model provenance (F21): what was uploaded (.pt) and what was produced (.onnx), with
+-- 0071 - model provenance (F21): what was uploaded (.pt) and what was produced (.onnx), with
 -- hashes, so a converted model can be traced to the exact checkpoint that was scanned.
 CREATE TABLE model_artifacts (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
