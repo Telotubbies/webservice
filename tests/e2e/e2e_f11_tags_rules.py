@@ -89,6 +89,15 @@ def run(b, web):
     pv.wait_for_timeout(1500)
     check("f11: viewer cannot add rules", pv.get_by_role("button", name="Add alarm rule").count() == 0)
     pv.close()
+    # mobile: the data-source tree and the tag list stay usable on a phone
+    pm = c.new_page(b, c.MOB, errors)
+    c.login(pm, web, "demo-admin")
+    open_opc(pm)
+    check("f11 mobile: OPC tree opens", pm.locator("section[aria-label='OPC UA server tree']").count() == 1)
+    c.shot(pm, "f11", "mobile-opc-browse")
+    c.nav(pm, "/setup/tags", 3000)
+    check("f11 mobile: tags page has no page-level horizontal scroll", pm.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"))
+    c.shot(pm, "f11", "mobile-tags")
     check("f11: no uncaught page errors", not errors, "; ".join(errors)[:300])
 
 
