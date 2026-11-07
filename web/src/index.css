@@ -315,3 +315,42 @@ body {
    reduced-motion rule above still makes it steady. */
 @keyframes chip-blink { 50% { opacity: .35; } }
 .chip-blink { animation: chip-blink 1s steps(1, end) infinite; }
+
+/* Side view (features/line/SideView.tsx) — a process-flow elevation. Colours are
+   tokens only; state is shown by dot + word, alarm adds an outline and a red label. */
+.side-board { background: var(--color-panel); }
+.side-group { position: absolute; top: 0; border-radius: 6px; background: var(--color-panel-2); border: 1px solid var(--color-line); }
+.side-group-title { position: absolute; left: 8px; top: 7px; right: 6px; font-size: 11px; font-weight: 600; color: var(--color-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-ground { position: absolute; left: 0; right: 0; height: 2px; background: var(--color-ink-4); }
+.side-flow { position: absolute; inset: 0; pointer-events: none; fill: none; stroke: var(--color-ink-3); stroke-width: 2px; }
+.side-flow marker path { fill: var(--color-ink-3); stroke: none; }
+.side-pic { position: absolute; display: block; }
+.side-part { position: absolute; padding: 0; border: 0; background: none; border-radius: 4px; cursor: pointer; }
+.side-part:disabled { cursor: default; }
+.side-part img { width: 100%; height: 100%; display: block; object-fit: fill; pointer-events: none;
+  filter: drop-shadow(0 0 .6px var(--color-ink-3)) drop-shadow(0 0 .6px var(--color-ink-3)); }
+.side-part[data-bucket] { transition: left 700ms linear, top 700ms linear; }
+.side-part:hover:not(:disabled) { outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent); outline-offset: 2px; }
+.side-part:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.side-part[aria-pressed=true] { outline: 2px solid var(--color-accent); outline-offset: 2px; background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.side-part[data-state=stale] img { opacity: .45; }
+.side-part[data-state=alarm] { outline: 2px solid var(--color-crit); outline-offset: 2px; }
+.side-part[data-state=alarm][data-sev=warning] { outline-color: var(--color-warn-ink); }
+.side-label { position: absolute; display: flex; align-items: flex-start; justify-content: center; gap: 4px; padding: 1px 2px; border: 0; background: none;
+  font-size: 11px; line-height: 14px; text-align: center; color: var(--color-ink-2); cursor: pointer; }
+.side-label:disabled { cursor: default; }
+.side-label span { min-width: 0; text-wrap: balance; overflow-wrap: anywhere; }
+.side-label[data-state=alarm] { color: var(--color-crit); font-weight: 600; }
+.side-label[data-state=alarm][data-sev=warning] { color: var(--color-warn-ink); }
+.side-label[data-state=stale] { color: var(--color-warn-ink); }
+.side-dot { display: inline-block; flex: none; width: 8px; height: 8px; margin-top: 3px; border-radius: 50%; background: var(--color-ink-4); }
+.side-dot-run { background: var(--color-ok); }
+.side-dot-stop { background: var(--color-hmi-equip-run); }
+.side-dot-alarm { background: var(--color-crit); border-radius: 1px; transform: rotate(45deg) scale(.9); }
+.side-dot-stale { background: var(--color-warn); }
+.side-dot-live { background: var(--color-ink-4); }
+.side-dot-none { background: none; box-shadow: inset 0 0 0 1.5px var(--color-ink-3); }
+li > .side-dot { margin-top: 0; }
+.side-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 0 10px; border-width: 1px; border-radius: 5px; font-size: 12px; text-align: left; }
+.side-row[data-state=alarm] { border-color: var(--color-crit); color: var(--color-crit); }
+.side-row .side-dot { margin-top: 0; }
