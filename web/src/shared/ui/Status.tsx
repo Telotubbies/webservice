@@ -34,7 +34,7 @@ import { normSeverity, type Severity } from './severity';
    P1 critical octagon, P2 high triangle, P3 medium diamond, P4 low circle. */
 export type Priority = 1 | 2 | 3 | 4;
 const PRIORITY_SHAPE: Record<Priority, { cls: string; d: string }> = {
-  1: { cls: 'sev-critical', d: 'M8.5 2h7L22 8.5v7L15.5 22h-7L2 15.5v-7z' },
+  1: { cls: 'sev-critical', d: 'M8.5 1.5h7l7 7v7l-7 7h-7l-7-7v-7z' },
   2: { cls: 'sev-high', d: 'M12 2.5L22 20H2z' },
   3: { cls: 'sev-warning', d: 'M12 2l10 10-10 10L2 12z' },
   4: { cls: 'sev-info', d: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10z' },
@@ -44,7 +44,7 @@ export function PriorityBadge({ priority, label }: { priority: Priority; label: 
   const { cls, d } = PRIORITY_SHAPE[priority];
   return (
     <span className={`sev ${cls}`} data-priority={priority}>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" aria-hidden focusable={false}><path d={d} /></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" aria-hidden focusable={false}><path d={d} /></svg>
       <span className="tabular-nums">P{priority}</span> {label}
     </span>
   );
