@@ -976,6 +976,13 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     const rows = plant.series(g, from, to, Math.min(5000, Number(q('limit')) || 2000), agg, bucket);
     return done(200, { tag: { id: g.id, path: plant.pathOf(g), name: g.tail.split('.').pop(), unit: g.unit ?? null }, from: iso(from), to: iso(to), agg, ...(bucket ? { bucket_s: bucket } : {}), truncated: false, rows });
   }
+  if (/\/explore\/lag$/.test(rest)) return done(200, { bucket_s: 60, items: Array.from({ length: 21 }, (_, i) => ({ lag: i - 10, r: +Math.exp(-((i - 13) ** 2) / 8).toFixed(3), n: 40 })), best: { lag: 3, r: 1 } });
+  if (/\/datasets\/[^/]+\/export\.csv$/.test(rest)) return done(200, 'ts,split,sort/line1/belt1/speed\n');
+  if (/\/datasets\/[^/]+$/.test(rest) && req.method === 'DELETE') return done(204, null);
+  if (/\/datasets$/.test(rest)) {
+    if (req.method === 'POST') { const b = await body(req); return done(201, { dataset: { id: 'ds-new', created_at: iso(Date.now()), ...b, from_ts: b.from_ts, to_ts: b.to_ts } }); }
+    return done(200, { items: [{ id: 'ds-1', name: 'Belt speed vs load', tag_ids: ['a', 'b'], from_ts: iso(Date.now() - DAY), to_ts: iso(Date.now()), bucket_s: 60, train_pct: 70, val_pct: 15, created_at: iso(Date.now() - H) }] });
+  }
   if (rest === '/tag-stats') { const { from, to } = range(url, H); return done(200, { from: iso(from), to: iso(to), gap_s: 30, items: plant.tagStats(from, to) }); }
   if (rest === '/hierarchy') return done(200, plant.hierarchy(q('tags') === 'true'));
   if (rest === '/health') return done(200, plant.siteHealth(t));

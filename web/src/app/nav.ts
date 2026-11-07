@@ -63,6 +63,7 @@ const DATA: NavItem[] = [
   { to: '/logs', key: 'nav.logs', icon: 'log-pipelines' },
   { to: '/query', key: 'nav.query', icon: 'database' },
   { to: '/metrics', key: 'nav.metricsSummary', icon: 'metric' },
+  { to: '/explore', key: 'nav.explore', icon: 'database' },
   { to: '/traces', key: 'nav.traces', icon: 'service-map', flag: 'traces' },
   { to: '/processes', key: 'nav.processes', icon: 'container', flag: 'processes' },
 ];

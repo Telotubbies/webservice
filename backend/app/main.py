@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .core import config, jobs
 from .iam import consents, orgguard
 from .edge import credpush, edgelogs, enroll_codes
+from .datasets.routes import router as datasets_router
 from .production import eventsfeed, rollup, statuspage, tagquery
 from .production.derived import DerivedEngine
 from .production.ingest import flush_history as _flush_history, record_sample
@@ -1756,6 +1757,7 @@ app.include_router(consents.router)
 app.include_router(onboarding.router)
 app.include_router(eventsfeed.router)
 app.include_router(tagquery.router)
+app.include_router(datasets_router)
 app.include_router(edgelogs.router)
 app.include_router(statuspage.router)
 for _r in api_routers:

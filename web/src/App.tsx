@@ -125,6 +125,7 @@ const SecurityAccessPage = lazy(() => import('./features/security/AccessPage').t
 
 // ── Sessions, metrics & assistant ──
 const SessionsPage = lazy(() => import('./features/sessions/SessionsPage').then((m) => ({ default: m.SessionsPage })));
+const ExplorePage = lazy(() => import('./features/explore/ExplorePage').then((m) => ({ default: m.ExplorePage })));
 const MetricsSummaryPage = lazy(() => import('./features/metrics/MetricsSummaryPage').then((m) => ({ default: m.MetricsSummaryPage })));
 const AssistantPage = lazy(() => import('./features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })));
 
@@ -342,6 +343,7 @@ export default function App() {
             <Route path="security/access" element={page(SecurityAccessPage)} />
             {enabled('sessions') && <Route path="sessions" element={page(SessionsPage)} />}
             <Route path="metrics" element={page(MetricsSummaryPage)} />
+        <Route path="explore" element={page(ExplorePage)} />
             {enabled('assistant') && <Route path="assistant" element={page(AssistantPage)} />}
             {/* production KPIs (Phase 5) */}
             <Route path="production/oee" element={page(OeePage)} />
