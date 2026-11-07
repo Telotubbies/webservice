@@ -91,6 +91,14 @@ def _to_int(v) -> int | None:
         return None
 
 
+def _col(row, key):
+    """Optional plan column (absent before migration 0065 or in thin test rows)."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
 def features(plan_row) -> dict:
     """Non-quota plan flags + metering for the plan/usage page."""
     overrides = plan_row["plan_limits"] or {}
@@ -106,7 +114,7 @@ def features(plan_row) -> dict:
         "api_rate_per_min": _to_int(overrides.get("api_rate_per_min"))
                             or plan_row["api_rate_per_min"] or 120,
         "ingest_msgs_per_min": _to_int(overrides.get("ingest_msgs_per_min"))
-                               or plan_row["ingest_msgs_per_min"] or config.INGEST_ORG_RATE_PER_MIN,
+                               or _col(plan_row, "ingest_msgs_per_min") or config.INGEST_ORG_RATE_PER_MIN,
     }
 
 
