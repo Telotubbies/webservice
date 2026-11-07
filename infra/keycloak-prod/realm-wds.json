@@ -243,7 +243,70 @@
           "authenticator": "auth-otp-form"
         }
       ]
+    },
+    {
+      "alias": "wds-link-only",
+      "description": "F21: Google/social first login may only link an existing (or invited) user; no Create User step",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticator": "idp-detect-existing-broker-user",
+          "authenticatorFlow": false
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorFlow": true,
+          "flowAlias": "wds-link-only existing"
+        }
+      ]
+    },
+    {
+      "alias": "wds-link-only existing",
+      "description": "F21: link existing/invited users only; never create",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticator": "idp-confirm-link",
+          "authenticatorFlow": false
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorFlow": true,
+          "flowAlias": "wds-link-only verify"
+        }
+      ]
+    },
+    {
+      "alias": "wds-link-only verify",
+      "description": "F21: link existing/invited users only; never create",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticator": "idp-username-password-form",
+          "authenticatorFlow": false
+        }
+      ]
     }
   ],
-  "passwordPolicy": "length(12) and notUsername and notEmail"
+  "passwordPolicy": "length(12) and notUsername and notEmail",
+  "firstBrokerLoginFlow": "wds-link-only"
 }
