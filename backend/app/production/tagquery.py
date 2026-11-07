@@ -136,7 +136,8 @@ async def tag_history(org: str, site: str, request: Request, p=Depends(_user),
         if source == "raw":
             rows = await tc.fetch(
                 "SELECT to_timestamp(floor(extract(epoch from ts)/$4)*$4) AS bucket,"
-                " min(vn) AS mn, max(vn) AS mx, avg(vn) AS av, count(*)::int AS n"
+                " min(vn) FILTER (WHERE q = 'good') AS mn, max(vn) FILTER (WHERE q = 'good') AS mx,"
+                " avg(vn) FILTER (WHERE q = 'good') AS av, count(*)::int AS n"
                 " FROM tag_history WHERE tag_id=$1 AND ts >= $2 AND ts <= $3"
                 " GROUP BY 1 ORDER BY 1",
                 t["id"], t_from, t_to, b)

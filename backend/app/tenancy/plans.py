@@ -28,6 +28,7 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from ..core import config
+from ..lifecycle import archive
 from ..production import rollup
 from ..db.context import tenant_tx
 
@@ -210,6 +211,10 @@ async def retention_prune(pools, batch: int | None = None) -> int:
         longest = max(longest, retention_days(row))
     if total:
         log.info("tag_history pruned by plan retention", extra={"rows": total})
-    if longest:  # whole months past every plan's window are dropped outright
-        await rollup.drop_expired_partitions(pools, longest)
+    if longest:  # whole months past every plan's window are dropped outright - but only once archived and verified
+        cutoff = datetime.now(timezone.utc) - timedelta(days=longest)
+        if await archive.archive_before_drop(pools, cutoff):
+            await rollup.drop_expired_partitions(pools, longest)
+        else:
+            log.error("partition drop skipped: an org-month could not be archived and verified")
     return total

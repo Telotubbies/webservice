@@ -989,6 +989,11 @@ async function site(rest: string, req: IncomingMessage, url: URL, send: Send, c:
     if (req.method === 'POST') { const b = await body(req); return done(201, { dataset: { id: 'ds-new', created_at: iso(Date.now()), ...b, from_ts: b.from_ts, to_ts: b.to_ts } }); }
     return done(200, { items: [{ id: 'ds-1', name: 'Belt speed vs load', tag_ids: ['a', 'b'], from_ts: iso(Date.now() - DAY), to_ts: iso(Date.now()), bucket_s: 60, train_pct: 70, val_pct: 15, created_at: iso(Date.now() - H) }] });
   }
+  if (rest === '/lifecycle') return done(200, { history_days: 365, policy: [
+    { data_class: 'alarms_cleared', default_days: 365, enabled: true }, { data_class: 'downtimes', default_days: 730, enabled: true },
+    { data_class: 'edge_logs', default_days: 30, enabled: true }, { data_class: 'outbox_sent', default_days: 30, enabled: true },
+    { data_class: 'vision_events', default_days: 90, enabled: true } ],
+    archives: [{ month: '2026-08-01', rows: 1843201, sha256: 'a'.repeat(64), verified_at: iso(Date.now() - 20 * DAY) }] });
   if (/\/integration\/outbox$/.test(rest)) return done(200, { counts: { pending: 1, sent: 14, dead: 1 }, items: [
     { id: 31, connection_id: 'wh-1', event_type: 'shift_summary.closed', status: 'dead', attempts: 3, last_code: 422, last_error: 'http 422', created_at: iso(Date.now() - 5 * H), next_try_at: iso(Date.now()) },
     { id: 32, connection_id: 'wh-1', event_type: 'hour_summary.closed', status: 'pending', attempts: 0, last_code: null, last_error: null, created_at: iso(Date.now() - 10 * 60_000), next_try_at: iso(Date.now()) },

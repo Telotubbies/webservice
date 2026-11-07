@@ -41,6 +41,8 @@ from .iam import consents, orgguard
 from .edge import credpush, edgelogs, enroll_codes
 from .datasets.routes import router as datasets_router
 from .integration import dispatcher as integration_dispatcher, summary as integration_summary
+from .lifecycle import policy as lifecycle_policy
+from .lifecycle.routes import router as lifecycle_router
 from .integration.routes import router as integration_router, sync_odoo_all
 from .production import eventsfeed, rollup, statuspage, tagquery
 from .production.derived import DerivedEngine
@@ -548,6 +550,7 @@ async def lifespan(app: FastAPI):
                                    lambda: integration_summary.close_periods(st.pools), "integration summaries")),
         asyncio.create_task(_every(config.INTEGRATION_DISPATCH_S,
                                    lambda: integration_dispatcher.dispatch_due(st.pools), "integration dispatch")),
+        asyncio.create_task(_every(config.LIFECYCLE_SWEEP_S, lambda: lifecycle_policy.retention_sweep(st.pools), "retention sweep")),
         asyncio.create_task(_every(config.ODOO_SYNC_S, lambda: sync_odoo_all(st.pools), "odoo sync")),
         # historian: rollups every minute, next months' partitions daily
         asyncio.create_task(_every(config.ROLLUP_REFRESH_S,
@@ -1767,6 +1770,7 @@ app.include_router(eventsfeed.router)
 app.include_router(tagquery.router)
 app.include_router(datasets_router)
 app.include_router(integration_router)
+app.include_router(lifecycle_router)
 app.include_router(edgelogs.router)
 app.include_router(statuspage.router)
 for _r in api_routers:

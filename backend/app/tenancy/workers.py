@@ -50,6 +50,7 @@ from uuid import UUID
 
 from ..core import config, egress, jobs
 from ..datasources import secretbox
+from ..lifecycle import export_manifest, offboarding
 from ..db import audit
 from ..db.context import global_tx, tenant_tx
 from ..db.util import utcnow
@@ -306,12 +307,17 @@ _EXPORT_QUERIES = {
 }
 
 
-def _write_zip(path, data: dict[str, list[dict]]) -> int:
+def _write_zip(path, data: dict[str, list[dict]], files: dict[str, str] | None = None,
+               manifest: str | None = None) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name, rows in data.items():
             z.writestr(f"{name}.json",
                        json.dumps(rows, default=str, ensure_ascii=False))
+        for name, text in (files or {}).items():
+            z.writestr(name, text)
+        if manifest:
+            z.writestr("manifest.json", manifest)
     return path.stat().st_size
 
 
@@ -326,13 +332,16 @@ async def _run_export(st, payload: dict) -> None:
             if name == "organization":
                 data[name] = [dict(r) for r in await tc.fetch(q, org_id)]
             elif name == "tag_history":
-                data[name] = [dict(r) for r in await tc.fetch(
-                    q, str(config.EXPORT_HISTORY_DAYS))]
+                continue                                # replaced by monthly telemetry CSVs (lifecycle)
             else:
                 data[name] = [dict(r) for r in await tc.fetch(q)]
+        extra, csv_files, errors = await export_manifest.collect_extra(tc, set(data))
+        data.update(extra)
+        missing = await export_manifest.uncovered(tc, set(data))
+        manifest = export_manifest.manifest(data, csv_files, errors, missing)
     path = Path(config.EXPORT_DIR) / str(org_id) / f"{export_id}.zip"
     try:
-        size = await asyncio.to_thread(_write_zip, path, data)
+        size = await asyncio.to_thread(_write_zip, path, data, csv_files, manifest)
         if size > config.EXPORT_MAX_BYTES:
             path.unlink(missing_ok=True)
             raise RuntimeError(f"export too large ({size} bytes)")
@@ -426,6 +435,8 @@ def _purge_org_dirs(org_id: UUID) -> None:
 
 async def _run_purge(st, payload: dict) -> None:
     org_id = UUID(payload["org_id"])
+    # Safeguards: the owner must have had an export, and a certificate is written BEFORE the data goes.
+    await offboarding.require_export_and_certify(st.pools, org_id)
     async with global_tx(st.pools.system) as conn:
         await conn.execute("SELECT wds_purge_organization($1)", org_id)
     await asyncio.to_thread(_purge_org_dirs, org_id)

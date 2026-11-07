@@ -97,6 +97,7 @@ EXPORT_HISTORY_DAYS = int(os.environ.get("EXPORT_HISTORY_DAYS", "90"))
 EXPORT_HISTORY_MAX_ROWS = int(os.environ.get("EXPORT_HISTORY_MAX_ROWS", "1000000"))
 ORG_PURGE_AFTER_DAYS = float(os.environ.get("ORG_PURGE_AFTER_DAYS", "30"))
 INTEGRATION_SUMMARY_S = float(os.environ.get("INTEGRATION_SUMMARY_S", "300"))   # close shift/hour totals
+LIFECYCLE_SWEEP_S = float(os.environ.get("LIFECYCLE_SWEEP_S", "3600"))   # retention by data class
 ODOO_SYNC_S = float(os.environ.get("ODOO_SYNC_S", "900"))   # read-only Odoo pull, every 15 min
 INTEGRATION_DISPATCH_S = float(os.environ.get("INTEGRATION_DISPATCH_S", "10"))   # outbox delivery pass
 WEBHOOK_SWEEP_S = float(os.environ.get("WEBHOOK_SWEEP_S", "5"))
