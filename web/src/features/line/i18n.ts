@@ -93,3 +93,52 @@ i18n.addResourceBundle('th', 'translation', {
     part: '{{name}} {{state}}', bucket: 'กระบะอยู่ที่ {{pct}}%',
   },
 }, true, true);
+
+// Console v6 line page (D2): page chrome, the equipment grid, the lower tabs
+// and the dock. Namespaced `d2` so the older `line.*` copy stays untouched.
+i18n.addResourceBundle('en', 'translation', {
+  d2: {
+    info: 'This console watches the line and sends audited commands. It is not a safety system: interlocks and the emergency stop stay in the PLC. Every command needs a reason and is logged.',
+    toolbar: 'Line controls', tools: 'Line', views: 'View',
+    refresh: 'Refresh', command: 'Command', alarms: 'Alarms', side: 'Side view', schematic: 'Schematic',
+    equipment: 'Equipment ({{n}})', filter: 'Filter equipment or tag', filterEmpty: 'No equipment matches this filter.',
+    selected: 'Selected equipment', notCurrent: 'Not current', noReading: 'No reading', noRunSignal: 'No run signal on this equipment',
+    limits: 'Limits', limitsFrom: 'from the alarm rules', noLimits: 'No limits configured for this signal.',
+    lastCommand: 'Last command', neverCommanded: 'No command yet', dimState: 'State', dimTime: 'Time', range: 'Range',
+    commands: 'Commands', messageLog: 'Message log',
+    colName: 'Name', colTag: 'Tag', colLive: 'Live value', colValue: 'Value', colRaw: 'Raw',
+    colLimits: 'Limits', colLast: 'Last command', colState: 'State', colQuality: 'Quality',
+    cmdTarget: 'Target', cmdValue: 'Value', cmdReason: 'Reason', cmdCheck: 'Check', cmdStatus: 'Status', cmdTime: 'Asked',
+    noCommands: 'No commands on this line yet', noCommandsBody: 'Start, stop and setpoint changes from this page appear here with their reason and result.',
+    noMessages: 'No messages yet', noMessagesBody: 'Alarm and command activity on this line appears here.',
+    noCommandAccess: 'Command history is hidden for your role', noCommandAccessBody: 'Viewers can see live values and alarms but not the audited command list.',
+    log: 'Log', events: 'Events', level: 'Log level', levelInfo: 'Info', levelWarning: 'Warning', levelError: 'Critical',
+    logEmpty: 'Nothing at this level yet.', eventsEmpty: 'No alarm events yet.',
+    receiving: 'Receiving · last value {{age}}', lastValue: 'Last value {{age}}', feedDown: 'Live feed offline',
+    viewerNote: 'Read only. Viewers can see this page but cannot send commands.',
+    dockToggle: 'Show or hide the log dock',
+  },
+}, true, true);
+i18n.addResourceBundle('th', 'translation', {
+  d2: {
+    info: 'คอนโซลนี้เฝ้าดูไลน์และส่งคำสั่งที่บันทึกตรวจสอบได้ ระบบนี้ไม่ใช่ระบบความปลอดภัย อินเตอร์ล็อกและปุ่มหยุดฉุกเฉินอยู่ใน PLC ทุกคำสั่งต้องมีเหตุผลและถูกบันทึกไว้',
+    toolbar: 'เครื่องมือควบคุมไลน์', tools: 'ไลน์', views: 'มุมมอง',
+    refresh: 'รีเฟรช', command: 'สั่งงาน', alarms: 'สัญญาณเตือน', side: 'ผังด้านข้าง', schematic: 'ผังไลน์',
+    equipment: 'อุปกรณ์ ({{n}})', filter: 'กรองอุปกรณ์หรือแท็ก', filterEmpty: 'ไม่มีอุปกรณ์ที่ตรงกับคำกรอง',
+    selected: 'อุปกรณ์ที่เลือก', notCurrent: 'ไม่เป็นปัจจุบัน', noReading: 'ไม่มีค่า', noRunSignal: 'อุปกรณ์นี้ไม่มีสัญญาณสถานะเดิน',
+    limits: 'ขีดจำกัด', limitsFrom: 'จากกฎสัญญาณเตือน', noLimits: 'ยังไม่ได้ตั้งขีดจำกัดของสัญญาณนี้',
+    lastCommand: 'คำสั่งล่าสุด', neverCommanded: 'ยังไม่มีคำสั่ง', dimState: 'สถานะ', dimTime: 'เวลา', range: 'ช่วงค่า',
+    commands: 'คำสั่ง', messageLog: 'บันทึกข้อความ',
+    colName: 'ชื่อ', colTag: 'แท็ก', colLive: 'ค่าสด', colValue: 'ค่า', colRaw: 'ค่าดิบ',
+    colLimits: 'ขีดจำกัด', colLast: 'คำสั่งล่าสุด', colState: 'สถานะ', colQuality: 'คุณภาพ',
+    cmdTarget: 'เป้าหมาย', cmdValue: 'ค่า', cmdReason: 'เหตุผล', cmdCheck: 'ผลตรวจ', cmdStatus: 'สถานะ', cmdTime: 'เวลาที่ขอ',
+    noCommands: 'ยังไม่มีคำสั่งบนไลน์นี้', noCommandsBody: 'คำสั่งเดิน หยุด และเปลี่ยนค่าตั้งจากหน้านี้จะแสดงที่นี่พร้อมเหตุผลและผลลัพธ์',
+    noMessages: 'ยังไม่มีข้อความ', noMessagesBody: 'กิจกรรมของสัญญาณเตือนและคำสั่งบนไลน์นี้จะแสดงที่นี่',
+    noCommandAccess: 'ประวัติคำสั่งไม่แสดงสำหรับบทบาทของคุณ', noCommandAccessBody: 'ผู้ชมดูค่าสดและสัญญาณเตือนได้ แต่ไม่เห็นรายการคำสั่งที่บันทึกไว้',
+    log: 'บันทึก', events: 'เหตุการณ์', level: 'ระดับบันทึก', levelInfo: 'ข้อมูล', levelWarning: 'เตือน', levelError: 'วิกฤต',
+    logEmpty: 'ยังไม่มีรายการในระดับนี้', eventsEmpty: 'ยังไม่มีเหตุการณ์สัญญาณเตือน',
+    receiving: 'รับข้อมูลอยู่ · ค่าล่าสุด {{age}}', lastValue: 'ค่าล่าสุด {{age}}', feedDown: 'การเชื่อมต่อข้อมูลสดขาด',
+    viewerNote: 'อ่านได้อย่างเดียว บัญชีผู้ชมดูหน้านี้ได้แต่สั่งงานไม่ได้',
+    dockToggle: 'แสดงหรือซ่อนแถบบันทึกด้านล่าง',
+  },
+}, true, true);
