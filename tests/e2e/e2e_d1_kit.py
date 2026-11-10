@@ -67,8 +67,7 @@ def under_14px(page):
         '[data-kit="readout"] dd', '[data-kit="readout"] .mt-1 span',
         '[data-kit="dock"] [role=tab]', '[data-kit="dock"] [role=tabpanel] p',
         '[data-kit="grid"] > p', '[data-kit="inspector"] p', '[data-kit="toolbar"] p',
-        '[data-grid] td', '[data-kit="run"] [role=status]', '[data-kit="conn"] span',
-        // grid <th> is 11px overline chrome (§1.2), not Thai running copy; see the report note
+        '[data-grid] td', '[data-grid] th', '[data-kit="run"] [role=status]', '[data-kit="conn"] span',
       ];
       const bad = [];
       for (const sel of sels) {
@@ -220,6 +219,14 @@ def run(b, web):
     pg.keyboard.press("ArrowDown")
     pg.wait_for_timeout(200)
     check("d1: arrows still reach the row after an edit", pg.locator('tr[data-row-id="tank"]').get_attribute("aria-selected") == "true")
+
+    # Esc must undo with the field's own row value, not the selected row's: dispatch
+    # on the hopper field while "tank" is selected (a page whose onSelect does not
+    # move selectedId would otherwise write "80" into a row that holds 1240).
+    hopper = pg.locator('tr[data-row-id="hopper"] input[data-col="setpoint"]')
+    hopper.dispatch_event("keydown", {"key": "Escape", "bubbles": True})
+    pg.wait_for_timeout(150)
+    check("d1: Esc reverts from the field's own row, not the selection", hopper.input_value() == "1240", hopper.input_value())
     pg.locator('tr[data-row-id="skip"] td').nth(1).click()
 
 
