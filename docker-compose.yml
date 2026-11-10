@@ -250,7 +250,8 @@ services:
       # ALLOWED_ORIGINS empty = same-origin only (Origin host must match Host).
       RATE_COMMANDS_PER_TAG: "${RATE_COMMANDS_PER_TAG:-5}"
       RATE_MUTATIONS_PER_USER: "${RATE_MUTATIONS_PER_USER:-60}"
-      RATE_WS_PER_IP: "${RATE_WS_PER_IP:-20}"
+      RATE_WS_PER_IP: "${RATE_WS_PER_IP:-100}"
+      RATE_WS_PER_USER: "${RATE_WS_PER_USER:-20}"
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
       TAGS_CONFIG: /config/tags.yaml
       # external AI model server (backend/app/alarming/inference.py); empty = off

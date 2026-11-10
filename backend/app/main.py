@@ -1902,6 +1902,11 @@ async def ws_endpoint(ws: WebSocket):
             with contextlib.suppress(Exception):
                 await ws.close(code=4403)
             return
+        if not await manager.acquire_sub(p.sub, config.RATE_WS_PER_USER):
+            log.info("ws per-user connection cap — closing 4403")
+            with contextlib.suppress(Exception):
+                await ws.close(code=4403)
+            return
         client = await manager.connect(ws, roles[org_id], sub=p.sub, sid=p.sid,
                                        org_id=org_id, org_roles=roles,
                                        user_id=p.user_id)
@@ -1939,5 +1944,6 @@ async def ws_endpoint(ws: WebSocket):
                 with contextlib.suppress(asyncio.CancelledError):
                     await pump
             await manager.disconnect(client)
+            await manager.release_sub(p.sub)
     finally:
         await manager.release_ip(ip)
