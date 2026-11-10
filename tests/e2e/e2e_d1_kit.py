@@ -125,6 +125,34 @@ def card_layout(page):
     }""")
 
 
+def toolbar_strip(page):
+    """I1: the tool strip keeps real width and every tool is inside its scroll area and focusable."""
+    return page.evaluate("""() => {
+      const strip = document.querySelector('[data-kit="toolbar"] [role="toolbar"] > div');
+      if (!strip) return { error: 'no strip' };
+      const box = strip.getBoundingClientRect();
+      const tools = [...strip.querySelectorAll('[data-tool]')];
+      const areaRight = box.left + strip.scrollWidth;
+      const outside = tools.filter((tool) => {
+        const r = tool.getBoundingClientRect();
+        return r.width === 0 || r.left < box.left - 1 || r.right > areaRight + 1;
+      }).map((tool) => tool.dataset.tool);
+      const unreachable = [];
+      for (const tool of tools) {
+        tool.focus();
+        tool.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        const r = tool.getBoundingClientRect();
+        if (box.width === 0 || document.activeElement !== tool || r.width === 0 || r.left < box.left - 1 || r.right > box.right + 1) unreachable.push(tool.dataset.tool);
+      }
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      return {
+        overflowX: getComputedStyle(strip).overflowX,
+        width: Math.round(box.width), client: strip.clientWidth, scroll: strip.scrollWidth,
+        tools: tools.length, outside, unreachable,
+      };
+    }""")
+
+
 def inspector_above_grid(page):
     return page.evaluate("""() => {
       const i = document.querySelector('[data-kit="inspector"]').getBoundingClientRect();
@@ -311,8 +339,10 @@ def run(b, web):
         c.login(pm, web, "demo-admin")
         open_kit(pm)
         check(f"d1 mobile ({lang}): gallery renders", pm.locator('[data-kit="grid"]').count() == 1)
-        check(f"d1 mobile ({lang}): toolbar scrolls instead of clipping", pm.eval_on_selector(
-            '[data-kit="toolbar"] [role="toolbar"] > div', "el => ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)"))
+        tb = toolbar_strip(pm)
+        check(f"d1 mobile ({lang}): the tool strip keeps a real width", tb.get("client", 0) > 0 and tb.get("overflowX") in ("auto", "scroll"), str(tb))
+        check(f"d1 mobile ({lang}): every toolbar tool scrolls into reach",
+              tb.get("tools") == 5 and not tb.get("outside") and not tb.get("unreachable"), str(tb))
         cards = card_layout(pm)
         check(f"d1 mobile ({lang}): the table renders as cards", cards["table"] == "block" and cards["head"] == "none", str(cards))
         check(f"d1 mobile ({lang}): every cell carries its column label", cards["cells"] > 0 and cards["labelled"] == cards["cells"], str(cards))

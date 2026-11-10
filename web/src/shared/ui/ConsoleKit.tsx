@@ -20,10 +20,13 @@ export function Toolbar({ label, children, trailing }: {
   trailing?: ReactNode;
 }) {
   return (
-    <div role="toolbar" aria-label={label} className="flex min-w-0 items-stretch border-y border-line bg-paper">
+    <div role="toolbar" aria-label={label} className="flex min-w-0 flex-col items-stretch border-y border-line bg-paper min-[480px]:flex-row">
       {/* the groups may scroll sideways at 390 instead of clipping a label */}
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">{children}</div>
-      {trailing && <div className="flex shrink-0 items-center gap-2 border-l border-line px-2">{trailing}</div>}
+      {/* below 480 the pill takes its own line, so it cannot squeeze the strip to 0 px */}
+      {trailing && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-line px-2 min-[480px]:border-l min-[480px]:border-t-0">{trailing}</div>
+      )}
     </div>
   );
 }
