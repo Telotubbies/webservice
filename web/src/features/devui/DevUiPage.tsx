@@ -22,6 +22,7 @@ import { HeatStrip } from '../../viz/HeatStrip';
 import { pareto } from '../../viz/pareto';
 import { segments } from '../../viz/timeline';
 import type { PanelState } from '../../viz/panelState';
+import { KitGallery } from './KitGallery';
 
 /* Gallery-only copy: this page is a developer tool, never shown to users,
    so its labels are not translated. */
@@ -62,6 +63,12 @@ export function DevUiPage() {
         <Button size="sm" onClick={() => setDensity((d) => (d === 'comfortable' ? 'compact' : 'comfortable'))}>Density: {density}</Button>
       </header>
 
+      {/* console v6 kit (D1) — every new component in every state */}
+      <KitGallery />
+
+      {/* The older Console 5 viz gallery (BarList) is wider than 390px at its
+          own layout; contain it here so /dev/ui itself never scrolls sideways. */}
+      <div className="flex min-w-0 flex-col gap-4 overflow-x-auto">
       <Section title="Button">
         {(['primary', 'secondary', 'ghost', 'danger'] as const).map((v) => (
           <div key={v} className="flex flex-col gap-2">
@@ -148,6 +155,7 @@ export function DevUiPage() {
           </Tabs.Root>
         </div>
       </Section>
+      </div>
     </div>
   );
 }
