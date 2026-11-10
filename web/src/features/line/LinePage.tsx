@@ -139,9 +139,16 @@ export function LinePage() {
   };
 
   const focusCommand = () => {
+    setSide(false);
     setSel('motor');
-    // the motor's field mounts only after the selection changes, so wait a frame
-    requestAnimationFrame(() => document.getElementById('line-setpoint')?.focus());
+    // the motor's field mounts only after the selection and the view change
+    // commit; the router navigation can land a frame later, so retry briefly
+    const tryFocus = (left = 20) => {
+      const el = document.getElementById('line-setpoint');
+      if (el) el.focus();
+      else if (left > 0) requestAnimationFrame(() => tryFocus(left - 1));
+    };
+    requestAnimationFrame(() => tryFocus());
   };
   const setSide = (on: boolean) => setParams(on ? { view: 'side' } : {}, { replace: true });
 
@@ -173,7 +180,7 @@ export function LinePage() {
             <ToolButton icon="bell" label={t('d2.alarms')} onClick={() => navigate('/alarms')} />
           </ToolGroup>
           <ToolGroup label={t('d2.views')}>
-            <ToolButton icon="line" label={t('line.schematic')} active={!side} onClick={() => setSide(false)} />
+            <ToolButton icon="line" label={t('d2.schematic')} active={!side} onClick={() => setSide(false)} />
             <ToolButton icon="queue" label={t('d2.side')} active={side} onClick={() => setSide(true)} />
           </ToolGroup>
         </Toolbar>

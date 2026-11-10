@@ -99,8 +99,11 @@ def desktop(page, web):
     text = banner.inner_text()
     check("desktop: banner says the console is not a safety system", "not a safety system" in text and "PLC" in text)
     toolbar = page.get_by_role("toolbar", name="Line controls")
-    for name in ("Refresh", "Command", "Alarms", "Sorting line 1", "Side view"):
+    for name in ("Refresh", "Command", "Alarms", "Schematic", "Side view"):
         check(f"desktop: toolbar has {name}", toolbar.get_by_role("button", name=name).count() == 1)
+    # regression: the line view is labelled as a view, not with the plant name
+    check("desktop: the line-view tool is not labelled with the plant name",
+          toolbar.get_by_role("button", name="Sorting line 1").count() == 0)
     check("desktop: connection pill is present", page.locator("[data-conn]").count() == 1)
 
     # --- 2. grouped grid, one selected row, the readout follows it
@@ -159,6 +162,17 @@ def desktop(page, web):
     check("desktop: toolbar Command focuses the motor setpoint from another row",
           page.evaluate("document.activeElement?.id") == "line-setpoint")
     page.locator("[data-row-id=motor]").click()
+
+    # regression: Command in Side view must land where it promises, not sit inert
+    toolbar.get_by_role("button", name="Side view").click()
+    page.wait_for_timeout(300)
+    check("desktop: Side view is on before the Command click", "view=side" in page.evaluate("location.search"))
+    toolbar.get_by_role("button", name="Command").click()
+    page.wait_for_timeout(800)  # the focus retry spans a few frames
+    check("desktop: Command from Side view returns to the line view",
+          "view=side" not in page.evaluate("location.search")
+          and page.locator("#line-setpoint").count() == 1
+          and page.evaluate("document.activeElement?.id") == "line-setpoint")
 
     # --- 3. the lower tabs: commands, message log, the old Mimic
     check("desktop: command row carries a type chip",
