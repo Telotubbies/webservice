@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Children, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../../lib/api';
@@ -99,7 +99,8 @@ function HandoverBody({ orgId, siteId, operate }: { orgId: string; siteId: strin
           {pendingQ.isLoading ? <SkeletonRows rows={3} /> : pendingQ.data && (
             <SnapshotView snap={pendingQ.data.snapshot} />
           )}
-          <label className="mt-3 block text-[12px] font-semibold text-ink-68" htmlFor="ho-note">
+          <div className="sticky bottom-0 z-10 -mx-3 -mb-3 mt-3 border-t border-line bg-paper px-3 pb-3 pt-2">
+          <label className="block text-[12px] font-semibold text-ink-68" htmlFor="ho-note">
             {t('prod.hoNote')}
           </label>
           <textarea id="ho-note" className="input mt-1 w-full" rows={2} maxLength={2000}
@@ -110,6 +111,7 @@ function HandoverBody({ orgId, siteId, operate }: { orgId: string; siteId: strin
               onClick={() => setConfirmSend(true)}>
               {send.isPending ? t('prod.saving') : t('prod.hoSign')}
             </button>
+          </div>
           </div>
         </section>
 
@@ -242,9 +244,14 @@ function SnapshotView({ snap }: { snap: HandoverSnapshot }) {
   );
 }
 
+const SNAP_TOP = 5;
+
 function SnapList({ title, count, capped, children }: {
   title: string; count: number; capped: boolean; children: React.ReactNode;
 }) {
+  const { t } = useTranslation();
+  const [all, setAll] = useState(false);
+  const rows = Children.toArray(children);
   return (
     <div className="min-w-0">
       <h3 className="text-[12px] font-semibold text-ink-68">
@@ -252,7 +259,13 @@ function SnapList({ title, count, capped, children }: {
       </h3>
       {count === 0
         ? <p className="mt-1 text-[11px] text-ink-46">—</p>
-        : <ul className="mt-1 space-y-1.5">{children}</ul>}
+        : <ul className="mt-1 space-y-1.5">{all ? rows : rows.slice(0, SNAP_TOP)}</ul>}
+      {rows.length > SNAP_TOP && (
+        <button type="button" className="mt-1 text-[11px] font-semibold text-ink-68 underline"
+          onClick={() => setAll((v) => !v)} aria-expanded={all}>
+          {all ? t('prod.hoShowLess') : t('prod.hoShowAll', { n: rows.length })}
+        </button>
+      )}
     </div>
   );
 }

@@ -181,7 +181,7 @@ function ReviewPanel({ siloId, cover, snapshot, operate, org, site, switchTo, sh
           <>
             <label className="flex flex-col gap-1 text-[13px] font-semibold">{t('f10.reason')}
               <textarea className="input min-h-20 font-normal" maxLength={500} value={reason} placeholder={t('f10.reasonPlaceholder')}
-                aria-invalid={need} onChange={(e) => setReason(e.target.value)} />
+                aria-invalid={need} onChange={(e) => { setReason(e.target.value); if (e.target.value.trim().length >= 3) setNeed(false); }} />
             </label>
             {need && <p role="alert" className="text-[12px] text-[var(--color-danger)]">{t('f10.reasonRequired')}</p>}
             {save.isError && <p role="alert" className="text-[12px] text-[var(--color-danger)]">{t('f10.recordFailed')}</p>}

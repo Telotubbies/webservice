@@ -198,7 +198,7 @@ S = Spoofing, T = Tampering, R = Repudiation, I = Information disclosure, D = De
 
 | ID | Gap | หลักฐาน | วิธีแก้ | เจ้าของ |
 |---|---|---|---|---|
-| G9 | **cap WS ต่อ IP ทำงานต่างกันหลัง NAT** | `RATE_WS_PER_IP=20` (`config.py:153`) คีย์ด้วย IP; หลัง NAT โรงงานทั้งไซต์ใช้ IP เดียว ผู้ใช้ถูกบล็อกก่อนกำหนด; ถ้า proxy ไม่เชื่อถือ ทุกคนใช้ IP ของ proxy | key เพิ่มด้วย `sub`/org หลัง auth (cap ต่อ user และต่อ org) คง cap ต่อ IP เป็นชั้นก่อน auth เท่านั้น; ทำให้ค่าตั้งได้ต่อ site | F21 |
+| G9 | **cap WS ต่อ IP ทำงานต่างกันหลัง NAT** | `RATE_WS_PER_IP` (`config.py:157`) คีย์ด้วย IP / แก้แล้ว: IP=100 ก่อน auth + `RATE_WS_PER_USER=20` หลัง auth; หลัง NAT โรงงานทั้งไซต์ใช้ IP เดียว ผู้ใช้ถูกบล็อกก่อนกำหนด; ถ้า proxy ไม่เชื่อถือ ทุกคนใช้ IP ของ proxy | key เพิ่มด้วย `sub`/org หลัง auth (cap ต่อ user และต่อ org) คง cap ต่อ IP เป็นชั้นก่อน auth เท่านั้น; ทำให้ค่าตั้งได้ต่อ site | F21 |
 | G10 | broker ไม่ใช้ client cert; `tls_version tlsv1.2` | `mosquitto.conf:11-13` | พิจารณา mTLS ให้ edge (identity สองชั้น) และ TLS 1.3; ต้องเทียบกับต้นทุนการจัดการ cert | F15 / ตัดสินใจ D4 |
 | G13 | rate limit อยู่ในหน่วยความจำต่อ process | `core/ratelimit.py:1-8` | ถ้าเพิ่ม replica ต้องย้ายไป Redis หรือ gateway | F15 |
 | G14 | dedup ของ edge หายเมื่อ restart | INVARIANTS I12 | เก็บ `command_id` ล่าสุดบนดิสก์ (SQLite) ที่ edge | F05 |
