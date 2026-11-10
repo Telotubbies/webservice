@@ -14,7 +14,7 @@ function Panel({ id, title, note, children }: { id: string; title: string; note?
   return (
     <section data-kit={id} className="min-w-0 rounded-[5px] border border-line bg-paper p-3 shadow-card">
       <h2 className="text-[14px] font-semibold">{title}</h2>
-      {note && <p className="mt-1 max-w-[80ch] text-[12px] leading-snug text-ink-46">{note}</p>}
+      {note && <p className="mt-1 max-w-[80ch] text-[14px] leading-snug text-ink-46">{note}</p>}
       <div className="mt-3">{children}</div>
     </section>
   );
@@ -51,14 +51,17 @@ export function KitGallery() {
     { id: 'pump', num: 5, name: t('kit.grid.row.pump'), tag: 'batch.liq.pump1.flow_lpm', value: 0, unit: 'L/min', setpoint: 120, lo: null, hi: 220, cmd: 'STOP', cmdAt: '07:30', state: t('kit.grid.stopped'), quality: 'good' },
     { id: 'dust', num: 6, name: t('kit.grid.row.dust'), tag: 'batch.air.filter1.dp_mbar', value: 14.9, unit: 'mbar', setpoint: 12, lo: null, hi: 12, cmd: '—', cmdAt: '—', state: t('kit.grid.normal'), quality: 'high' },
     { id: 'hopper', num: 7, name: t('kit.grid.row.hopper'), tag: 'batch.agg.weigh1.weight_kg', value: 1240, unit: 'kg', setpoint: 1240, lo: null, hi: 2000, cmd: 'TARE', cmdAt: '07:51', state: t('kit.grid.normal'), quality: 'stale' },
+    { id: 'silo2', num: 8, name: t('kit.grid.row.silo2'), tag: 'batch.cem.silo2.level_pct', value: 34.5, unit: '%', setpoint: 40, lo: 20, hi: 98, cmd: '—', cmdAt: '—', state: t('kit.grid.normal'), quality: 'bad' },
   ], [t]);
 
   // setpoints typed in the grid survive a language switch, row names do not
   // (they come from t()), so the two are kept apart.
   const [setpoints, setSetpoints] = useState<Record<string, number>>({});
+  const [commits, setCommits] = useState(0);
   const list = rows.map((r) => (setpoints[r.id] == null ? r : { ...r, setpoint: setpoints[r.id] }));
 
   function commitSetpoint(row: Equipment, value: string) {
+    setCommits((n) => n + 1); // the E2E counts commits: one Enter must be one
     const n = Number(value);
     if (Number.isFinite(n)) setSetpoints((prev) => ({ ...prev, [row.id]: n }));
   }
@@ -93,7 +96,7 @@ export function KitGallery() {
     <div className="flex flex-col gap-3 bg-ground p-3 text-ink">
       <header>
         <h1 className="text-[18px] font-semibold">{t('kit.title')}</h1>
-        <p className="mt-1 max-w-[90ch] text-[13px] leading-snug text-ink-46">{t('kit.lede')}</p>
+        <p className="mt-1 max-w-[90ch] text-[14px] leading-snug text-ink-46">{t('kit.lede')}</p>
       </header>
 
       <Panel id="tokens" title={t('kit.tokens.title')} note={t('kit.tokens.note')}>
@@ -119,7 +122,7 @@ export function KitGallery() {
             <ToolButton icon="cog" label={t('kit.toolbar.limits')} />
           </ToolGroup>
         </Toolbar>
-        <p className="mt-2 flex flex-wrap gap-3 text-[11px] text-ink-46">
+        <p className="mt-2 flex flex-wrap gap-3 text-[14px] text-ink-46">
           <span>{t('kit.toolbar.stateNormal')}</span>
           <span>{t('kit.toolbar.stateActive')}</span>
           <span>{t('kit.toolbar.stateDisabled')}</span>
@@ -173,15 +176,17 @@ export function KitGallery() {
           <SectionTag>{t('kit.grid.equipment')}</SectionTag>
           <SectionTag>{t('kit.tag.selected')}</SectionTag>
         </div>
-        <DataGrid
-          label={t('kit.grid.title')} columns={columns} rows={list} dense maxHeight={340}
-          selectedId={selected} onSelect={(row) => setSelected(row.id)} onOpen={(row) => setOpenId(row.id)}
-          getRowState={stateOf}
-        />
+        <div data-commit-count={commits}>
+          <DataGrid
+            label={t('kit.grid.title')} columns={columns} rows={list} dense maxHeight={340}
+            selectedId={selected} onSelect={(row) => setSelected(row.id)} onOpen={(row) => setOpenId(row.id)}
+            getRowState={stateOf}
+          />
+        </div>
         <div data-kit="inspector" className="mt-3 rounded-[5px] border border-line bg-subtle p-3">
-          <h3 className="text-[13px] font-semibold">{t('kit.inspector.title')}</h3>
+          <h3 className="text-[14px] font-semibold">{t('kit.inspector.title')}</h3>
           {open ? (
-            <p className="mt-1 text-[13px] leading-relaxed">
+            <p className="mt-1 text-[14px] leading-relaxed">
               <strong>{open.name}</strong> · {open.tag}
               <br />
               {t('kit.inspector.valueLine', { value: open.value, unit: open.unit, lo: open.lo ?? '—', hi: open.hi ?? '—' })}
@@ -189,10 +194,10 @@ export function KitGallery() {
               {open.state} · {open.cmd}
             </p>
           ) : (
-            <p className="mt-1 text-[13px] text-ink-46">{t('kit.inspector.hint')}</p>
+            <p className="mt-1 text-[14px] text-ink-46">{t('kit.inspector.hint')}</p>
           )}
         </div>
-        <h3 className="mb-1 mt-4 text-[13px] font-semibold">{t('kit.grid.empty')}</h3>
+        <h3 className="mb-1 mt-4 text-[14px] font-semibold">{t('kit.grid.empty')}</h3>
         <DataGrid label={t('kit.grid.empty')} columns={columns.slice(0, 4)} rows={[]} dense emptyLabel={t('kit.grid.empty')} />
       </Panel>
 
@@ -257,8 +262,8 @@ export function KitGallery() {
             active={dockTab} onTab={setDockTab} collapsed={dockCollapsed} onToggle={() => setDockCollapsed((v) => !v)}
             toggleLabel={t('kit.dock.toggle')}
           >
-            <p className="font-mono text-[12px]">{t('kit.dock.line1')}</p>
-            <p className="font-mono text-[12px]">{t('kit.dock.line2')}</p>
+            <p className="font-mono">{t('kit.dock.line1')}</p>
+            <p className="font-mono">{t('kit.dock.line2')}</p>
           </BottomDock>
           <BottomDock
             label={t('kit.dock.title')}

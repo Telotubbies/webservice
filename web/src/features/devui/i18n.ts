@@ -75,6 +75,7 @@ i18n.addResourceBundle('en', 'translation', {
         pump: 'Water pump 1',
         dust: 'Dust filter 1',
         hopper: 'Weigh hopper',
+        silo2: 'Cement silo 2',
       },
     },
     chip: {
@@ -212,6 +213,7 @@ i18n.addResourceBundle('th', 'translation', {
         pump: 'ปั๊มน้ำ 1',
         dust: 'ตัวกรองฝุ่น 1',
         hopper: 'ถังชั่ง',
+        silo2: 'ไซโลซีเมนต์ 2',
       },
     },
     chip: {

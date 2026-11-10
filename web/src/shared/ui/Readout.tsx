@@ -48,8 +48,8 @@ export function Readout({
       className={`min-w-0 rounded-[5px] bg-[var(--color-readout)] p-3 text-[var(--color-readout-ink)] ${className}`}
     >
       <header className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-        <h3 className="text-[12px] font-semibold text-[var(--color-readout-dim)]">{label}</h3>
-        <span className={`flex items-center gap-1 text-[12px] font-semibold ${tone}`}>
+        <h3 className="text-[14px] font-semibold text-[var(--color-readout-dim)]">{label}</h3>
+        <span className={`flex items-center gap-1 text-[14px] font-semibold ${tone}`}>
           {state === 'stale' && <DdIcon name="clock" size={12} />}
           {stateLabel}
         </span>
@@ -57,15 +57,15 @@ export function Readout({
 
       <p className="mt-1 font-mono text-[30px] leading-none tracking-tight">
         {value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
-        {unit && <span className="ml-1 text-[13px] font-normal text-[var(--color-readout-dim)]">{unit}</span>}
+        {unit && <span className="ml-1 text-[14px] font-normal text-[var(--color-readout-dim)]">{unit}</span>}
       </p>
 
       {dims.length > 0 && (
         <dl className="mt-2 grid grid-cols-3 gap-2">
           {dims.map((d) => (
             <div key={d.label} className="min-w-0">
-              <dt className="text-[12px] text-[var(--color-readout-dim)]">{d.label}</dt>
-              <dd className="truncate text-[13px] font-semibold" title={d.value}>{d.value}</dd>
+              <dt className="text-[14px] text-[var(--color-readout-dim)]">{d.label}</dt>
+              <dd className="truncate text-[14px] font-semibold" title={d.value}>{d.value}</dd>
             </div>
           ))}
         </dl>
@@ -78,7 +78,7 @@ export function Readout({
           {limits?.lo != null && <span className="absolute -inset-y-0.5 w-0.5 bg-[var(--color-crit-on-dark)]" style={{ left: `${pct(limits.lo, min, max)}%` }} />}
           {limits?.hi != null && <span className="absolute -inset-y-0.5 w-0.5 bg-[var(--color-crit-on-dark)]" style={{ left: `${pct(limits.hi, min, max)}%` }} />}
         </div>
-        <div className="mt-1 flex justify-between text-[11px] text-[var(--color-readout-dim)]">
+        <div className="mt-1 flex justify-between text-[14px] text-[var(--color-readout-dim)]">
           <span>{min}</span>
           {loText && <span>{loText}</span>}
           {hiText && <span>{hiText}</span>}

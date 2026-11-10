@@ -6,6 +6,7 @@
 
 import { useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { gridKey } from './gridKeys';
+import { editEndGuard } from './gridEdit';
 
 export interface DataGridColumn<T> {
   /** property read for the default cell */
@@ -60,6 +61,8 @@ export function DataGrid<T extends { id: string }>({
   label, columns, rows, selectedId = null, onSelect, onOpen, dense, emptyLabel = '—', getRowState, maxHeight,
 }: DataGridProps<T>) {
   const body = useRef<HTMLTableSectionElement>(null);
+  /** the field whose blur must not commit: the key handler already did */
+  const editGuard = useRef(editEndGuard()).current;
   const selected = rows.findIndex((r) => r.id === selectedId);
   const active = selected < 0 ? 0 : selected;
 
@@ -69,6 +72,11 @@ export function DataGrid<T extends { id: string }>({
   const select = (i: number) => {
     if (rows[i]) onSelect?.(rows[i]);
     focusRow(i);
+  };
+  /** Leave the field for its row without a second commit; the row keeps the focus ring. */
+  const endEdit = (input: HTMLInputElement) => {
+    editGuard.mark(input);
+    (input.closest('tr') as HTMLTableRowElement | null)?.focus();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTableSectionElement>) => {
@@ -81,12 +89,13 @@ export function DataGrid<T extends { id: string }>({
       e.preventDefault();
       if (rows[active]) onOpen?.(rows[active]);
     } else if (action.type === 'cancel' && e.target instanceof HTMLInputElement) {
-      // Esc reverts the field to the row's value, then leaves the field
+      // Esc reverts the field to its own row's value and leaves without committing
       e.preventDefault();
       const input = e.target;
       const col = columns.find((c) => c.key === input.dataset.col);
-      if (col) input.value = text(rows[active], col);
-      input.blur();
+      const owner = rows[Number(input.closest('tr')?.dataset.index)];
+      if (col && owner) input.value = text(owner, col);
+      endEdit(input);
     }
   };
 
@@ -109,7 +118,7 @@ export function DataGrid<T extends { id: string }>({
           {tiered && (
             <tr className="border-b border-line text-left">
               {groups.map((g, i) => (
-                <th key={i} scope="colgroup" colSpan={g.span} className="h-7 px-3 text-[11px] font-semibold text-ink-68">
+                <th key={i} scope="colgroup" colSpan={g.span} className="h-7 px-3 text-[14px] font-semibold text-ink-68">
                   {g.name}
                 </th>
               ))}
@@ -121,7 +130,7 @@ export function DataGrid<T extends { id: string }>({
                 key={c.key}
                 scope="col"
                 style={c.width ? { width: c.width } : undefined}
-                className={`overline h-7 px-3 ${c.numeric ? 'text-right' : ''}`}
+                className={`overline h-7 px-3 text-[14px] ${c.numeric ? 'text-right' : ''}`}
               >
                 {c.header}
               </th>
@@ -145,7 +154,14 @@ export function DataGrid<T extends { id: string }>({
                 data-row-state={state}
                 aria-selected={isSelected}
                 tabIndex={i === active ? 0 : -1}
-                onClick={() => select(i)}
+                onClick={(e) => {
+                  // a click into a cell field keeps the caret there; the row is not refocused
+                  if (e.target instanceof HTMLInputElement) {
+                    if (!isSelected) onSelect?.(row);
+                    return;
+                  }
+                  select(i);
+                }}
                 onFocus={() => { if (!isSelected) onSelect?.(row); }}
                 style={{ height: dense ? 'var(--row-h-compact)' : 'var(--row-h)' }}
                 className={`border-b border-line last:border-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
@@ -162,13 +178,17 @@ export function DataGrid<T extends { id: string }>({
                         data-col={c.key}
                         aria-label={c.edit.inputLabel}
                         defaultValue={text(row, c)}
-                        onBlur={(e) => c.edit!.onCommit(row, e.currentTarget.value)}
+                        onBlur={(e) => {
+                          // the key handler committed and handed the focus back
+                          if (editGuard.claim(e.currentTarget)) return;
+                          c.edit!.onCommit(row, e.currentTarget.value);
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             e.stopPropagation();
                             c.edit!.onCommit(row, e.currentTarget.value);
-                            e.currentTarget.blur();
+                            endEdit(e.currentTarget);
                           }
                         }}
                         className={`input h-6 w-full border-transparent bg-transparent hover:border-[var(--color-input-line)] focus:bg-paper ${c.numeric ? 'num text-right' : ''}`}

@@ -4,10 +4,11 @@
 // from the caller in both languages, so the kit carries no i18n bundle.
 // Colours are tokens; command chips code the command TYPE, never a status.
 
-import type { ReactNode } from 'react';
+import { useId, type KeyboardEvent, type ReactNode } from 'react';
 import { DdIcon } from './DdIcon';
 import type { DdIconName } from './ddicons';
 import { commandKind, type CommandKind } from './commandKind';
+import { tabNext } from './tabKeys';
 
 /* ── Toolbar ─────────────────────────────────────────────────────────── */
 
@@ -131,7 +132,7 @@ export function RunBar({ state, status, labels, onRun, onStep, onPause, onStop, 
       {onStep && <button type="button" className="btn btn-ghost" onClick={onStep} disabled={disabled}><DdIcon name="arrow-right" size={14} />{labels.step}</button>}
       {onPause && <button type="button" className="btn btn-ghost" onClick={onPause} disabled={disabled}><DdIcon name="pause" size={14} />{labels.pause}</button>}
       <button type="button" className="btn btn-ghost text-[var(--color-danger)]" onClick={onStop} disabled={disabled}><DdIcon name="stop" size={14} />{labels.stop}</button>
-      <span className="ml-auto min-w-0 text-[12px] font-semibold text-ink-68" role="status">{status}</span>
+      <span className="ml-auto min-w-0 text-[14px] font-semibold text-ink-68" role="status">{status}</span>
     </div>
   );
 }
@@ -140,6 +141,17 @@ export function RunBar({ state, status, labels, onRun, onStep, onPause, onStop, 
 
 export interface IoTab { id: string; label: string; count?: number }
 export interface IoItem { id: string; label: string; on: boolean }
+
+/** APG tabs: Left/Right/Home/End move the active tab and take the focus with it. */
+function tabKeys(tabs: IoTab[], active: string, onTab: (id: string) => void) {
+  return (e: KeyboardEvent<HTMLButtonElement>) => {
+    const next = tabNext(e.key, tabs.findIndex((tb) => tb.id === active), tabs.length);
+    if (next < 0) return;
+    e.preventDefault();
+    onTab(tabs[next].id);
+    e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
+  };
+}
 
 /** On = solid dot, off = ring; both carry the on/off word, never colour alone. */
 export function IoDot({ on }: { on: boolean }) {
@@ -163,20 +175,27 @@ export function IoPanel({ title, tabs, active, onTab, items, onLabel, offLabel, 
   offLabel: string;
   emptyLabel: string;
 }) {
+  const base = useId().replace(/:/g, '');
+  const panelId = `${base}-panel`;
+  const onTabKey = tabKeys(tabs, active, onTab);
   return (
     <section className="min-w-0 rounded-[5px] border border-line bg-paper" aria-label={title}>
       <header className="flex items-center gap-2 border-b border-line px-2 py-1.5">
-        <h3 className="text-[13px] font-semibold">{title}</h3>
+        <h3 className="text-[14px] font-semibold">{title}</h3>
       </header>
       <div role="tablist" aria-label={title} className="flex gap-1 overflow-x-auto border-b border-line px-2">
         {tabs.map((tb) => (
           <button
             key={tb.id}
+            id={`${base}-tab-${tb.id}`}
             type="button"
             role="tab"
             aria-selected={tb.id === active}
+            aria-controls={panelId}
+            tabIndex={tb.id === active ? 0 : -1}
             onClick={() => onTab(tb.id)}
-            className={`h-8 shrink-0 border-b-2 px-2 text-[12px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
+            onKeyDown={onTabKey}
+            className={`h-8 shrink-0 border-b-2 px-2 text-[14px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
               tb.id === active ? 'border-blue font-semibold text-ink' : 'border-transparent text-ink-68 hover:text-blue'
             }`}
           >
@@ -185,16 +204,24 @@ export function IoPanel({ title, tabs, active, onTab, items, onLabel, offLabel, 
           </button>
         ))}
       </div>
-      <ul className="divide-y divide-line px-2 py-1">
-        {items.length === 0 && <li className="py-2 text-[14px] text-ink-46">{emptyLabel}</li>}
-        {items.map((it) => (
-          <li key={it.id} className="flex min-h-7 items-center gap-2 py-0.5 text-[13px]">
-            <IoDot on={it.on} />
-            <span className="min-w-0 flex-1 break-words">{it.label}</span>
-            <span className={`shrink-0 text-[12px] font-semibold ${it.on ? 'text-ink' : 'text-ink-46'}`}>{it.on ? onLabel : offLabel}</span>
-          </li>
-        ))}
-      </ul>
+      <div
+        role="tabpanel"
+        id={panelId}
+        aria-labelledby={`${base}-tab-${active}`}
+        tabIndex={0}
+        className="focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue"
+      >
+        <ul className="divide-y divide-line px-2 py-1">
+          {items.length === 0 && <li className="py-2 text-[14px] text-ink-46">{emptyLabel}</li>}
+          {items.map((it) => (
+            <li key={it.id} className="flex min-h-7 items-center gap-2 py-0.5 text-[14px]">
+              <IoDot on={it.on} />
+              <span className="min-w-0 flex-1 break-words">{it.label}</span>
+              <span className={`shrink-0 text-[14px] font-semibold ${it.on ? 'text-ink' : 'text-ink-46'}`}>{it.on ? onLabel : offLabel}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }
@@ -228,6 +255,9 @@ export function BottomDock({ label, tabs, active, onTab, collapsed, onToggle, to
   height?: number;
   children: ReactNode;
 }) {
+  const base = useId().replace(/:/g, '');
+  const panelId = `${base}-panel`;
+  const onTabKey = tabKeys(tabs, active, onTab);
   return (
     <section className="min-w-0 border-t border-line bg-paper" data-kit="dock">
       <div className="flex items-center gap-1 px-2">
@@ -235,11 +265,15 @@ export function BottomDock({ label, tabs, active, onTab, collapsed, onToggle, to
           {tabs.map((tb) => (
             <button
               key={tb.id}
+              id={`${base}-tab-${tb.id}`}
               type="button"
               role="tab"
               aria-selected={tb.id === active}
+              aria-controls={panelId}
+              tabIndex={tb.id === active ? 0 : -1}
               onClick={() => onTab(tb.id)}
-              className={`h-8 shrink-0 border-b-2 px-3 text-[13px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
+              onKeyDown={onTabKey}
+              className={`h-8 shrink-0 border-b-2 px-3 text-[14px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
                 tb.id === active ? 'border-blue font-semibold text-ink' : 'border-transparent text-ink-68 hover:text-blue'
               }`}
             >
@@ -259,11 +293,17 @@ export function BottomDock({ label, tabs, active, onTab, collapsed, onToggle, to
           <DdIcon name={collapsed ? 'caret-up' : 'caret-down'} size={14} />
         </button>
       </div>
-      {!collapsed && (
-        <div style={{ height }} className="overflow-auto border-t border-line px-3 py-2 text-[14px] leading-relaxed">
-          {children}
-        </div>
-      )}
+      <div
+        role="tabpanel"
+        id={panelId}
+        aria-labelledby={`${base}-tab-${active}`}
+        tabIndex={0}
+        hidden={collapsed}
+        style={{ height }}
+        className="overflow-auto border-t border-line px-3 py-2 text-[14px] leading-relaxed"
+      >
+        {!collapsed && children}
+      </div>
     </section>
   );
 }
@@ -283,7 +323,7 @@ export function ConnPill({ state, stateLabel, detailLabel }: {
         ? 'border-[var(--color-caution)] bg-[var(--color-caution-soft)] text-[var(--color-caution-ink)]'
         : 'border-line bg-subtle text-ink-68';
   return (
-    <span data-conn={state} className={`inline-flex items-center gap-2 rounded-[4px] border px-2 py-1 text-[12px] ${tone}`}>
+    <span data-conn={state} className={`inline-flex items-center gap-2 rounded-[4px] border px-2 py-1 text-[14px] ${tone}`}>
       {state === 'live' ? <IoDot on /> : <DdIcon name={state === 'stale' ? 'clock' : 'attention-circled'} size={13} />}
       <span className="font-semibold text-ink">{stateLabel}</span>
       <span className="min-w-0 break-words">{detailLabel}</span>
