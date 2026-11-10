@@ -1,10 +1,12 @@
 // DataGrid — the dense console table (plan §1.2): two-tier grouped headings,
 // sticky header, compact rows, mono right-aligned numbers with a unit, inline
-// edit per cell and one selected row. Keyboard: arrows/Home/End move the row,
-// Enter opens the inspector, Esc cancels the inline edit (see ./gridKeys).
+// edit per cell and one selected row. Below 768px the same table renders as
+// cards (plan §1.5), each cell carrying its column label, so nothing clips.
+// Keyboard: arrows/Home/End move the row, Enter opens the inspector, Esc
+// cancels the inline edit (see ./gridKeys).
 // The older <Table> in Page.tsx is untouched, so its callers keep their API.
 
-import { useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { gridKey } from './gridKeys';
 import { editEndGuard } from './gridEdit';
 
@@ -42,7 +44,7 @@ export interface DataGridProps<T extends { id: string }> {
   dense?: boolean;
   emptyLabel?: string;
   getRowState?: (row: T) => GridRowState;
-  /** px; makes the body scroll while the header stays put */
+  /** px; makes the body scroll while the header stays put (table layout only) */
   maxHeight?: number;
 }
 
@@ -78,6 +80,10 @@ export function DataGrid<T extends { id: string }>({
     editGuard.mark(input);
     (input.closest('tr') as HTMLTableRowElement | null)?.focus();
   };
+  /** An unchanged field commits nothing: in F05 a commit is an audited command. */
+  const commit = (row: T, col: DataGridColumn<T>, value: string) => {
+    if (value !== text(row, col)) col.edit!.onCommit(row, value);
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTableSectionElement>) => {
     const editing = e.target instanceof HTMLInputElement;
@@ -110,11 +116,11 @@ export function DataGrid<T extends { id: string }>({
   return (
     <div
       data-grid={dense ? 'compact' : 'default'}
-      className={maxHeight ? 'max-w-full overflow-auto' : 'max-w-full overflow-x-auto'}
-      style={maxHeight ? { maxHeight } : undefined}
+      className={`max-w-full ${maxHeight ? 'md:max-h-[var(--grid-h)] md:overflow-auto' : 'md:overflow-x-auto'}`}
+      style={maxHeight ? ({ '--grid-h': `${maxHeight}px` } as CSSProperties) : undefined}
     >
-      <table role="grid" aria-label={label} aria-rowcount={rows.length} className="w-full border-collapse text-[13px]">
-        <thead className="sticky top-0 z-[1] bg-subtle shadow-[0_1px_0_var(--color-line)]">
+      <table role="grid" aria-label={label} aria-rowcount={rows.length} className="w-full border-collapse text-[13px] max-md:block">
+        <thead className="sticky top-0 z-[1] bg-subtle shadow-[0_1px_0_var(--color-line)] max-md:hidden">
           {tiered && (
             <tr className="border-b border-line text-left">
               {groups.map((g, i) => (
@@ -137,9 +143,9 @@ export function DataGrid<T extends { id: string }>({
             ))}
           </tr>
         </thead>
-        <tbody ref={body} onKeyDown={onKeyDown}>
+        <tbody ref={body} onKeyDown={onKeyDown} className="max-md:block">
           {rows.length === 0 && (
-            <tr>
+            <tr className="max-md:block">
               <td colSpan={columns.length} className="px-3 py-4 text-[13px] text-ink-46">{emptyLabel}</td>
             </tr>
           )}
@@ -163,44 +169,50 @@ export function DataGrid<T extends { id: string }>({
                   select(i);
                 }}
                 onFocus={() => { if (!isSelected) onSelect?.(row); }}
-                style={{ height: dense ? 'var(--row-h-compact)' : 'var(--row-h)' }}
-                className={`border-b border-line last:border-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
+                className={`border-b border-line last:border-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue max-md:mb-2 max-md:block max-md:rounded-[5px] max-md:border max-md:border-line max-md:px-3 max-md:py-2 ${
+                  dense ? 'md:h-[var(--row-h-compact)]' : 'md:h-[var(--row-h)]'
+                } ${
                   isSelected ? 'bg-[var(--color-row-selected)] text-ink' : `hover:bg-info-soft ${state === 'stale' ? 'text-ink-46' : ''}`
                 }`}
               >
                 {columns.map((c) => (
                   <td
                     key={c.key}
-                    className={`whitespace-nowrap px-3 align-middle ${c.numeric ? 'text-right font-mono tabular-nums' : ''}`}
+                    className={`whitespace-nowrap px-3 align-middle max-md:flex max-md:items-baseline max-md:gap-3 max-md:whitespace-normal max-md:px-0 max-md:py-0.5 ${
+                      c.numeric ? 'text-right font-mono tabular-nums' : ''
+                    }`}
                   >
-                    {c.edit ? (
-                      <input
-                        data-col={c.key}
-                        aria-label={c.edit.inputLabel}
-                        defaultValue={text(row, c)}
-                        onBlur={(e) => {
-                          // the key handler committed and handed the focus back
-                          if (editGuard.claim(e.currentTarget)) return;
-                          c.edit!.onCommit(row, e.currentTarget.value);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            c.edit!.onCommit(row, e.currentTarget.value);
-                            endEdit(e.currentTarget);
-                          }
-                        }}
-                        className={`input h-6 w-full border-transparent bg-transparent hover:border-[var(--color-input-line)] focus:bg-paper ${c.numeric ? 'num text-right' : ''}`}
-                      />
-                    ) : c.render ? (
-                      c.render(row)
-                    ) : (
-                      <>
-                        {shown(row, c)}
-                        {c.unit && <span className="ml-1 text-[11px] text-ink-46">{c.unit}</span>}
-                      </>
-                    )}
+                    <span data-cell-label className="hidden shrink-0 text-[14px] font-sans font-normal text-ink-46 max-md:inline">{c.header}</span>
+                    <span className="min-w-0 max-md:flex-1 max-md:break-words">
+                      {c.edit ? (
+                        <input
+                          data-col={c.key}
+                          aria-label={c.edit.inputLabel}
+                          defaultValue={text(row, c)}
+                          onBlur={(e) => {
+                            // the key handler committed and handed the focus back
+                            if (editGuard.claim(e.currentTarget)) return;
+                            commit(row, c, e.currentTarget.value);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              commit(row, c, e.currentTarget.value);
+                              endEdit(e.currentTarget);
+                            }
+                          }}
+                          className={`input h-6 w-full border-transparent bg-transparent hover:border-[var(--color-input-line)] focus:bg-paper ${c.numeric ? 'num text-right' : ''}`}
+                        />
+                      ) : c.render ? (
+                        c.render(row)
+                      ) : (
+                        <>
+                          {shown(row, c)}
+                          {c.unit && <span className="ml-1 text-[11px] text-ink-46">{c.unit}</span>}
+                        </>
+                      )}
+                    </span>
                   </td>
                 ))}
               </tr>

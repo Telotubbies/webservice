@@ -91,6 +91,48 @@ def no_clipped_text(page):
     }""")
 
 
+def cells_outside_panel(page):
+    """Every body cell must sit inside the grid panel (the review measured 72 of 88 outside at 390)."""
+    return page.evaluate("""() => {
+      const out = [];
+      const panel = document.querySelector('[data-kit="grid"]');
+      if (!panel) return ['no grid panel'];
+      const box = panel.getBoundingClientRect();
+      for (const td of panel.querySelectorAll('[data-grid] tbody tr[data-row-id] td')) {
+        const r = td.getBoundingClientRect();
+        if (r.width > 0 && (r.right > box.right + 1 || r.left < box.left - 1)) out.push(td.textContent.trim().slice(0, 30));
+      }
+      return out;
+    }""")
+
+
+def card_layout(page):
+    """Plan §1.5 at 390: the same table renders as cards, each cell carrying its column label."""
+    return page.evaluate("""() => {
+      const table = document.querySelector('[data-kit="grid"] [data-grid] table');
+      const tds = [...table.tBodies[0].querySelectorAll('tr[data-row-id] td')];
+      const labelled = tds.filter((td) => {
+        const l = td.querySelector('[data-cell-label]');
+        return l && getComputedStyle(l).display !== 'none' && l.textContent.trim() !== '';
+      }).length;
+      const wrap = table.parentElement;
+      return {
+        table: getComputedStyle(table).display,
+        head: getComputedStyle(table.tHead).display,
+        cells: tds.length, labelled,
+        innerScroll: wrap.scrollWidth - wrap.clientWidth,
+      };
+    }""")
+
+
+def inspector_above_grid(page):
+    return page.evaluate("""() => {
+      const i = document.querySelector('[data-kit="inspector"]').getBoundingClientRect();
+      const t = document.querySelector('[data-kit="grid"] [data-grid] table').getBoundingClientRect();
+      return i.top < t.top;
+    }""")
+
+
 def overflow_offenders(page):
     """Elements whose box sticks out past the viewport (the diagnostic for a page-level scroll)."""
     return page.evaluate("""() => {
@@ -220,6 +262,13 @@ def run(b, web):
     pg.wait_for_timeout(200)
     check("d1: arrows still reach the row after an edit", pg.locator('tr[data-row-id="tank"]').get_attribute("aria-selected") == "true")
 
+    # touching a field and leaving without typing must emit no command (F05 audits commits)
+    pg.locator('tr[data-row-id="tank"] input[data-col="setpoint"]').click()
+    pg.locator('tr[data-row-id="tank"] td').nth(1).click()
+    pg.wait_for_timeout(200)
+    check("d1: an unchanged field commits nothing", pg.locator('[data-commit-count]').get_attribute('data-commit-count') == "1",
+          pg.locator('[data-commit-count]').get_attribute('data-commit-count'))
+
     # Esc must undo with the field's own row value, not the selected row's: dispatch
     # on the hopper field while "tank" is selected (a page whose onSelect does not
     # move selectedId would otherwise write "80" into a row that holds 1240).
@@ -264,6 +313,15 @@ def run(b, web):
         check(f"d1 mobile ({lang}): gallery renders", pm.locator('[data-kit="grid"]').count() == 1)
         check(f"d1 mobile ({lang}): toolbar scrolls instead of clipping", pm.eval_on_selector(
             '[data-kit="toolbar"] [role="toolbar"] > div', "el => ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)"))
+        cards = card_layout(pm)
+        check(f"d1 mobile ({lang}): the table renders as cards", cards["table"] == "block" and cards["head"] == "none", str(cards))
+        check(f"d1 mobile ({lang}): every cell carries its column label", cards["cells"] > 0 and cards["labelled"] == cards["cells"], str(cards))
+        check(f"d1 mobile ({lang}): the grid needs no sideways scroll", cards["innerScroll"] <= 1, str(cards))
+        outside = cells_outside_panel(pm)
+        check(f"d1 mobile ({lang}): every cell sits inside the panel", not outside, str(outside[:4]))
+        sel_bg = pm.eval_on_selector('tr[aria-selected="true"]', "el => getComputedStyle(el).backgroundColor")
+        check(f"d1 mobile ({lang}): the selected card uses the row-selected token", sel_bg == "rgb(255, 244, 204)", sel_bg)
+        check(f"d1 mobile ({lang}): the inspector sits above the table", inspector_above_grid(pm))
         check(f"d1 mobile ({lang}): no clipped text", not no_clipped_text(pm), str(no_clipped_text(pm)))
         check(f"d1 mobile ({lang}): no page-level horizontal scroll", pm.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), str(overflow_offenders(pm)))
         shots(pm, "390x844", lang)

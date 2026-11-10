@@ -176,26 +176,29 @@ export function KitGallery() {
           <SectionTag>{t('kit.grid.equipment')}</SectionTag>
           <SectionTag>{t('kit.tag.selected')}</SectionTag>
         </div>
-        <div data-commit-count={commits}>
-          <DataGrid
-            label={t('kit.grid.title')} columns={columns} rows={list} dense maxHeight={340}
-            selectedId={selected} onSelect={(row) => setSelected(row.id)} onOpen={(row) => setOpenId(row.id)}
-            getRowState={stateOf}
-          />
-        </div>
-        <div data-kit="inspector" className="mt-3 rounded-[5px] border border-line bg-subtle p-3">
-          <h3 className="text-[14px] font-semibold">{t('kit.inspector.title')}</h3>
-          {open ? (
-            <p className="mt-1 text-[14px] leading-relaxed">
-              <strong>{open.name}</strong> · {open.tag}
-              <br />
-              {t('kit.inspector.valueLine', { value: open.value, unit: open.unit, lo: open.lo ?? '—', hi: open.hi ?? '—' })}
-              <br />
-              {open.state} · {open.cmd}
-            </p>
-          ) : (
-            <p className="mt-1 text-[14px] text-ink-46">{t('kit.inspector.hint')}</p>
-          )}
+        <div className="flex flex-col-reverse gap-3 md:flex-col">
+          <div data-commit-count={commits}>
+            <DataGrid
+              label={t('kit.grid.title')} columns={columns} rows={list} dense maxHeight={340}
+              selectedId={selected} onSelect={(row) => setSelected(row.id)} onOpen={(row) => setOpenId(row.id)}
+              getRowState={stateOf}
+            />
+          </div>
+          {/* §1.5: at 390 the inspector sits above the table */}
+          <div data-kit="inspector" className="rounded-[5px] border border-line bg-subtle p-3">
+            <h3 className="text-[14px] font-semibold">{t('kit.inspector.title')}</h3>
+            {open ? (
+              <p className="mt-1 text-[14px] leading-relaxed">
+                <strong>{open.name}</strong> · {open.tag}
+                <br />
+                {t('kit.inspector.valueLine', { value: open.value, unit: open.unit, lo: open.lo ?? '—', hi: open.hi ?? '—' })}
+                <br />
+                {open.state} · {open.cmd}
+              </p>
+            ) : (
+              <p className="mt-1 text-[14px] text-ink-46">{t('kit.inspector.hint')}</p>
+            )}
+          </div>
         </div>
         <h3 className="mb-1 mt-4 text-[14px] font-semibold">{t('kit.grid.empty')}</h3>
         <DataGrid label={t('kit.grid.empty')} columns={columns.slice(0, 4)} rows={[]} dense emptyLabel={t('kit.grid.empty')} />
