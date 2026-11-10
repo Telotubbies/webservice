@@ -53,6 +53,24 @@ test('the last command is the newest one on the equipment, never another tag', (
   expect(newestCommand([], new Set(['line.speed']))).toBeUndefined();
 });
 
+test('the last command on an equipment knows the type of the tag it touched', () => {
+  const now = Date.parse('2026-11-11T10:00:30Z');
+  const rows = buildRows({
+    equipment: EQUIPMENT,
+    primary: { motor: 'line.speed', bin: 'line.level' },
+    now,
+    latest: new Map(),
+    // a STOP on the run signal of an equipment whose reading is a setpoint
+    commands: [cmd({ id: 's', tag: 'line.running', value: false, updated_at: '2026-11-11T10:00:00Z' })],
+    rules: [],
+    alarms: [],
+    running: false,
+    kinds: { 'line.running': 'run', 'line.speed': 'set' },
+    runTag: 'line.running',
+  });
+  expect(rows[0].command?.code).toBe('STOP');
+});
+
 test('only the equipment that owns the run signal may claim a line state', () => {
   const now = Date.parse('2026-11-11T10:00:30Z');
   const rows = buildRows({
@@ -64,7 +82,7 @@ test('only the equipment that owns the run signal may claim a line state', () =>
     rules: [],
     alarms: [],
     running: true,
-    kinds: { motor: 'set', bin: 'other' },
+    kinds: { 'line.running': 'run', 'line.speed': 'set' },
     runTag: 'line.running',
   });
   expect(rows.find((r) => r.id === 'motor')?.hasRunSignal).toBe(true);
@@ -85,7 +103,7 @@ test('a row without a numeric reading has no reading to show', () => {
     rules: [],
     alarms: [],
     running: true,
-    kinds: { motor: 'set', bin: 'other' },
+    kinds: { 'line.running': 'run', 'line.speed': 'set' },
     runTag: 'line.running',
   });
   expect(rows[0]).toMatchObject({ value: true, reading: null });
@@ -103,7 +121,7 @@ test('a row with a numeric reading carries it, even when it is zero', () => {
     rules: [],
     alarms: [],
     running: false,
-    kinds: { motor: 'set', bin: 'other' },
+    kinds: { 'line.running': 'run', 'line.speed': 'set' },
     runTag: 'line.running',
   });
   expect(rows[0]).toMatchObject({ value: 0, reading: 0 });
@@ -138,11 +156,11 @@ test('buildRows keeps the equipment order, its primary tag and its state', () =>
     rules: [rule({ kind: 'hi', threshold: 55 }), rule({ kind: 'lo', threshold: 5 })],
     alarms: [{ id: 9, tag: 'line.level', rule: 'r', severity: 'warning', state: 'active', ts: '2026-11-11T10:00:00Z' }],
     running: true,
-    kinds: { motor: 'set', bin: 'other' },
+    kinds: { 'line.running': 'run', 'line.speed': 'set' },
     runTag: 'line.running',
   });
   expect(rows.map((r) => r.id)).toEqual(['motor', 'bin']);
-  expect(rows[0]).toMatchObject({ tag: 'line.speed', value: 32, stale: false, state: 'running', code: 'SET' });
+  expect(rows[0]).toMatchObject({ tag: 'line.speed', value: 32, stale: false, state: 'running' });
   expect(rows[0].limits).toEqual({ lo: 5, hi: 55 });
   expect(rows[0].command?.code).toBe('SET');
   expect(rows[1]).toMatchObject({ tag: 'line.level', stale: true, state: 'stale', alarm: 'warning' });

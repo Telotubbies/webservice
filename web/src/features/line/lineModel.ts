@@ -6,10 +6,15 @@
 import type { Alarm, AlarmRule, Command, Quality, TagValue } from '../../types';
 import type { RunState } from '../../shared/ui/Status';
 import { STALE_MS } from '../../lib/live';
+import { T } from '../../lib/plant';
 
 export interface EqMeta { id: string; labelKey: string; signals: string[] }
 export type CommandKindOfRow = 'run' | 'set' | 'other';
 export interface RowLimits { lo?: number; hi?: number }
+
+/** The command type each writable signal takes — keyed by tag, not equipment,
+ *  because the newest command on an equipment may be on any of its signals. */
+export const COMMAND_KINDS: Record<string, CommandKindOfRow> = { [T.running]: 'run', [T.speedSp]: 'set' };
 
 export interface EquipmentRow {
   id: string;
@@ -23,8 +28,6 @@ export interface EquipmentRow {
   hasRunSignal: boolean;
   /** the numeric reading a readout can show, or null when there is none */
   reading: number | null;
-  /** START / STOP / SET / OTHER — the type chip of the last command */
-  code: string;
   limits: RowLimits;
   command?: { code: string; at: string };
   state: RunState;
@@ -94,6 +97,7 @@ export function buildRows({ equipment, primary, now, latest, commands, rules, al
   rules: AlarmRule[];
   alarms: Alarm[];
   running: boolean;
+  /** command type of a tag, see COMMAND_KINDS */
   kinds: Record<string, CommandKindOfRow>;
   /** the line's run signal; only its owner shows a run state */
   runTag: string;
@@ -113,9 +117,8 @@ export function buildRows({ equipment, primary, now, latest, commands, rules, al
       value: tv ? tv.v : null,
       reading: typeof tv?.v === 'number' ? tv.v : null,
       hasRunSignal: eq.signals.includes(runTag),
-      code: commandCode(kinds[eq.id] ?? 'other', command?.value),
       limits: rowLimits(rules, tag),
-      command: command ? { code: commandCode(kinds[eq.id] ?? 'other', command.value), at: command.updated_at ?? command.created_at ?? '' } : undefined,
+      command: command ? { code: commandCode(kinds[command.tag] ?? 'other', command.value), at: command.updated_at ?? command.created_at ?? '' } : undefined,
       state: rowState(stale, running),
       alarm: worstAlarm(alarms, new Set(eq.signals)),
       quality: tv?.q,

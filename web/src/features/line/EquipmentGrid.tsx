@@ -12,11 +12,14 @@ import { fmtClock } from '../../lib/format';
 import type { EquipmentRow } from './lineModel';
 import { QualityState, RunMark } from './LineMarks';
 
-export function EquipmentGrid({ rows, selectedId, onSelect, onOpen, emptyLabel }: {
+export function EquipmentGrid({ rows, selectedId, onSelect, onOpen, onCardOpen, emptyLabel }: {
   rows: EquipmentRow[];
   selectedId: string | null;
   onSelect: (row: EquipmentRow) => void;
+  /** Enter on the desktop grid: opens the inspector and scrolls to it */
   onOpen: (row: EquipmentRow) => void;
+  /** a tap on a phone card: opens the inspector without scrolling the list away */
+  onCardOpen: (row: EquipmentRow) => void;
   emptyLabel: string;
 }) {
   const { t, i18n } = useTranslation();
@@ -95,7 +98,7 @@ export function EquipmentGrid({ rows, selectedId, onSelect, onOpen, emptyLabel }
               data-row-card={r.id}
               aria-pressed={r.id === selectedId}
               aria-label={`${r.seq}. ${t(r.labelKey)}`}
-              onClick={() => { onSelect(r); onOpen(r); }}
+              onClick={() => { onSelect(r); onCardOpen(r); }}
               className={`flex w-full flex-col gap-1.5 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
                 r.id === selectedId ? 'bg-[var(--color-row-selected)] text-ink' : ''
               }`}

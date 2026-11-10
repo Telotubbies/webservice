@@ -219,6 +219,21 @@ def desktop(page, web):
     check("desktop: the new command appears with its reason and result",
           "33" in newest and "Production plan" in newest and "Read back 33" in newest, newest)
 
+    # regression: a STOP is a run command even though the motor's reading is a
+    # setpoint; the last-command chip must read STOP on the grid and inspector
+    page.get_by_role("button", name="Stop", exact=True).click()
+    page.wait_for_selector("[data-testid=command-sheet]", timeout=5000)
+    page.get_by_label("Reason, kept in the audit log").select_option(label="Production plan")
+    page.get_by_role("button", name="Send command").click()
+    page.wait_for_selector("[data-testid=outcome][data-tone=ok]", timeout=10000)
+    page.locator("[data-testid=outcome]").get_by_role("button", name="Close").click()
+    page.wait_for_selector("[data-testid=command-sheet]", state="detached", timeout=5000)
+    page.wait_for_timeout(600)
+    grid_chip = page.locator("[data-row-id=motor] [data-kind]").first.inner_text()
+    check("desktop: a STOP on the run tag is chipped STOP in the grid, not SET", grid_chip == "STOP", grid_chip)
+    inspector_chip = page.locator("#line-inspector [data-kind]").first.inner_text()
+    check("desktop: the inspector's last command agrees with the grid", inspector_chip == "STOP", inspector_chip)
+
     # --- dock: log level and events
     page.get_by_label("Log level").select_option("warning")
     page.wait_for_timeout(200)
@@ -247,6 +262,22 @@ def mobile(page, web):
     page.wait_for_timeout(300)
     check("mobile: choosing a card moves the readout",
           page.locator("[data-readout]").get_attribute("aria-label") == "Belt speed")
+    # regression: tapping a card must not throw the operator to the top of the
+    # page, ~800 px away from the only equipment list on a phone
+    card = page.locator("[data-row-card=bin]")
+    card.scroll_into_view_if_needed()
+    page.wait_for_timeout(200)
+    y0 = page.evaluate("window.scrollY")
+    card.click()
+    page.wait_for_timeout(300)
+    y1 = page.evaluate("window.scrollY")
+    # the inspector above the list may change height when the selection changes
+    # (a shorter limits list, no last command); the defect was a 784 px jump
+    check("mobile: tapping a card keeps the list where it was", abs(y1 - y0) <= 50,
+          f"scrollY {y0} -> {y1}")
+    check("mobile: the tapped card is the selected one",
+          page.locator("[data-readout]").get_attribute("aria-label") == "Bin level"
+          and page.locator("[data-row-card=bin][aria-pressed=true]").count() == 1)
     page.locator("[data-readout]").scroll_into_view_if_needed()
     check("mobile: no horizontal overflow",
           page.evaluate("document.documentElement.scrollWidth") <= page.viewport_size["width"],

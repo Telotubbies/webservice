@@ -7,7 +7,7 @@
 import { useTranslation } from 'react-i18next';
 import { live } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
-import { LINE_EQUIPMENT, SIGNALS, T } from '../../lib/plant';
+import { LINE_EQUIPMENT, SIGNALS } from '../../lib/plant';
 import { fmtAge } from '../../lib/format';
 import { useControlGate } from '../../app/session';
 import { CommandChip } from '../../shared/ui/ConsoleKit';
@@ -15,10 +15,9 @@ import { DdIcon } from '../../shared/ui/DdIcon';
 import { EmptyState } from '../../shared/ui/Feedback';
 import { LifecyclePill } from './LifecyclePill';
 import { outcomeOf } from './commandOutcome';
-import { commandCode, type CommandKindOfRow } from './lineModel';
+import { commandCode, COMMAND_KINDS } from './lineModel';
 
 const LINE_TAGS = new Set(LINE_EQUIPMENT.flatMap((e) => e.signals));
-const KIND: Record<string, CommandKindOfRow> = { [T.running]: 'run', [T.speedSp]: 'set' };
 
 export function CommandsTab() {
   const { t } = useTranslation();
@@ -50,7 +49,7 @@ export function CommandsTab() {
       </div>
       <ul className="divide-y divide-line">
         {rows.map((c, i) => {
-          const code = commandCode(KIND[c.tag] ?? 'other', c.value);
+          const code = commandCode(COMMAND_KINDS[c.tag] ?? 'other', c.value);
           const out = outcomeOf(t, c.status, c.detail);
           // the one pre-send check the audit keeps for every command is its reason;
           // the audited result rides with the lifecycle pill so neither is guessed

@@ -30,11 +30,10 @@ import { Inspector } from './Inspector';
 import { EquipmentGrid } from './EquipmentGrid';
 import { CommandsTab } from './CommandsTab';
 import { MessageLog, LineLog, EventLog } from './MessageLog';
-import { buildRows, connOf, matches, type LogLevel } from './lineModel';
+import { buildRows, connOf, matches, COMMAND_KINDS, type LogLevel } from './lineModel';
 import './i18n';
 
 const PRIMARY: Record<string, string> = { motor: T.speedSp, conveyor: T.beltSpeed, camera: T.gravel, bin: T.binLevel };
-const KINDS = { motor: 'set', conveyor: 'other', camera: 'other', bin: 'other' } as const;
 const LINE_TAGS = EQUIPMENT.flatMap((e) => e.signals);
 
 /** The original ISA-101 side elevation, kept as its own tab. */
@@ -120,7 +119,7 @@ export function LinePage() {
     rules: [...rules.values()].flat(),
     alarms: openAlarms,
     running,
-    kinds: KINDS,
+    kinds: COMMAND_KINDS,
     runTag: T.running,
   });
   const visible = rows.filter((r) => matches([t(r.labelKey), r.tag], search));
@@ -211,6 +210,9 @@ export function LinePage() {
                   selectedId={selected.id}
                   onSelect={(r) => setSel(r.id)}
                   onOpen={(r) => { setSel(r.id); document.getElementById('line-inspector')?.focus(); }}
+                  // a tap must not scroll the card list away; the inspector is
+                  // above it on a phone, and the next card is what the operator wants
+                  onCardOpen={(r) => { setSel(r.id); document.getElementById('line-inspector')?.focus({ preventScroll: true }); }}
                   emptyLabel={t('d2.filterEmpty')}
                 />
               </section>
