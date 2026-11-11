@@ -17,8 +17,9 @@ import { HomePage } from '../home/HomePage';
 
 export function OverviewPage() {
   const { t } = useTranslation();
-  const seeded = useStore(() => live.tagRev);
-  const seedError = useStore(() => live.seedRev);
+  // cold start: the revision counters also move on reset (sign-in), so gate on the flags
+  const seeded = useStore(() => live.tagsSeeded);
+  const seedError = useStore(() => live.seedError);
   const qc = useQueryClient();
   const guide = useConnectGuide();
 
@@ -32,8 +33,8 @@ export function OverviewPage() {
     void api.insights({ state: 'open' }).then((a) => live.setInsights(a)).catch(() => live.setSeedError());
   };
 
-  if (seedError && !live.tagsSeeded) return <><PageBar title={t('home.title')} /><ErrorState onRetry={retrySeed} /></>;
-  if (!live.tagsSeeded && !seeded) return <><PageBar title={t('home.title')} /><PageSkeleton /></>;
+  if (seedError && !seeded) return <><PageBar title={t('home.title')} /><ErrorState onRetry={retrySeed} /></>;
+  if (!seeded) return <><PageBar title={t('home.title')} /><PageSkeleton /></>;
 
   return (
     <HomePage
