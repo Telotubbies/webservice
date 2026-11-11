@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import './i18n';
 import { isPlatformDenied, platformApi } from './api';
 import { PageBar, Card, Table } from '../../shared/ui/Page';
-import { PageSkeleton, ErrorState, Notice } from '../../shared/ui/Feedback';
+import { PageSkeleton, ErrorState, Notice, EmptyState } from '../../shared/ui/Feedback';
 import { Segmented } from '../../shared/ui/Segmented';
 
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : '—');
@@ -29,6 +29,11 @@ export function PlatformSupportPage() {
         {denied ? <Notice tone="warn">{t('plat.denied')}</Notice>
           : q.isPending ? <PageSkeleton />
           : q.isError ? <Card pad={false}><ErrorState onRetry={() => void q.refetch()} /></Card>
+          : (q.data?.items ?? []).length === 0 ? (
+            <Card pad={false}>
+              <EmptyState icon="lock" title={t('plat.supportNone')} body={t('plat.supportNoneBody')} />
+            </Card>
+          )
           : (
             <Card pad={false}>
               <Table head={[t('plat.org'), t('plat.reason'), t('plat.expires'), t('plat.active'), '']}>
