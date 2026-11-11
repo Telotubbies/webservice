@@ -107,8 +107,10 @@ export function Card({ title, actions, children, pad = true }: {
 
 /** dd dense table — 36px rows, hairlines, mono numeric option */
 export function Table({ head, children }: { head: ReactNode[]; children: ReactNode }) {
+  // relative: an `sr-only` header cell is absolute, so it scrolls with the table
+  // and would otherwise widen the page instead of being clipped here
   return (
-    <div className="max-w-full overflow-x-auto">
+    <div className="relative max-w-full overflow-x-auto">
     <table className="w-full border-collapse text-[13px]">
       <thead>
         <tr className="border-b border-line text-left">

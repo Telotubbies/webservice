@@ -137,7 +137,7 @@ export function AlarmRulesPage() {
           ) : (
             /* relative on Table's own box (not this wrapper): the sr-only header joins
                that box's scroll range, so it is clipped and this wrapper cannot scroll */
-            <div className="admin-table overflow-x-auto [&>div]:relative">
+            <div className="admin-table overflow-x-auto">
               <Table head={[
                 t('admin.ruleName'), t('admin.ruleTag'), t('admin.ruleKind'), t('admin.ruleThreshold'),
                 t('admin.ruleDeadband'), t('alarms.severity'), t('admin.ruleEnabled'),

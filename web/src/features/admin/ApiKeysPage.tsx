@@ -125,7 +125,7 @@ export function ApiKeysPage() {
             ) : (
               /* relative on Table's own box (not this wrapper): the sr-only actions
                  header must not widen the page nor the wrapper's own scroll range */
-              <div className="admin-table overflow-x-auto [&>div]:relative">
+              <div className="admin-table overflow-x-auto">
                 <Table head={[t('keys.name'), t('keys.prefix'), t('keys.role'), t('keys.lastUsed'), t('keys.expires'), t('keys.status'), <span key="a" className="sr-only">{t('access.colActions')}</span>]}>
                   {items.map((k) => {
                     const s = stateOf(k);
