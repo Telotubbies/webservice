@@ -67,6 +67,32 @@ Status pills, which always combine colour, shape and text:
 | `<DdIcon name>` | Lucide glyph by semantic name (`ddicons.ts`). Decorative unless you pass `label`. |
 | `<Sparkline>` | Tiny inline trend. `.spark-limit` draws the dashed threshold line. |
 
+## Console v6 kit (`ConsoleKit.tsx`, `Readout.tsx`, `DataGrid.tsx`)
+
+The engineering-console density pass (docs/console-v6-plan.md §1.2–1.4), for working pages only. Its gallery is `/dev/ui` in a dev build; every component is shown in every state in both languages. Components take their strings as props, so each page brings its own EN/TH keys.
+
+| Component | Use | Rules |
+|---|---|---|
+| `<Toolbar>` / `<ToolGroup>` / `<ToolButton>` | Icon over a 12px label, 56px wide, hairline between groups, connection pill on the right. Below 480px the pill drops to its own line and the tools scroll sideways instead of clipping. | Disabled tools turn grey, stay focusable and state the reason (`title` plus screen-reader text). Icons are Lucide (`DdIcon`). |
+| `<SectionTag>` | Filled accent panel heading, e.g. "Equipment (8)". | Replaces a large heading inside a panel; text is `--color-on-accent` on `--color-accent`. |
+| `<Readout>` | One dark panel: big mono value with unit, three secondary fields and a range bar with limit marks. | Quality and age are part of the panel: `state="stale"` reads "not current" in the warning-on-dark tone and `state="error"` in the critical one. Never show an old value as live. |
+| `<DataGrid>` | Grouped two-tier headings, sticky header, 32px rows (28px with `dense`), mono right-aligned numbers, a unit, inline edit, one selected row. Below 768px the same table renders as cards, each cell labelled with its column, and `maxHeight` applies to the table layout only. | Selected row uses `--color-row-selected`; never a status stripe. Keyboard: arrows/Home/End move the row, Enter opens the inspector, Esc cancels an inline edit, focus ring on the row. A field whose value did not change commits nothing. The older `<Table>` keeps its API. |
+| `<CommandChip>` | Chip coloured by command TYPE (HOME, MOVE, SET, WAIT, LOOP, END, OTHER). | Colour codes the type, never the status, and the chip always carries its word. An unknown command is OTHER. |
+| `<RunBar>` | Run, Step, Pause, Stop queue plus a neutral status line, for the F05 queue only. | Step and Pause are not rendered when the caller passes no handler. Commands still go through `<Confirm>`, a reason and the audit log. |
+| `<IoPanel>` / `<IoDot>` | DI/DO tabs and point rows. | On is a solid dot, off is a ring, and each row carries the on/off word: never colour alone. |
+| `<InfoBanner>` | Blue strip under the page title. | States the page's scope and the safety limit: this console is not a safety system, interlocks stay in the PLC. |
+| `<BottomDock>` | Log/Events tabs, collapsible, fixed heights. | There is no terminal in this app. Collapsing keeps the tab row visible. A drag handle comes with the app-level dock (D8). |
+| `<ConnPill>` | Compact connection state beside the toolbar's main action. | Shows the state and the last time data arrived; offline and stale add a Lucide icon plus the word. |
+| `Command kind` (`commandKind.ts`) | Maps a command word to its chip type. | Pure and unit-tested; unmapped words are `other`, never a status colour. |
+
+New tokens in `dd-theme.css` (old names unchanged): `--color-readout`, `--color-readout-ink`, `--color-readout-dim`, `--color-row-selected`, `--color-cmd-{home,move,set,wait,loop,end,other}`, `--color-cmd-ink`, `--row-h-compact`, `--row-h`, `--tool-btn-w`. `--font-mono` was already there. Contrast is asserted in `shared/ui/tokens.test.ts`: readout pairs ≥ 7:1, the selected row and every chip ≥ 4.5:1 in both themes.
+
+Not taken from the reference design:
+
+- **No "STOP ALL" button.** This app has no plant-wide halt and is not a safety system; the banner says so and interlocks stay in the PLC.
+- **No green "SERVO ON" pill.** Running is normal, so it stays neutral; colour marks abnormal states only (rule 1).
+- **No Workspace tab and no hold-to-jog.** The first belongs to another product; the second bypasses the audited command queue.
+
 ## Shell (`app/Shell.tsx`), for reference
 
 - 160 px dark rail with hover/focus flyouts. The active group has an inset blue bar.

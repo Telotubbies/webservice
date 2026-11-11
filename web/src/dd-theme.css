@@ -85,6 +85,27 @@
   --color-hmi-equip-run: #4a5563;              /* running: darker neutral, never green */
   --color-hmi-level:     #6f8aa6;              /* vessel level fill — muted, not a status colour */
 
+  /* ---- console v6 (docs/console-v6-plan.md §1.3) ----
+     Readout is a dark panel in every theme; command chips code the command
+     TYPE, never a status, and always carry text. Every pair below is asserted
+     by shared/ui/tokens.test.ts (readout ≥7:1, chips and the selected row
+     ≥4.5:1). --font-mono above is the existing mono face — no dependency. */
+  --color-readout:       #121821;                /* readout panel */
+  --color-readout-ink:   #f2f5f8;                /* 16.3:1 on readout */
+  --color-readout-dim:   #9fb0c3;                /* 8.0:1 on readout */
+  --color-row-selected:  #fff4cc;                /* ink is 14.9:1 on it */
+  --color-cmd-ink:       #ffffff;                /* one ink for all seven chips */
+  --color-cmd-home:      #0f766e;
+  --color-cmd-move:      #2a64c8;                /* the accent, reused */
+  --color-cmd-set:       #b45309;
+  --color-cmd-wait:      #7c4a1e;
+  --color-cmd-loop:      #5b3a8f;
+  --color-cmd-end:       #18202a;
+  --color-cmd-other:     #5b647d;
+  --row-h-compact: 28px;                          /* grid row, dense */
+  --row-h:         32px;                          /* grid row */
+  --tool-btn-w:    56px;                          /* toolbar button */
+
   /* ---- typography ---- */
   /* IBM Plex (bundled via @fontsource — CSP allows self-hosted fonts only).
      Latin resolves to Plex Sans; Thai code points fall through to Plex Sans
@@ -140,4 +161,11 @@
   --icon-sm:   12px;
   --icon-md:   14px;
   --icon-lg:   16px;
+}
+
+/* The selected row is a yellow tint in both themes; re-point it so --color-ink
+   (which goes light in dark) keeps 4.5:1 on it (10.5:1). Tokens.css, imported
+   after this file, does not declare this name. */
+:root[data-theme=dark] {
+  --color-row-selected: #3a3316;
 }

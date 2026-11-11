@@ -1,6 +1,8 @@
 """Shared helpers for the T-all E2E files (smoke.py is not edited; its helpers are re-used)."""
 import importlib.util
 import os
+import signal
+import socket
 import subprocess
 import sys
 import time
@@ -19,18 +21,45 @@ failures = smoke.failures
 DESK, MOB = {"width": 1440, "height": 900}, {"width": 390, "height": 844}
 
 
+def listening(port):
+    """True when anything already answers on the port (a leftover Vite from another tree)."""
+    try:
+        with socket.create_connection(("localhost", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def stop_tree(proc):
+    """Kill the whole tree: on Windows npx is a cmd shim, elsewhere it is a node wrapper."""
+    if sys.platform == "win32":
+        stop(proc)  # smoke.stop already runs taskkill /T
+    else:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except OSError:
+            proc.terminate()
+
+
 def start_vite(port):
+    url = f"http://localhost:{port}"
+    # never test a server this run did not start: a busy port silently turns the
+    # suite into a test of whatever other worktree is listening
+    if listening(port):
+        raise SystemExit(f"port {port} already answers on {url} - refusing to test a server this run did not start")
     shell = sys.platform == "win32"
     proc = subprocess.Popen(["npx", "vite", "--port", str(port), "--strictPort"], cwd=WEB_DIR, shell=shell,
-                            env={**os.environ, "MOCK_API": "1"}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    url = f"http://localhost:{port}"
+                            env={**os.environ, "MOCK_API": "1"}, start_new_session=not shell,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(90):
+        if proc.poll() is not None:
+            raise SystemExit(f"vite exited before {url} answered - is port {port} taken?")
         try:
             urllib.request.urlopen(url, timeout=1)
             return proc, url
         except Exception:
             time.sleep(1)
-    proc.kill()
+    stop_tree(proc)
     raise SystemExit("vite did not start within 90 s")
 
 
@@ -62,7 +91,7 @@ def main(port_default, runner):
             b.close()
     finally:
         if proc:
-            stop(proc)
+            stop_tree(proc)
     print(f"\n{len(failures)} failure(s)")
     sys.exit(1 if failures else 0)
 
