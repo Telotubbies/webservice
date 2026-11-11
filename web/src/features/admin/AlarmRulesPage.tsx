@@ -135,7 +135,8 @@ export function AlarmRulesPage() {
           ) : items.length === 0 ? (
             <EmptyState title={t('admin.noRules')} body={mutable ? t('admin.noRulesBody') : undefined} />
           ) : (
-            <div className="admin-table overflow-x-auto">
+            /* relative: keeps the sr-only header and the toggle knobs in the scroll box */
+            <div className="admin-table relative overflow-x-auto">
               <Table head={[
                 t('admin.ruleName'), t('admin.ruleTag'), t('admin.ruleKind'), t('admin.ruleThreshold'),
                 t('admin.ruleDeadband'), t('alarms.severity'), t('admin.ruleEnabled'),

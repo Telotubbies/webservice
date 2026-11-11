@@ -37,10 +37,12 @@ export function AssistantPage() {
                     <SeverityBadge severity={r.severity} />
                     <span className="min-w-0 flex-1">
                       <span className="font-medium">{r.label}</span>
-                      {r.tag && <Link to={`/trends?tags=${encodeURIComponent(r.tag)}`} className="ml-2 font-mono text-[11px] text-blue hover:underline">{r.tag}</Link>}
+                      {r.tag && <Link to={`/trends?tags=${encodeURIComponent(r.tag)}`} className="ml-2 break-all font-mono text-[11px] text-blue hover:underline">{r.tag}</Link>}
                       {r.detail && <span className="block text-[12px] text-ink-68">{r.detail}</span>}
                     </span>
-                    <span className="w-28" role="img" aria-label={`${Math.round(r.score * 100)} %`}>
+                    {/* the score is the same number as the bar, so the bar waits
+                        for room and the phone keeps the words at full width */}
+                    <span className="hidden w-28 sm:block" role="img" aria-label={`${Math.round(r.score * 100)} %`}>
                       <span className="block h-2 rounded-sm bg-subtle"><span className="block h-full rounded-sm bg-blue" style={{ width: `${r.score * 100}%` }} /></span>
                     </span>
                     <span className="w-10 text-right font-mono text-[12px]">{Math.round(r.score * 100)}%</span>

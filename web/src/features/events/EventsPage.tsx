@@ -108,8 +108,8 @@ export function EventsPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 gap-4 p-4">
-        <aside className="w-[220px] shrink-0 self-start border border-line bg-paper" aria-label={t('evx.facets')}>
+      <div className="flex flex-1 flex-col gap-4 p-4 md:flex-row">
+        <aside className="w-full shrink-0 self-start border border-line bg-paper md:w-[220px]" aria-label={t('evx.facets')}>
           <FacetGroup title={t('evx.fSource')} off={offSource} emptyLabel="—" onToggle={(v) => setOffSource((s) => toggleIn(s, v))}
             options={facetOptions(inRange, (e) => e.source, (v) => t(SOURCE_KEY[v as PlantEvent['source']]))
               .concat(sources.filter((s) => !inRange.some((e) => e.source === s)).map((s) => ({ value: s, label: t(SOURCE_KEY[s]), count: 0 })))} />

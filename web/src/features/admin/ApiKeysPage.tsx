@@ -123,7 +123,8 @@ export function ApiKeysPage() {
             {keys.isError ? <ErrorState onRetry={() => void keys.refetch()} /> : keys.isLoading ? <PageSkeleton /> : items.length === 0 ? (
               <EmptyState title={t('keys.empty')} body={t('keys.emptyBody')} />
             ) : (
-              <div className="admin-table overflow-x-auto">
+              /* relative: the sr-only actions header must not widen the page */
+              <div className="admin-table relative overflow-x-auto">
                 <Table head={[t('keys.name'), t('keys.prefix'), t('keys.role'), t('keys.lastUsed'), t('keys.expires'), t('keys.status'), <span key="a" className="sr-only">{t('access.colActions')}</span>]}>
                   {items.map((k) => {
                     const s = stateOf(k);
