@@ -110,6 +110,15 @@ def run(b, web):
     w = pg.evaluate(WIDTH)
     check(f"fx: 404 fits 390 ({w['sw']}px)", w["sw"] <= 390, str(w))
     shot(pg, "not-found-390")
+    # the copy interpolates the path, so an unbroken 200-char segment must wrap,
+    # not widen the page (this is the one URL-controlled string in the console)
+    long_path = "/" + "x" * 200
+    c.nav(pg, long_path, 1200)
+    w = pg.evaluate(WIDTH)
+    check(f"fx: 404 with a 200-char path fits 390 ({w['sw']}px)", w["sw"] <= 390, str(w))
+    check("fx: 404 still names the long path", long_path in c.text(pg))
+    shot(pg, "not-found-390-long")
+    c.nav(pg, missing, 900)
     pg.set_viewport_size(c.DESK)
     # both languages carry the same promise
     check("fx: 404 has Thai copy", set_lang(pg, "th") == "th")

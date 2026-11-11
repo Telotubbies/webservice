@@ -17,7 +17,8 @@ export function NotFoundPage() {
   return (
     <div className="flex min-h-[calc(100svh-var(--h-topbar))] flex-col">
       <PageBar title={t('nf.title')} />
-      <div className="p-4">
+      {/* the path is URL text: one long segment must break instead of widening the page */}
+      <div className="p-4 [overflow-wrap:anywhere]">
         <EmptyState
           icon="search"
           title={t('nf.heading')}
