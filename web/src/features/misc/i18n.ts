@@ -40,7 +40,17 @@ msum: {
   emptyAllBody: 'History starts recording once a gateway ships tag samples.',
   detailToggle: 'Stats for {{name}}', gapTip: 'Longest gap (s)',
   detail: '{{count}} samples · min {{min}} · max {{max}} · avg {{avg}} · {{gaps}} gaps (longest {{gap}}s)',
-} });
+},
+// 404 — unknown address. Says which path was opened and what still works.
+nf: {
+  title: 'Page not found (404)',
+  heading: 'This address is not part of the console',
+  body: 'No page is routed to {{path}}, and nothing was changed. Check the link, or search for the page you meant.',
+  path: 'Address you opened',
+  home: 'Back to the first page',
+  search: 'Search pages and signals',
+},
+});
 
 i18n.addResourceBundle('th', 'translation', { px: {
   search: 'กรอง', showing: 'แสดง {{shown}} จาก {{total}}', empty: 'ไม่พบรายการที่ตรงกัน', failed: 'โหลดหน้านี้ไม่สำเร็จ',
@@ -78,4 +88,14 @@ msum: {
   emptyAllBody: 'ประวัติจะเริ่มบันทึกเมื่อเกตเวย์ส่งตัวอย่างแท็ก',
   detailToggle: 'สถิติของ {{name}}', gapTip: 'ช่องว่างที่ยาวที่สุด (วินาที)',
   detail: '{{count}} ตัวอย่าง · ต่ำสุด {{min}} · สูงสุด {{max}} · เฉลี่ย {{avg}} · {{gaps}} ช่องว่าง (ยาวสุด {{gap}} วินาที)',
-} });
+},
+// 404 — ที่อยู่ที่ไม่มีจริง ต้องบอกว่าเปิด path ใดและยังทำอะไรได้บ้าง
+nf: {
+  title: 'ไม่พบหน้านี้ (404)',
+  heading: 'ที่อยู่นี้ไม่ได้อยู่ในคอนโซล',
+  body: 'ไม่มีหน้าใดตรงกับ {{path}} และไม่มีข้อมูลใดถูกแก้ไข ตรวจสอบลิงก์อีกครั้ง หรือค้นหาหน้าที่ต้องการ',
+  path: 'ที่อยู่ที่เปิด',
+  home: 'กลับหน้าแรก',
+  search: 'ค้นหาหน้าและสัญญาณ',
+},
+});

@@ -38,7 +38,8 @@ const en = {
   webhookDelete: 'Remove', deliveries: 'Recent deliveries',
   // ---- support sessions (tenant view)
   supportTitle: 'Support access', supportBody: 'Time-boxed, read-only sessions the WDS team has opened into this organization.',
-  supportNone: 'No support sessions.',
+  supportNone: 'No support session is open right now.',
+  supportNoneBody: 'Open one from a tenant’s page when a case needs a look at their line — every session is time-boxed and listed in that tenant’s audit log.',
   // ---- platform back-office
   platformTitle: 'Platform', platformLede: 'WDS staff tools — tenants, support access, announcements.',
   tenants: 'Tenants', health: 'Platform health', announcements: 'Announcements',
@@ -92,7 +93,8 @@ const th = {
   webhookAdd: 'เพิ่มปลายทาง', webhookNone: 'ยังไม่มีปลายทางเว็บฮุก',
   webhookDelete: 'นำออก', deliveries: 'การส่งล่าสุด',
   supportTitle: 'การเข้าถึงของฝ่ายสนับสนุน', supportBody: 'เซสชันแบบอ่านอย่างเดียวจำกัดเวลาที่ทีม WDS เปิดเข้าองค์กรนี้',
-  supportNone: 'ไม่มีเซสชันสนับสนุน',
+  supportNone: 'ยังไม่มีเซสชันสนับสนุนที่เปิดอยู่',
+  supportNoneBody: 'เปิดได้จากหน้าขององค์กรเมื่อต้องเข้าไปดูไลน์การผลิต โดยทุกเซสชันมีกำหนดเวลาและปรากฏในบันทึกการตรวจสอบขององค์กรนั้น',
   platformTitle: 'แพลตฟอร์ม', platformLede: 'เครื่องมือทีม WDS — ผู้เช่า การเข้าถึงสนับสนุน ประกาศ',
   tenants: 'ผู้เช่า', health: 'สุขภาพแพลตฟอร์ม', announcements: 'ประกาศ',
   supportSessions: 'เซสชันสนับสนุน', orgsTotal: 'องค์กร', orgsSuspended: 'ถูกระงับ', orgsDeleted: 'ถูกลบ',

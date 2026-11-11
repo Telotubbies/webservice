@@ -56,34 +56,38 @@ export const EventHistogram = memo(function EventHistogram({ events, from, to, p
           </button>
         )}
       </div>
-      <div className="flex h-16 items-end gap-px" role="group" aria-label={t('evx.histTitle')}>
-        {buckets.map((b) => {
-          const n = b.critical + b.warning + b.other;
-          const on = picked?.from === b.from;
-          const label = t('evx.histTip', { window: `${fmt(b.from)}–${fmt(b.to)}`, count: n });
-          return (
-            <button
-              key={b.from}
-              type="button"
-              title={label}
-              aria-label={label}
-              aria-pressed={on}
-              disabled={n === 0}
-              onClick={() => onPick(on ? null : b)}
-              className={`flex h-full min-w-0 flex-1 flex-col justify-end rounded-[1px] focus-visible:outline-2 focus-visible:outline-blue disabled:cursor-default ${on ? 'bg-info-soft outline outline-1 outline-blue' : 'hover:bg-subtle'}`}
-            >
-              {n === 0 ? (
-                <span className="block h-px w-full bg-line" />
-              ) : (
-                <>
-                  {b.critical > 0 && <span className="block w-full bg-[var(--color-danger-bright)]" style={{ height: `${(b.critical / max) * 100}%` }} />}
-                  {b.warning > 0 && <span className="block w-full bg-[var(--color-warn)]" style={{ height: `${(b.warning / max) * 100}%` }} />}
-                  {b.other > 0 && <span className="block w-full bg-[#b9c0cc]" style={{ height: `${(b.other / max) * 100}%` }} />}
-                </>
-              )}
-            </button>
-          );
-        })}
+      {/* 60 buckets keep their 44px touch target on phones, so the strip
+          scrolls sideways inside the card instead of widening the page */}
+      <div className="overflow-x-auto">
+        <div className="flex h-16 items-end gap-px" role="group" aria-label={t('evx.histTitle')}>
+          {buckets.map((b) => {
+            const n = b.critical + b.warning + b.other;
+            const on = picked?.from === b.from;
+            const label = t('evx.histTip', { window: `${fmt(b.from)}–${fmt(b.to)}`, count: n });
+            return (
+              <button
+                key={b.from}
+                type="button"
+                title={label}
+                aria-label={label}
+                aria-pressed={on}
+                disabled={n === 0}
+                onClick={() => onPick(on ? null : b)}
+                className={`flex h-full min-w-0 flex-1 flex-col justify-end rounded-[1px] focus-visible:outline-2 focus-visible:outline-blue disabled:cursor-default ${on ? 'bg-info-soft outline outline-1 outline-blue' : 'hover:bg-subtle'}`}
+              >
+                {n === 0 ? (
+                  <span className="block h-px w-full bg-line" />
+                ) : (
+                  <>
+                    {b.critical > 0 && <span className="block w-full bg-[var(--color-danger-bright)]" style={{ height: `${(b.critical / max) * 100}%` }} />}
+                    {b.warning > 0 && <span className="block w-full bg-[var(--color-warn)]" style={{ height: `${(b.warning / max) * 100}%` }} />}
+                    {b.other > 0 && <span className="block w-full bg-[#b9c0cc]" style={{ height: `${(b.other / max) * 100}%` }} />}
+                  </>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div className="mt-1 flex justify-between font-mono text-[10px] text-ink-46">
         <span>{fmt(from)}</span>

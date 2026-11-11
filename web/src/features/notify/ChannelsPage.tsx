@@ -83,7 +83,7 @@ export function ChannelsPage() {
       {!admin && <div className="px-4 pt-3"><Notice tone="info" icon="lock">{t('access.whyReadOnly', { role: t(`roles.${orgRole ?? 'none'}`, { defaultValue: orgRole ?? '' }) })}</Notice></div>}
       {err && <div className="px-4 pt-3"><Notice tone="error">{err}</Notice></div>}
       <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {admin && <ChannelForm orgId={orgId} teams={teams.data?.teams ?? []} onDone={refresh} />}
           <Card pad={false}>
             {channels.isError ? <ErrorState onRetry={() => void channels.refetch()} />
@@ -123,7 +123,7 @@ export function ChannelsPage() {
           </Card>
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card title={t('nc.deliveries')} pad={false}>
             {deliveries.isError ? <ErrorState onRetry={() => void deliveries.refetch()} />
               : (deliveries.data?.items ?? []).length === 0 ? <EmptyState title={t('nc.delEmpty')} compact />
