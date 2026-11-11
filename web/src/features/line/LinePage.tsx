@@ -1,163 +1,55 @@
-// Line view — ISA-101 unit display of sorting line 1: the side-elevation
-// schematic (Mimic) on the left, the selected equipment's faceplate on the
-// right — its live signals with quality and a short trend, its open alarms,
-// and for the drive motor the gated start / stop / speed controls.
+// Line control (console v6, D2): an info banner that says this is not a
+// safety system, a toolbar of actions that exist, the selected equipment's
+// inspector with its readout, the equipment grid with grouped live value and
+// limits, the Commands / Message log / Schematic tabs, and the Log / Events
+// dock. Nothing here sends a command except through the audited sheet.
 
 import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { live, STALE_MS } from '../../lib/live';
+import { useQueryClient } from '@tanstack/react-query';
+import { api } from '../../lib/api';
+import { getScope } from '../../lib/scope';
+import { live } from '../../lib/live';
 import { useNow, useStore } from '../../lib/hooks';
-import { LINE_EQUIPMENT as EQUIPMENT, SIGNALS, T, formatSignal, unitOf, type LineEquipmentId as EquipmentId } from '../../lib/plant';
+import { LINE_EQUIPMENT as EQUIPMENT, T, type LineEquipmentId } from '../../lib/plant';
 import { fmtAge } from '../../lib/format';
 import { useControlGate, gateReasonKey } from '../../app/session';
-import { CommandSheet, type Pending } from './CommandSheet';
-import { QualityMark, SeverityBadge, AlarmStateBadge } from '../../shared/ui/Status';
 import { PageBar, Card } from '../../shared/ui/Page';
-import { Icon } from '../../shared/ui/Icon';
 import { ErrorState, PageSkeleton } from '../../shared/ui/Feedback';
+import { DdIcon } from '../../shared/ui/DdIcon';
+import { InfoBanner, Toolbar, ToolGroup, ToolButton, SectionTag, ConnPill, BottomDock } from '../../shared/ui/ConsoleKit';
 import { LineStatusBar } from '../../shared/ui/LineStatusBar';
-import { Sparkline } from '../../shared/ui/Sparkline';
-import { useAlarms } from '../alarms/alarms';
-import { Mimic, ISA_TAG, useLimits } from './Mimic';
 import { EquipmentPicker } from '../../shared/ui/EquipmentPicker';
+import { useAlarms } from '../alarms/alarms';
 import { useSceneSource } from '../line3d/useSceneSource';
 import { PartPanel } from '../line3d/PartPanel';
+import { Mimic, useLimits } from './Mimic';
 import { SideView, SideList, SideLegend } from './SideView';
+import { Inspector } from './Inspector';
+import { EquipmentGrid } from './EquipmentGrid';
+import { CommandsTab } from './CommandsTab';
+import { MessageLog, LineLog, EventLog } from './MessageLog';
+import { buildRows, connOf, matches, COMMAND_KINDS, type LogLevel } from './lineModel';
+import './i18n';
 
-const SP_MIN = 0;
-const SP_MAX = 60;
+const PRIMARY: Record<string, string> = { motor: T.speedSp, conveyor: T.beltSpeed, camera: T.gravel, bin: T.binLevel };
+const LINE_TAGS = EQUIPMENT.flatMap((e) => e.signals);
 
-/** Gated write controls (start / stop / speed setpoint). Each action opens the
- *  control sheet (expected result, checks, reason, test, send). When the role
- *  or link can't operate, the whole card collapses to a reason note. */
-function Controls() {
-  const { t, i18n } = useTranslation();
-  const gate = useControlGate();
-  const [sp, setSp] = useState('40');
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [spError, setSpError] = useState('');
-  useStore(() => live.version);
-  const currentSp = live.latest.get(T.speedSp);
-
-  if (!gate.allowed) {
-    return (
-      <div className="flex items-center gap-2 rounded border border-line bg-subtle px-3 py-2 text-[12px] text-ink-68">
-        <Icon name="lock" size={14} />
-        {t(gate.reason ? gateReasonKey(gate.reason) : 'control.unavailable')}
-      </div>
-    );
-  }
-
-  if (pending) {
-    return <CommandSheet key={`${pending.tag}-${String(pending.value)}`} pending={pending} onClose={() => setPending(null)} />;
-  }
-
+/** The original ISA-101 side elevation, kept as its own tab. */
+function SchematicPanel({ sel, onSelect }: { sel: string | null; onSelect: (id: string) => void }) {
+  const { t } = useTranslation();
   return (
-    <div className="line-controls flex flex-col gap-4">
-      <div className="flex gap-4">
-        <button className="btn min-h-12 flex-1 justify-center" onClick={() => setPending({ tag: T.running, value: true, kind: 'start' })}>
-          <Icon name="play" size={14} /> {t('control.start')}
-        </button>
-        <button className="btn btn-danger min-h-12 flex-1 justify-center" onClick={() => setPending({ tag: T.running, value: false, kind: 'stop' })}>
-          <Icon name="stop" size={14} /> {t('control.stop')}
-        </button>
+    <>
+      <div className="overflow-x-auto p-2" tabIndex={0} role="region" aria-label={t('line.schematic')}>
+        <Mimic sel={sel as LineEquipmentId | null} onSelect={onSelect} />
       </div>
-      <form
-        className="flex gap-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          // Number('') === 0, so blank input must be rejected explicitly.
-          const v = sp.trim() === '' ? NaN : Number(sp);
-          if (!Number.isFinite(v) || v < SP_MIN || v > SP_MAX) {
-            setSpError(t('control.outOfRange', { min: SP_MIN, max: SP_MAX }));
-            return;
-          }
-          setSpError('');
-          setPending({ tag: T.speedSp, value: v, kind: 'setpoint' });
-        }}
-      >
-        <input
-          className="input num min-h-12 min-w-0 flex-1" value={sp} onChange={(e) => { setSp(e.target.value); setSpError(''); }}
-          aria-invalid={spError !== ''}
-          aria-label={t('control.newValue')} inputMode="decimal"
-        />
-        <button className="btn btn-ghost min-h-12" type="submit">{t('control.apply')}</button>
-      </form>
-      <p className="text-[12px] text-ink-46">
-        {t('control.range', { min: SP_MIN, max: SP_MAX, unit: 'Hz' })}
-        {currentSp && ` · ${t('line.nowHz', { v: formatSignal(T.speedSp, currentSp.v, i18n.language) })}`}
-      </p>
-      {spError && <p className="notice notice-error" role="alert">{spError}</p>}
-    </div>
+      <p className="border-t border-line px-3 py-2 text-[13px] text-ink-46">{t('line.legend')}</p>
+    </>
   );
 }
 
-/** Faceplate of the selected equipment: signals (value, quality, trend
- *  against the alarm limit), the equipment's open alarms, and — on the drive
- *  motor — the line controls. */
-function Faceplate({ id, onSelect }: { id: EquipmentId; onSelect: (id: EquipmentId) => void }) {
-  const { t, i18n } = useTranslation();
-  const now = useNow();
-  useStore(() => live.version);
-  const { open } = useAlarms();
-  const limits = useLimits();
-  const eq = EQUIPMENT.find((e) => e.id === id)!;
-  const alarms = open.filter((a) => eq.signals.includes(a.tag));
-  return (
-    <Card title={`${ISA_TAG[id]} · ${t(eq.labelKey)}`}>
-      <dl className="flex flex-col divide-y divide-line">
-        {eq.signals.map((tag) => {
-          const tv = live.latest.get(tag);
-          const stale = !tv || now - Date.parse(tv.ts) > STALE_MS;
-          const numeric = tv != null && typeof tv.v === 'number' && tag !== T.speedSp;
-          const limit = limits.get(tag)?.[0]?.threshold ?? undefined;
-          return (
-            <div key={tag} className="py-2 first:pt-0">
-              <div className="flex items-baseline justify-between gap-2">
-                <dt className="truncate text-[12px] text-ink-68">{SIGNALS[tag] ? t(SIGNALS[tag].labelKey) : tag}</dt>
-                <dd className="flex items-center gap-1.5 font-mono text-[18px] font-semibold tabular-nums">
-                  {tv && !stale ? formatSignal(tag, tv.v, i18n.language) : '—'}
-                  {unitOf(tag) && <span className="font-sans text-[11px] font-normal text-ink-46">{unitOf(tag)}</span>}
-                  <QualityMark q={tv?.q} stale={stale} />
-                </dd>
-              </div>
-              {numeric && <div className="mt-1"><Sparkline tag={tag} limit={limit ?? undefined} /></div>}
-            </div>
-          );
-        })}
-      </dl>
-      <h3 className="mb-1.5 mt-3 text-[12px] font-semibold text-ink-68">{t('line.alarmsHere')}</h3>
-      {alarms.length === 0 ? (
-        <p className="text-[12px] text-ink-46">{t('line.noAlarmsHere')}</p>
-      ) : (
-        <ul className="flex flex-col gap-1.5">
-          {alarms.map((a) => (
-            <li key={a.id}>
-              <Link to={`/alarms?alarm=${encodeURIComponent(String(a.id))}`} className="flex flex-wrap items-center gap-2 rounded border border-line px-2 py-1.5 text-[12px] hover:border-line-hard focus-visible:outline-2 focus-visible:outline-blue">
-                <SeverityBadge severity={a.severity} />
-                <span className="min-w-0 flex-1 truncate font-medium">{a.rule}</span>
-                <AlarmStateBadge state={a.state} ackedBy={a.acked_by} />
-                <span className="text-ink-46">{fmtAge(a.ts, now)}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="mt-3 border-t border-line pt-3">
-        <h3 className="mb-2 text-[12px] font-semibold text-ink-68">{t('line.controls')}</h3>
-        {id === 'motor' ? <Controls /> : (
-          <button type="button" className="btn btn-ghost" onClick={() => onSelect('motor')}>
-            {t('line.controlsOnMotor', { tag: ISA_TAG.motor })}
-          </button>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-/** Side view: the plant's parts as a process-flow elevation, with the same
- *  part panel as the Plant twin underneath. */
+/** Side view: the plant's parts as a process-flow elevation. */
 function SideViewCard() {
   const { t } = useTranslation();
   const src = useSceneSource();
@@ -167,21 +59,20 @@ function SideViewCard() {
     <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 min-[1700px]:grid-cols-[minmax(0,1fr)_340px]">
       <Card title={t('side.title')} pad={false} actions={<SideLegend />}>
         {src.status !== 'ready' ? (
-          <p className="p-4 text-[12px] text-ink-46" role="status">{t('side.loading')}</p>
+          <p className="p-4 text-[13px] text-ink-46" role="status">{t('side.loading')}</p>
         ) : (
           <>
             <div className="relative">
               <SideView parts={src.parts} sel={sel} onSelect={setSel} />
-              <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-paper to-transparent md:hidden" />
             </div>
-            <p className="px-3 pb-1 pt-2 text-[11px] text-ink-46 md:hidden">{t('side.scroll')}</p>
-            <p className="border-t border-line px-3 py-2 text-[11px] text-ink-46">{t('side.hint')}</p>
+            <p className="px-3 pb-1 pt-2 text-[12px] text-ink-46 md:hidden">{t('side.scroll')}</p>
+            <p className="border-t border-line px-3 py-2 text-[12px] text-ink-46">{t('side.hint')}</p>
             <div className="border-t border-line p-3 md:hidden"><SideList parts={src.parts} sel={sel} onSelect={setSel} /></div>
           </>
         )}
       </Card>
       <Card title={part ? part.label : t('faceplate.title')}>
-        {part ? <PartPanel part={part} kind={src.kinds[part.kind]} /> : <p className="text-[12px] text-ink-46">{t('side.empty')}</p>}
+        {part ? <PartPanel part={part} kind={src.kinds[part.kind]} /> : <p className="text-[13px] text-ink-46">{t('side.empty')}</p>}
       </Card>
     </div>
   );
@@ -190,50 +81,189 @@ function SideViewCard() {
 export function LinePage() {
   const { t } = useTranslation();
   const now = useNow();
-  const [sel, setSel] = useState<EquipmentId>('motor');
+  const [sel, setSel] = useState<string>('motor');
+  const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<'commands' | 'messages' | 'schematic'>('commands');
+  const [dockTab, setDockTab] = useState('log');
+  const [dockClosed, setDockClosed] = useState(false);
+  const [level, setLevel] = useState<LogLevel>('info');
   const [params, setParams] = useSearchParams();
   const side = params.get('view') === 'side';
+  const [refreshing, setRefreshing] = useState(false);
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const gate = useControlGate();
   useStore(() => live.version);
-  const seeded = useStore(() => live.tagRev);
-  const seedError = useStore(() => live.seedRev);
+  useStore(() => live.cmdRev);
+  // cold start: a revision counter also moves on reset, so gate on the flags
+  const seeded = useStore(() => live.tagsSeeded);
+  const seedError = useStore(() => live.seedError);
+  const rules = useLimits();
+  const { open: openAlarms } = useAlarms();
 
-  if (seedError && !live.tagsSeeded) {
+  if (seedError && !seeded) {
     return <><PageBar title={t('line.title')} /><ErrorState onRetry={() => window.location.reload()} /></>;
   }
-  if (!live.tagsSeeded && !seeded) {
+  if (!seeded) {
     return <><PageBar title={t('line.title')} /><PageSkeleton /></>;
   }
 
-  const runTs = live.latest.get(T.running)?.ts;
+  const runV = live.latest.get(T.running)?.v;
+  const running = runV === true || runV === 1;
+  const rows = buildRows({
+    equipment: EQUIPMENT,
+    primary: PRIMARY,
+    now,
+    latest: live.latest,
+    commands: live.commands.values(),
+    rules: [...rules.values()].flat(),
+    alarms: openAlarms,
+    running,
+    kinds: COMMAND_KINDS,
+    runTag: T.running,
+  });
+  const visible = rows.filter((r) => matches([t(r.labelKey), r.tag], search));
+  const selected = rows.find((r) => r.id === sel) ?? rows[0];
+  const newest = LINE_TAGS.map((tag) => live.latest.get(tag)?.ts).filter(Boolean).sort().pop();
+  const conn = connOf(live.ws, newest, now);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await qc.invalidateQueries({ queryKey: ['tags', getScope()?.siteId ?? 'none'] });
+      await qc.invalidateQueries({ queryKey: ['alarm-rules'] });
+      const cmds = await api.listCommands(20);
+      cmds.forEach((c) => live.mergeCommand(c));
+    } catch { /* the strip already shows a dead feed */ } finally { setRefreshing(false); }
+  };
+
+  const focusCommand = () => {
+    setSide(false);
+    setSel('motor');
+    // the motor's field mounts only after the selection and the view change
+    // commit; the router navigation can land a frame later, so retry briefly
+    const tryFocus = (left = 20) => {
+      const el = document.getElementById('line-setpoint');
+      if (el) el.focus();
+      else if (left > 0) requestAnimationFrame(() => tryFocus(left - 1));
+    };
+    requestAnimationFrame(() => tryFocus());
+  };
+  const setSide = (on: boolean) => setParams(on ? { view: 'side' } : {}, { replace: true });
 
   return (
     <>
       <PageBar title={t('line.title')} lede={t('line.lede')} actions={<EquipmentPicker />} />
       <div className="flex flex-col gap-3 p-4">
+        <InfoBanner>{t('d2.info')}</InfoBanner>
         <LineStatusBar />
-        <div className="flex overflow-hidden self-start rounded border border-line" role="group" aria-label={t('side.view')}>
-          {[false, true].map((v) => (
-            <button key={String(v)} type="button" aria-pressed={side === v}
-              onClick={() => setParams(v ? { view: 'side' } : {}, { replace: true })}
-              className={`h-8 px-3 text-[12px] font-semibold ${side === v ? 'bg-info-soft text-blue' : 'text-ink-68 hover:bg-subtle'}`}>
-              {v ? t('side.tab') : t('side.schematic')}
-            </button>
-          ))}
-        </div>
+        <Toolbar
+          label={t('d2.toolbar')}
+          trailing={
+            <ConnPill
+              state={conn.state}
+              stateLabel={conn.state === 'offline' ? t('d2.feedDown') : conn.state === 'stale' ? t('d2.notCurrent') : t('shell.live')}
+              detailLabel={conn.ageMs == null ? '—' : t(conn.state === 'live' ? 'd2.receiving' : 'd2.lastValue', { age: fmtAge(newest, now) })}
+            />
+          }
+        >
+          <ToolGroup label={t('d2.tools')}>
+            <ToolButton icon="refresh" label={refreshing ? t('common.loading') : t('d2.refresh')} onClick={() => void refresh()} />
+            <ToolButton
+              icon="play"
+              label={t('d2.command')}
+              onClick={focusCommand}
+              disabled={!gate.allowed}
+              disabledReason={t(gate.reason ? gateReasonKey(gate.reason) : 'control.unavailable')}
+            />
+            <ToolButton icon="bell" label={t('d2.alarms')} onClick={() => navigate('/alarms')} />
+          </ToolGroup>
+          <ToolGroup label={t('d2.views')}>
+            <ToolButton icon="line" label={t('d2.schematic')} active={!side} onClick={() => setSide(false)} />
+            <ToolButton icon="queue" label={t('d2.side')} active={side} onClick={() => setSide(true)} />
+          </ToolGroup>
+        </Toolbar>
+
         {side ? <SideViewCard /> : (
-        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <Card title={t('line.schematic')} pad={false}
-            actions={<span className="text-[11px] text-ink-46">{t('line.selectHint')}{runTs && ` · ${t('state.updated', { age: fmtAge(runTs, now) })}`}</span>}>
-            <div className="relative">
-              <div className="overflow-x-auto p-2" tabIndex={0} role="region" aria-label={t('line.schematic')}><Mimic sel={sel} onSelect={setSel} /></div>
-              <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-paper to-transparent md:hidden" />
+          <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-[300px_minmax(0,1fr)]">
+            <Inspector id={selected.id} row={selected} onSelect={setSel} />
+
+            <div className="flex min-w-0 flex-col gap-3">
+              <section className="min-w-0 rounded-[5px] border border-line bg-paper">
+                <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+                  <SectionTag>{t('d2.equipment', { n: rows.length })}</SectionTag>
+                  <span className="text-[12px] text-ink-46">{t('line.schematic')}</span>
+                  <label className="ml-auto flex items-center gap-1.5 text-[12px] text-ink-46">
+                    <DdIcon name="search" size={13} />
+                    <input
+                      className="input h-7 w-44 max-w-full"
+                      type="search"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder={t('d2.filter')}
+                      aria-label={t('d2.filter')}
+                    />
+                  </label>
+                </div>
+                <EquipmentGrid
+                  rows={visible}
+                  selectedId={selected.id}
+                  onSelect={(r) => setSel(r.id)}
+                  onOpen={(r) => { setSel(r.id); document.getElementById('line-inspector')?.focus(); }}
+                  // a tap must not scroll the card list away; the inspector is
+                  // above it on a phone, and the next card is what the operator wants
+                  onCardOpen={(r) => { setSel(r.id); document.getElementById('line-inspector')?.focus({ preventScroll: true }); }}
+                  emptyLabel={t('d2.filterEmpty')}
+                />
+              </section>
+
+              <section className="min-w-0 rounded-[5px] border border-line bg-paper">
+                <div role="tablist" aria-label={t('d2.commands')} className="flex gap-1 overflow-x-auto border-b border-line px-2">
+                  {([['commands', t('d2.commands')], ['messages', t('d2.messageLog')], ['schematic', t('d2.schematic')]] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={tab === id}
+                      onClick={() => setTab(id)}
+                      className={`h-9 shrink-0 border-b-2 px-3 text-[13px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue ${
+                        tab === id ? 'border-blue font-semibold text-ink' : 'border-transparent text-ink-68 hover:text-blue'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="min-h-36 min-w-0">
+                  {tab === 'commands' ? <CommandsTab /> : tab === 'messages' ? <MessageLog /> : <SchematicPanel sel={sel} onSelect={setSel} />}
+                </div>
+              </section>
             </div>
-            <p className="px-3 pb-1 text-[11px] text-ink-46 md:hidden">{t('line.scrollHint')}</p>
-            <p className="border-t border-line px-3 py-2 text-[11px] text-ink-46">{t('line.legend')}</p>
-          </Card>
-          <Faceplate id={sel} onSelect={setSel} />
-        </div>
+          </div>
         )}
+
+        <BottomDock
+          label={t('d2.log')}
+          tabs={[{ id: 'log', label: t('d2.log') }, { id: 'events', label: t('d2.events') }]}
+          active={dockTab}
+          onTab={setDockTab}
+          collapsed={dockClosed}
+          onToggle={() => setDockClosed((v) => !v)}
+          toggleLabel={t('d2.dockToggle')}
+          height={150}
+        >
+          <div className="mb-1 flex justify-end">
+            <label className="flex items-center gap-1.5 text-[13px] text-ink-68">
+              {t('d2.level')}
+              <select className="input h-7 text-[13px]" value={level} onChange={(e) => setLevel(e.target.value as LogLevel)}>
+                <option value="info">{t('d2.levelInfo')}</option>
+                <option value="warning">{t('d2.levelWarning')}</option>
+                <option value="error">{t('d2.levelError')}</option>
+              </select>
+            </label>
+          </div>
+          {dockTab === 'log' ? <LineLog level={level} /> : <EventLog />}
+        </BottomDock>
       </div>
     </>
   );

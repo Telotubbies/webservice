@@ -74,6 +74,8 @@ export interface Command {
   value?: number | boolean;
   status: CommandStatus | string;
   detail?: string;
+  /** the operator's reason, stored with the command (v1 /api/commands) */
+  note?: string | null;
   created_at?: string;
   updated_at?: string;
   user?: string;

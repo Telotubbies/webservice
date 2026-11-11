@@ -10,6 +10,8 @@ export interface ReadoutProps {
   /** panel title, e.g. "POSITION" */
   label: string;
   value: number;
+  /** replaces the formatted number when there is nothing to show, e.g. "—" */
+  valueText?: string;
   unit?: string;
   decimals?: number;
   /** three secondary fields: motor temp, state, updated */
@@ -30,7 +32,7 @@ const pct = (v: number, min: number, max: number) =>
   max === min ? 0 : Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
 
 export function Readout({
-  label, value, unit, decimals = 1, dims = [], min, max, limits, loText, hiText,
+  label, value, valueText, unit, decimals = 1, dims = [], min, max, limits, loText, hiText,
   state = 'live', stateLabel, className = '',
 }: ReadoutProps) {
   const p = pct(value, min, max);
@@ -56,7 +58,7 @@ export function Readout({
       </header>
 
       <p className="mt-1 font-mono text-[30px] leading-none tracking-tight">
-        {value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
+        {valueText ?? value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
         {unit && <span className="ml-1 text-[14px] font-normal text-[var(--color-readout-dim)]">{unit}</span>}
       </p>
 
