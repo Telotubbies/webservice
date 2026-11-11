@@ -12,6 +12,7 @@ import { useStore } from './lib/hooks';
 import { startWS, stopWS } from './lib/ws';
 import { canOperate, getSessionRole, hasToken, refreshSession, useDenied, useNoOrg } from './app/session';
 import { CreateOrgPage } from './features/orgs/CreateOrgPage';
+import { NotFoundPage } from './features/misc/NotFoundPage';
 import { getScope } from './lib/scope';
 import { initAuth, restoreSession, completeRedirectCallback, isCallbackPath, authConfig, takeReturnTo } from './features/auth/oidc';
 import { signIn } from './app/session';
@@ -376,7 +377,7 @@ export default function App() {
             <Route path="platform/orgs/:id" element={page(PlatformOrgPage)} />
             <Route path="platform/support" element={page(PlatformSupportPage)} />
             <Route path="platform/announcements" element={page(PlatformAnnouncementsPage)} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={page(NotFoundPage)} />
           </Route>
         </Routes>
       </BrowserRouter>
