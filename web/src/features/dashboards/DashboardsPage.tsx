@@ -6,7 +6,7 @@ import { Panel } from '../../viz/Panel';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import ReactGridLayout, { useContainerWidth, verticalCompactor, type Layout } from 'react-grid-layout';
+import ReactGridLayout, { verticalCompactor, type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import { Check, Copy, FastForward, FileText, GripVertical, Layers, LayoutDashboard, Pencil, Pause, Play, Plus, Rewind, RotateCcw, Search, Share2, Star, Trash2, X } from 'lucide-react';
 import { EmptyState, Notice } from '../../shared/ui/Feedback';
@@ -266,6 +266,27 @@ const RANGES: RangeKey[] = ['15m', '1h', '4h', '24h'];
 const ROW_H = 50;
 const UNIT = 2;
 
+/** Width of the board's box, measured here instead of through the library's
+ *  `useContainerWidth`: that hook starts at a 1280 px default and sticks there
+ *  when the box is already narrow (a phone, or a rotation straight after load),
+ *  which painted the board 1280 px wide on a 390 px screen. The ref is a
+ *  callback, so it measures when the board mounts — after the board data
+ *  arrives, not on the page's first (loading) render. 0 = not measured yet, so
+ *  the grid never renders at a guessed width. */
+function useBoardWidth() {
+  const [width, setWidth] = useState(0);
+  const ro = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((node: HTMLDivElement | null) => {
+    ro.current?.disconnect();
+    if (!node) return;
+    const read = () => setWidth(Math.round(node.getBoundingClientRect().width));
+    read();
+    ro.current = new ResizeObserver(read);
+    ro.current.observe(node);
+  }, []);
+  return { ref, width };
+}
+
 /** Route `/dashboards/:id`: one board on a drag/resize grid, with pause/rewind
  *  time controls, template variables, and edit mode for writers. */
 export function DashboardViewPage() {
@@ -278,7 +299,7 @@ export function DashboardViewPage() {
   const [editing, setEditing] = useState<Widget | null>(null);
   const [full, setFull] = useState<Widget | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { width, containerRef, mounted } = useContainerWidth();
+  const { ref: boardRef, width } = useBoardWidth();
   // board state: paused window end (null = live tail), overlay strip toggle,
   // and template-variable selections ($line / $equipment …, '*' = All)
   const now = useNow();
@@ -439,12 +460,15 @@ export function DashboardViewPage() {
       {editable && <div className="px-4 pt-2"><Notice>{t('dash.editHint')}</Notice></div>}
       {saveFailed && <div className="px-4 pt-2"><Notice tone="warn">{t('dash.saveFailed')}</Notice></div>}
 
-      <div ref={containerRef} className="px-2 pb-6">
+      <div className="px-2 pb-6">
         {dash.widgets.length === 0 && (
           <EmptyState title={t('dash.emptyBoard')} body={t('dash.emptyBoardBody')}
             action={canWrite ? <button type="button" className="btn btn-sm" onClick={() => { setEdit(true); setEditing(makeWidget('timeseries')); }}><Plus size={14} aria-hidden /> {t('dash.addWidget')}</button> : undefined} />
         )}
-        {mounted && dash.widgets.length > 0 && (
+        {/* the measuring box: padding lives outside it, so its width is the
+            grid's content width */}
+        <div ref={boardRef}>
+        {width > 0 && dash.widgets.length > 0 && (
           <BoardCtx.Provider value={{ endMs, overlays, vars, varDefs: dash.vars ?? [] }}>
           <ReactGridLayout
             width={width} layout={layout} compactor={verticalCompactor}
@@ -499,6 +523,7 @@ export function DashboardViewPage() {
           </ReactGridLayout>
           </BoardCtx.Provider>
         )}
+        </div>
       </div>
 
       {full && <FullWidget w={full} range={dash.range} onClose={() => setFull(null)} />}
