@@ -256,8 +256,18 @@ def mobile(page, web):
           page.locator("#line-inspector").bounding_box()["y"] < page.locator("[data-row-card=motor]").bounding_box()["y"])
     check("mobile: the grid is shown as cards",
           page.locator("[data-row-card]").count() == 4 and not page.locator("[role=grid]").is_visible())
-    check("mobile: the toolbar scrolls sideways",
-          page.evaluate("(() => { const el = document.querySelector('[role=toolbar] > div'); return el.scrollWidth > el.clientWidth; })()"))
+    # D1 stacks the connection pill below 480 (272a1d2), so at 390 the strip keeps
+    # the whole width and the five tools fit without sideways scrolling. A strip
+    # squeezed by an inline pill scrolls instead (the pre-D1 layout), which hides
+    # a tool behind a swipe: this check fails on that layout.
+    check("mobile: the five tools fit the toolbar at 390, nothing to swipe",
+          page.evaluate("""(() => {
+            const strip = document.querySelector('[role=toolbar] > div');
+            if (!strip) return false;
+            const tools = [...strip.querySelectorAll('[data-tool]')];
+            return strip.clientWidth > 0 && tools.length === 5
+              && strip.scrollWidth <= strip.clientWidth + 1;
+          })()"""))
     page.locator("[data-row-card=conveyor]").click()
     page.wait_for_timeout(300)
     check("mobile: choosing a card moves the readout",
