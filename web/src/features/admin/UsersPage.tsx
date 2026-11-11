@@ -127,8 +127,9 @@ export function UsersPage() {
               ) : memberItems.length === 0 ? (
                 <EmptyState title={t('admin.noMembers')} />
               ) : (
-                /* relative: the sr-only actions header must not widen the page */
-                <div className="admin-table relative overflow-x-auto">
+                /* relative on Table's own box (not this wrapper): the sr-only actions
+                   header must not widen the page nor the wrapper's own scroll range */
+                <div className="admin-table overflow-x-auto [&>div]:relative">
                   <Table head={[t('admin.colUser'), t('admin.colRole'), t('admin.colStatus'), <span key="a" className="sr-only">{t('access.colActions')}</span>]}>
                     {memberItems.map((m) => {
                       const why = lockReason(m);
@@ -269,7 +270,7 @@ export function UsersPage() {
             ) : pending.length === 0 ? (
               <EmptyState title={t('admin.noInvites')} />
             ) : (
-              <div className="admin-table relative overflow-x-auto">
+              <div className="admin-table overflow-x-auto [&>div]:relative">
                 <Table head={[t('admin.colEmail'), t('admin.colRole'), t('admin.colExpires'), <span key="a" className="sr-only">{t('access.colActions')}</span>]}>
                   {pending.map((i) => {
                     const expired = Date.parse(i.expires_at) < now;

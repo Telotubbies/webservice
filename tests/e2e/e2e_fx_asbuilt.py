@@ -41,6 +41,12 @@ NO_SILENT_TABLE = """() => [...document.querySelectorAll('main table')]
 
 WIDTH = "() => ({sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth})"
 
+# The page-level number is not enough: `relative` on a scroll wrapper makes the
+# wrapper the containing block of the sr-only cell, so the cell joins the wrapper's
+# own scroll range and the table can be scrolled right out of its card.
+WRAPPER = """() => [...document.querySelectorAll('main .admin-table')]
+  .map((e) => ({sw: e.scrollWidth, cw: e.clientWidth}))"""
+
 
 def shot(pg, name):
     SHOTS.mkdir(parents=True, exist_ok=True)
@@ -76,6 +82,17 @@ def run(b, web):
         w = pg.evaluate(WIDTH)
         check(f"fx: {route} fits 1440", w["sw"] <= 1440, str(w))
         shot(pg, f"{name}-1440")
+
+    # 1b. and the wrapper is not a second scroller of its own (the page can fit and
+    #     the card still be scrollable away): measured on the tables that carry sr-only.
+    for route in ("/setup/rules", "/admin/keys", "/admin/users"):
+        c.nav(pg, route, 2500)
+        pg.set_viewport_size(c.MOB)
+        pg.wait_for_timeout(700)
+        boxes = pg.evaluate(WRAPPER)
+        check(f"fx: {route} table wrapper has no scroll range of its own",
+              len(boxes) > 0 and all(b["sw"] == b["cw"] for b in boxes), str(boxes))
+        pg.set_viewport_size(c.DESK)
 
     # 2. no empty table without a sentence, and /platform/support in particular
     for route in EMPTY_OK:
